@@ -127,7 +127,10 @@ fun AppRoot(
 
                 AppTab.Offline -> OfflineScreen()
 
-                AppTab.Browse -> BrowseScreen(onOpenSeries = openSeries)
+                AppTab.Browse -> BrowseScreen(
+                    onOpenSeries = openSeries,
+                    onOpenBook = openBook,
+                )
             }
         }
 

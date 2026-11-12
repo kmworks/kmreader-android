@@ -72,6 +72,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleListDetailData
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
@@ -128,8 +129,10 @@ internal fun BookDetailBody(
     viewModel: BookDetailViewModel = hiltViewModel(),
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var addToReadListOpen by remember { mutableStateOf(false) }
     // real data: resolve DTO id from registry, fetch book; fall back to sample data
     val state by viewModel.uiState.collectAsState()
+    val readLists by viewModel.readLists.collectAsState()
     LaunchedEffect(book.id) { viewModel.load(book.id) }
     val baseBook = state.book ?: book
     // design mock: mark-read / download toggle locally for instant feedback
@@ -243,14 +246,21 @@ internal fun BookDetailBody(
                             showNumber = seriesTitle != null,
                             onRead = onRead,
                             onMarkReadToggle = {
-                                progressToggled = !progressToggled
+                                // 真实数据走 API 并在 VM 内更新；演示数据本地翻转
+                                if (!viewModel.setRead(displayed.progress != 1f)) {
+                                    progressToggled = !progressToggled
+                                }
                                 onMarkReadToggle(displayed)
                             },
                             onDownloadToggle = {
                                 downloaded = !downloaded
                                 onDownload(displayed)
                             },
-                            onAddToReadList = { onAddToReadList(displayed) },
+                            onAddToReadList = {
+                                viewModel.ensureReadListsLoaded()
+                                addToReadListOpen = true
+                                onAddToReadList(displayed)
+                            },
                         )
                         DetailTimestamps()
                     }
@@ -286,20 +296,39 @@ internal fun BookDetailBody(
                         showNumber = seriesTitle != null,
                         onRead = onRead,
                         onMarkReadToggle = {
-                            progressToggled = !progressToggled
+                            if (!viewModel.setRead(displayed.progress != 1f)) {
+                                progressToggled = !progressToggled
+                            }
                             onMarkReadToggle(displayed)
                         },
                         onDownloadToggle = {
                             downloaded = !downloaded
                             onDownload(displayed)
                         },
-                        onAddToReadList = { onAddToReadList(displayed) },
+                        onAddToReadList = {
+                            viewModel.ensureReadListsLoaded()
+                            addToReadListOpen = true
+                            onAddToReadList(displayed)
+                        },
                     )
                     DetailTimestamps()
                     BookSecondaryContent(displayed, meta)
                 }
             }
         }
+    }
+
+    // 「加入阅读列表」选择器：真实列表数据，选择后调 API（无会话时为空）
+    if (addToReadListOpen) {
+        AddToListSheet(
+            collections = emptyList(),
+            readLists = readLists ?: emptyList(),
+            onSelect = { entry ->
+                viewModel.addToReadList(entry)
+                addToReadListOpen = false
+            },
+            onDismiss = { addToReadListOpen = false },
+        )
     }
 }
 

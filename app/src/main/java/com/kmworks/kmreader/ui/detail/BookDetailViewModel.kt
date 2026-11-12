@@ -2,12 +2,16 @@ package com.kmworks.kmreader.ui.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toCreator
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
+import com.kmworks.kmreader.data.SampleData.ListEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Locale
 import javax.inject.Inject
@@ -32,10 +36,15 @@ data class BookDetailUiState(
 class BookDetailViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
+    private val actionRepository: ActionRepository,
+    private val listRepository: ListRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BookDetailUiState())
     val uiState: StateFlow<BookDetailUiState> = _uiState.asStateFlow()
+
+    private val _readLists = MutableStateFlow<List<ListEntry>?>(null)
+    val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
 
     private var loadedId: Int? = null
 
@@ -80,6 +89,47 @@ class BookDetailViewModel @Inject constructor(
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
             }
         }
+    }
+
+    /** 按需加载阅读列表（「加入阅读列表」选择器用）。 */
+    fun ensureReadListsLoaded() {
+        if (_readLists.value != null) return
+        viewModelScope.launch {
+            _readLists.value = listRepository.readLists().map { dto ->
+                ListEntry(
+                    id = dto.id.hashCode(),
+                    title = dto.name,
+                    count = dto.bookIds.size,
+                    hue = hueFor(dto.id),
+                    pinned = false,
+                )
+            }
+        }
+    }
+
+    /** 切换已读状态并即时更新本地数据；返回 false 表示无 DTO 映射（演示数据）。 */
+    fun setRead(read: Boolean): Boolean {
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) } ?: return false
+        viewModelScope.launch {
+            val ok = if (read) actionRepository.markBookRead(dtoId)
+            else actionRepository.markBookUnread(dtoId)
+            if (ok) {
+                _uiState.update {
+                    it.copy(book = it.book?.copy(progress = if (read) 1f else null))
+                }
+            }
+        }
+        return true
+    }
+
+    /** 把当前书籍加入阅读列表；返回 false 表示无 DTO 映射。 */
+    fun addToReadList(entry: ListEntry): Boolean {
+        val bookDtoId = loadedId?.let { detailRepository.bookDtoId(it) } ?: return false
+        val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return false
+        viewModelScope.launch {
+            actionRepository.addBookToReadList(readListDtoId, bookDtoId)
+        }
+        return true
     }
 }
 

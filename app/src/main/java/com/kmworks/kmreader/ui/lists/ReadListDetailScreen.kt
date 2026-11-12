@@ -61,8 +61,10 @@ import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
+import com.kmworks.kmreader.ui.components.bookContextMenuItems
 
 private val WideLayoutBreakpoint = 960.dp
 
@@ -97,8 +99,17 @@ fun ReadListDetailScreen(
     var removedIds by remember { mutableStateOf(setOf<Int>()) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
+    // per-book 「…」菜单与「加入阅读列表」sheet
+    var menuBook by remember { mutableStateOf<Book?>(null) }
+    var addTarget by remember { mutableStateOf<Book?>(null) }
+    var addToReadListOpen by remember { mutableStateOf(false) }
+    // 演示数据（无会话）下的本地即时反馈：标读/未读覆盖
+    var demoMarks by remember { mutableStateOf(mapOf<Int, Boolean>()) }
+    val readLists by viewModel.readLists.collectAsState()
 
-    val visible = sourceBooks.filter { it.id !in removedIds }
+    val visible = sourceBooks.filter { it.id !in removedIds }.map { b ->
+        demoMarks[b.id]?.let { r -> b.copy(progress = if (r) 1f else null) } ?: b
+    }
     val books = visible.filter { matchesReadStatus(it, options) }
     val continuation = visible.indexOfFirst { it.progress == null || it.progress < 1f }
         .let { if (it < 0) null else it }
@@ -216,8 +227,25 @@ fun ReadListDetailScreen(
                                 selected = if (selected.size == books.size) emptySet()
                                 else books.map { it.id }.toSet()
                             },
+                            onMarkRead = {
+                                // 真实数据走 API（VM 内更新）；演示数据本地反馈
+                                if (!viewModel.markBooksRead(selected, true)) {
+                                    demoMarks = demoMarks + selected.associateWith { true }
+                                }
+                                selected = emptySet()
+                                selecting = false
+                            },
+                            onMarkUnread = {
+                                if (!viewModel.markBooksRead(selected, false)) {
+                                    demoMarks = demoMarks + selected.associateWith { false }
+                                }
+                                selected = emptySet()
+                                selecting = false
+                            },
                             onRemoveSelected = {
-                                removedIds = removedIds + selected
+                                if (!viewModel.removeBooks(selected)) {
+                                    removedIds = removedIds + selected
+                                }
                                 onRemoveBooks(selected.toList())
                                 selected = emptySet()
                                 selecting = false
@@ -235,6 +263,7 @@ fun ReadListDetailScreen(
                             onToggleSelect = { id ->
                                 selected = if (id in selected) selected - id else selected + id
                             },
+                            onMenu = { menuBook = it },
                             thumbnails = state.thumbnails,
                         )
                     }
@@ -277,8 +306,24 @@ fun ReadListDetailScreen(
                             selected = if (selected.size == books.size) emptySet()
                             else books.map { it.id }.toSet()
                         },
+                        onMarkRead = {
+                            if (!viewModel.markBooksRead(selected, true)) {
+                                demoMarks = demoMarks + selected.associateWith { true }
+                            }
+                            selected = emptySet()
+                            selecting = false
+                        },
+                        onMarkUnread = {
+                            if (!viewModel.markBooksRead(selected, false)) {
+                                demoMarks = demoMarks + selected.associateWith { false }
+                            }
+                            selected = emptySet()
+                            selecting = false
+                        },
                         onRemoveSelected = {
-                            removedIds = removedIds + selected
+                            if (!viewModel.removeBooks(selected)) {
+                                removedIds = removedIds + selected
+                            }
                             onRemoveBooks(selected.toList())
                             selected = emptySet()
                             selecting = false
@@ -296,6 +341,7 @@ fun ReadListDetailScreen(
                         onToggleSelect = { id ->
                             selected = if (id in selected) selected - id else selected + id
                         },
+                        onMenu = { menuBook = it },
                         thumbnails = state.thumbnails,
                     )
                 }
@@ -309,6 +355,55 @@ fun ReadListDetailScreen(
             onOptionsChange = { options = it },
             onDismiss = { optionsOpen = false },
         )
+    }
+    // per-book 「…」菜单：标读/未读、加入阅读列表、从列表移除（对齐 BookContextMenu）
+    menuBook?.let { target ->
+        ContextMenuSheet(
+            items = bookContextMenuItems(
+                hasStarted = target.progress != null,
+                completed = target.progress == 1f,
+                downloaded = false,
+                onOpenSeries = { },
+                onMarkRead = {
+                    if (!viewModel.markBooksRead(setOf(target.id), true)) {
+                        demoMarks = demoMarks + (target.id to true)
+                    }
+                },
+                onMarkUnread = {
+                    if (!viewModel.markBooksRead(setOf(target.id), false)) {
+                        demoMarks = demoMarks + (target.id to false)
+                    }
+                },
+                onAddToReadList = {
+                    addTarget = target
+                    viewModel.ensureReadListsLoaded()
+                    addToReadListOpen = true
+                },
+                onDelete = {
+                    if (!viewModel.removeBooks(setOf(target.id))) {
+                        removedIds = removedIds + target.id
+                    }
+                },
+            ),
+            onDismiss = { menuBook = null },
+        )
+    }
+    if (addToReadListOpen) {
+        addTarget?.let { target ->
+            AddToListSheet(
+                collections = emptyList(),
+                readLists = readLists ?: emptyList(),
+                onSelect = { entry ->
+                    viewModel.addBookToReadList(entry, target.id)
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+            )
+        }
     }
     if (deleteConfirm) {
         ConfirmDeleteDialog(
@@ -449,6 +544,8 @@ private fun ReadListToolbar(
     onApplyPreset: (com.kmworks.kmreader.data.SavedFilter) -> Unit,
     onStartSelecting: () -> Unit,
     onSelectAll: () -> Unit,
+    onMarkRead: () -> Unit,
+    onMarkUnread: () -> Unit,
     onRemoveSelected: () -> Unit,
     onDoneSelecting: () -> Unit,
 ) {
@@ -457,8 +554,8 @@ private fun ReadListToolbar(
             selectedCount = selectedCount,
             totalCount = totalCount,
             onSelectAll = onSelectAll,
-            onMarkRead = {},
-            onMarkUnread = {},
+            onMarkRead = onMarkRead,
+            onMarkUnread = onMarkUnread,
             onDownload = {},
             onAddToReadList = {},
             onDelete = onRemoveSelected,
@@ -489,6 +586,7 @@ private fun ReadListBookList(
     selected: Set<Int>,
     onRead: (Book) -> Unit,
     onToggleSelect: (Int) -> Unit,
+    onMenu: (Book) -> Unit,
     thumbnails: Map<Int, String> = emptyMap(),
 ) {
     Column {
@@ -501,18 +599,20 @@ private fun ReadListBookList(
                 onClick = {
                     if (selecting) onToggleSelect(book.id) else onRead(book)
                 },
+                onMenu = if (selecting) null else ({ onMenu(book) }),
             )
         }
     }
 }
 
-/** 阅读列表书籍行：序号 + 封面 + 标题/页数/进度 + 已读标签。 */
+/** 阅读列表书籍行：序号 + 封面 + 标题/页数/进度 + 已读标签 + 「…」菜单。 */
 @Composable
 private fun ReadListBookRow(
     index: Int,
     book: Book,
     selected: Boolean?,
     imageUrl: String? = null,
+    onMenu: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -578,6 +678,11 @@ private fun ReadListBookRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 12.dp),
             )
+        }
+        if (onMenu != null) {
+            IconButton(onClick = onMenu) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+            }
         }
     }
 }

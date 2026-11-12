@@ -2,13 +2,18 @@ package com.kmworks.kmreader.ui.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.BookRepository
+import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.LibraryRepository
+import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
+import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,6 +34,8 @@ data class LibraryUiState(
     val books: List<Book>? = null,
     val thumbnails: Map<Int, String> = emptyMap(),
     val libraryCount: Int = 0,
+    val collections: List<ListEntry>? = null,
+    val readLists: List<ListEntry>? = null,
 )
 
 /** Real library content (paged series and book lists). */
@@ -37,6 +44,9 @@ class LibraryViewModel @Inject constructor(
     private val seriesRepository: SeriesRepository,
     private val bookRepository: BookRepository,
     private val libraryRepository: LibraryRepository,
+    private val actionRepository: ActionRepository,
+    private val listRepository: ListRepository,
+    private val detailRepository: DetailRepository,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -64,15 +74,104 @@ class LibraryViewModel @Inject constructor(
                 series.await() to books.await()
             }
             val libraryCount = libraryRepository.libraries().size
+            val (collectionDtos, readListDtos) = coroutineScope {
+                val c = async { listRepository.collections() }
+                val r = async { listRepository.readLists() }
+                c.await() to r.await()
+            }
             val series = seriesDtos.map { it.toUiSeries() }
             val books = bookDtos.map { it.toUiBook() }
             val thumbs = buildMap {
                 seriesDtos.forEach { seriesRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.hashCode(), url) } }
                 bookDtos.forEach { bookRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.hashCode(), url) } }
             }
-            _state.update { it.copy(loading = false, series = series, books = books, thumbnails = thumbs, libraryCount = libraryCount) }
+            val collections = collectionDtos.map { dto ->
+                ListEntry(dto.id.hashCode(), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
+            }
+            val readLists = readListDtos.map { dto ->
+                ListEntry(dto.id.hashCode(), dto.name, dto.bookIds.size, hueFor(dto.id), false)
+            }
+            _state.update {
+                it.copy(
+                    loading = false,
+                    series = series,
+                    books = books,
+                    thumbnails = thumbs,
+                    libraryCount = libraryCount,
+                    collections = collections,
+                    readLists = readLists,
+                )
+            }
         } catch (e: Exception) {
             _state.update { it.copy(loading = false, error = e.message ?: "加载失败", series = null, books = null) }
+        }
+    }
+
+    /** 标记系列已读/未读并即时更新本地状态；无 DTO 映射时静默忽略（演示数据）。 */
+    fun markSeriesRead(series: Series, read: Boolean) {
+        val dtoId = detailRepository.seriesDtoId(series.id) ?: return
+        viewModelScope.launch {
+            val ok = if (read) actionRepository.markSeriesRead(dtoId)
+            else actionRepository.markSeriesUnread(dtoId)
+            if (ok) {
+                _state.update { st ->
+                    st.copy(series = st.series?.map {
+                        if (it.id == series.id) {
+                            it.copy(
+                                progress = if (read) 1f else null,
+                                unreadCount = if (read) 0 else it.bookCount,
+                            )
+                        } else {
+                            it
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    /** 标记书籍已读/未读并即时更新本地状态；无 DTO 映射时静默忽略。 */
+    fun markBookRead(book: Book, read: Boolean) {
+        val dtoId = detailRepository.bookDtoId(book.id) ?: return
+        viewModelScope.launch {
+            val ok = if (read) actionRepository.markBookRead(dtoId)
+            else actionRepository.markBookUnread(dtoId)
+            if (ok) {
+                _state.update { st ->
+                    st.copy(books = st.books?.map {
+                        if (it.id == book.id) it.copy(progress = if (read) 1f else null) else it
+                    })
+                }
+            }
+        }
+    }
+
+    /** 把系列加入收藏。 */
+    fun addSeriesToCollection(entry: ListEntry, series: Series) {
+        val seriesDtoId = detailRepository.seriesDtoId(series.id) ?: return
+        val collectionDtoId = detailRepository.collectionDtoId(entry.id) ?: return
+        viewModelScope.launch {
+            actionRepository.addSeriesToCollection(collectionDtoId, seriesDtoId)
+        }
+    }
+
+    /** 把系列的全部书籍加入阅读列表（Komga 阅读列表只收书籍）。 */
+    fun addSeriesToReadList(entry: ListEntry, series: Series) {
+        val seriesDtoId = detailRepository.seriesDtoId(series.id) ?: return
+        val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return
+        viewModelScope.launch {
+            detailRepository.seriesBooks(seriesDtoId).forEach { book ->
+                actionRepository.addBookToReadList(readListDtoId, book.id)
+            }
+        }
+    }
+
+    /** 把书籍加入阅读列表。 */
+    fun addBookToReadList(entry: ListEntry, book: Book) {
+        val bookDtoId = detailRepository.bookDtoId(book.id) ?: return
+        val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return
+        viewModelScope.launch {
+            actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
     }
 }

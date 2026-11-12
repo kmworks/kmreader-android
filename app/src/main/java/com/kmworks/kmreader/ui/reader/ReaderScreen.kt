@@ -168,10 +168,12 @@ fun ReaderScreen(
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0) pagerState.scrollToPage(target)
     }
-    // 预加载：当前展示单元前后各 2 个单元的页面
+    // 预加载：当前展示单元前后各 2 个单元的页面；settled 后上报阅读进度
     LaunchedEffect(pagerState, items, uiState.bookDtoId, imageLoader) {
         snapshotFlow { pagerState.settledPage }.collect { index ->
             if (uiState.bookDtoId == null) return@collect
+            val item = items.getOrNull(index) ?: return@collect
+            viewModel.reportProgress(item.pages.max())
             for (i in (index - 2)..(index + 2)) {
                 items.getOrNull(i)?.pages?.forEach { number ->
                     viewModel.pageUrl(number)?.let { url ->

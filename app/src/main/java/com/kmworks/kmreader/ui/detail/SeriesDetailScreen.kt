@@ -89,6 +89,7 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
+import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.tracker.TrackerSection
 import com.kmworks.kmreader.ui.tracker.TrackerSeriesSheet
 
@@ -115,8 +116,14 @@ fun SeriesDetailScreen(
     // 真实数据：进入时按注册表反查 DTO id 拉单系列与书籍；无会话/未注册回退假数据
     val state by viewModel.uiState.collectAsState()
     LaunchedEffect(series.id) { viewModel.load(series.id) }
-    val displaySeries = state.series ?: series
-    val books = state.books ?: SampleData.booksOf(displaySeries)
+    // 演示数据（无会话）下的「标记为已读」本地即时反馈
+    var demoMarkedRead by remember(series.id) { mutableStateOf(false) }
+    val collections by viewModel.collections.collectAsState()
+    val displaySeries = (state.series ?: series).let {
+        if (demoMarkedRead && state.series == null) it.copy(progress = 1f, unreadCount = 0) else it
+    }
+    val rawBooks = state.books ?: SampleData.booksOf(displaySeries)
+    val books = if (demoMarkedRead && state.books == null) rawBooks.map { it.copy(progress = 1f) } else rawBooks
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
         ?: books.first()
@@ -131,6 +138,7 @@ fun SeriesDetailScreen(
     var showKomfSheet by remember { mutableStateOf(false) }
     var showTrackerSheet by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var addToCollectionOpen by remember { mutableStateOf(false) }
 
     // 多选未开启时长按书籍 = 带该书进入多选（对齐原作长按手势）
     val toggleSelect: (Book) -> Unit = { book ->
@@ -175,8 +183,22 @@ fun SeriesDetailScreen(
                             )
                             DropdownMenuItem(text = { Text("匹配 komf") }, onClick = { moreOpen = false })
                             DropdownMenuItem(text = { Text("重置 komf") }, onClick = { moreOpen = false })
-                            DropdownMenuItem(text = { Text("加入收藏…") }, onClick = { moreOpen = false })
-                            DropdownMenuItem(text = { Text("标记为已读") }, onClick = { moreOpen = false })
+                            DropdownMenuItem(
+                                text = { Text("加入收藏…") },
+                                onClick = {
+                                    moreOpen = false
+                                    viewModel.ensureCollectionsLoaded()
+                                    addToCollectionOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("标记为已读") },
+                                onClick = {
+                                    moreOpen = false
+                                    // 真实数据走 API（VM 内更新）；演示数据本地反馈
+                                    if (!viewModel.markSeriesRead()) demoMarkedRead = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("删除…", color = MaterialTheme.colorScheme.error) },
                                 onClick = { moreOpen = false },
@@ -328,7 +350,20 @@ fun SeriesDetailScreen(
         KomfIdentifySheet(series = series, onDismiss = { showKomfSheet = false })
     }
     if (showTrackerSheet) {
+
         TrackerSeriesSheet(series = series, onDismiss = { showTrackerSheet = false })
+    }
+    // 「加入收藏」选择器：真实收藏数据，选择后调 API（无会话时为空）
+    if (addToCollectionOpen) {
+        AddToListSheet(
+            collections = collections ?: emptyList(),
+            readLists = emptyList(),
+            onSelect = { entry ->
+                viewModel.addToCollection(entry)
+                addToCollectionOpen = false
+            },
+            onDismiss = { addToCollectionOpen = false },
+        )
     }
 }
 

@@ -51,6 +51,7 @@ import com.kmworks.kmreader.ui.components.SectionHeader
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
+import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 /** 仪表盘：分区列表，每分区 = 标题头 + 横向卡片流。对齐 KMReader DashboardView。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +73,10 @@ fun DashboardScreen(
     // 长按上下文菜单（对齐原作仪表盘卡片的 contextMenu）
     var seriesMenuTarget by remember { mutableStateOf<Series?>(null) }
     var bookMenuTarget by remember { mutableStateOf<Book?>(null) }
+    // 「加入收藏/阅读列表」sheet 目标
+    var addTarget by remember { mutableStateOf<Any?>(null) }
+    var addToCollectionOpen by remember { mutableStateOf(false) }
+    var addToReadListOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -156,6 +161,16 @@ fun DashboardScreen(
                 hasStarted = series.progress != null,
                 completed = series.unreadCount == 0,
                 downloaded = false,
+                onMarkRead = { viewModel.markSeriesRead(series, true) },
+                onMarkUnread = { viewModel.markSeriesRead(series, false) },
+                onAddToCollection = {
+                    addTarget = series
+                    addToCollectionOpen = true
+                },
+                onAddToReadList = {
+                    addTarget = series
+                    addToReadListOpen = true
+                },
             ),
             onDismiss = { seriesMenuTarget = null },
         )
@@ -169,9 +184,65 @@ fun DashboardScreen(
                 onOpenSeries = {
                     SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
                 },
+                onMarkRead = { viewModel.markBookRead(book, true) },
+                onMarkUnread = { viewModel.markBookRead(book, false) },
+                onAddToReadList = {
+                    addTarget = book
+                    addToReadListOpen = true
+                },
             ),
             onDismiss = { bookMenuTarget = null },
         )
+    }
+    // 「加入收藏/阅读列表」选择器：真实列表数据（无会话时为空）
+    if (addToCollectionOpen) {
+        (addTarget as? Series)?.let { series ->
+            AddToListSheet(
+                collections = state.collections ?: emptyList(),
+                readLists = emptyList(),
+                onSelect = { entry ->
+                    viewModel.addSeriesToCollection(entry, series)
+                    addToCollectionOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToCollectionOpen = false
+                    addTarget = null
+                },
+            )
+        }
+    }
+    if (addToReadListOpen) {
+        when (val target = addTarget) {
+            is Series -> AddToListSheet(
+                collections = emptyList(),
+                readLists = state.readLists ?: emptyList(),
+                onSelect = { entry ->
+                    // Komga 阅读列表只收书籍：系列加入时逐本追加
+                    viewModel.addSeriesToReadList(entry, target)
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+            )
+            is Book -> AddToListSheet(
+                collections = emptyList(),
+                readLists = state.readLists ?: emptyList(),
+                onSelect = { entry ->
+                    viewModel.addBookToReadList(entry, target)
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+            )
+            else -> Unit
+        }
     }
 }
 

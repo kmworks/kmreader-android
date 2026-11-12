@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.reader
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.ReaderRepository
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
@@ -27,6 +28,7 @@ data class ReaderUiState(
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     private val readerRepository: ReaderRepository,
+    private val actionRepository: ActionRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -77,4 +79,21 @@ class ReaderViewModel @Inject constructor(
     /** 页缩略图 URL（缩略图条用）。 */
     fun pageThumbnailUrl(pageNumber: Int): String? =
         _uiState.value.bookDtoId?.let { readerRepository.pageThumbnailUrl(it, pageNumber) }
+
+    private var lastReportedPage: Int = 0
+
+    /** 上报阅读进度（settled 单元最后一页；末页时同时标记完成）。与上一页重复则跳过。 */
+    fun reportProgress(page: Int) {
+        val dtoId = _uiState.value.bookDtoId ?: return
+        if (page == lastReportedPage) return
+        lastReportedPage = page
+        val total = _uiState.value.pages.size
+        viewModelScope.launch {
+            actionRepository.updateBookReadProgress(
+                bookDtoId = dtoId,
+                page = page,
+                completed = total > 0 && page >= total,
+            )
+        }
+    }
 }

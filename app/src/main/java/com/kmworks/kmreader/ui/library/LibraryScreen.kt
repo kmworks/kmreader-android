@@ -46,6 +46,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
+import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 private enum class ContentType(val label: String) { Series("系列"), Books("书籍") }
 
@@ -63,6 +64,10 @@ fun LibraryScreen(
     var contentType by remember { mutableStateOf(ContentType.Series) }
     var scope by remember { mutableStateOf("已钉选") }
     var scopeMenuOpen by remember { mutableStateOf(false) }
+    // 「加入收藏/阅读列表」sheet 目标
+    var addTarget by remember { mutableStateOf<Any?>(null) }
+    var addToCollectionOpen by remember { mutableStateOf(false) }
+    var addToReadListOpen by remember { mutableStateOf(false) }
     var showOptionsSheet by remember { mutableStateOf(false) }
     var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
     // 长按上下文菜单目标（对齐原作卡片 contextMenu）
@@ -207,6 +212,16 @@ fun LibraryScreen(
                 hasStarted = series.progress != null,
                 completed = series.progress == 1f,
                 downloaded = false,
+                onMarkRead = { viewModel.markSeriesRead(series, true) },
+                onMarkUnread = { viewModel.markSeriesRead(series, false) },
+                onAddToCollection = {
+                    addTarget = series
+                    addToCollectionOpen = true
+                },
+                onAddToReadList = {
+                    addTarget = series
+                    addToReadListOpen = true
+                },
             ),
             onDismiss = { menuSeries = null },
         )
@@ -220,8 +235,64 @@ fun LibraryScreen(
                 onOpenSeries = {
                     SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
                 },
+                onMarkRead = { viewModel.markBookRead(book, true) },
+                onMarkUnread = { viewModel.markBookRead(book, false) },
+                onAddToReadList = {
+                    addTarget = book
+                    addToReadListOpen = true
+                },
             ),
             onDismiss = { menuBook = null },
         )
+    }
+    // 「加入收藏/阅读列表」选择器：真实列表数据（无会话时为空）
+    if (addToCollectionOpen) {
+        (addTarget as? Series)?.let { series ->
+            AddToListSheet(
+                collections = state.collections ?: emptyList(),
+                readLists = emptyList(),
+                onSelect = { entry ->
+                    viewModel.addSeriesToCollection(entry, series)
+                    addToCollectionOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToCollectionOpen = false
+                    addTarget = null
+                },
+            )
+        }
+    }
+    if (addToReadListOpen) {
+        when (val target = addTarget) {
+            is Series -> AddToListSheet(
+                collections = emptyList(),
+                readLists = state.readLists ?: emptyList(),
+                onSelect = { entry ->
+                    // Komga 阅读列表只收书籍：系列加入时逐本追加
+                    viewModel.addSeriesToReadList(entry, target)
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+            )
+            is Book -> AddToListSheet(
+                collections = emptyList(),
+                readLists = state.readLists ?: emptyList(),
+                onSelect = { entry ->
+                    viewModel.addBookToReadList(entry, target)
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+                onDismiss = {
+                    addToReadListOpen = false
+                    addTarget = null
+                },
+            )
+            else -> Unit
+        }
     }
 }

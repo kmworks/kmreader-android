@@ -2,10 +2,13 @@ package com.kmworks.kmreader.core.data
 
 import com.kmworks.kmreader.core.api.model.AuthorDto
 import com.kmworks.kmreader.core.api.model.BookDto
+import com.kmworks.kmreader.core.api.model.CollectionDto
+import com.kmworks.kmreader.core.api.model.ReadListDto
 import com.kmworks.kmreader.core.api.model.SeriesDto
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Creator
+import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
 import kotlin.math.absoluteValue
 
@@ -90,3 +93,21 @@ fun BookDto.toUiBook(): Book {
         },
     )
 }
+
+/** Map a Komga read list to the UI list entry (count = books). */
+fun ReadListDto.toListEntry(): SampleData.ListEntry = SampleData.ListEntry(
+    id = id.stableId(),
+    title = name,
+    count = bookIds.size,
+    hue = hueFor(id),
+    pinned = false,
+)
+
+/** Map a Komga collection to the UI list entry (count = series). */
+fun CollectionDto.toListEntry(): SampleData.ListEntry = SampleData.ListEntry(
+    id = id.stableId(),
+    title = name,
+    count = seriesIds.size,
+    hue = hueFor(id),
+    pinned = false,
+)
