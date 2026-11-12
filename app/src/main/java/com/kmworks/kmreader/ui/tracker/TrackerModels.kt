@@ -17,6 +17,24 @@ enum class TrackerProvider(
     ;
 
     fun entryUrl(trackId: String): String = entryUrlPattern.replace("{id}", trackId)
+
+    /** 从系列 web link URL 反解该 provider 的条目 id（对齐 komf parseProviderLink 的域名匹配）。 */
+    fun trackIdFromUrl(url: String): String? {
+        val lower = url.lowercase()
+        val regex = when (this) {
+            AniList -> if (lower.contains("anilist.co")) AniListEntry else return null
+            MyAnimeList -> if (lower.contains("myanimelist.net")) AniListEntry else return null
+            Bangumi -> if (lower.contains("bgm.tv") || lower.contains("bangumi.tv")) BangumiSubject else return null
+            MangaBaka -> if (lower.contains("mangabaka.org")) MangaBakaEntry else return null
+        }
+        return regex.find(lower)?.groupValues?.get(1)
+    }
+
+    private companion object {
+        val AniListEntry = Regex("""/(?:anime|manga)/(\d+)""")
+        val BangumiSubject = Regex("""/subject/(\d+)""")
+        val MangaBakaEntry = Regex("""mangabaka\.org/(?:series/)?([a-z0-9-]+)""")
+    }
 }
 
 /** 进度映射模式（对齐 TrackerMode）。 */

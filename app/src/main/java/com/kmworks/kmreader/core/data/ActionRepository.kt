@@ -1,8 +1,10 @@
 package com.kmworks.kmreader.core.data
 
+import com.kmworks.kmreader.core.api.model.BookMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.CollectionUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadListUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadProgressUpdateDto
+import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,6 +61,18 @@ class ActionRepository @Inject constructor(
         return clients.readlists
             .updateReadListById(readListDtoId, ReadListUpdateDto(bookIds = ids))
             .awaitBody() != null
+    }
+
+    /** 更新书籍元数据（PATCH /api/v1/books/{bookId}/metadata；只带上锁字段）。 */
+    suspend fun updateBookMetadata(bookDtoId: String, body: BookMetadataUpdateDto): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.books.updateBookMetadata(bookDtoId, body).awaitBody() != null
+    }
+
+    /** 更新系列元数据（PATCH /api/v1/series/{seriesId}/metadata；只带上锁字段）。 */
+    suspend fun updateSeriesMetadata(seriesDtoId: String, body: SeriesMetadataUpdateDto): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.series.updateSeriesMetadata(seriesDtoId, body).awaitBody() != null
     }
 
     suspend fun removeBooksFromReadList(readListDtoId: String, bookDtoIds: List<String>): Boolean {

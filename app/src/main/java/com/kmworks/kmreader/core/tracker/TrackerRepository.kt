@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.tracker
 
 import com.kmworks.kmreader.core.data.LocalApiFactory
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
@@ -105,16 +106,28 @@ class TrackerRepository @Inject constructor(
 
     private suspend fun <T> Call<T>.fetchOrNull(): T? = withContext(Dispatchers.IO) {
         try {
-            execute().takeIf { it.isSuccessful }?.body()
-        } catch (_: Exception) {
+            val response = execute()
+            if (response.isSuccessful) {
+                response.body()
+            } else {
+                AppLog.w("Tracker", "HTTP ${response.code()} ${request().method} ${request().url}")
+                null
+            }
+        } catch (e: Exception) {
+            AppLog.e("Tracker", "${request().method} ${request().url}", e)
             null
         }
     }
 
     private suspend fun Call<*>.executeOrFalse(): Boolean = withContext(Dispatchers.IO) {
         try {
-            execute().isSuccessful
-        } catch (_: Exception) {
+            val response = execute()
+            if (!response.isSuccessful) {
+                AppLog.w("Tracker", "HTTP ${response.code()} ${request().method} ${request().url}")
+            }
+            response.isSuccessful
+        } catch (e: Exception) {
+            AppLog.e("Tracker", "${request().method} ${request().url}", e)
             false
         }
     }

@@ -17,9 +17,6 @@ data class ServerAccount(
     val active: Boolean,
 )
 
-/** Log line (mirrors SettingsLogsView rows). */
-data class LogLine(val time: String, val level: String, val message: String)
-
 /** Reading stats summary (mirrors ReadingStatsSummary). */
 data class ReadingStatsSummary(
     val totalPages: Int,
@@ -35,7 +32,7 @@ data class ReadingStatsSummary(
 /** Single heatmap day (mirrors ReadingStatsTimePoint). */
 data class HeatmapDay(val date: String, val pages: Int)
 
-/** Fake data for fonts / servers / logs / stats. */
+/** Fake data for fonts / servers / stats. */
 object SampleSystemData {
 
     val customFonts: List<CustomFont> = listOf(
@@ -47,15 +44,6 @@ object SampleSystemData {
     val serverAccounts: List<ServerAccount> = listOf(
         ServerAccount(1, "主服务器", "https://komga.example.com", "demo@example.com", "v1.14.1", active = true),
         ServerAccount(2, "家中 NAS", "https://nas.local:8443", "reader", "v1.10.4", active = false),
-    )
-
-    val logLines: List<LogLine> = listOf(
-        LogLine("20:41:07", "INFO", "SSE 连接已建立"),
-        LogLine("20:41:09", "API", "GET /api/v1/series 200 (182 ms)"),
-        LogLine("20:42:31", "INFO", "下载完成：葬送的芙莉莲 第 12 卷"),
-        LogLine("20:43:02", "WARN", "SSE 心跳超时，准备重连"),
-        LogLine("20:43:04", "ERROR", "下载失败：王者天下 第 73 卷（网络连接中断）"),
-        LogLine("20:43:10", "INFO", "阅读进度已同步：怪兽8号 第 4 卷 第 87 页"),
     )
 
     /** SSE placeholder state (mirrors SettingsSSEView). */

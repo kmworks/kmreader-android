@@ -80,7 +80,7 @@ fun ProviderLogo(provider: TrackerProvider, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TrackerSection(
-    links: List<TrackerLink> = SampleTrackerLinks,
+    links: List<TrackerLink> = emptyList(),
     onManage: () -> Unit,
 ) {
     Column(modifier = Modifier.padding(top = 16.dp)) {
@@ -169,10 +169,8 @@ fun TrackerSeriesSheet(
     viewModel: TrackerSeriesViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(series.id) { viewModel.load(series) }
-    val realLinks by viewModel.links.collectAsStateWithLifecycle()
-    val demoLinks = remember { SampleTrackerLinks.toMutableStateList() }
-    // null = 演示模式（无会话/无能力），本地可变；非 null = 真实绑定
-    val links: List<TrackerLink> = realLinks ?: demoLinks
+    val links by viewModel.links.collectAsStateWithLifecycle()
+    val supported by viewModel.supported.collectAsStateWithLifecycle()
     var editingProvider by remember { mutableStateOf<TrackerProvider?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -199,7 +197,14 @@ fun TrackerSeriesSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            if (links.isEmpty()) {
+            if (!supported) {
+                Text(
+                    "当前服务器未启用 Tracker 集成。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else if (links.isEmpty()) {
                 Text(
                     "尚未链接任何 tracker",
                     style = MaterialTheme.typography.bodyMedium,
@@ -264,17 +269,11 @@ fun TrackerSeriesSheet(
             series = series,
             provider = provider,
             existing = links.firstOrNull { it.provider == provider },
-            onUnlink = {
-                if (realLinks == null) {
-                    demoLinks.removeAll { it.provider == provider }
-                } else {
-                    viewModel.unlink(provider)
-                }
-            },
+            onUnlink = { viewModel.unlink(provider) },
             onDismiss = {
                 editingProvider = null
                 // 编辑（保存/解绑）后刷新真实绑定
-                if (realLinks != null) viewModel.refresh()
+                if (supported) viewModel.refresh()
             },
         )
     }
@@ -320,20 +319,24 @@ private fun TrackerLinkRow(link: TrackerLink, onClick: () -> Unit) {
     }
 }
 
-/** 系列 Tracker 绑定数据；links 为 null 表示演示模式（无会话/无能力/无 DTO 映射）。 */
+/** 系列 Tracker 绑定数据；服务器不支持时 supported=false（UI 显示提示，无演示回退）。 */
 @HiltViewModel
 class TrackerSeriesViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val trackerRepository: TrackerRepository,
 ) : ViewModel() {
 
-    private val _links = MutableStateFlow<List<TrackerLink>?>(null)
-    val links: StateFlow<List<TrackerLink>?> = _links.asStateFlow()
+    private val _links = MutableStateFlow<List<TrackerLink>>(emptyList())
+    val links: StateFlow<List<TrackerLink>> = _links.asStateFlow()
+
+    private val _supported = MutableStateFlow(true)
+    val supported: StateFlow<Boolean> = _supported.asStateFlow()
 
     private var seriesDtoId: String? = null
 
     fun load(series: Series) {
         seriesDtoId = detailRepository.seriesDtoId(series.id)
+        _supported.value = trackerRepository.supported
         if (seriesDtoId == null || !trackerRepository.supported) return
         refresh()
     }

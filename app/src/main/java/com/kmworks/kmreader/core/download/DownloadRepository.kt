@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +92,7 @@ class DownloadRepository @Inject constructor(
             .addTag(bookDtoId)
             .build()
         workManager.enqueueUniqueWork(workName(bookDtoId), androidx.work.ExistingWorkPolicy.REPLACE, request)
+        AppLog.i("Download", "入队：$title（$pageCount 页）")
         tick.value += 1
     }
 

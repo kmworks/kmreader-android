@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dagger.hilt.android.EntryPointAccessors
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -47,6 +48,7 @@ class DownloadWorker(
                 ))
             }
             File(dir, META_FILE).writeText("title=$title\npageCount=$pageCount\n")
+            AppLog.i("Download", "完成：$title（$pageCount 页）")
             Result.success()
         } catch (e: Exception) {
             val doneCount = dir.listFiles()?.count { it.name != META_FILE } ?: 0
@@ -55,6 +57,7 @@ class DownloadWorker(
                 KEY_PAGE_TOTAL to pageCount,
                 KEY_TITLE to title,
             ))
+            AppLog.e("Download", "失败：$title 第 ${doneCount + 1} 页", e)
             if (runAttemptCount < 3) Result.retry()
             else Result.failure(workDataOf(KEY_ERROR to (e.message ?: "下载失败")))
         }

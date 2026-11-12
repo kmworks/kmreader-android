@@ -39,10 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.kmworks.kmreader.core.komf.parseKomfProviderLinks
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -245,30 +243,15 @@ private fun KomfResultRow(
             modifier = Modifier.padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 封面：imageUrl 存在时叠在占位上（对齐 AsyncImage 的加载/失败兜底）
-            Box(
+            // 封面走共享 CoverArt（认证 ImageLoader + 占位兜底），与全站一致
+            CoverArt(
+                title = title,
+                hue = fallbackHue,
+                imageUrl = imageUrl,
                 modifier = Modifier
                     .width(40.dp)
                     .height(60.dp),
-            ) {
-                CoverArt(
-                    title = title,
-                    hue = fallbackHue,
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(60.dp),
-                )
-                if (imageUrl != null) {
-                    AsyncImage(
-                        model = imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .width(40.dp)
-                            .height(60.dp),
-                    )
-                }
-            }
+            )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.ui.settings
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +35,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,12 +46,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.core.logging.AppLog
+import com.kmworks.kmreader.core.logging.AppLogLevel
 import com.kmworks.kmreader.core.sse.SseConnectionState
-import com.kmworks.kmreader.data.SampleSystemData
 import com.kmworks.kmreader.ui.RootViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -223,10 +232,17 @@ private fun formatSseTime(millis: Long): String =
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
-/** Log viewer (mirrors SettingsLogsView). */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Log viewer (mirrors SettingsLogsView)：真实日志行 + 级别过滤 + FileProvider 分享。 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LogsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val entries by AppLog.entries.collectAsStateWithLifecycle()
+    var levelFilter by remember { mutableStateOf<AppLogLevel?>(null) }
+    val filtered = remember(entries, levelFilter) {
+        entries.filter { levelFilter == null || it.level == levelFilter }.asReversed()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -237,38 +253,85 @@ fun LogsScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    // wiring point: share log file
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = { shareLogs(context) }) {
                         Icon(Icons.Filled.Share, contentDescription = "分享日志")
                     }
                 },
             )
         },
     ) { padding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
         ) {
-            items(SampleSystemData.logLines) { line ->
-                Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                    Text(
-                        "${line.time}  ${line.level}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                    Text(
-                        line.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
+            FlowRow(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = levelFilter == null,
+                    onClick = { levelFilter = null },
+                    label = { Text("全部") },
+                )
+                AppLogLevel.entries.forEach { level ->
+                    FilterChip(
+                        selected = levelFilter == level,
+                        onClick = { levelFilter = level },
+                        label = { Text(level.label) },
                     )
                 }
-                HorizontalDivider()
+            }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+            ) {
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            "暂无日志",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    }
+                }
+                items(filtered) { entry ->
+                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                        Text(
+                            "${entry.timeLabel}  ${entry.level.label}  [${entry.tag}]",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when (entry.level) {
+                                AppLogLevel.ERROR -> MaterialTheme.colorScheme.error
+                                AppLogLevel.WARN -> MaterialTheme.colorScheme.onSurface
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        Text(
+                            entry.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                    HorizontalDivider()
+                }
             }
         }
     }
+}
+
+/** 导出 app.log 为 txt 并调起系统分享。 */
+private fun shareLogs(context: Context) {
+    val file = AppLog.shareableFile() ?: return
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "分享日志"))
 }
 
 /** Current server account (mirrors SettingsAccountView: instance info + sign out). */

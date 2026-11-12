@@ -90,6 +90,8 @@ fun TrackerLinkEditSheet(
     var remoteStatus by remember { mutableStateOf<TrackerStatus?>(null) } // null = 保持不变
     val searchResults by viewModel.results.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
+    val searched by viewModel.searched.collectAsStateWithLifecycle()
+    val supported by viewModel.supported.collectAsStateWithLifecycle()
     val remoteState by viewModel.remoteState.collectAsStateWithLifecycle()
 
     LaunchedEffect(series.id, provider) {
@@ -101,15 +103,14 @@ fun TrackerLinkEditSheet(
         selectedId?.let { viewModel.select(it) }
     }
 
-    val titles = remember(series) { listOf(series.title, "葬送のフリーレン", "Frieren") }
-    // null = 演示模式（无会话/无能力），回退固定示例
-    val demoResults = remember {
-        listOf(
-            TrackerSearchItemDto(id = "108465", title = "葬送のフリーレン"),
-            TrackerSearchItemDto(id = "118743", title = "Frieren at the Funeral"),
-        )
+    val titles = remember(series) { listOf(series.title) }
+    val results: List<TrackerSearchItemDto> = searchResults.orEmpty()
+    // 来自系列链接的建议：仅当系列 metadata links 能反解出当前 provider 的条目 id 时展示
+    val linkSuggestion = remember(series, provider) {
+        series.links.firstNotNullOfOrNull { (_, url) ->
+            provider.trackIdFromUrl(url)?.let { trackId -> trackId to url }
+        }
     }
-    val results: List<TrackerSearchItemDto> = searchResults ?: demoResults
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -195,35 +196,51 @@ fun TrackerLinkEditSheet(
                         )
                     }
                 }
-                // 来自系列链接的建议（系列 metadata links 反解 entryId）
-                Surface(
-                    onClick = {
-                        selectedId = "285267"
-                        selectedTitle = series.title
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            "来自系列链接",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "${series.title} · #285267",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                // 来自系列链接的建议（系列 metadata links 反解 entryId；无匹配则不显示）
+                linkSuggestion?.let { (suggestedId, _) ->
+                    Surface(
+                        onClick = {
+                            selectedId = suggestedId
+                            selectedTitle = series.title
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                "来自系列链接",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "${series.title} · #$suggestedId",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
                 TrackerSectionTitle("搜索结果")
+                if (!supported) {
+                    Text(
+                        "当前服务器未启用 Tracker 集成，无法搜索。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (searching) {
                     CircularProgressIndicator(
                         modifier = Modifier
                             .size(20.dp)
                             .padding(vertical = 4.dp),
                         strokeWidth = 2.dp,
+                    )
+                }
+                if (supported && !searching && searched && results.isEmpty()) {
+                    Text(
+                        "没有匹配的条目。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 results.forEach { item ->
@@ -238,6 +255,7 @@ fun TrackerLinkEditSheet(
                             CoverArt(
                                 title = item.title,
                                 hue = series.hue,
+                                imageUrl = item.coverUrl,
                                 modifier = Modifier
                                     .width(40.dp)
                                     .height(60.dp),
@@ -382,7 +400,7 @@ private fun TrackerSectionTitle(title: String) {
     )
 }
 
-/** 绑定编辑数据；results 为 null 表示演示模式（无会话/无能力）。 */
+/** 绑定编辑数据；supported=false 时 UI 直接提示，不再回退演示数据。 */
 @HiltViewModel
 class TrackerLinkEditViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
@@ -395,6 +413,12 @@ class TrackerLinkEditViewModel @Inject constructor(
     private val _searching = MutableStateFlow(false)
     val searching: StateFlow<Boolean> = _searching.asStateFlow()
 
+    private val _searched = MutableStateFlow(false)
+    val searched: StateFlow<Boolean> = _searched.asStateFlow()
+
+    private val _supported = MutableStateFlow(true)
+    val supported: StateFlow<Boolean> = _supported.asStateFlow()
+
     private val _remoteState = MutableStateFlow<TrackerRemoteStateDto?>(null)
     val remoteState: StateFlow<TrackerRemoteStateDto?> = _remoteState.asStateFlow()
 
@@ -405,16 +429,28 @@ class TrackerLinkEditViewModel @Inject constructor(
     fun bind(series: Series, provider: TrackerProvider) {
         this.provider = provider
         seriesDtoId = detailRepository.seriesDtoId(series.id)
+        _supported.value = trackerRepository.supported
     }
 
-    /** 300ms 防抖远端搜索；演示模式保持 null 结果。 */
+    /** 300ms 防抖远端搜索；空关键词清空结果，无能力时保持空。 */
     fun search(query: String) {
-        if (!trackerRepository.supported || query.isBlank()) return
         searchJob?.cancel()
+        if (!trackerRepository.supported) {
+            _supported.value = false
+            _results.value = emptyList()
+            _searched.value = true
+            return
+        }
+        if (query.isBlank()) {
+            _results.value = emptyList()
+            _searched.value = false
+            return
+        }
         searchJob = viewModelScope.launch {
             delay(300)
             _searching.value = true
             _results.value = trackerRepository.search(provider.apiName, query)
+            _searched.value = true
             _searching.value = false
         }
     }
