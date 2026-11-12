@@ -12,6 +12,8 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.sse.SseEventKind
+import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
@@ -22,6 +24,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -47,6 +51,7 @@ class LibraryViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
+    private val sseService: SseService,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -63,6 +68,18 @@ class LibraryViewModel @Inject constructor(
                 }
             }
         }
+        // SSE 内容变化事件聚合 3s 后刷新
+        viewModelScope.launch {
+            sseService.events
+                .filter { it.kind in REFRESH_KINDS }
+                .debounce(3_000)
+                .collect { refresh() }
+        }
+    }
+
+    /** 重新拉取列表内容（动作成功或 SSE 事件后的内容同步）。 */
+    fun refresh() {
+        viewModelScope.launch { load() }
     }
 
     private suspend fun load() {
@@ -173,5 +190,15 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
+    }
+
+    private companion object {
+        /** 触发书库刷新的事件类别。 */
+        val REFRESH_KINDS = setOf(
+            SseEventKind.Book,
+            SseEventKind.Series,
+            SseEventKind.ReadProgress,
+            SseEventKind.Library,
+        )
     }
 }

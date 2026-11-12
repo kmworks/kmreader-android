@@ -8,3 +8,6 @@ fun ApiClients.seriesThumbnailUrl(seriesId: String): String =
 
 fun ApiClients.bookThumbnailUrl(bookId: String): String =
     "$baseUrl/api/v1/books/$bookId/thumbnail"
+
+fun ApiClients.smartListThumbnailUrl(smartListId: String): String =
+    "$baseUrl/api/v1/smart-lists/$smartListId/thumbnail"

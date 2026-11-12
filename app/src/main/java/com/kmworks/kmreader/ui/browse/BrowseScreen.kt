@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.browse
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,8 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 fun BrowseScreen(
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    onOpenReadList: (Int) -> Unit = {},
+    onOpenCollection: (Int) -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -148,6 +151,8 @@ fun BrowseScreen(
                 query = query,
                 onOpenSeries = onOpenSeries,
                 onOpenBook = onOpenBook,
+                onOpenReadList = onOpenReadList,
+                onOpenCollection = onOpenCollection,
             )
         }
     }
@@ -160,6 +165,8 @@ private fun SearchResults(
     query: String,
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit,
+    onOpenReadList: (Int) -> Unit,
+    onOpenCollection: (Int) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
@@ -245,8 +252,11 @@ private fun SearchResults(
                         key = { "readlist-${it.id}" },
                         span = { GridItemSpan(maxLineSpan) },
                     ) { entry ->
-                        // TODO: 阅读列表暂不可点，待接入阅读列表详情导航
-                        SearchListRow(entry = entry, icon = Icons.AutoMirrored.Filled.PlaylistPlay)
+                        SearchListRow(
+                            entry = entry,
+                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            onClick = { onOpenReadList(entry.id) },
+                        )
                     }
                 }
                 if (state.collections.isNotEmpty()) {
@@ -258,8 +268,11 @@ private fun SearchResults(
                         key = { "collection-${it.id}" },
                         span = { GridItemSpan(maxLineSpan) },
                     ) { entry ->
-                        // TODO: 收藏暂不可点，待接入收藏详情导航
-                        SearchListRow(entry = entry, icon = Icons.Filled.CollectionsBookmark)
+                        SearchListRow(
+                            entry = entry,
+                            icon = Icons.Filled.CollectionsBookmark,
+                            onClick = { onOpenCollection(entry.id) },
+                        )
                     }
                 }
             }
@@ -277,11 +290,14 @@ private fun ResultSectionHeader(title: String) {
     )
 }
 
-/** 阅读列表/收藏结果行：图标 + 标题 + 数量。 */
+/** 阅读列表/收藏结果行：图标 + 标题 + 数量，可点进入详情。 */
 @Composable
-private fun SearchListRow(entry: SampleData.ListEntry, icon: ImageVector) {
+private fun SearchListRow(entry: SampleData.ListEntry, icon: ImageVector, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

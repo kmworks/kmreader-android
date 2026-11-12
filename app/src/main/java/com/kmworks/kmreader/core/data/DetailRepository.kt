@@ -17,16 +17,19 @@ object DetailIdRegistry {
     private val books = ConcurrentHashMap<Int, String>()
     private val collections = ConcurrentHashMap<Int, String>()
     private val readLists = ConcurrentHashMap<Int, String>()
+    private val smartLists = ConcurrentHashMap<Int, String>()
 
     fun registerSeries(stableId: Int, dtoId: String) { series[stableId] = dtoId }
     fun registerBook(stableId: Int, dtoId: String) { books[stableId] = dtoId }
     fun registerCollection(stableId: Int, dtoId: String) { collections[stableId] = dtoId }
     fun registerReadList(stableId: Int, dtoId: String) { readLists[stableId] = dtoId }
+    fun registerSmartList(stableId: Int, dtoId: String) { smartLists[stableId] = dtoId }
 
     fun seriesDtoId(stableId: Int): String? = series[stableId]
     fun bookDtoId(stableId: Int): String? = books[stableId]
     fun collectionDtoId(stableId: Int): String? = collections[stableId]
     fun readListDtoId(stableId: Int): String? = readLists[stableId]
+    fun smartListDtoId(stableId: Int): String? = smartLists[stableId]
 }
 
 /** Single-entity fetches for detail screens; resolves DTO ids through DetailIdRegistry. */

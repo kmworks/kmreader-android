@@ -9,6 +9,7 @@ import com.kmworks.kmreader.core.api.ReadlistsApi
 import com.kmworks.kmreader.core.api.ReferentialMetadataApi
 import com.kmworks.kmreader.core.api.SeriesApi
 import com.kmworks.kmreader.core.api.UserSessionApi
+import com.kmworks.kmreader.core.data.SmartListsApi
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
@@ -80,4 +81,7 @@ class ApiClients(config: ServerConfig) {
     val referential: ReferentialMetadataApi by lazy { retrofit.create(ReferentialMetadataApi::class.java) }
     val announcements: AnnouncementsApi by lazy { retrofit.create(AnnouncementsApi::class.java) }
     val userSession: UserSessionApi by lazy { retrofit.create(UserSessionApi::class.java) }
+
+    /** kmrs smart-lists（手写接口，openapi spec 未覆盖；stock 服务器 404）。 */
+    val smartLists: SmartListsApi by lazy { retrofit.create(SmartListsApi::class.java) }
 }

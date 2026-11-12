@@ -2,6 +2,8 @@ package com.kmworks.kmreader.core.download
 
 import android.content.Context
 import android.os.StatFs
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -10,6 +12,7 @@ import com.kmworks.kmreader.core.network.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -34,18 +37,51 @@ class DownloadRepository @Inject constructor(
     private val enqueueMeta
         get() = context.getSharedPreferences("download_enqueue_meta", Context.MODE_PRIVATE)
 
+    // 下载策略（对齐 OfflinePolicySheet 的 Wi-Fi/自动下载开关）
+    private val settingsPrefs
+        get() = context.getSharedPreferences("download_settings", Context.MODE_PRIVATE)
+
+    private val _wifiOnly = MutableStateFlow(settingsPrefs.getBoolean(KEY_WIFI_ONLY, false))
+
+    /** 仅 Wi-Fi 下载：on 时任务约束 UNMETERED 网络。 */
+    val wifiOnly: Flow<Boolean> = _wifiOnly
+
+    fun setWifiOnly(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_WIFI_ONLY, enabled).apply()
+        _wifiOnly.value = enabled
+    }
+
+    private val _autoDownloadUnread = MutableStateFlow(settingsPrefs.getBoolean(KEY_AUTO_UNREAD, false))
+
+    /**
+     * 自动下载未读内容：当前仅持久化该偏好，下载触发器（SSE/续读监听）
+     * 尚未实现，后续版本接入后 worker 才会消费。
+     */
+    val autoDownloadUnread: Flow<Boolean> = _autoDownloadUnread
+
+    fun setAutoDownloadUnread(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_AUTO_UNREAD, enabled).apply()
+        _autoDownloadUnread.value = enabled
+    }
+
     /** 入队整本下载；同名任务 REPLACE 重跑（重试语义）。 */
     fun enqueueBook(bookDtoId: String, title: String, pageCount: Int) {
         enqueueMeta.edit()
             .putString(bookDtoId, title)
             .putInt("$bookDtoId#pages", pageCount)
             .apply()
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(
+                if (_wifiOnly.value) NetworkType.UNMETERED else NetworkType.NOT_REQUIRED,
+            )
+            .build()
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(workDataOf(
                 DownloadWorker.KEY_BOOK_ID to bookDtoId,
                 DownloadWorker.KEY_TITLE to title,
                 DownloadWorker.KEY_PAGE_COUNT to pageCount,
             ))
+            .setConstraints(constraints)
             .addTag(DownloadWorker.TAG)
             .addTag(bookDtoId)
             .build()
@@ -141,4 +177,9 @@ class DownloadRepository @Inject constructor(
     }
 
     private fun workName(bookDtoId: String) = "download_$bookDtoId"
+
+    companion object {
+        private const val KEY_WIFI_ONLY = "wifiOnly"
+        private const val KEY_AUTO_UNREAD = "autoDownloadUnread"
+    }
 }

@@ -52,8 +52,8 @@ fun OfflineScreen(
     val tasks by viewModel.tasks.collectAsState()
     val downloaded by viewModel.downloaded.collectAsState()
     val storage by viewModel.storage.collectAsState()
-    var autoDownloadUnread by remember { mutableStateOf(true) }
-    var wifiOnly by remember { mutableStateOf(true) }
+    val autoDownloadUnread by viewModel.autoDownloadUnread.collectAsState()
+    val wifiOnly by viewModel.wifiOnly.collectAsState()
 
     Scaffold(
         topBar = {
@@ -133,18 +133,18 @@ fun OfflineScreen(
                 Spacer(Modifier.height(24.dp))
                 Text("下载策略", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
-                // MVP 占位：策略开关仅视觉，未接线（对齐 ReadListOfflinePolicyMenuItems）
+                // 策略开关（对齐 ReadListOfflinePolicyMenuItems）
                 PolicySwitchRow(
                     title = "自动下载未读内容",
-                    subtitle = "新内容入库后自动下载未读分册",
+                    subtitle = "将在后续版本自动下载（当前仅保存偏好）",
                     checked = autoDownloadUnread,
-                    onCheckedChange = { autoDownloadUnread = it },
+                    onCheckedChange = { viewModel.setAutoDownloadUnread(it) },
                 )
                 PolicySwitchRow(
                     title = "仅 Wi-Fi 下载",
                     subtitle = "使用蜂窝网络时暂停下载",
                     checked = wifiOnly,
-                    onCheckedChange = { wifiOnly = it },
+                    onCheckedChange = { viewModel.setWifiOnly(it) },
                 )
 
                 Spacer(Modifier.height(24.dp))

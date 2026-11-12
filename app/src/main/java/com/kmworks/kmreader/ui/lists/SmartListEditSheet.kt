@@ -47,8 +47,8 @@ data class SmartListRule(
     val value: String,
 )
 
-/** 规则可选字段（对齐原作条件的字段选择器）。 */
-val SmartListRuleFields = listOf("阅读状态", "标签", "作者", "发布年份", "页数")
+/** 规则可选字段（对齐原作条件的字段选择器；「页数」在原作条件 DSL 无对应键故不提供）。 */
+val SmartListRuleFields = listOf("阅读状态", "标签", "作者", "发布年份")
 
 /** 规则可选运算符（对齐原作条件的运算符选择器）。 */
 val SmartListRuleOperators = listOf("等于", "不等于", "包含", "大于", "小于")
@@ -111,10 +111,12 @@ fun SmartListEditSheet(
             SheetLabel("目标类型")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmartListTarget.entries.forEach { option ->
+                    // target 创建后不可改（对齐原作：编辑模式锁定）
                     FilterChip(
                         selected = target == option,
-                        onClick = { target = option },
+                        onClick = { if (!isEdit) target = option },
                         label = { Text(option.label) },
+                        enabled = !isEdit,
                     )
                 }
             }

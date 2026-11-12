@@ -15,7 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.DashboardSection
+import com.kmworks.kmreader.data.ReadListDetail
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleListDetailData
 import com.kmworks.kmreader.data.Series
@@ -130,6 +132,8 @@ fun AppRoot(
                 AppTab.Browse -> BrowseScreen(
                     onOpenSeries = openSeries,
                     onOpenBook = openBook,
+                    onOpenReadList = { readListDetailId = it },
+                    onOpenCollection = { collectionDetailId = it },
                 )
             }
         }
@@ -164,29 +168,30 @@ fun AppRoot(
         }
 
         collectionDetailId?.let { id ->
-            SampleListDetailData.collectionById(id)?.let { collection ->
-                CollectionDetailScreen(
-                    collection = collection,
-                    onBack = { collectionDetailId = null },
-                    onOpenSeries = {
-                        collectionDetailId = null
-                        detail = it
-                    },
-                )
-            }
+            // 样本查不到时构造空壳，由 ViewModel 按 DetailIdRegistry 反查加载真实数据
+            val collection = SampleListDetailData.collectionById(id)
+                ?: CollectionDetail(id = id, name = "", summary = null, ordered = false, seriesIds = emptyList())
+            CollectionDetailScreen(
+                collection = collection,
+                onBack = { collectionDetailId = null },
+                onOpenSeries = {
+                    collectionDetailId = null
+                    detail = it
+                },
+            )
         }
 
         readListDetailId?.let { id ->
-            SampleListDetailData.readListById(id)?.let { readList ->
-                ReadListDetailScreen(
-                    readList = readList,
-                    onBack = { readListDetailId = null },
-                    onRead = {
-                        readListDetailId = null
-                        bookDetail = it
-                    },
-                )
-            }
+            val readList = SampleListDetailData.readListById(id)
+                ?: ReadListDetail(id = id, name = "", summary = null, ordered = true, bookIds = emptyList())
+            ReadListDetailScreen(
+                readList = readList,
+                onBack = { readListDetailId = null },
+                onRead = {
+                    readListDetailId = null
+                    bookDetail = it
+                },
+            )
         }
 
         smartListDetailId?.let { id ->

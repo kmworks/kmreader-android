@@ -37,6 +37,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.SampleListDetailData
@@ -62,8 +65,8 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 private val WideLayoutBreakpoint = 960.dp
 
 /** 智能列表详情页（对齐 SmartListDetailView.swift + SmartListDetailWideLayoutView.swift）。
- *  注意：服务端 spec（Komga 1.23.5）未暴露 smartlists 端点（无 SmartListsApi），
- *  本页保持假数据展示，待 Komga 版本支持后接入真实数据。 */
+ *  数据来自 kmrs 私有端点 /api/v1/smart-lists（stock Komga 无此端点，未注册到
+ *  DetailIdRegistry 的演示数据自动回退假数据）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartListDetailScreen(
@@ -75,17 +78,29 @@ fun SmartListDetailScreen(
     onTogglePin: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
+    viewModel: SmartListDetailViewModel = hiltViewModel(),
 ) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(smartList.id) { viewModel.load(smartList.id) }
+
     var layout by remember { mutableStateOf(BrowseLayout.Grid) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<Int>()) }
 
-    val books = remember(smartList.id) { SampleListDetailData.smartListBooks(smartList) }
-    val series = remember(smartList.id) { SampleListDetailData.smartListSeries(smartList) }
+    // 真实数据优先，未接端点/无会话时回退假数据
+    val display = smartList.copy(
+        name = state.name ?: smartList.name,
+        summary = state.summary ?: smartList.summary,
+        target = state.target ?: smartList.target,
+        modifiedLabel = state.modifiedLabel ?: smartList.modifiedLabel,
+    )
+    val books = state.books ?: remember(smartList.id) { SampleListDetailData.smartListBooks(smartList) }
+    val series = state.series ?: remember(smartList.id) { SampleListDetailData.smartListSeries(smartList) }
 
     Scaffold(
         modifier = modifier,
@@ -119,7 +134,7 @@ fun SmartListDetailScreen(
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
-                                    onEdit()
+                                    editOpen = true
                                 },
                             )
                             DropdownMenuItem(
@@ -152,13 +167,13 @@ fun SmartListDetailScreen(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            val hitCount = if (smartList.target == SmartListTarget.Book) books.size else series.size
-            val hitIds = if (smartList.target == SmartListTarget.Book) {
+            val hitCount = if (display.target == SmartListTarget.Book) books.size else series.size
+            val hitIds = if (display.target == SmartListTarget.Book) {
                 books.map { it.id }
             } else {
                 series.map { it.id }
             }
-            val coverHue = if (smartList.target == SmartListTarget.Book) {
+            val coverHue = if (display.target == SmartListTarget.Book) {
                 books.firstOrNull()?.hue
             } else {
                 series.firstOrNull()?.hue
@@ -173,7 +188,7 @@ fun SmartListDetailScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        SmartListHero(smartList, hitCount, coverHue, centered = false)
+                        SmartListHero(display, hitCount, coverHue, imageUrl = state.heroThumbnail, centered = false)
                     }
                     Column(
                         modifier = Modifier
@@ -205,7 +220,7 @@ fun SmartListDetailScreen(
                             },
                         )
                         SmartListContent(
-                            smartList = smartList,
+                            smartList = display,
                             books = books,
                             series = series,
                             layout = layout,
@@ -216,6 +231,7 @@ fun SmartListDetailScreen(
                             onToggleSelect = { id ->
                                 selected = if (id in selected) selected - id else selected + id
                             },
+                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -227,7 +243,7 @@ fun SmartListDetailScreen(
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        SmartListHero(smartList, hitCount, coverHue, centered = true)
+                        SmartListHero(display, hitCount, coverHue, imageUrl = state.heroThumbnail, centered = true)
                     }
                     SmartListToolbar(
                         options = options,
@@ -252,7 +268,7 @@ fun SmartListDetailScreen(
                         },
                     )
                     SmartListContent(
-                        smartList = smartList,
+                        smartList = display,
                         books = books,
                         series = series,
                         layout = layout,
@@ -263,6 +279,7 @@ fun SmartListDetailScreen(
                         onToggleSelect = { id ->
                             selected = if (id in selected) selected - id else selected + id
                         },
+                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -279,19 +296,49 @@ fun SmartListDetailScreen(
     if (deleteConfirm) {
         ConfirmDeleteDialog(
             title = "删除智能列表？",
-            message = "「${smartList.name}」将被删除，命中内容保留在书库中。",
-            onConfirm = onDelete,
+            message = "「${display.name}」将被删除，命中内容保留在书库中。",
+            onConfirm = {
+                deleteConfirm = false
+                // 真实列表走 DELETE；演示数据走外部回调
+                if (state.hasRealSmartList) {
+                    viewModel.delete { onBack() }
+                } else {
+                    onDelete()
+                }
+            },
             onDismiss = { deleteConfirm = false },
+        )
+    }
+    if (editOpen) {
+        // 编辑器不反解服务端 search 文档：规则从空白构建，保存时覆盖（name/summary 保留现值）
+        SmartListEditSheet(
+            onSave = { name, _, matchAll, rules ->
+                viewModel.save(
+                    name = name,
+                    summary = display.summary ?: "",
+                    search = buildSmartListSearchDocument(matchAll, rules),
+                ) { }
+                editOpen = false
+            },
+            onDismiss = { editOpen = false },
+            initialName = display.name,
+            initialTarget = display.target,
+            isEdit = true,
+            onDelete = {
+                editOpen = false
+                deleteConfirm = true
+            },
         )
     }
 }
 
-/** Hero：封面缩略图占位 + 名称 + 目标类型/更新时间 + 简介（对齐 SmartListHeroInfoView + DetailTimestampsView）。 */
+/** Hero：封面缩略图 + 名称 + 目标类型/更新时间 + 简介（对齐 SmartListHeroInfoView + DetailTimestampsView）。 */
 @Composable
 private fun SmartListHero(
-    smartList: SmartListDetail,
+    display: SmartListDetail,
     hitCount: Int,
     coverHue: Float,
+    imageUrl: String?,
     centered: Boolean,
 ) {
     Column(
@@ -300,17 +347,18 @@ private fun SmartListHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // 封面 = 服务端缩略图 /api/v1/smartlists/{id}/thumbnail，此处为占位；实现时以 AsyncImage 加载
+        // 封面 = /api/v1/smart-lists/{id}/thumbnail（kmrs 端点）
         CoverArt(
-            title = smartList.name,
+            title = display.name,
             hue = coverHue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(168.dp)
                 .aspectRatio(1f),
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = smartList.name,
+            text = display.name,
             style = MaterialTheme.typography.headlineSmall,
         )
         Row(
@@ -318,7 +366,7 @@ private fun SmartListHero(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                if (smartList.target == SmartListTarget.Book) Icons.AutoMirrored.Outlined.MenuBook
+                if (display.target == SmartListTarget.Book) Icons.AutoMirrored.Outlined.MenuBook
                 else Icons.Outlined.CollectionsBookmark,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
@@ -326,7 +374,7 @@ private fun SmartListHero(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                text = "目标：${smartList.target.label} · $hitCount 项",
+                text = "目标：${display.target.label} · $hitCount 项",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -339,12 +387,12 @@ private fun SmartListHero(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                text = smartList.modifiedLabel,
+                text = display.modifiedLabel,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        smartList.summary?.let {
+        display.summary?.let {
             Text(
                 text = it,
                 style = MaterialTheme.typography.bodyMedium,
@@ -417,6 +465,7 @@ private fun SmartListContent(
     onOpenBook: (Book) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onToggleSelect: (Int) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     val minCell = if (layout == BrowseLayout.LargeGrid) 160 else 108
     BoxWithConstraints(
@@ -432,6 +481,7 @@ private fun SmartListContent(
                         rowItems.forEach { book ->
                             BookGridCard(
                                 book = book,
+                                imageUrl = thumbnails[book.id],
                                 onClick = {
                                     if (selecting) onToggleSelect(book.id) else onOpenBook(book)
                                 },
@@ -447,6 +497,7 @@ private fun SmartListContent(
                         rowItems.forEach { item ->
                             SeriesGridCard(
                                 series = item,
+                                imageUrl = thumbnails[item.id],
                                 onClick = {
                                     if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
                                 },

@@ -7,6 +7,7 @@ import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
+import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -51,6 +52,12 @@ class RootViewModel @Inject constructor(
                 .collect { (clients, enabled) ->
                     if (clients != null && enabled) sseService.start(clients) else sseService.stop()
                 }
+        }
+        // SessionExpired 事件 → 自动登出（logout 幂等：sse 随之 stop）
+        viewModelScope.launch {
+            sseService.events.collect { event ->
+                if (event.kind == SseEventKind.Session) logout()
+            }
         }
     }
 

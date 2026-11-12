@@ -15,6 +15,7 @@ enum class SseEventKind {
     ReadProgress,
     Collection,
     ReadList,
+    SmartList,
     Library,
     Task,
     Session,
@@ -41,6 +42,7 @@ data class SseEvent(
             name.startsWith("ReadProgress") -> SseEventKind.ReadProgress
             name.startsWith("ReadList") -> SseEventKind.ReadList
             name.startsWith("Collection") -> SseEventKind.Collection
+            name.startsWith("SmartList") -> SseEventKind.SmartList
             name.startsWith("Library") -> SseEventKind.Library
             name.startsWith("Task") -> SseEventKind.Task
             name.startsWith("Session") -> SseEventKind.Session

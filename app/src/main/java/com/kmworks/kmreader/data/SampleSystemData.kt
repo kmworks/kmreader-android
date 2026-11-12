@@ -4,22 +4,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.random.Random
 
-/** Download queue item (mirrors OfflineTaskItem). */
-data class DownloadTask(
-    val id: Int,
-    val seriesTitle: String,
-    val hue: Float,
-    val bookLabel: String,
-    val progress: Float,
-    val status: DownloadTaskStatus,
-    val error: String? = null,
-)
-
-/** Download status (mirrors OfflineTasksView sections). */
-enum class DownloadTaskStatus(val label: String) {
-    Downloading("下载中"), Paused("已暂停"), Failed("失败")
-}
-
 /** Custom font (mirrors CustomFontDisplayItem). */
 data class CustomFont(val id: Int, val name: String, val fileName: String, val sizeLabel: String)
 
@@ -51,15 +35,8 @@ data class ReadingStatsSummary(
 /** Single heatmap day (mirrors ReadingStatsTimePoint). */
 data class HeatmapDay(val date: String, val pages: Int)
 
-/** Fake data for downloads / fonts / servers / logs / stats. */
+/** Fake data for fonts / servers / logs / stats. */
 object SampleSystemData {
-
-    val downloadQueue: List<DownloadTask> = listOf(
-        DownloadTask(1, "葬送的芙莉莲", 210f, "第 13 卷", 0.62f, DownloadTaskStatus.Downloading),
-        DownloadTask(2, "怪兽8号", 90f, "第 5 卷", 0.18f, DownloadTaskStatus.Downloading),
-        DownloadTask(3, "蓝色监狱", 190f, "第 12 卷", 0.45f, DownloadTaskStatus.Paused),
-        DownloadTask(4, "王者天下", 55f, "第 73 卷", 0.97f, DownloadTaskStatus.Failed, error = "网络连接中断"),
-    )
 
     val customFonts: List<CustomFont> = listOf(
         CustomFont(1, "霞鹜文楷", "LXGWWenKai-Regular.ttf", "18.2 MB"),

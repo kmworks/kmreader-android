@@ -33,6 +33,18 @@ class DownloadViewModel @Inject constructor(
     /** 已用/总存储字节数。 */
     val storage: StateFlow<Pair<Long, Long>> = _storage
 
+    /** 仅 Wi-Fi 下载（真实约束 UNMETERED）。 */
+    val wifiOnly: StateFlow<Boolean> = downloadRepository.wifiOnly
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 自动下载未读（仅持久化偏好，触发器后续版本接入）。 */
+    val autoDownloadUnread: StateFlow<Boolean> = downloadRepository.autoDownloadUnread
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setWifiOnly(enabled: Boolean) = downloadRepository.setWifiOnly(enabled)
+
+    fun setAutoDownloadUnread(enabled: Boolean) = downloadRepository.setAutoDownloadUnread(enabled)
+
     init {
         refreshLocal()
         // 队列状态变化后重扫文件（完成/取消/失败都会改变落盘状态）

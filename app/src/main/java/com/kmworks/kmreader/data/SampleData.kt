@@ -182,17 +182,6 @@ object SampleData {
         ),
     )
 
-    data class DownloadedSeries(val title: String, val hue: Float, val books: Int, val sizeGb: Float)
-
-    val downloadedSeries: List<DownloadedSeries> = listOf(
-        DownloadedSeries("葬送的芙莉莲", 210f, 12, 2.4f),
-        DownloadedSeries("迷宫饭", 120f, 14, 1.8f),
-        DownloadedSeries("链锯人", 25f, 18, 3.1f),
-    )
-
-    const val storageUsedGb = 7.3f
-    const val storageTotalGb = 128f
-
     val searchResults: List<Series> = series.take(8)
 
     fun seriesById(id: Int): Series = series.first { it.id == id }
