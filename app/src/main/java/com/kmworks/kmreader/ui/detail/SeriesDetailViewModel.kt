@@ -30,6 +30,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -41,7 +42,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -177,6 +177,7 @@ class SeriesDetailViewModel @Inject constructor(
                     )
                 }
                 refreshDownloaded()
+                autoDownloadUnreadIfEnabled()
                 refreshTrackerLinks()
                 observeReadProgressEvents()
             } catch (e: Exception) {
@@ -241,6 +242,17 @@ class SeriesDetailViewModel @Inject constructor(
     }
 
     /** 刷新各书籍的本地已下载状态（文件扫描）。 */
+    /** 自动下载未读：策略开启后，打开系列详情时把未读且未下载的书排队。 */
+    private suspend fun autoDownloadUnreadIfEnabled() {
+        if (!downloadRepository.autoDownloadUnread.first()) return
+        _uiState.value.books.orEmpty().filter { (it.progress ?: 0f) < 1f }.forEach { book ->
+            val bookDtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
+            if (_downloaded.value[book.id] != true) {
+                downloadRepository.enqueueBook(bookDtoId, book.title, book.pageCount)
+            }
+        }
+    }
+
     fun refreshDownloaded() {
         val books = _uiState.value.books ?: return
         viewModelScope.launch {

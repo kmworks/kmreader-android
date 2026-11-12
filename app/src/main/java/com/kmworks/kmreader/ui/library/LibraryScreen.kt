@@ -276,16 +276,18 @@ fun LibraryScreen(
                         info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
                     }
                 }
-                LaunchedEffect(shouldLoadMore, contentType) {
-                    if (!shouldLoadMore) return@LaunchedEffect
+                val hasMore = when (contentType) {
+                    ContentType.Series -> state.seriesHasMore
+                    ContentType.Books -> state.booksHasMore
+                }
+                // loadedCount 进入 key：追加一页后仍停在底部时继续请求下一页
+                val loadedCount = if (contentType == ContentType.Series) series.size else allBooks.size
+                LaunchedEffect(shouldLoadMore, contentType, hasMore, loadedCount) {
+                    if (!shouldLoadMore || !hasMore) return@LaunchedEffect
                     when (contentType) {
                         ContentType.Series -> viewModel.loadMoreSeries()
                         ContentType.Books -> viewModel.loadMoreBooks()
                     }
-                }
-                val hasMore = when (contentType) {
-                    ContentType.Series -> state.seriesHasMore
-                    ContentType.Books -> state.booksHasMore
                 }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 110.dp),

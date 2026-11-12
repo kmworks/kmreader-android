@@ -42,8 +42,6 @@ data class DashboardUiState(
     val sections: List<DashboardSection<out Any>>? = null,
     /** 进行中的阅读列表续读卡（真实计算；无进行中列表时为空）。 */
     val continuations: List<ReadListContinuationUi> = emptyList(),
-    /** UI id -> thumbnail URL for series and books. */
-    val thumbnails: Map<Int, String> = emptyMap(),
     val collections: List<ListEntry>? = null,
     val readLists: List<ListEntry>? = null,
     /** 分区标题右侧是否显示卡片形态菜单（设置页持久化）。 */
@@ -88,7 +86,7 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             sessionManager.clients.collect { clients ->
                 if (clients == null) {
-                    _state.update { it.copy(hasSession = false, loading = false, sections = null, thumbnails = emptyMap()) }
+                    _state.update { it.copy(hasSession = false, loading = false, sections = null) }
                 } else {
                     load()
                 }
@@ -179,13 +177,6 @@ class DashboardViewModel @Inject constructor(
             val latestBooks = fetched.latestBooks.map { it.toUiBook() }
             val latestSeries = fetched.latestSeries.map { it.toUiSeries() }
             val updatedSeries = fetched.updatedSeries.map { it.toUiSeries() }
-            val thumbs = buildMap {
-                fetched.keepReading.forEach { bookRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-                fetched.onDeck.forEach { bookRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-                fetched.latestBooks.forEach { bookRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-                fetched.latestSeries.forEach { seriesRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-                fetched.updatedSeries.forEach { seriesRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-            }.toMutableMap()
             val sections = listOfNotNull(
                 if (keepReading.isNotEmpty()) DashboardSection("keepReading", "继续阅读", DashboardCardKind.Large, keepReading) else null,
                 if (onDeck.isNotEmpty()) DashboardSection("onDeck", "待读", DashboardCardKind.Large, onDeck) else null,
@@ -225,11 +216,6 @@ class DashboardViewModel @Inject constructor(
                         )
                     }
                 }.mapNotNull { it.await() }
-            }
-            continuations.forEach { cont ->
-                detailRepository.readListDtoId(cont.readListId)
-                    ?.let { detailRepository.readListThumbnailUrl(it) }
-                    ?.let { url -> thumbs[cont.readListId] = url }
             }
             val allSections = if (continuations.isNotEmpty()) {
                 sections + DashboardSection(

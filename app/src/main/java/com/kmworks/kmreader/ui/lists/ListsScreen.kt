@@ -169,6 +169,7 @@ fun ListsScreen(
                         "阅读列表" -> state.readListsHasMore
                         else -> false
                     },
+                    loadingMore = state.loadingMore,
                     onLoadMore = when (group.title) {
                         "收藏" -> viewModel::loadMoreCollections
                         "阅读列表" -> viewModel::loadMoreReadLists
@@ -234,6 +235,7 @@ fun ListsScreen(
 private fun ListStrip(
     group: ListGroup,
     hasMore: Boolean = false,
+    loadingMore: Boolean = false,
     onLoadMore: () -> Unit = {},
     onOpenEntry: (ListEntry) -> Unit,
     onEntryMenu: (ListEntry) -> Unit,
@@ -247,8 +249,9 @@ private fun ListStrip(
             info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
         }
     }
-    LaunchedEffect(shouldLoadMore, hasMore) {
-        if (shouldLoadMore && hasMore) onLoadMore()
+    // items.size 进入 key：追加一页后仍停在条带末尾时继续请求下一页
+    LaunchedEffect(shouldLoadMore, hasMore, loadingMore, group.items.size) {
+        if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
     }
     Column(modifier = Modifier.padding(vertical = 10.dp)) {
         Row(
