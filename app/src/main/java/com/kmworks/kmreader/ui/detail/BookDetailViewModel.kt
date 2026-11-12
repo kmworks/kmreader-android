@@ -8,6 +8,7 @@ import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toCreator
 import com.kmworks.kmreader.core.data.toUiBook
+import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
@@ -38,6 +39,7 @@ class BookDetailViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
+    private val downloadRepository: DownloadRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BookDetailUiState())
@@ -45,6 +47,11 @@ class BookDetailViewModel @Inject constructor(
 
     private val _readLists = MutableStateFlow<List<ListEntry>?>(null)
     val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
+
+    private val _downloaded = MutableStateFlow<Boolean?>(null)
+
+    /** 本书是否已整本下载到本地（null = 未知/无映射）。 */
+    val downloaded: StateFlow<Boolean?> = _downloaded.asStateFlow()
 
     private var loadedId: Int? = null
 
@@ -85,6 +92,7 @@ class BookDetailViewModel @Inject constructor(
                         thumbnail = detailRepository.bookThumbnailUrl(dto.id),
                     )
                 }
+                _downloaded.value = downloadRepository.isBookDownloaded(dto.id)
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
             }
@@ -129,6 +137,15 @@ class BookDetailViewModel @Inject constructor(
         viewModelScope.launch {
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
+        return true
+    }
+
+    /** 下载当前书籍；返回 false 表示无会话/无 DTO 映射（演示数据）。 */
+    fun downloadBook(): Boolean {
+        if (sessionManager.clients.value == null) return false
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) } ?: return false
+        val book = _uiState.value.book ?: return false
+        downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
         return true
     }
 }

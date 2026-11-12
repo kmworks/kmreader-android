@@ -44,8 +44,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.data.SampleSystemData
 import com.kmworks.kmreader.ui.RootViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 /** Cache settings (mirrors SettingsCacheView). */
@@ -141,8 +145,22 @@ fun NetworkSettingsScreen(onBack: () -> Unit) {
 /** SSE connection settings (mirrors SettingsSSEView). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SseSettingsScreen(onBack: () -> Unit) {
-    var connected by remember { mutableStateOf(SampleSystemData.sseConnected) }
+fun SseSettingsScreen(
+    onBack: () -> Unit,
+    rootViewModel: RootViewModel = hiltViewModel(),
+) {
+    val connectionState by rootViewModel.sseConnectionState.collectAsStateWithLifecycle()
+    val lastEventAt by rootViewModel.sseLastEventAt.collectAsStateWithLifecycle()
+    val sseEnabled by rootViewModel.sseEnabled.collectAsStateWithLifecycle()
+
+    val connected = connectionState is SseConnectionState.Connected
+    val statusText = when (val state = connectionState) {
+        is SseConnectionState.Connected -> "已连接"
+        is SseConnectionState.Connecting -> "连接中…"
+        is SseConnectionState.Retrying -> "重连中（${state.retryInSeconds} 秒后）"
+        is SseConnectionState.Disconnected -> "未连接"
+    }
+    val lastEventText = lastEventAt?.let(::formatSseTime) ?: "暂无"
 
     SystemScaffold(title = "SSE 连接", onBack = onBack) { padding ->
         LazyColumn(
@@ -167,11 +185,11 @@ fun SseSettingsScreen(onBack: () -> Unit) {
                     Spacer(Modifier.size(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            if (connected) "已连接" else "未连接",
+                            statusText,
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            "最近事件：${SampleSystemData.sseLastEvent}",
+                            "最近事件：$lastEventText",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -184,20 +202,26 @@ fun SseSettingsScreen(onBack: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("自动重连", style = MaterialTheme.typography.bodyLarge)
+                        Text("SSE 实时更新", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "连接断开后自动尝试恢复",
+                            "接收服务端实时事件，关闭后断开长连",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(checked = connected, onCheckedChange = { connected = it })
+                    Switch(checked = sseEnabled, onCheckedChange = rootViewModel::setSseEnabled)
                 }
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
+
+/** HH:mm:ss 事件时间。 */
+private fun formatSseTime(millis: Long): String =
+    Instant.ofEpochMilli(millis)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
 /** Log viewer (mirrors SettingsLogsView). */
 @OptIn(ExperimentalMaterial3Api::class)

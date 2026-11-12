@@ -6,6 +6,7 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
@@ -40,6 +41,7 @@ class SeriesDetailViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
+    private val downloadRepository: DownloadRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
@@ -47,6 +49,11 @@ class SeriesDetailViewModel @Inject constructor(
 
     private val _collections = MutableStateFlow<List<ListEntry>?>(null)
     val collections: StateFlow<List<ListEntry>?> = _collections.asStateFlow()
+
+    private val _downloaded = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
+
+    /** 各书籍（stableId）是否已整本下载到本地。 */
+    val downloaded: StateFlow<Map<Int, Boolean>> = _downloaded.asStateFlow()
 
     private var loadedId: Int? = null
 
@@ -80,6 +87,7 @@ class SeriesDetailViewModel @Inject constructor(
                         thumbnails = thumbnails,
                     )
                 }
+                refreshDownloaded()
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
             }
@@ -126,5 +134,30 @@ class SeriesDetailViewModel @Inject constructor(
             actionRepository.addSeriesToCollection(collectionDtoId, seriesDtoId)
         }
         return true
+    }
+
+    /** 下载本系列全部书籍；返回 false 表示无会话/无 DTO 映射（演示数据）。 */
+    fun downloadSeries(): Boolean {
+        if (sessionManager.clients.value == null) return false
+        val books = _uiState.value.books ?: return false
+        var enqueued = false
+        books.forEach { book ->
+            val dtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
+            downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+            enqueued = true
+        }
+        return enqueued
+    }
+
+    /** 刷新各书籍的本地已下载状态（文件扫描）。 */
+    fun refreshDownloaded() {
+        val books = _uiState.value.books ?: return
+        viewModelScope.launch {
+            val map = books.mapNotNull { book ->
+                val dtoId = detailRepository.bookDtoId(book.id) ?: return@mapNotNull null
+                book.id to downloadRepository.isBookDownloaded(dtoId)
+            }.toMap()
+            _downloaded.value = map
+        }
     }
 }

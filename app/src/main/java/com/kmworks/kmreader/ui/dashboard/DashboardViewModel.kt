@@ -11,6 +11,8 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.sse.SseEventKind
+import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSection
@@ -23,6 +25,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -46,6 +50,7 @@ class DashboardViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
+    private val sseService: SseService,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -66,6 +71,13 @@ class DashboardViewModel @Inject constructor(
                     load()
                 }
             }
+        }
+        // SSE 内容变化事件聚合 3s 后刷新
+        viewModelScope.launch {
+            sseService.events
+                .filter { it.kind in REFRESH_KINDS }
+                .debounce(3_000)
+                .collect { refresh() }
         }
     }
 
@@ -174,6 +186,18 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
+    }
+
+    private companion object {
+        /** 触发仪表盘刷新的事件类别。 */
+        val REFRESH_KINDS = setOf(
+            SseEventKind.Book,
+            SseEventKind.Series,
+            SseEventKind.ReadProgress,
+            SseEventKind.Collection,
+            SseEventKind.ReadList,
+            SseEventKind.Library,
+        )
     }
 }
 

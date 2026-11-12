@@ -30,28 +30,30 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kmworks.kmreader.data.DownloadTask
-import com.kmworks.kmreader.data.DownloadTaskStatus
-import com.kmworks.kmreader.data.SampleData
-import com.kmworks.kmreader.data.SampleSystemData
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.core.download.DownloadTaskUi
+import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.ui.components.CoverArt
 
 /** Downloads tab (mirrors OfflineView + OfflineTasksView + OfflineDownloadedBookGroupView + ReadListOfflinePolicyMenuItems). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OfflineScreen() {
-    val queue = remember { SampleSystemData.downloadQueue.toMutableStateList() }
+fun OfflineScreen(
+    viewModel: DownloadViewModel = hiltViewModel(),
+) {
+    val tasks by viewModel.tasks.collectAsState()
+    val downloaded by viewModel.downloaded.collectAsState()
+    val storage by viewModel.storage.collectAsState()
     var autoDownloadUnread by remember { mutableStateOf(true) }
     var wifiOnly by remember { mutableStateOf(true) }
-    val downloaded = remember { SampleData.downloadedSeries.toMutableStateList() }
 
     Scaffold(
         topBar = {
@@ -77,9 +79,10 @@ fun OfflineScreen() {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("存储占用", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))
+                        val total = storage.second
                         LinearProgressIndicator(
                             progress = {
-                                SampleData.storageUsedGb / SampleData.storageTotalGb
+                                if (total > 0) (storage.first / total.toFloat()).coerceIn(0f, 1f) else 0f
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -87,7 +90,7 @@ fun OfflineScreen() {
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "已下载 ${SampleData.storageUsedGb} GB，共 ${SampleData.storageTotalGb.toInt()} GB",
+                            text = "已下载 ${formatBytes(storage.first)}，共 ${formatBytes(total)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -100,7 +103,7 @@ fun OfflineScreen() {
                 Spacer(Modifier.height(8.dp))
             }
 
-            if (queue.isEmpty()) {
+            if (tasks.isEmpty()) {
                 item(key = "queueEmpty") {
                     Text(
                         "暂无下载任务",
@@ -110,23 +113,17 @@ fun OfflineScreen() {
                     )
                 }
             } else {
-                items(queue, key = { it.id }) { task ->
+                items(tasks, key = { it.bookDtoId }) { task ->
                     DownloadTaskRow(
                         task = task,
+                        // MVP：暂停降级为取消（WorkManager 单请求不支持断点暂停）
                         onPauseResume = {
-                            val index = queue.indexOfFirst { it.id == task.id }
-                            if (index >= 0) {
-                                queue[index] = queue[index].copy(
-                                    status = when (queue[index].status) {
-                                        DownloadTaskStatus.Downloading -> DownloadTaskStatus.Paused
-                                        DownloadTaskStatus.Paused -> DownloadTaskStatus.Downloading
-                                        DownloadTaskStatus.Failed -> DownloadTaskStatus.Downloading
-                                    },
-                                    error = null,
-                                )
+                            when (task.status) {
+                                DownloadTaskUi.Status.Downloading -> viewModel.cancel(task)
+                                DownloadTaskUi.Status.Failed -> viewModel.retry(task)
                             }
                         },
-                        onCancel = { queue.removeAll { it.id == task.id } },
+                        onCancel = { viewModel.cancel(task) },
                     )
                     HorizontalDivider()
                 }
@@ -136,7 +133,7 @@ fun OfflineScreen() {
                 Spacer(Modifier.height(24.dp))
                 Text("下载策略", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
-                // Mirrors ReadListOfflinePolicyMenuItems (unreadOnly / wifi-only)
+                // MVP 占位：策略开关仅视觉，未接线（对齐 ReadListOfflinePolicyMenuItems）
                 PolicySwitchRow(
                     title = "自动下载未读内容",
                     subtitle = "新内容入库后自动下载未读分册",
@@ -151,15 +148,26 @@ fun OfflineScreen() {
                 )
 
                 Spacer(Modifier.height(24.dp))
-                Text("已下载系列", style = MaterialTheme.typography.titleMedium)
+                Text("已下载书籍", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
             }
 
-            items(downloaded, key = { it.title }) { item ->
-                DownloadedRow(
-                    item = item,
-                    onRemove = { downloaded.removeAll { it.title == item.title } },
-                )
+            if (downloaded.isEmpty()) {
+                item(key = "downloadedEmpty") {
+                    Text(
+                        "暂无已下载内容",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+            } else {
+                items(downloaded, key = { it.bookDtoId }) { item ->
+                    DownloadedRow(
+                        item = item,
+                        onRemove = { viewModel.deleteBook(item) },
+                    )
+                }
             }
 
             item(key = "bottomSpacer") {
@@ -171,7 +179,7 @@ fun OfflineScreen() {
 
 @Composable
 private fun DownloadTaskRow(
-    task: DownloadTask,
+    task: DownloadTaskUi,
     onPauseResume: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -182,26 +190,24 @@ private fun DownloadTaskRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CoverArt(
-            title = task.seriesTitle,
-            hue = task.hue,
+            title = task.title,
+            hue = (task.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(task.seriesTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+            Text(task.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Text(
-                task.bookLabel,
+                "${task.pageDone}/${task.pageTotal} 页",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
             Spacer(Modifier.height(6.dp))
             when (task.status) {
-                DownloadTaskStatus.Downloading,
-                DownloadTaskStatus.Paused,
-                -> {
+                DownloadTaskUi.Status.Downloading -> {
                     LinearProgressIndicator(
                         progress = { task.progress },
                         modifier = Modifier
@@ -216,9 +222,9 @@ private fun DownloadTaskRow(
                     )
                 }
 
-                DownloadTaskStatus.Failed -> {
+                DownloadTaskUi.Status.Failed -> {
                     Text(
-                        task.error ?: "下载失败",
+                        "下载失败，可重试",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -230,9 +236,8 @@ private fun DownloadTaskRow(
             TextButton(onClick = onPauseResume) {
                 Text(
                     when (task.status) {
-                        DownloadTaskStatus.Downloading -> "暂停"
-                        DownloadTaskStatus.Paused -> "继续"
-                        DownloadTaskStatus.Failed -> "重试"
+                        DownloadTaskUi.Status.Downloading -> "暂停"
+                        DownloadTaskUi.Status.Failed -> "重试"
                     },
                 )
             }
@@ -269,7 +274,7 @@ private fun PolicySwitchRow(
 }
 
 @Composable
-private fun DownloadedRow(item: SampleData.DownloadedSeries, onRemove: () -> Unit) {
+private fun DownloadedRow(item: DownloadedBookUi, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -278,7 +283,7 @@ private fun DownloadedRow(item: SampleData.DownloadedSeries, onRemove: () -> Uni
     ) {
         CoverArt(
             title = item.title,
-            hue = item.hue,
+            hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),
@@ -287,7 +292,7 @@ private fun DownloadedRow(item: SampleData.DownloadedSeries, onRemove: () -> Uni
         Column(modifier = Modifier.weight(1f)) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = "共 ${item.books} 册 · ${item.sizeGb} GB",
+                text = "${item.pageCount} 页 · ${formatBytes(item.sizeBytes)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -307,4 +312,11 @@ private fun DownloadedRow(item: SampleData.DownloadedSeries, onRemove: () -> Uni
             )
         }
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1L shl 30).toFloat())
+    bytes >= 1L shl 20 -> "%.0f MB".format(bytes / (1L shl 20).toFloat())
+    bytes >= 1L shl 10 -> "%.0f KB".format(bytes / (1L shl 10).toFloat())
+    else -> "$bytes B"
 }

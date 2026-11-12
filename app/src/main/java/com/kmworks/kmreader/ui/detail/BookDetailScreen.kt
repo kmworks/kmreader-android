@@ -137,7 +137,10 @@ internal fun BookDetailBody(
     val baseBook = state.book ?: book
     // design mock: mark-read / download toggle locally for instant feedback
     var progressToggled by remember(book.id) { mutableStateOf(false) }
-    var downloaded by remember(book.id) { mutableStateOf(false) }
+    // 下载态：真实文件状态优先（VM 文件扫描），无会话时本地演示开关
+    val vmDownloaded by viewModel.downloaded.collectAsState()
+    var localDownloaded by remember(book.id) { mutableStateOf(false) }
+    val downloaded = vmDownloaded ?: localDownloaded
     val meta = state.meta ?: SampleListDetailData.bookMetaOf(baseBook)
     val progress = if (progressToggled) {
         if (baseBook.progress == 1f) null else 1f
@@ -253,7 +256,10 @@ internal fun BookDetailBody(
                                 onMarkReadToggle(displayed)
                             },
                             onDownloadToggle = {
-                                downloaded = !downloaded
+                                // 真实数据入队下载；演示数据本地翻转
+                                if (!viewModel.downloadBook()) {
+                                    localDownloaded = !localDownloaded
+                                }
                                 onDownload(displayed)
                             },
                             onAddToReadList = {
@@ -302,7 +308,10 @@ internal fun BookDetailBody(
                             onMarkReadToggle(displayed)
                         },
                         onDownloadToggle = {
-                            downloaded = !downloaded
+                            // 真实数据入队下载；演示数据本地翻转
+                            if (!viewModel.downloadBook()) {
+                                localDownloaded = !localDownloaded
+                            }
                             onDownload(displayed)
                         },
                         onAddToReadList = {
@@ -543,15 +552,16 @@ internal fun BookActionCard(
                 }
                 OutlinedButton(
                     onClick = onDownloadToggle,
+                    enabled = !downloaded,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(
-                        Icons.Outlined.Download,
+                        if (downloaded) Icons.Outlined.CheckCircle else Icons.Outlined.Download,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (downloaded) "移除下载" else "下载")
+                    Text(if (downloaded) "已下载" else "下载")
                 }
             }
             Spacer(Modifier.height(8.dp))

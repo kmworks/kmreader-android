@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.Business
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.EditNote
@@ -139,6 +140,20 @@ fun SeriesDetailScreen(
     var showTrackerSheet by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
+    // 下载状态：真实文件扫描结果（stableId -> 完整）+ 演示本地反馈
+    val downloadedMap by viewModel.downloaded.collectAsState()
+    var demoDownloaded by remember { mutableStateOf(false) }
+    val seriesDownloaded = (
+        books.isNotEmpty() && downloadedMap.isNotEmpty() &&
+            books.all { downloadedMap[it.id] == true }
+        ) || demoDownloaded
+    val onDownloadSeries = {
+        if (viewModel.downloadSeries()) {
+            // 已入队；完成后 downloadedMap 经文件扫描更新
+        } else {
+            demoDownloaded = true
+        }
+    }
 
     // 多选未开启时长按书籍 = 带该书进入多选（对齐原作长按手势）
     val toggleSelect: (Book) -> Unit = { book ->
@@ -237,7 +252,9 @@ fun SeriesDetailScreen(
                             series = displaySeries,
                             continueBook = continueBook,
                             centered = true,
+                            downloaded = seriesDownloaded,
                             onRead = { onRead(continueBook) },
+                            onDownload = onDownloadSeries,
                         )
                         DetailTimestamps()
                         DetailSummary(displaySeries)
@@ -301,7 +318,9 @@ fun SeriesDetailScreen(
                             series = displaySeries,
                             continueBook = continueBook,
                             centered = true,
+                            downloaded = seriesDownloaded,
                             onRead = { onRead(continueBook) },
+                            onDownload = onDownloadSeries,
                         )
                         DetailTimestamps()
                         DetailSummary(displaySeries)
@@ -455,7 +474,9 @@ private fun DetailActionCard(
     series: Series,
     continueBook: Book,
     centered: Boolean,
+    downloaded: Boolean,
     onRead: () -> Unit,
+    onDownload: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -493,16 +514,17 @@ private fun DetailActionCard(
         }
         ReadingActionButton(continueBook = continueBook, onRead = onRead)
         OutlinedButton(
-            onClick = { },
+            onClick = onDownload,
+            enabled = !downloaded,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(
-                Icons.Filled.Download,
+                if (downloaded) Icons.Outlined.CheckCircle else Icons.Filled.Download,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(6.dp))
-            Text("下载本系列")
+            Text(if (downloaded) "已下载" else "下载本系列")
         }
     }
 }

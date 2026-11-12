@@ -9,11 +9,16 @@ import com.kmworks.kmreader.core.api.ReadlistsApi
 import com.kmworks.kmreader.core.api.ReferentialMetadataApi
 import com.kmworks.kmreader.core.api.SeriesApi
 import com.kmworks.kmreader.core.api.UserSessionApi
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
@@ -49,6 +54,15 @@ class ApiClients(config: ServerConfig) {
             HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC },
         )
         .build()
+
+    /** SSE 长连用派生客户端：读超时置 0，认证拦截器继承。 */
+    private val sseHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
+    /** 建立带认证的 SSE EventSource（端点由调用方给定）。 */
+    fun newEventSource(request: Request, listener: EventSourceListener): EventSource =
+        EventSources.createFactory(sseHttpClient).newEventSource(request, listener)
 
     private val retrofit: Retrofit = Retrofit.Builder()
         .baseUrl(config.normalizedBaseUrl + "/")
