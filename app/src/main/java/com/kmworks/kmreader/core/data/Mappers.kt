@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.data
 
+import com.kmworks.kmreader.core.api.model.AuthorDto
 import com.kmworks.kmreader.core.api.model.BookDto
 import com.kmworks.kmreader.core.api.model.SeriesDto
 import com.kmworks.kmreader.data.AuthorRole
@@ -34,9 +35,15 @@ private fun mapRole(role: String): AuthorRole = when (role.lowercase()) {
     else -> AuthorRole.Custom
 }
 
+/** Map a Komga author to the UI creator model. */
+fun AuthorDto.toCreator(): Creator = Creator(name, mapRole(role))
+
 /** Map a Komga series to the UI model (progress from read counts). */
-fun SeriesDto.toUiSeries(): Series = Series(
-    id = id.stableId(),
+fun SeriesDto.toUiSeries(): Series {
+    val stableId = id.stableId()
+    DetailIdRegistry.registerSeries(stableId, id)
+    return Series(
+        id = stableId,
     title = metadata.title.ifBlank { name },
     author = booksMetadata.authors.joinToString(" / ") { it.name },
     hue = hueFor(id),
@@ -58,14 +65,17 @@ fun SeriesDto.toUiSeries(): Series = Series(
     tags = metadata.tags.toList(),
     links = metadata.links.map { it.label to it.url },
     summary = metadata.summary.ifBlank { null },
-)
+    )
+}
 
 /** Map a Komga book to the UI model (progress from readProgress). */
 fun BookDto.toUiBook(): Book {
+    val stableId = id.stableId()
+    DetailIdRegistry.registerBook(stableId, id)
     val n = metadata.number.ifBlank { number.toString() }
     val numberLabel = if (n.toFloatOrNull() != null) "第 $n 卷" else n
     return Book(
-        id = id.stableId(),
+        id = stableId,
         number = numberLabel,
         title = metadata.title.ifBlank { name },
         seriesTitle = seriesTitle,

@@ -1,7 +1,8 @@
 package com.kmworks.kmreader.data
 
 /**
- * 页面几何：宽高来自 Komga 的 `Media.pages[].dimensions`（设计稿用假数据模拟）。
+ * 页面几何：宽高来自 Komga 的 `PageDto.width/height`（可空，未知按竖版处理；
+ * 无会话时回退 pagesFor 假数据）。
  *
  * 原作判定宽图（跨页）的方式：`height > width` 为竖版，否则为横版/跨页
  * （KMReader/Features/Reader/Models/Divina/ReaderViewItemGenerator.swift:64-71）。
@@ -52,7 +53,7 @@ sealed interface ReaderViewItem {
  */
 object ReaderViewItemGenerator {
 
-    /** 设计稿假数据：每 6 页出现一个跨页宽图；封面固定竖版。 */
+    /** 离线/样例回退假数据：每 6 页出现一个跨页宽图；封面固定竖版。 */
     fun pagesFor(book: Book): List<ReaderPage> = buildList {
         for (number in 1..book.pageCount) {
             val isSpread = number > 1 && number % 6 == 0

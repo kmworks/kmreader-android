@@ -37,10 +37,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,7 +72,16 @@ fun CollectionDetailScreen(
     onTogglePin: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
+    viewModel: CollectionDetailViewModel = hiltViewModel(),
 ) {
+    // 真实数据：反查收藏 DTO 并拉其系列；无会话/未注册回退假数据
+    val state by viewModel.uiState.collectAsState()
+    LaunchedEffect(collection.id) { viewModel.load(collection.id) }
+    val displayCollection = collection.copy(
+        name = state.name ?: collection.name,
+        ordered = state.ordered ?: collection.ordered,
+    )
+    val sourceSeries = state.series ?: collection.series
     var layout by remember { mutableStateOf(BrowseLayout.Grid) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
@@ -79,8 +91,11 @@ fun CollectionDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
 
-    val visible = collection.series.filter { it.id !in removedIds }
+    val visible = sourceSeries.filter { it.id !in removedIds }
     val series = sortCollectionSeries(visible, options)
+    // hero 封面：服务端无收藏缩略图端点，用首个系列的缩略图
+    val heroImageUrl = visible.firstOrNull()?.let { state.thumbnails[it.id] }
+    val heroHue = visible.firstOrNull()?.hue ?: 210f
 
     Scaffold(
         modifier = modifier,
@@ -157,7 +172,13 @@ fun CollectionDetailScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        CollectionHero(collection, visible.size, centered = false)
+                        CollectionHero(
+                            displayCollection,
+                            visible.size,
+                            centered = false,
+                            coverHue = heroHue,
+                            imageUrl = heroImageUrl,
+                        )
                     }
                     Column(
                         modifier = Modifier
@@ -199,6 +220,7 @@ fun CollectionDetailScreen(
                             onToggleSelect = { id ->
                                 selected = if (id in selected) selected - id else selected + id
                             },
+                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -210,7 +232,13 @@ fun CollectionDetailScreen(
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        CollectionHero(collection, visible.size, centered = true)
+                        CollectionHero(
+                            displayCollection,
+                            visible.size,
+                            centered = true,
+                            coverHue = heroHue,
+                            imageUrl = heroImageUrl,
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     SeriesToolbar(
@@ -246,6 +274,7 @@ fun CollectionDetailScreen(
                         onToggleSelect = { id ->
                             selected = if (id in selected) selected - id else selected + id
                         },
+                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -271,17 +300,24 @@ fun CollectionDetailScreen(
 
 /** Hero：封面拼贴占位 + 名称 + 系列计数 + 简介（对齐 CollectionDetailContentView）。 */
 @Composable
-private fun CollectionHero(collection: CollectionDetail, seriesCount: Int, centered: Boolean) {
+private fun CollectionHero(
+    collection: CollectionDetail,
+    seriesCount: Int,
+    centered: Boolean,
+    coverHue: Float,
+    imageUrl: String? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // 封面 = 服务端缩略图 /api/v1/collections/{id}/thumbnail，此处为占位；实现时以 AsyncImage 加载
+        // 服务端无收藏缩略图端点，用收藏内首个系列的缩略图
         CoverArt(
             title = collection.name,
-            hue = collection.series.firstOrNull()?.hue ?: 210f,
+            hue = coverHue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(1f),
@@ -387,6 +423,7 @@ private fun SeriesContent(
     selected: Set<Int>,
     onOpenSeries: (Series) -> Unit,
     onToggleSelect: (Int) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     when (layout) {
         BrowseLayout.List -> Column {
@@ -394,6 +431,7 @@ private fun SeriesContent(
                 SeriesListRow(
                     series = item,
                     selected = if (selecting) item.id in selected else null,
+                    imageUrl = thumbnails[item.id],
                     onClick = {
                         if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
                     },
@@ -419,6 +457,7 @@ private fun SeriesContent(
                                         if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
                                     },
                                     modifier = Modifier.weight(1f),
+                                    imageUrl = thumbnails[item.id],
                                 )
                             }
                             repeat(columns - rowItems.size) {
@@ -434,7 +473,12 @@ private fun SeriesContent(
 
 /** 系列列表行：封面小图 + 标题 + 副标题；多选态前置选中圈。 */
 @Composable
-private fun SeriesListRow(series: Series, selected: Boolean?, onClick: () -> Unit) {
+private fun SeriesListRow(
+    series: Series,
+    selected: Boolean?,
+    imageUrl: String? = null,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -454,6 +498,7 @@ private fun SeriesListRow(series: Series, selected: Boolean?, onClick: () -> Uni
         CoverArt(
             title = series.title,
             hue = series.hue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),

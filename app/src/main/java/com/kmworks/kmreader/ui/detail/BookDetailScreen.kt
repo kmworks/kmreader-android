@@ -54,6 +54,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleListDetailData
@@ -122,13 +125,23 @@ internal fun BookDetailBody(
     onAddToReadList: (Book) -> Unit,
     onMenuAction: (BookMenuAction) -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: BookDetailViewModel = hiltViewModel(),
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // real data: resolve DTO id from registry, fetch book; fall back to sample data
+    val state by viewModel.uiState.collectAsState()
+    LaunchedEffect(book.id) { viewModel.load(book.id) }
+    val baseBook = state.book ?: book
     // design mock: mark-read / download toggle locally for instant feedback
-    var progress by remember(book.id) { mutableStateOf(book.progress) }
+    var progressToggled by remember(book.id) { mutableStateOf(false) }
     var downloaded by remember(book.id) { mutableStateOf(false) }
-    val meta = remember(book.id) { SampleListDetailData.bookMetaOf(book) }
-    val displayed = book.copy(progress = progress)
+    val meta = state.meta ?: SampleListDetailData.bookMetaOf(baseBook)
+    val progress = if (progressToggled) {
+        if (baseBook.progress == 1f) null else 1f
+    } else {
+        baseBook.progress
+    }
+    val displayed = baseBook.copy(progress = progress)
 
     Scaffold(
         modifier = modifier,
@@ -216,14 +229,21 @@ internal fun BookDetailBody(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        BookHero(book, seriesTitle, meta, centered = false, onOpenSeries = onOpenSeries)
+                        BookHero(
+                            displayed,
+                            seriesTitle,
+                            meta,
+                            centered = false,
+                            imageUrl = state.thumbnail,
+                            onOpenSeries = onOpenSeries,
+                        )
                         BookActionCard(
                             book = displayed,
                             downloaded = downloaded,
                             showNumber = seriesTitle != null,
                             onRead = onRead,
                             onMarkReadToggle = {
-                                progress = if (progress == 1f) null else 1f
+                                progressToggled = !progressToggled
                                 onMarkReadToggle(displayed)
                             },
                             onDownloadToggle = {
@@ -241,7 +261,7 @@ internal fun BookDetailBody(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        BookSecondaryContent(book, meta)
+                        BookSecondaryContent(displayed, meta)
                     }
                 }
             } else {
@@ -252,14 +272,21 @@ internal fun BookDetailBody(
                         .padding(vertical = 16.dp)
                         .padding(horizontal = 16.dp),
                 ) {
-                    BookHero(book, seriesTitle, meta, centered = true, onOpenSeries = onOpenSeries)
+                    BookHero(
+                        displayed,
+                        seriesTitle,
+                        meta,
+                        centered = true,
+                        imageUrl = state.thumbnail,
+                        onOpenSeries = onOpenSeries,
+                    )
                     BookActionCard(
                         book = displayed,
                         downloaded = downloaded,
                         showNumber = seriesTitle != null,
                         onRead = onRead,
                         onMarkReadToggle = {
-                            progress = if (progress == 1f) null else 1f
+                            progressToggled = !progressToggled
                             onMarkReadToggle(displayed)
                         },
                         onDownloadToggle = {
@@ -269,7 +296,7 @@ internal fun BookDetailBody(
                         onAddToReadList = { onAddToReadList(displayed) },
                     )
                     DetailTimestamps()
-                    BookSecondaryContent(book, meta)
+                    BookSecondaryContent(displayed, meta)
                 }
             }
         }
@@ -283,6 +310,7 @@ internal fun BookHero(
     seriesTitle: String?,
     meta: BookDetailMeta,
     centered: Boolean,
+    imageUrl: String? = null,
     onOpenSeries: () -> Unit,
 ) {
     Column(
@@ -294,6 +322,7 @@ internal fun BookHero(
         CoverArt(
             title = seriesTitle ?: book.title,
             hue = book.hue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(2f / 3f),

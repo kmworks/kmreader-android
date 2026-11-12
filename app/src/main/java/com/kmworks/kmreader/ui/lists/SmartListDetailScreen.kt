@@ -61,7 +61,9 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 
 private val WideLayoutBreakpoint = 960.dp
 
-/** 智能列表详情页（对齐 SmartListDetailView.swift + SmartListDetailWideLayoutView.swift）。 */
+/** 智能列表详情页（对齐 SmartListDetailView.swift + SmartListDetailWideLayoutView.swift）。
+ *  注意：服务端 spec（Komga 1.23.5）未暴露 smartlists 端点（无 SmartListsApi），
+ *  本页保持假数据展示，待 Komga 版本支持后接入真实数据。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartListDetailScreen(

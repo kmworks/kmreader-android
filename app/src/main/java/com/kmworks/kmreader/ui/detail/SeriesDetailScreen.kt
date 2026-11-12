@@ -61,6 +61,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +75,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.AuthorRole
@@ -107,8 +110,13 @@ fun SeriesDetailScreen(
     onRead: (Book) -> Unit,
     onBrowseFilter: (String) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    viewModel: SeriesDetailViewModel = hiltViewModel(),
 ) {
-    val books = SampleData.booksOf(series)
+    // 真实数据：进入时按注册表反查 DTO id 拉单系列与书籍；无会话/未注册回退假数据
+    val state by viewModel.uiState.collectAsState()
+    LaunchedEffect(series.id) { viewModel.load(series.id) }
+    val displaySeries = state.series ?: series
+    val books = state.books ?: SampleData.booksOf(displaySeries)
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
         ?: books.first()
@@ -134,7 +142,7 @@ fun SeriesDetailScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(series.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(displaySeries.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -197,16 +205,21 @@ fun SeriesDetailScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        DetailHero(series = series, centered = true, onBrowseFilter = onBrowseFilter)
+                        DetailHero(
+                            series = displaySeries,
+                            centered = true,
+                            imageUrl = state.seriesThumbnail,
+                            onBrowseFilter = onBrowseFilter,
+                        )
                         DetailActionCard(
-                            series = series,
+                            series = displaySeries,
                             continueBook = continueBook,
                             centered = true,
                             onRead = { onRead(continueBook) },
                         )
                         DetailTimestamps()
-                        DetailSummary(series)
-                        DetailChips(series = series, onBrowseFilter = onBrowseFilter)
+                        DetailSummary(displaySeries)
+                        DetailChips(series = displaySeries, onBrowseFilter = onBrowseFilter)
                         TrackerSection(onManage = { showTrackerSheet = true })
                     }
                     LazyColumn(
@@ -238,6 +251,7 @@ fun SeriesDetailScreen(
                                 onOpenBook = onOpenBook,
                                 selection = selectedIds,
                                 onToggleSelect = toggleSelect,
+                                thumbnails = state.thumbnails,
                             )
                         }
                     }
@@ -255,16 +269,21 @@ fun SeriesDetailScreen(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        DetailHero(series = series, centered = true, onBrowseFilter = onBrowseFilter)
+                        DetailHero(
+                            series = displaySeries,
+                            centered = true,
+                            imageUrl = state.seriesThumbnail,
+                            onBrowseFilter = onBrowseFilter,
+                        )
                         DetailActionCard(
-                            series = series,
+                            series = displaySeries,
                             continueBook = continueBook,
                             centered = true,
                             onRead = { onRead(continueBook) },
                         )
                         DetailTimestamps()
-                        DetailSummary(series)
-                        DetailChips(series, centered = true, onBrowseFilter = onBrowseFilter)
+                        DetailSummary(displaySeries)
+                        DetailChips(displaySeries, centered = true, onBrowseFilter = onBrowseFilter)
                         TrackerSection(onManage = { showTrackerSheet = true })
                         Spacer(Modifier.height(16.dp))
                     }
@@ -288,6 +307,7 @@ fun SeriesDetailScreen(
                         onOpenBook = onOpenBook,
                         selection = selectedIds,
                         onToggleSelect = toggleSelect,
+                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -314,7 +334,12 @@ fun SeriesDetailScreen(
 
 /** Hero：居中大封面在上、信息居中在下（窄布局），对应 DetailHeroView + SeriesHeroInfoView。 */
 @Composable
-private fun DetailHero(series: Series, centered: Boolean, onBrowseFilter: (String) -> Unit) {
+private fun DetailHero(
+    series: Series,
+    centered: Boolean,
+    imageUrl: String? = null,
+    onBrowseFilter: (String) -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
@@ -322,6 +347,7 @@ private fun DetailHero(series: Series, centered: Boolean, onBrowseFilter: (Strin
         CoverArt(
             title = series.title,
             hue = series.hue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(2f / 3f),
@@ -636,6 +662,7 @@ private fun BooksSection(
     onOpenBook: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     when (layout) {
         BrowseLayout.List -> Column {
@@ -645,6 +672,7 @@ private fun BooksSection(
                         book = book,
                         onClick = { onOpenBook(book) },
                         onLongClick = { onToggleSelect(book) },
+                        imageUrl = thumbnails[book.id],
                     )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -652,6 +680,7 @@ private fun BooksSection(
                             book = book,
                             onClick = { onToggleSelect(book) },
                             modifier = Modifier.weight(1f),
+                            imageUrl = thumbnails[book.id],
                         )
                         Checkbox(
                             checked = book.id in selection,
@@ -669,6 +698,7 @@ private fun BooksSection(
             onOpenBook = onOpenBook,
             selection = selection,
             onToggleSelect = onToggleSelect,
+            thumbnails = thumbnails,
         )
     }
 }
@@ -680,6 +710,7 @@ private fun BooksGrid(
     onOpenBook: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -698,6 +729,7 @@ private fun BooksGrid(
                                 book = book,
                                 onClick = { if (inSelection) onToggleSelect(book) else onOpenBook(book) },
                                 onLongClick = { if (!inSelection) onToggleSelect(book) },
+                                imageUrl = thumbnails[book.id],
                             )
                             if (selection != null && book.id in selection) {
                                 Icon(

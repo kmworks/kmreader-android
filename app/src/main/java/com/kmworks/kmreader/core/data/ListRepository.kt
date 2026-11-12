@@ -16,11 +16,13 @@ class ListRepository @Inject constructor(
     suspend fun collections(): List<CollectionDto> {
         val api = sessionManager.clients.value?.collections ?: return emptyList()
         return api.getCollections(unpaged = true).awaitBody()?.content.orEmpty()
+            .onEach { DetailIdRegistry.registerCollection(it.id.stableId(), it.id) }
     }
 
     /** All read lists (GET api/v1/readlists). */
     suspend fun readLists(): List<ReadListDto> {
         val api = sessionManager.clients.value?.readlists ?: return emptyList()
         return api.getReadLists(unpaged = true).awaitBody()?.content.orEmpty()
+            .onEach { DetailIdRegistry.registerReadList(it.id.stableId(), it.id) }
     }
 }

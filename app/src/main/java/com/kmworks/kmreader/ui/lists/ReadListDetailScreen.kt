@@ -40,10 +40,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,7 +78,17 @@ fun ReadListDetailScreen(
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
     onRemoveBooks: (List<Int>) -> Unit = {},
+    viewModel: ReadListDetailViewModel = hiltViewModel(),
 ) {
+    // 真实数据：反查 DTO 并按 bookIds 顺序拉各本书（含真实进度）；无会话回退假数据
+    val state by viewModel.uiState.collectAsState()
+    LaunchedEffect(readList.id) { viewModel.load(readList.id) }
+    val displayReadList = readList.copy(
+        name = state.name ?: readList.name,
+        summary = state.summary ?: readList.summary,
+        ordered = state.ordered ?: readList.ordered,
+    )
+    val sourceBooks = state.books ?: readList.books
     var layout by remember { mutableStateOf(BrowseLayout.List) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
@@ -85,10 +98,11 @@ fun ReadListDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
 
-    val visible = readList.books.filter { it.id !in removedIds }
+    val visible = sourceBooks.filter { it.id !in removedIds }
     val books = visible.filter { matchesReadStatus(it, options) }
     val continuation = visible.indexOfFirst { it.progress == null || it.progress < 1f }
         .let { if (it < 0) null else it }
+    val heroFirst = visible.firstOrNull()
 
     Scaffold(
         modifier = modifier,
@@ -165,7 +179,13 @@ fun ReadListDetailScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        ReadListHero(readList, visible.size, centered = false)
+                        ReadListHero(
+                            displayReadList,
+                            bookCount = visible.size,
+                            centered = false,
+                            first = heroFirst,
+                            imageUrl = heroFirst?.let { state.thumbnails[it.id] },
+                        )
                     }
                     Column(
                         modifier = Modifier
@@ -215,6 +235,7 @@ fun ReadListDetailScreen(
                             onToggleSelect = { id ->
                                 selected = if (id in selected) selected - id else selected + id
                             },
+                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -226,7 +247,13 @@ fun ReadListDetailScreen(
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        ReadListHero(readList, visible.size, centered = true)
+                        ReadListHero(
+                            displayReadList,
+                            bookCount = visible.size,
+                            centered = true,
+                            first = heroFirst,
+                            imageUrl = heroFirst?.let { state.thumbnails[it.id] },
+                        )
                     }
                     if (continuation != null) {
                         ContinuationHintCard(
@@ -269,6 +296,7 @@ fun ReadListDetailScreen(
                         onToggleSelect = { id ->
                             selected = if (id in selected) selected - id else selected + id
                         },
+                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -285,7 +313,7 @@ fun ReadListDetailScreen(
     if (deleteConfirm) {
         ConfirmDeleteDialog(
             title = "删除阅读列表？",
-            message = "「${readList.name}」将被删除，书籍本身保留在书库中。",
+            message = "「${displayReadList.name}」将被删除，书籍本身保留在书库中。",
             onConfirm = onDelete,
             onDismiss = { deleteConfirm = false },
         )
@@ -294,8 +322,13 @@ fun ReadListDetailScreen(
 
 /** Hero：封面 + 名称 + 本数/有序 + 简介 + 时间戳（对齐 ReadListDetailContentView）。 */
 @Composable
-private fun ReadListHero(readList: ReadListDetail, bookCount: Int, centered: Boolean) {
-    val first = readList.books.firstOrNull()
+private fun ReadListHero(
+    readList: ReadListDetail,
+    bookCount: Int,
+    centered: Boolean,
+    first: Book?,
+    imageUrl: String? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -306,6 +339,7 @@ private fun ReadListHero(readList: ReadListDetail, bookCount: Int, centered: Boo
             CoverArt(
                 title = first.seriesTitle,
                 hue = first.hue,
+                imageUrl = imageUrl,
                 modifier = Modifier
                     .width(112.dp)
                     .aspectRatio(2f / 3f),
@@ -455,6 +489,7 @@ private fun ReadListBookList(
     selected: Set<Int>,
     onRead: (Book) -> Unit,
     onToggleSelect: (Int) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     Column {
         books.forEachIndexed { index, book ->
@@ -462,6 +497,7 @@ private fun ReadListBookList(
                 index = index,
                 book = book,
                 selected = if (selecting) book.id in selected else null,
+                imageUrl = thumbnails[book.id],
                 onClick = {
                     if (selecting) onToggleSelect(book.id) else onRead(book)
                 },
@@ -476,6 +512,7 @@ private fun ReadListBookRow(
     index: Int,
     book: Book,
     selected: Boolean?,
+    imageUrl: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -504,6 +541,7 @@ private fun ReadListBookRow(
         CoverArt(
             title = book.seriesTitle,
             hue = book.hue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),
