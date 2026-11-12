@@ -59,6 +59,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -85,6 +87,7 @@ import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.tracker.SampleTrackerLinks
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
@@ -165,7 +168,14 @@ fun SeriesDetailScreen(
             ?: setOf(book.id)
     }
 
+    // komf 任务一次性通知（页内 snackbar，对齐 ErrorManager 通知）
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        viewModel.komfEvents.collect { snackbarHostState.showSnackbar(it) }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -193,15 +203,30 @@ fun SeriesDetailScreen(
                             )
                             DropdownMenuItem(text = { Text("分析") }, onClick = { moreOpen = false })
                             DropdownMenuItem(text = { Text("刷新元数据") }, onClick = { moreOpen = false })
-                            DropdownMenuItem(
-                                text = { Text("用 komf 识别…") },
-                                onClick = {
-                                    moreOpen = false
-                                    showKomfSheet = true
-                                },
-                            )
-                            DropdownMenuItem(text = { Text("匹配 komf") }, onClick = { moreOpen = false })
-                            DropdownMenuItem(text = { Text("重置 komf") }, onClick = { moreOpen = false })
+                            // komf 三项：kmrs 特性 + 管理员门控（对齐 KomfIntegrationStore）
+                            if (state.komfAvailable) {
+                                DropdownMenuItem(
+                                    text = { Text("用 komf 识别…") },
+                                    onClick = {
+                                        moreOpen = false
+                                        showKomfSheet = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("匹配 komf") },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.komfMatch()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("重置 komf") },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.komfReset()
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("加入收藏…") },
                                 onClick = {
@@ -264,7 +289,16 @@ fun SeriesDetailScreen(
                         DetailSummary(displaySeries)
                         DetailChips(series = displaySeries, onBrowseFilter = onBrowseFilter)
                         DetailMembershipChips(state.collections, onOpen = onOpenCollection)
-                        TrackerSection(onManage = { showTrackerSheet = true })
+                        if (!state.hasSession || state.trackerSupported) {
+                            TrackerSection(
+                                links = if (state.hasSession) {
+                                    state.trackerLinks
+                                } else {
+                                    SampleTrackerLinks
+                                },
+                                onManage = { showTrackerSheet = true },
+                            )
+                        }
                     }
                     LazyColumn(
                         modifier = Modifier
@@ -331,7 +365,16 @@ fun SeriesDetailScreen(
                         DetailSummary(displaySeries)
                         DetailChips(displaySeries, centered = true, onBrowseFilter = onBrowseFilter)
                         DetailMembershipChips(state.collections, centered = true, onOpen = onOpenCollection)
-                        TrackerSection(onManage = { showTrackerSheet = true })
+                        if (!state.hasSession || state.trackerSupported) {
+                            TrackerSection(
+                                links = if (state.hasSession) {
+                                    state.trackerLinks
+                                } else {
+                                    SampleTrackerLinks
+                                },
+                                onManage = { showTrackerSheet = true },
+                            )
+                        }
                         Spacer(Modifier.height(16.dp))
                     }
                     BooksToolbar(
@@ -375,11 +418,21 @@ fun SeriesDetailScreen(
         SeriesEditSheet(series = series, onDismiss = { showEditSheet = false })
     }
     if (showKomfSheet) {
-        KomfIdentifySheet(series = series, onDismiss = { showKomfSheet = false })
+        KomfIdentifySheet(
+            series = displaySeries,
+            viewModel = viewModel,
+            onDismiss = { showKomfSheet = false },
+        )
     }
     if (showTrackerSheet) {
-
-        TrackerSeriesSheet(series = series, onDismiss = { showTrackerSheet = false })
+        // TrackerSeriesSheet 内部经 Hilt 自接真实数据（TrackerSeriesViewModel）
+        TrackerSeriesSheet(
+            series = series,
+            onDismiss = {
+                showTrackerSheet = false
+                viewModel.refreshTrackerLinks()
+            },
+        )
     }
     // 「加入收藏」选择器：真实收藏数据，选择后调 API（无会话时为空）
     if (addToCollectionOpen) {

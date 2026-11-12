@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,52 +29,58 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import com.kmworks.kmreader.core.komf.parseKomfProviderLinks
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
 
-/** komf provider 直链（解析自系列 metadata.links）。 */
-private data class KomfProviderLink(val provider: String, val displayName: String, val providerSeriesId: String)
-
-/** komf 搜索结果。 */
-private data class KomfSearchResult(
-    val title: String,
-    val metaText: String,
-    val provider: String,
-    val hue: Float,
-)
-
 /**
  * 用 komf 识别（对齐 KomfIdentifySheet）：
- * 搜索框（预填系列标题，300ms 防抖）→ Provider Links 段（多条时首行聚合全部 provider）→
- * 结果段（封面 + 标题 + 元信息 + provider 胶囊）；选中提交 identify → 任务进入轮询跟踪。
+ * 搜索框（预填系列标题，300ms 防抖在 VM）→ Provider Links 段（系列 links 反解，多条时首行聚合）→
+ * 结果段（40×60 封面 + 标题 + meta + provider 胶囊）；选中提交 identify → 任务进入轮询跟踪，
+ * 提交成功即关闭 sheet，完成/失败由详情页 snackbar 通知。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KomfIdentifySheet(series: Series, onDismiss: () -> Unit) {
+fun KomfIdentifySheet(
+    series: Series,
+    viewModel: SeriesDetailViewModel,
+    onDismiss: () -> Unit,
+) {
+    val state by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf(series.title) }
-    var submitted by remember { mutableStateOf(false) }
+    var pendingKey by remember { mutableStateOf<String?>(null) }
+    var submitFailed by remember { mutableStateOf(false) }
 
-    val providerLinks = remember(series) {
-        listOf(
-            KomfProviderLink("anilist", "AniList", "108465"),
-            KomfProviderLink("bangumi", "Bangumi", "285267"),
-            KomfProviderLink("mangabaka", "MangaBaka", "18273"),
-        )
-    }
-    val results = remember(query) {
-        listOf(
-            KomfSearchResult("葬送的芙莉莲", "漫画 · 2020 · 连载中 · 山田钟人 / 阿部司", "MangaBaka", series.hue),
-            KomfSearchResult("葬送のフリーレン", "Manga · 2020 · Publishing · Shogakukan", "AniList", series.hue),
-            KomfSearchResult("葬送的芙莉莲", "漫画 · 2020-04-28 · 系列", "Bangumi", series.hue),
+    val providerLinks = remember(series) { parseKomfProviderLinks(series.links) }
+
+    // 300ms 防抖在 VM；query 变化即转发（空查询由 VM 清空结果）
+    LaunchedEffect(query) { viewModel.komfSearch(query) }
+
+    val submit: (String, String, String) -> Unit = { key, provider, providerSeriesId ->
+        pendingKey = key
+        submitFailed = false
+        viewModel.komfIdentify(
+            provider = provider,
+            providerSeriesId = providerSeriesId,
+            onSubmitted = onDismiss,
+            onFailed = {
+                pendingKey = null
+                submitFailed = true
+            },
         )
     }
 
@@ -100,7 +105,7 @@ fun KomfIdentifySheet(series: Series, onDismiss: () -> Unit) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("搜索") },
+                label = { Text("搜索 komf provider…") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier
@@ -108,17 +113,29 @@ fun KomfIdentifySheet(series: Series, onDismiss: () -> Unit) {
                     .padding(vertical = 8.dp),
             )
 
-            // Provider Links（对齐：系列 metadata.links 解析出的 provider 直链，>1 时首行聚合）
+            if (submitFailed) {
+                Text(
+                    "识别提交失败，请重试",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+
+            // Provider Links（对齐：系列 metadata.links 反解的 provider 直链，>1 时首行聚合提交首个）
             if (providerLinks.isNotEmpty()) {
                 KomfSectionTitle("Provider 链接")
                 if (providerLinks.size > 1) {
+                    val first = providerLinks.first()
                     KomfProviderRow(
                         icon = {
                             Icon(Icons.Filled.CloudSync, contentDescription = null)
                         },
                         title = "聚合全部 provider",
-                        subtitle = "${providerLinks.size} 个来源",
-                        onClick = { submitted = true },
+                        subtitle = "合并 ${providerLinks.size} 个 provider 直链",
+                        pending = pendingKey == first.key,
+                        enabled = pendingKey == null,
+                        onClick = { submit(first.key, first.provider, first.providerSeriesId) },
                     )
                 }
                 providerLinks.forEach { link ->
@@ -128,75 +145,160 @@ fun KomfIdentifySheet(series: Series, onDismiss: () -> Unit) {
                         },
                         title = link.displayName,
                         subtitle = link.providerSeriesId,
-                        onClick = { submitted = true },
+                        pending = pendingKey == link.key,
+                        enabled = pendingKey == null,
+                        onClick = { submit(link.key, link.provider, link.providerSeriesId) },
                     )
                 }
             }
 
-            // 结果段（40×60 封面 + 标题 + meta + provider 胶囊 badge）
+            // 结果段（对齐 resultsSection：加载中/失败+重试/无结果/列表）
             KomfSectionTitle("搜索结果")
-            results.forEach { result ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CoverArt(
-                        title = result.title,
-                        hue = result.hue,
+            when {
+                state.komfSearching && state.komfSearchResults.isEmpty() -> {
+                    Box(
                         modifier = Modifier
-                            .width(40.dp)
-                            .height(60.dp),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            result.title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            result.metaText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                }
+                state.komfSearchFailed -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
-                            result.provider,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            "搜索失败",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { viewModel.komfSearch(query) }) {
+                            Text("重试")
+                        }
+                    }
+                }
+                query.isNotBlank() && state.komfSearchResults.isEmpty() && !state.komfSearching -> {
+                    Text(
+                        "无结果",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+                else -> {
+                    state.komfSearchResults.forEach { result ->
+                        KomfResultRow(
+                            title = result.title,
+                            metaText = result.metaText,
+                            provider = result.provider,
+                            imageUrl = result.imageUrl,
+                            fallbackHue = series.hue,
+                            pending = pendingKey == result.key,
+                            enabled = pendingKey == null,
+                            onClick = { submit(result.key, result.provider, result.resultId) },
                         )
                     }
                 }
             }
 
-            if (submitted) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                // 任务跟踪状态（对齐 KomfJobTracker：提交后轮询，完成/失败/超时通知）
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // 任务跟踪状态（对齐 KomfJobTracker：提交后轮询，完成/失败/超时通知）
+            if (state.komfJobRunning) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "识别任务已提交，正在执行…（完成后将收到通知）",
+                        "识别任务执行中…（完成后将收到通知）",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KomfResultRow(
+    title: String,
+    metaText: String,
+    provider: String,
+    imageUrl: String?,
+    fallbackHue: Float,
+    pending: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 封面：imageUrl 存在时叠在占位上（对齐 AsyncImage 的加载/失败兜底）
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(60.dp),
+            ) {
+                CoverArt(
+                    title = title,
+                    hue = fallbackHue,
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(60.dp),
+                )
+                if (imageUrl != null) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .width(40.dp)
+                            .height(60.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (metaText.isNotEmpty()) {
+                    Text(
+                        metaText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (pending) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = { submitted = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("用所选结果识别")
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Text(
+                        provider,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
                 }
             }
         }
@@ -218,9 +320,11 @@ private fun KomfProviderRow(
     icon: @Composable () -> Unit,
     title: String,
     subtitle: String,
+    pending: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -241,6 +345,9 @@ private fun KomfProviderRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (pending) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             }
         }
     }

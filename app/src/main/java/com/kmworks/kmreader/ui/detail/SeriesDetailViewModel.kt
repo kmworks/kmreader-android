@@ -10,17 +10,33 @@ import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
+import com.kmworks.kmreader.core.komf.KomfJobState
+import com.kmworks.kmreader.core.komf.KomfRepository
+import com.kmworks.kmreader.core.komf.KomfSearchResultDto
+import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerFeature
+import com.kmworks.kmreader.core.server.ServerProfileStore
+import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.tracker.TrackerLink
+import com.kmworks.kmreader.ui.tracker.toUiTrackerLink
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -35,6 +51,19 @@ data class SeriesDetailUiState(
     /** 归属收藏（真实数据；Mappers.toListEntry 映射，点击经 onOpenCollection 上抛）。 */
     val collections: List<ListEntry> = emptyList(),
     val thumbnails: Map<Int, String> = emptyMap(),
+    /** komf 能力：hasFeature(Komf) && 管理员 && 有 DTO 映射；为 false 时菜单三项不渲染。 */
+    val komfAvailable: Boolean = false,
+    /** 当前系列的 libraryId（DTO 直出，komf 调用需要）。 */
+    val libraryId: String? = null,
+    val komfSearching: Boolean = false,
+    val komfSearchFailed: Boolean = false,
+    val komfSearchResults: List<KomfSearchResultDto> = emptyList(),
+    /** 有 komf 任务正在轮询（sheet 提交状态/菜单禁用用）。 */
+    val komfJobRunning: Boolean = false,
+    /** kmrs Trackers 能力（无会话或 stock 服务器为 false）。 */
+    val trackerSupported: Boolean = false,
+    /** Tracker 已绑定条目（仅 trackerSupported 且有值时非空）。 */
+    val trackerLinks: List<TrackerLink> = emptyList(),
 )
 
 /** 系列详情数据：按注册表反查 DTO id，拉单系列与其书籍列表。 */
@@ -45,10 +74,18 @@ class SeriesDetailViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
+    private val komfRepository: KomfRepository,
+    private val trackerRepository: TrackerRepository,
+    private val serverProfileStore: ServerProfileStore,
+    private val configStore: ServerConfigStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
     val uiState: StateFlow<SeriesDetailUiState> = _uiState.asStateFlow()
+
+    /** komf 完成/失败/超时等一次性通知（详情页 snackbar 消费）。 */
+    private val _komfEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val komfEvents: SharedFlow<String> = _komfEvents.asSharedFlow()
 
     private val _collections = MutableStateFlow<List<ListEntry>?>(null)
     val collections: StateFlow<List<ListEntry>?> = _collections.asStateFlow()
@@ -60,13 +97,25 @@ class SeriesDetailViewModel @Inject constructor(
 
     private var loadedId: Int? = null
 
+    /** 当前详情的 DTO id（komf 调用与任务完成后刷新用）。 */
+    private var dtoId: String? = null
+    private var komfSearchJob: Job? = null
+
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
         val clients = sessionManager.clients.value
         val dtoId = detailRepository.seriesDtoId(stableId)
+        this.dtoId = dtoId
         if (clients == null || dtoId == null) {
-            _uiState.update { it.copy(hasSession = clients != null, loading = false) }
+            _uiState.update {
+                it.copy(
+                    hasSession = clients != null,
+                    loading = false,
+                    komfAvailable = false,
+                    trackerSupported = trackerRepository.supported,
+                )
+            }
             return
         }
         _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
@@ -77,6 +126,9 @@ class SeriesDetailViewModel @Inject constructor(
                     val b = async { detailRepository.seriesBooks(dtoId) }
                     s.await() to b.await()
                 }
+                // komf 能力门控：kmrs 特性 + 管理员（对齐 KomfIntegrationStore）
+                val komfAvailable = serverProfileStore.hasFeature(ServerFeature.Komf) &&
+                    (configStore.config.first()?.isAdmin == true)
                 // 归属收藏：失败返回空，不阻塞详情主体
                 val memberships = detailRepository.seriesCollections(dtoId)
                     .map { it.toListEntry() }
@@ -92,9 +144,13 @@ class SeriesDetailViewModel @Inject constructor(
                         seriesThumbnail = detailRepository.seriesThumbnailUrl(dtoId),
                         collections = memberships,
                         thumbnails = thumbnails,
+                        komfAvailable = komfAvailable,
+                        trackerSupported = trackerRepository.supported,
+                        libraryId = seriesDto?.libraryId,
                     )
                 }
                 refreshDownloaded()
+                refreshTrackerLinks()
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
             }
@@ -166,5 +222,131 @@ class SeriesDetailViewModel @Inject constructor(
             }.toMap()
             _downloaded.value = map
         }
+    }
+
+    /** Tracker 绑定刷新：仅 kmrs Trackers 能力时拉取；失败保持旧值（对齐 TrackerSeriesView reload）。 */
+    fun refreshTrackerLinks() {
+        if (!trackerRepository.supported) return
+        val dtoId = dtoId ?: return
+        viewModelScope.launch {
+            val links = trackerRepository.links(dtoId) ?: return@launch
+            val enriched = coroutineScope {
+                links.map { link ->
+                    async {
+                        val remoteState =
+                            trackerRepository.remoteState(link.provider, link.trackId)
+                        link.toUiTrackerLink(state = remoteState)
+                    }
+                }.awaitAll()
+            }
+            _uiState.update { it.copy(trackerLinks = enriched) }
+        }
+    }
+
+    /** komf 搜索（300ms 防抖；对齐 KomfIdentifySheet 的 task(id:) 防抖语义）。 */
+    fun komfSearch(query: String) {
+        komfSearchJob?.cancel()
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            _uiState.update {
+                it.copy(komfSearching = false, komfSearchFailed = false, komfSearchResults = emptyList())
+            }
+            return
+        }
+        val dtoId = dtoId ?: return
+        val libraryId = _uiState.value.libraryId ?: return
+        komfSearchJob = viewModelScope.launch {
+            delay(300)
+            _uiState.update { it.copy(komfSearching = true, komfSearchFailed = false) }
+            val results = komfRepository.search(trimmed, libraryId, dtoId)
+            _uiState.update {
+                if (results == null) {
+                    it.copy(komfSearching = false, komfSearchFailed = true, komfSearchResults = emptyList())
+                } else {
+                    it.copy(komfSearching = false, komfSearchResults = results)
+                }
+            }
+        }
+    }
+
+    /** 提交 komf identify；成功后 sheet 关闭、任务进入轮询（对齐 submit()）。 */
+    fun komfIdentify(
+        provider: String,
+        providerSeriesId: String,
+        onSubmitted: () -> Unit,
+        onFailed: () -> Unit,
+    ) {
+        val dtoId = dtoId ?: return onFailed()
+        viewModelScope.launch {
+            val jobId = komfRepository.identify(_uiState.value.libraryId, dtoId, provider, providerSeriesId)
+            if (jobId != null) {
+                onSubmitted()
+                trackKomfJob(jobId)
+            } else {
+                onFailed()
+            }
+        }
+    }
+
+    /** 匹配 komf（对齐 KomfMenu.match）。 */
+    fun komfMatch() {
+        val dtoId = dtoId ?: return
+        val libraryId = _uiState.value.libraryId ?: return
+        if (_uiState.value.komfJobRunning) return
+        viewModelScope.launch {
+            val jobId = komfRepository.match(libraryId, dtoId)
+            if (jobId != null) {
+                _komfEvents.emit("komf 匹配任务已提交")
+                trackKomfJob(jobId)
+            } else {
+                _komfEvents.emit("komf 匹配提交失败")
+            }
+        }
+    }
+
+    /** 重置 komf（非任务：成功直接刷新详情，对齐 resetSeries）。 */
+    fun komfReset() {
+        val dtoId = dtoId ?: return
+        val libraryId = _uiState.value.libraryId ?: return
+        viewModelScope.launch {
+            if (komfRepository.reset(libraryId, dtoId)) {
+                _komfEvents.emit("已重置 komf 元数据")
+                reloadDetail()
+            } else {
+                _komfEvents.emit("komf 重置失败")
+            }
+        }
+    }
+
+    /** 轮询任务到终态；完成/超时尽力刷新详情（对齐 KomfJobTracker）。 */
+    private fun trackKomfJob(jobId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(komfJobRunning = true) }
+            komfRepository.trackJob(jobId).collect { state ->
+                when (state) {
+                    KomfJobState.Running -> Unit
+                    KomfJobState.Completed -> {
+                        _komfEvents.emit("komf 任务已完成")
+                        reloadDetail()
+                    }
+                    is KomfJobState.Failed -> {
+                        val suffix = state.message?.takeIf { it.isNotBlank() }?.let { "：$it" } ?: ""
+                        _komfEvents.emit("komf 任务失败$suffix")
+                    }
+                    KomfJobState.TimedOut -> {
+                        _komfEvents.emit("komf 任务仍在执行，已停止跟踪")
+                        reloadDetail()
+                    }
+                }
+            }
+            _uiState.update { it.copy(komfJobRunning = false) }
+        }
+    }
+
+    /** 任务完成后重拉详情（重置 loadedId 后走原加载路径）。 */
+    private fun reloadDetail() {
+        val stableId = loadedId ?: return
+        loadedId = null
+        load(stableId)
     }
 }

@@ -96,7 +96,8 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val user = ApiClients(config).currentUser.getCurrentUser().awaitResponse()
-                configStore.save(config)
+                // 管理员标记随会话保存（komf 等能力门控读取 ServerConfig.isAdmin）
+                configStore.save(config.copy(isAdmin = user.roles.contains("ADMIN")))
                 _uiState.update { it.copy(loading = false, connectedUser = user) }
             } catch (e: HttpException) {
                 val message = if (e.code() == 401 || e.code() == 403) "凭据无效" else "无法连接服务器"

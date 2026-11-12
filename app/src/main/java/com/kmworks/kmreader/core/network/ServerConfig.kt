@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.network
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -13,6 +14,8 @@ data class ServerConfig(
     val username: String = "",
     val password: String = "",
     val apiKey: String = "",
+    /** 登录探测时由 UserDto.roles 判定并随会话保存（komf 等管理员能力门控用）。 */
+    val isAdmin: Boolean = false,
 ) {
     val useApiKey: Boolean get() = apiKey.isNotBlank()
     val isConfigured: Boolean get() = baseUrl.isNotBlank() && (useApiKey || (username.isNotBlank() && password.isNotBlank()))
@@ -31,6 +34,7 @@ class ServerConfigStore(private val context: Context) {
         val Username = stringPreferencesKey("username")
         val Password = stringPreferencesKey("password")
         val ApiKey = stringPreferencesKey("api_key")
+        val IsAdmin = booleanPreferencesKey("is_admin")
     }
 
     val config: Flow<ServerConfig?> = context.serverConfigStore.data.map { prefs ->
@@ -43,6 +47,7 @@ class ServerConfigStore(private val context: Context) {
                 username = prefs[Keys.Username].orEmpty(),
                 password = prefs[Keys.Password].orEmpty(),
                 apiKey = prefs[Keys.ApiKey].orEmpty(),
+                isAdmin = prefs[Keys.IsAdmin] ?: false,
             )
         }
     }
@@ -53,6 +58,7 @@ class ServerConfigStore(private val context: Context) {
             prefs[Keys.Username] = config.username
             prefs[Keys.Password] = config.password
             prefs[Keys.ApiKey] = config.apiKey
+            prefs[Keys.IsAdmin] = config.isAdmin
         }
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +46,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.tracker.TrackerRemoteStateDto
+import com.kmworks.kmreader.core.tracker.TrackerRepository
+import com.kmworks.kmreader.core.tracker.TrackerSearchItemDto
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * 绑定编辑（对齐 TrackerLinkEditSheet）：
@@ -62,6 +80,7 @@ fun TrackerLinkEditSheet(
     existing: TrackerLink?,
     onUnlink: () -> Unit,
     onDismiss: () -> Unit,
+    viewModel: TrackerLinkEditViewModel = hiltViewModel(),
 ) {
     var query by remember { mutableStateOf(existing?.title ?: series.title) }
     var selectedTitle by remember { mutableStateOf<String?>(existing?.title) }
@@ -69,14 +88,28 @@ fun TrackerLinkEditSheet(
     var mode by remember { mutableStateOf(existing?.mode ?: TrackerMode.Auto) }
     var chapterOffset by remember { mutableIntStateOf(existing?.chapterOffset ?: 0) }
     var remoteStatus by remember { mutableStateOf<TrackerStatus?>(null) } // null = 保持不变
+    val searchResults by viewModel.results.collectAsStateWithLifecycle()
+    val searching by viewModel.searching.collectAsStateWithLifecycle()
+    val remoteState by viewModel.remoteState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(series.id, provider) {
+        viewModel.bind(series, provider)
+        if (selectedId == null) viewModel.search(query)
+    }
+    // 已绑定条目打开时也拉一次远端进度
+    LaunchedEffect(selectedId) {
+        selectedId?.let { viewModel.select(it) }
+    }
 
     val titles = remember(series) { listOf(series.title, "葬送のフリーレン", "Frieren") }
-    val searchResults = remember(query) {
+    // null = 演示模式（无会话/无能力），回退固定示例
+    val demoResults = remember {
         listOf(
-            "108465" to "葬送のフリーレン",
-            "118743" to "Frieren at the Funeral",
+            TrackerSearchItemDto(id = "108465", title = "葬送のフリーレン"),
+            TrackerSearchItemDto(id = "118743", title = "Frieren at the Funeral"),
         )
     }
+    val results: List<TrackerSearchItemDto> = searchResults ?: demoResults
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -137,7 +170,10 @@ fun TrackerLinkEditSheet(
             } else {
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = {
+                        query = it
+                        viewModel.search(it)
+                    },
                     label = { Text("搜索 ${provider.displayName}") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     singleLine = true,
@@ -151,7 +187,10 @@ fun TrackerLinkEditSheet(
                     titles.forEach { title ->
                         FilterChip(
                             selected = query == title,
-                            onClick = { query = title },
+                            onClick = {
+                                query = title
+                                viewModel.search(title)
+                            },
                             label = { Text(title, style = MaterialTheme.typography.labelMedium) },
                         )
                     }
@@ -179,17 +218,25 @@ fun TrackerLinkEditSheet(
                     }
                 }
                 TrackerSectionTitle("搜索结果")
-                searchResults.forEach { (id, title) ->
+                if (searching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .padding(vertical = 4.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                results.forEach { item ->
                     Surface(onClick = {
-                        selectedId = id
-                        selectedTitle = title
+                        selectedId = item.id
+                        selectedTitle = item.title
                     }, modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CoverArt(
-                                title = title,
+                                title = item.title,
                                 hue = series.hue,
                                 modifier = Modifier
                                     .width(40.dp)
@@ -197,9 +244,9 @@ fun TrackerLinkEditSheet(
                             )
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(title, style = MaterialTheme.typography.bodyLarge)
+                                Text(item.title, style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    "#$id",
+                                    "#${item.id}",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontFamily = FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -249,6 +296,23 @@ fun TrackerLinkEditSheet(
 
                 // Remote Progress：状态/评分/章节/卷/起止日期（只提交变更非空字段）
                 TrackerSectionTitle("远端进度")
+                remoteState?.let { state ->
+                    Text(
+                        buildString {
+                            append("当前远端：")
+                            state.status?.let { append(trackerStatusFromApi(it).label) }
+                            state.lastReadChapter?.let { ch ->
+                                append(" · 第 ${ch.toInt()} 话")
+                                state.totalChapters?.let { append(" / $it") }
+                            }
+                            state.lastReadVolume?.let { append(" · 第 $it 卷") }
+                            state.score?.let { append(" · 评分 $it") }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = remoteStatus == null,
@@ -287,7 +351,17 @@ fun TrackerLinkEditSheet(
                     }
                 }
                 Button(
-                    onClick = onDismiss,
+                    onClick = {
+                        val trackId = selectedId ?: return@Button
+                        viewModel.save(
+                            trackId = trackId,
+                            title = selectedTitle,
+                            mode = mode,
+                            chapterOffset = chapterOffset,
+                            newStatus = remoteStatus,
+                            onDone = onDismiss,
+                        )
+                    },
                     enabled = selectedId != null,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -306,4 +380,81 @@ private fun TrackerSectionTitle(title: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
     )
+}
+
+/** 绑定编辑数据；results 为 null 表示演示模式（无会话/无能力）。 */
+@HiltViewModel
+class TrackerLinkEditViewModel @Inject constructor(
+    private val detailRepository: DetailRepository,
+    private val trackerRepository: TrackerRepository,
+) : ViewModel() {
+
+    private val _results = MutableStateFlow<List<TrackerSearchItemDto>?>(null)
+    val results: StateFlow<List<TrackerSearchItemDto>?> = _results.asStateFlow()
+
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
+
+    private val _remoteState = MutableStateFlow<TrackerRemoteStateDto?>(null)
+    val remoteState: StateFlow<TrackerRemoteStateDto?> = _remoteState.asStateFlow()
+
+    private var seriesDtoId: String? = null
+    private var provider: TrackerProvider = TrackerProvider.AniList
+    private var searchJob: Job? = null
+
+    fun bind(series: Series, provider: TrackerProvider) {
+        this.provider = provider
+        seriesDtoId = detailRepository.seriesDtoId(series.id)
+    }
+
+    /** 300ms 防抖远端搜索；演示模式保持 null 结果。 */
+    fun search(query: String) {
+        if (!trackerRepository.supported || query.isBlank()) return
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
+            _searching.value = true
+            _results.value = trackerRepository.search(provider.apiName, query)
+            _searching.value = false
+        }
+    }
+
+    /** 选中条目后拉取远端进度。 */
+    fun select(trackId: String) {
+        if (!trackerRepository.supported) return
+        viewModelScope.launch {
+            _remoteState.value = trackerRepository.remoteState(provider.apiName, trackId)
+        }
+    }
+
+    /** 保存绑定；选了新状态时随后推送 update（只提交变更字段）。 */
+    fun save(
+        trackId: String,
+        title: String?,
+        mode: TrackerMode,
+        chapterOffset: Int,
+        newStatus: TrackerStatus?,
+        onDone: () -> Unit,
+    ) {
+        val dtoId = seriesDtoId ?: return onDone()
+        if (!trackerRepository.supported) return onDone()
+        viewModelScope.launch {
+            val ok = trackerRepository.upsertLink(
+                seriesDtoId = dtoId,
+                provider = provider.apiName,
+                trackId = trackId,
+                title = title,
+                mode = mode.name.lowercase(),
+                chapterOffset = chapterOffset,
+            )
+            if (ok && newStatus != null) {
+                trackerRepository.pushUpdate(
+                    provider = provider.apiName,
+                    trackId = trackId,
+                    status = newStatus.name.lowercase(),
+                )
+            }
+            onDone()
+        }
+    }
 }

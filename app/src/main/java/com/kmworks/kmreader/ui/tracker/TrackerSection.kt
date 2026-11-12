@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +40,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Series
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /** provider 徽标（真实实现 = provider logo 资源，设计稿用首字母圆块）。 */
 @Composable
@@ -143,11 +159,20 @@ fun TrackerSection(
  * Tracker 管理（对齐 TrackerSeriesSheet）：
  * 已链接列表（点开进入绑定编辑）+ 可添加的 provider 列表；
  * footer 提示：读完书籍推进 tracker，标记未读不会回退。
+ * 有会话且服务器支持 Trackers 时走真实绑定；否则回退演示数据。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrackerSeriesSheet(series: Series, onDismiss: () -> Unit) {
-    val links = remember { SampleTrackerLinks.toMutableStateList() }
+fun TrackerSeriesSheet(
+    series: Series,
+    onDismiss: () -> Unit,
+    viewModel: TrackerSeriesViewModel = hiltViewModel(),
+) {
+    LaunchedEffect(series.id) { viewModel.load(series) }
+    val realLinks by viewModel.links.collectAsStateWithLifecycle()
+    val demoLinks = remember { SampleTrackerLinks.toMutableStateList() }
+    // null = 演示模式（无会话/无能力），本地可变；非 null = 真实绑定
+    val links: List<TrackerLink> = realLinks ?: demoLinks
     var editingProvider by remember { mutableStateOf<TrackerProvider?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -239,8 +264,18 @@ fun TrackerSeriesSheet(series: Series, onDismiss: () -> Unit) {
             series = series,
             provider = provider,
             existing = links.firstOrNull { it.provider == provider },
-            onUnlink = { links.removeAll { it.provider == provider } },
-            onDismiss = { editingProvider = null },
+            onUnlink = {
+                if (realLinks == null) {
+                    demoLinks.removeAll { it.provider == provider }
+                } else {
+                    viewModel.unlink(provider)
+                }
+            },
+            onDismiss = {
+                editingProvider = null
+                // 编辑（保存/解绑）后刷新真实绑定
+                if (realLinks != null) viewModel.refresh()
+            },
         )
     }
 }
@@ -281,6 +316,51 @@ private fun TrackerLinkRow(link: TrackerLink, onClick: () -> Unit) {
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** 系列 Tracker 绑定数据；links 为 null 表示演示模式（无会话/无能力/无 DTO 映射）。 */
+@HiltViewModel
+class TrackerSeriesViewModel @Inject constructor(
+    private val detailRepository: DetailRepository,
+    private val trackerRepository: TrackerRepository,
+) : ViewModel() {
+
+    private val _links = MutableStateFlow<List<TrackerLink>?>(null)
+    val links: StateFlow<List<TrackerLink>?> = _links.asStateFlow()
+
+    private var seriesDtoId: String? = null
+
+    fun load(series: Series) {
+        seriesDtoId = detailRepository.seriesDtoId(series.id)
+        if (seriesDtoId == null || !trackerRepository.supported) return
+        refresh()
+    }
+
+    /** 重新拉取绑定并合并各 provider 的远端进度。 */
+    fun refresh() {
+        val dtoId = seriesDtoId ?: return
+        if (!trackerRepository.supported) return
+        viewModelScope.launch {
+            val merged = coroutineScope {
+                trackerRepository.links(dtoId).map { link ->
+                    async {
+                        link.toUiTrackerLink(
+                            trackerRepository.remoteState(link.provider, link.trackId)
+                        )
+                    }
+                }.awaitAll()
+            }
+            _links.value = merged
+        }
+    }
+
+    fun unlink(provider: TrackerProvider) {
+        val dtoId = seriesDtoId ?: return
+        viewModelScope.launch {
+            trackerRepository.deleteLink(dtoId, provider.apiName)
+            refresh()
         }
     }
 }

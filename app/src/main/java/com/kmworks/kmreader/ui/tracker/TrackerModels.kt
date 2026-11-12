@@ -1,14 +1,19 @@
 package com.kmworks.kmreader.ui.tracker
 
+import com.kmworks.kmreader.core.tracker.TrackerLinkDto
+import com.kmworks.kmreader.core.tracker.TrackerRemoteStateDto
+
 /** Tracker provider（对齐原作 TrackerProvider：anilist/mal/bangumi/mangabaka）。 */
 enum class TrackerProvider(
     val displayName: String,
     val entryUrlPattern: String,
+    /** API 路径/DTO 使用的原始值。 */
+    val apiName: String,
 ) {
-    AniList("AniList", "https://anilist.co/manga/{id}"),
-    MyAnimeList("MyAnimeList", "https://myanimelist.net/manga/{id}"),
-    Bangumi("Bangumi", "https://bgm.tv/subject/{id}"),
-    MangaBaka("MangaBaka", "https://mangabaka.org/{id}"),
+    AniList("AniList", "https://anilist.co/manga/{id}", "anilist"),
+    MyAnimeList("MyAnimeList", "https://myanimelist.net/manga/{id}", "mal"),
+    Bangumi("Bangumi", "https://bgm.tv/subject/{id}", "bangumi"),
+    MangaBaka("MangaBaka", "https://mangabaka.org/{id}", "mangabaka"),
     ;
 
     fun entryUrl(trackId: String): String = entryUrlPattern.replace("{id}", trackId)
@@ -70,3 +75,26 @@ val SampleTrackerAccounts = listOf(
     TrackerAccount(TrackerProvider.Bangumi, connectedUser = "kmuser"),
     TrackerAccount(TrackerProvider.MangaBaka, connectedUser = null),
 )
+
+/** API 原始值 → provider（未知回退 AniList，避免丢绑定）。 */
+fun trackerProviderFromApi(raw: String): TrackerProvider =
+    TrackerProvider.entries.firstOrNull { it.apiName == raw } ?: TrackerProvider.AniList
+
+/** API 原始值 → 状态（未知回退 Reading）。 */
+fun trackerStatusFromApi(raw: String): TrackerStatus =
+    TrackerStatus.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
+        ?: TrackerStatus.Reading
+
+/** DTO → UI 绑定（合并远端状态展示）。 */
+fun TrackerLinkDto.toUiTrackerLink(state: TrackerRemoteStateDto? = null): TrackerLink =
+    TrackerLink(
+        provider = trackerProviderFromApi(provider),
+        trackId = trackId,
+        title = title ?: trackId,
+        mode = TrackerMode.entries.firstOrNull { it.name.equals(trackMode, ignoreCase = true) }
+            ?: TrackerMode.Auto,
+        chapterOffset = chapterOffset,
+        remoteStatus = state?.status?.let(::trackerStatusFromApi) ?: TrackerStatus.Reading,
+        lastReadChapter = state?.lastReadChapter,
+        totalChapters = state?.totalChapters,
+    )

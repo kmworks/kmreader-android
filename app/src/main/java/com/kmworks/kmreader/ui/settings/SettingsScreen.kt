@@ -43,13 +43,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/** 阅读统计入口的 kmrs 能力门控（SettingsScreen 副标题提示用）。 */
+/** 阅读统计/Tracker 入口的 kmrs 能力门控（SettingsScreen 副标题提示用）。 */
 @HiltViewModel
 class SettingsEntryViewModel @Inject constructor(
     serverProfileStore: ServerProfileStore,
 ) : ViewModel() {
     val readingStatsSupported: StateFlow<Boolean> = serverProfileStore.profile
         .map { it?.features?.contains(ServerFeature.ReadingStats) == true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val trackersSupported: StateFlow<Boolean> = serverProfileStore.profile
+        .map { it?.features?.contains(ServerFeature.Trackers) == true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
@@ -75,8 +78,9 @@ fun SettingsScreen(
 ) {
     var trueBlack by remember { mutableStateOf(true) }
     var showTrackerSettings by remember { mutableStateOf(false) }
-    // kmrs 能力门控：无 ReadingStats 特性时统计入口副标题提示
+    // kmrs 能力门控：无 ReadingStats/Trackers 特性时对应入口副标题提示
     val statsSupported by viewModel.readingStatsSupported.collectAsState()
+    val trackersSupported by viewModel.trackersSupported.collectAsState()
 
     if (showTrackerSettings) {
         TrackerSettingsScreen(onBack = { showTrackerSettings = false })
@@ -151,7 +155,11 @@ fun SettingsScreen(
             item {
                 SettingsNavRow(
                     title = "Tracker 账号",
-                    subtitle = "AniList / MyAnimeList / Bangumi / MangaBaka",
+                    subtitle = if (trackersSupported) {
+                        "AniList / MyAnimeList / Bangumi / MangaBaka"
+                    } else {
+                        "AniList / MyAnimeList / Bangumi / MangaBaka（需要 kmrs 服务器）"
+                    },
                     onClick = { showTrackerSettings = true },
                 )
             }
