@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.network.ServerConfig
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
@@ -27,6 +28,7 @@ class RootViewModel @Inject constructor(
     private val appSettings: AppSettingsStore,
     private val sseService: SseService,
     private val sessionManager: SessionManager,
+    private val detailRepository: DetailRepository,
 ) : ViewModel() {
 
     val config: StateFlow<ServerConfig?> = configStore.config
@@ -61,6 +63,14 @@ class RootViewModel @Inject constructor(
             }
         }
     }
+
+    /** 阅读器真实格式路由（按服务器 mediaType；null=无法解析，调用方回退 DIVINA）。 */
+    suspend fun resolveBookFormat(stableId: Int): String? =
+        detailRepository.bookFormat(stableId)
+
+    /** 「访问系列」导航：书籍 → 所属系列 stableId。 */
+    suspend fun seriesStableIdForBook(bookStableId: Int): Int? =
+        detailRepository.seriesStableIdForBook(bookStableId)
 
     fun setSseEnabled(enabled: Boolean) {
         viewModelScope.launch { appSettings.setSseEnabled(enabled) }

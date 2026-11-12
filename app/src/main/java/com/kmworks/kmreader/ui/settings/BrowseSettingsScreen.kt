@@ -27,7 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kmworks.kmreader.data.SampleData
+import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
 /** Browse settings (mirrors SettingsBrowseView): live card preview + display toggles. */
@@ -38,8 +38,11 @@ fun BrowseSettingsScreen(onBack: () -> Unit) {
     var showProgress by remember { mutableStateOf(true) }
     var showUnreadBadge by remember { mutableStateOf(true) }
 
-    // Preview source: first series from sample data
-    val previewSeries = SampleData.series.first()
+    // Preview source: inline placeholder (sample data removed)
+    val previewSeries = Series(
+        id = 0, title = "示例系列", author = "作者", hue = 210f,
+        bookCount = 12, unreadCount = 3, progress = 0.75f,
+    )
 
     Scaffold(
         topBar = {

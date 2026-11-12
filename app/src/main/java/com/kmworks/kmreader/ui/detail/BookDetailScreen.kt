@@ -29,21 +29,30 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.TextFormat
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,10 +79,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleData.ListEntry
-import com.kmworks.kmreader.data.SampleListDetailData
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 
@@ -101,6 +110,7 @@ fun BookDetailScreen(
     onAddToReadList: (Book) -> Unit = {},
     onMenuAction: (BookMenuAction) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
+    onReadIncognito: () -> Unit = {},
 ) {
     BookDetailBody(
         book = book,
@@ -113,6 +123,7 @@ fun BookDetailScreen(
         onAddToReadList = onAddToReadList,
         onMenuAction = onMenuAction,
         onOpenReadList = onOpenReadList,
+        onReadIncognito = onReadIncognito,
         modifier = modifier,
     )
 }
@@ -131,6 +142,7 @@ internal fun BookDetailBody(
     onAddToReadList: (Book) -> Unit,
     onMenuAction: (BookMenuAction) -> Unit,
     onOpenReadList: (Int) -> Unit = {},
+    onReadIncognito: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: BookDetailViewModel = hiltViewModel(),
 ) {
@@ -147,7 +159,7 @@ internal fun BookDetailBody(
     val vmDownloaded by viewModel.downloaded.collectAsState()
     var localDownloaded by remember(book.id) { mutableStateOf(false) }
     val downloaded = vmDownloaded ?: localDownloaded
-    val meta = state.meta ?: SampleListDetailData.bookMetaOf(baseBook)
+    val meta = state.meta
     val progress = if (progressToggled) {
         if (baseBook.progress == 1f) null else 1f
     } else {
@@ -273,8 +285,8 @@ internal fun BookDetailBody(
                                 addToReadListOpen = true
                                 onAddToReadList(displayed)
                             },
+                            onReadIncognito = onReadIncognito,
                         )
-                        DetailTimestamps()
                     }
                     Column(
                         modifier = Modifier
@@ -283,7 +295,7 @@ internal fun BookDetailBody(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        BookSecondaryContent(displayed, meta)
+                        meta?.let { BookSecondaryContent(displayed, it) }
                         if (state.readLists.isNotEmpty()) {
                             BookMembershipChips(
                                 entries = state.readLists,
@@ -331,9 +343,9 @@ internal fun BookDetailBody(
                             addToReadListOpen = true
                             onAddToReadList(displayed)
                         },
+                        onReadIncognito = onReadIncognito,
                     )
-                    DetailTimestamps()
-                    BookSecondaryContent(displayed, meta)
+                    meta?.let { BookSecondaryContent(displayed, it) }
                     if (state.readLists.isNotEmpty()) {
                         BookMembershipChips(
                             entries = state.readLists,
@@ -365,7 +377,7 @@ internal fun BookDetailBody(
 internal fun BookHero(
     book: Book,
     seriesTitle: String?,
-    meta: BookDetailMeta,
+    meta: BookDetailMeta?,
     centered: Boolean,
     imageUrl: String? = null,
     onOpenSeries: () -> Unit,
@@ -420,21 +432,32 @@ internal fun BookHero(
             text = book.title,
             style = MaterialTheme.typography.headlineSmall,
         )
-        if (meta.authors.isNotEmpty()) {
-            Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                meta.authors.take(4).forEach { creator ->
-                    MetaChip(text = "${creator.role.label} · ${creator.name}", icon = Icons.Outlined.Person)
+        val authors = meta?.authors.orEmpty()
+        if (authors.isNotEmpty()) {
+            // creator chips: role-ordered with role icons (aligned with SeriesDetailScreen hero)
+            authors.sortedBy { it.role.ordinal }.take(4).let { ordered ->
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ordered.forEach { creator ->
+                        MetaChip(
+                            text = "${creator.role.label} · ${creator.name}",
+                            icon = creator.role.icon(),
+                        )
+                    }
                 }
             }
         }
         Column(modifier = Modifier.padding(top = 12.dp)) {
-            MetaRow(icon = Icons.Filled.DateRange, text = "发布于 ${meta.releaseDate}")
+            if (meta != null) {
+                MetaRow(icon = Icons.Filled.DateRange, text = "发布于 ${meta.releaseDate}")
+            }
             MetaRow(icon = Icons.AutoMirrored.Filled.MenuBook, text = book.pageLabel)
-            MetaRow(icon = Icons.Outlined.Storage, text = meta.sizeLabel)
-            MetaRow(icon = Icons.Outlined.Description, text = meta.format)
+            if (meta != null) {
+                MetaRow(icon = Icons.Outlined.Storage, text = meta.sizeLabel)
+                MetaRow(icon = Icons.Outlined.Description, text = meta.format)
+            }
         }
     }
 }
@@ -449,6 +472,7 @@ internal fun BookActionCard(
     onMarkReadToggle: () -> Unit,
     onDownloadToggle: () -> Unit,
     onAddToReadList: () -> Unit,
+    onReadIncognito: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -544,16 +568,37 @@ internal fun BookActionCard(
                     }
                 }
             }
-            if (book.progress != null && book.progress != 1f) {
-                Text(
-                    text = "上次阅读：昨天",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
             Spacer(Modifier.height(12.dp))
             ReadingActionButton(book = book, onRead = { onRead(book) })
+            Spacer(Modifier.height(8.dp))
+            // secondary row: peek (incognito read) + download toggle (mirrors BookActionsSection)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onReadIncognito,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        Icons.Outlined.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("隐私阅读")
+                }
+                OutlinedButton(
+                    onClick = onDownloadToggle,
+                    enabled = !downloaded,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        if (downloaded) Icons.Outlined.CheckCircle else Icons.Outlined.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (downloaded) "已下载" else "下载")
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -568,19 +613,6 @@ internal fun BookActionCard(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(if (book.progress == 1f) "标记未读" else "标记已读")
-                }
-                OutlinedButton(
-                    onClick = onDownloadToggle,
-                    enabled = !downloaded,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(
-                        if (downloaded) Icons.Outlined.CheckCircle else Icons.Outlined.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (downloaded) "已下载" else "下载")
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -682,17 +714,6 @@ internal fun BookSecondaryContent(book: Book, meta: BookDetailMeta) {
     }
 }
 
-/** 创建/更新时间行（对齐 DetailTimestampsView）。 */
-@Composable
-private fun DetailTimestamps() {
-    Text(
-        text = "添加于 2024-06-12 · 更新于 2 小时前",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 12.dp),
-    )
-}
-
 /** 元信息 chip：图标 + 文案（与 SeriesDetailScreen 的 MetaChip 同款）。 */
 @Composable
 private fun MetaChip(text: String, icon: ImageVector? = null) {
@@ -772,6 +793,19 @@ private fun BookMembershipChips(
             }
         }
     }
+}
+
+/** 作者角色图标，对齐 SeriesDetailScreen 的 AuthorRole.icon。 */
+private fun AuthorRole.icon(): ImageVector = when (this) {
+    AuthorRole.Writer -> Icons.Outlined.Create
+    AuthorRole.Penciller -> Icons.Outlined.Brush
+    AuthorRole.Inker -> Icons.Outlined.EditNote
+    AuthorRole.Colorist -> Icons.Outlined.Palette
+    AuthorRole.Letterer -> Icons.Outlined.TextFormat
+    AuthorRole.Cover -> Icons.Outlined.Photo
+    AuthorRole.Editor -> Icons.Outlined.ContentCut
+    AuthorRole.Translator -> Icons.Filled.Public
+    AuthorRole.Custom -> Icons.Outlined.Person
 }
 
 /** 元信息行：图标 + 一行文案（与 SeriesDetailScreen 的 MetaRow 同款）。 */

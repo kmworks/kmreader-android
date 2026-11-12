@@ -13,14 +13,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 页面列表三态 + 假数据回退（无会话/样例书）。 */
-enum class ReaderPagesStatus { Loading, Ready, Error, Sample }
+/** 页面列表三态（无假数据回退；失败走错误态重试）。 */
+enum class ReaderPagesStatus { Loading, Ready, Error }
 
 data class ReaderUiState(
     val status: ReaderPagesStatus = ReaderPagesStatus.Loading,
-    /** 真实页面（宽高来自 PageDto）；Sample 状态为空，由 UI 回退假数据。 */
+    /** 真实页面（宽高来自 PageDto）。 */
     val pages: List<ReaderPage> = emptyList(),
-    /** 当前书的 Komga id（样例书为 null，图片 URL 随之不可用）。 */
+    /** 当前书的 Komga id（未映射时为 null，页面不可用）。 */
     val bookDtoId: String? = null,
 )
 
@@ -36,13 +36,16 @@ class ReaderViewModel @Inject constructor(
 
     private var loadedBookId: Int? = null
 
+    /** 隐私阅读（incognito）：跳过进度上报。 */
+    var incognito: Boolean = false
+
     /** 加载页面列表；重复调用同书幂等。 */
     fun load(book: Book) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
         val dtoId = readerRepository.bookDtoId(book.id)
         if (dtoId == null) {
-            _uiState.value = ReaderUiState(status = ReaderPagesStatus.Sample)
+            _uiState.value = ReaderUiState(status = ReaderPagesStatus.Error)
             return
         }
         _uiState.value = ReaderUiState(status = ReaderPagesStatus.Loading, bookDtoId = dtoId)
@@ -82,8 +85,9 @@ class ReaderViewModel @Inject constructor(
 
     private var lastReportedPage: Int = 0
 
-    /** 上报阅读进度（settled 单元最后一页；末页时同时标记完成）。与上一页重复则跳过。 */
+    /** 上报阅读进度（settled 单元最后一页；末页时同时标记完成）。incognito 或重复页跳过。 */
     fun reportProgress(page: Int) {
+        if (incognito) return
         val dtoId = _uiState.value.bookDtoId ?: return
         if (page == lastReportedPage) return
         lastReportedPage = page

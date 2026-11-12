@@ -81,7 +81,7 @@ fun CollectionDetailScreen(
         name = state.name ?: collection.name,
         ordered = state.ordered ?: collection.ordered,
     )
-    val sourceSeries = state.series ?: collection.series
+    val sourceSeries = state.series ?: emptyList()
     var layout by remember { mutableStateOf(BrowseLayout.Grid) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }

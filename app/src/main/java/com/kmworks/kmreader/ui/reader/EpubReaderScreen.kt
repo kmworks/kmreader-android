@@ -7,7 +7,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +27,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,15 +39,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +76,6 @@ import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CustomFont
-import com.kmworks.kmreader.data.SampleSystemData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -126,6 +124,9 @@ class EpubReaderViewModel @Inject constructor(
     private var equalWeight: Float = 1f
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
+
+    /** 隐私阅读（incognito）：跳过进度上报。 */
+    var incognito: Boolean = false
 
     private val deviceId: String = "kmreader-android"
     private val deviceName: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
@@ -289,6 +290,8 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     private fun doReport() {
+        // 隐私阅读：跳过进度上报（恢复仍保留）
+        if (incognito) return
         val state = _uiState.value
         val dtoId = bookDtoId ?: return
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
@@ -317,19 +320,46 @@ class EpubReaderViewModel @Inject constructor(
     }
 }
 
-/** EPUB reader (mirrors EpubReaderView): WebView WebPub pipeline + DIVINA-style chrome, demo fallback. */
+/** EPUB reader (mirrors EpubReaderView): WebView WebPub pipeline + DIVINA-style chrome. */
 @Composable
 fun EpubReaderScreen(
     book: Book,
     onBack: () -> Unit,
+    incognito: Boolean = false,
     viewModel: EpubReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(book.id) { viewModel.load(book) }
+    LaunchedEffect(book.id, incognito) {
+        viewModel.incognito = incognito
+        viewModel.load(book)
+    }
     if (state.hasSession) {
-        RealEpubReader(book = book, state = state, viewModel = viewModel, onBack = onBack)
+        RealEpubReader(
+            book = book,
+            state = state,
+            viewModel = viewModel,
+            onBack = onBack,
+            incognito = incognito,
+        )
     } else {
-        DemoEpubReader(book = book, onBack = onBack)
+        // 无会话：无演示骨架，直接给出错误态出口
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "需要连接服务器才能阅读",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                )
+                TextButton(onClick = onBack) {
+                    Text("返回", color = Color.White)
+                }
+            }
+        }
     }
 }
 
@@ -340,6 +370,7 @@ private fun RealEpubReader(
     state: EpubUiState,
     viewModel: EpubReaderViewModel,
     onBack: () -> Unit,
+    incognito: Boolean,
 ) {
     var epubSettings by remember { mutableStateOf(EpubReaderSettings()) }
     val dark = isSystemInDarkTheme()
@@ -463,6 +494,15 @@ private fun RealEpubReader(
                         tint = Color.White,
                     )
                 }
+                // 隐私阅读指示（对齐原作顶栏标题前 eye.slash）
+                if (incognito) {
+                    Icon(
+                        Icons.Filled.VisibilityOff,
+                        contentDescription = "隐私阅读",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         book.seriesTitle,
@@ -568,180 +608,6 @@ private fun RealEpubReader(
                 showToc = false
             },
             onDismiss = { showToc = false },
-        )
-    }
-}
-
-/** Demo fallback skeleton (no session). */
-@Composable
-private fun DemoEpubReader(book: Book, onBack: () -> Unit) {
-    val pageCount = book.pageCount.coerceAtLeast(1)
-    var currentPage by rememberSaveable { mutableIntStateOf(1) }
-    var chromeVisible by remember { mutableStateOf(false) }
-    var menuExpanded by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showToc by remember { mutableStateOf(false) }
-    var showPageJump by remember { mutableStateOf(false) }
-    var epubSettings by remember { mutableStateOf(EpubReaderSettings()) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { chromeVisible = !chromeVisible },
-    ) {
-        // Text page placeholder
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                "EPUB 正文占位",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White.copy(alpha = 0.85f),
-            )
-            Text(
-                "第 $currentPage 屏 · ${epubSettings.theme} · ${epubSettings.fontSizeSp.toInt()} sp",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.55f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 10.dp),
-            )
-        }
-
-        // Top bar (mirrors DIVINA chrome)
-        AnimatedVisibility(
-            visible = chromeVisible,
-            modifier = Modifier.align(Alignment.TopCenter),
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .statusBarsPadding()
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
-                        tint = Color.White,
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        book.seriesTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Text(
-                        "第 ${book.number} 册 · EPUB",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
-                        maxLines = 1,
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "更多",
-                            tint = Color.White,
-                        )
-                    }
-                    EpubReaderOptionsMenu(
-                        expanded = menuExpanded,
-                        items = listOf(
-                            "阅读器设置" to {
-                                menuExpanded = false
-                                showSettings = true
-                            },
-                            "目录" to {
-                                menuExpanded = false
-                                showToc = true
-                            },
-                            "跳页" to {
-                                menuExpanded = false
-                                showPageJump = true
-                            },
-                        ),
-                        onDismiss = { menuExpanded = false },
-                    )
-                }
-            }
-        }
-
-        // Bottom bar: progress slider + page capsule (mirrors DIVINA chrome)
-        AnimatedVisibility(
-            visible = chromeVisible,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Slider(
-                    value = currentPage.toFloat(),
-                    onValueChange = { currentPage = it.toInt().coerceIn(1, pageCount) },
-                    valueRange = 1f..pageCount.toFloat(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                    ),
-                )
-                PageJumpCapsule(
-                    page = currentPage,
-                    pageCount = pageCount,
-                    onClick = { showPageJump = true },
-                )
-            }
-        }
-    }
-
-    if (showSettings) {
-        EpubSettingsSheet(
-            settings = epubSettings,
-            onSettingsChange = { epubSettings = it },
-            customFonts = SampleSystemData.customFonts,
-            onOpenCustomFonts = { /* wiring point: open CustomFontsScreen */ },
-            onDismiss = { showSettings = false },
-        )
-    }
-    if (showToc) {
-        ReaderTocSheet(
-            currentPage = currentPage,
-            onJump = {
-                currentPage = it.coerceIn(1, pageCount)
-                showToc = false
-            },
-            onDismiss = { showToc = false },
-        )
-    }
-    if (showPageJump) {
-        ReaderPageJumpSheet(
-            currentPage = currentPage,
-            pageCount = pageCount,
-            onJump = {
-                currentPage = it.coerceIn(1, pageCount)
-                showPageJump = false
-            },
-            onDismiss = { showPageJump = false },
         )
     }
 }

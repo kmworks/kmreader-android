@@ -1,7 +1,10 @@
 package com.kmworks.kmreader.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.ExperimentalMaterial3AdaptiveNavigationSuiteApi
@@ -10,15 +13,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.ReadListDetail
-import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleListDetailData
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.browse.BrowseScreen
@@ -51,12 +56,20 @@ import com.kmworks.kmreader.ui.settings.ReaderDefaultsScreen
 import com.kmworks.kmreader.ui.settings.SettingsScreen
 import com.kmworks.kmreader.ui.settings.SseSettingsScreen
 import com.kmworks.kmreader.ui.stats.ReadingStatsScreen
+import kotlinx.coroutines.launch
 
 /** 设置子页路由（对齐 SettingsView 的各分组入口）。 */
 private enum class SettingsPage {
     Appearance, Browse, Dashboard, ReaderDefaults, Stats,
     CustomFonts, Cache, Network, Sse, Logs, Account, About, Licenses,
 }
+
+/** 阅读器目标：format 为 null 表示正在按服务器 mediaType 解析（解析完成前显示加载态）。 */
+private data class ReaderTarget(
+    val book: Book,
+    val format: String?,
+    val incognito: Boolean,
+)
 
 /**
  * 应用根（设计稿）：NavigationSuiteScaffold 自动完成
@@ -84,13 +97,56 @@ fun AppRoot(
     var dashboardSection by remember { mutableStateOf<DashboardSection<out Any>?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
-    var reading by remember { mutableStateOf<Book?>(null) }
+    var readerTarget by remember { mutableStateOf<ReaderTarget?>(null) }
     // 详情页元数据 chip 跳转的目标筛选（出版社/作者/分类/标签/知名实体），落在书库浏览页
     var browseFilter by remember { mutableStateOf<String?>(null) }
 
+    val scope = rememberCoroutineScope()
     val openSeries: (Series) -> Unit = { detail = it }
     val openBook: (Book) -> Unit = { bookDetail = it }
-    val openReader: (Book) -> Unit = { reading = it }
+    // 书籍上下文菜单「访问系列」：按注册表反查所属系列（空壳 Series，详情 VM 加载真实数据）
+    val visitSeriesOfBook: (Book) -> Unit = { book ->
+        scope.launch {
+            rootViewModel.seriesStableIdForBook(book.id)?.let { seriesId ->
+                detail = Series(
+                    id = seriesId,
+                    title = "",
+                    author = "",
+                    hue = 0f,
+                    bookCount = 0,
+                    unreadCount = 0,
+                    progress = null,
+                )
+            }
+        }
+    }
+    val openReader: (Book, Boolean) -> Unit = { book, incognito ->
+        readerTarget = ReaderTarget(book = book, format = null, incognito = incognito)
+        scope.launch {
+            val format = rootViewModel.resolveBookFormat(book.id) ?: "CBZ"
+            readerTarget = readerTarget
+                ?.takeIf { it.book.id == book.id && it.format == null }
+                ?.copy(format = format)
+        }
+    }
+
+    // 返回手势：按视觉层级逆序逐层收起叠加层；无叠加层时交还系统（退出）
+    val hasOverlay = readerTarget != null || settingsPage != null || showSettings ||
+        dashboardSection != null || smartListDetailId != null || readListDetailId != null ||
+        collectionDetailId != null || bookDetail != null || detail != null
+    BackHandler(enabled = hasOverlay) {
+        when {
+            readerTarget != null -> readerTarget = null
+            settingsPage != null -> settingsPage = null
+            showSettings -> showSettings = false
+            dashboardSection != null -> dashboardSection = null
+            smartListDetailId != null -> smartListDetailId = null
+            readListDetailId != null -> readListDetailId = null
+            collectionDetailId != null -> collectionDetailId = null
+            bookDetail != null -> bookDetail = null
+            detail != null -> detail = null
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavigationSuiteScaffold(
@@ -112,6 +168,7 @@ fun AppRoot(
                     onOpenBook = openBook,
                     onOpenSectionDetail = { dashboardSection = it },
                     onOpenContinuation = { readListDetailId = it.readListId },
+                    onVisitSeries = visitSeriesOfBook,
                 )
 
                 AppTab.Library -> LibraryScreen(
@@ -119,6 +176,7 @@ fun AppRoot(
                     onClearFilter = { browseFilter = null },
                     onOpenSeries = openSeries,
                     onOpenBook = openBook,
+                    onVisitSeries = visitSeriesOfBook,
                 )
 
                 AppTab.Lists -> ListsScreen(
@@ -144,7 +202,7 @@ fun AppRoot(
             SeriesDetailScreen(
                 series = series,
                 onBack = { detail = null },
-                onRead = openReader,
+                onRead = { book -> openReader(book, false) },
                 onBrowseFilter = { filter ->
                     browseFilter = filter
                     detail = null
@@ -160,14 +218,27 @@ fun AppRoot(
                 book = book,
                 seriesTitle = book.seriesTitle,
                 onBack = { bookDetail = null },
-                onRead = openReader,
+                onRead = { openReader(book, false) },
+                onReadIncognito = { openReader(book, true) },
                 onOpenReadList = {
                     // 阅读列表详情叠加在书籍详情之上，返回回到书籍详情
                     readListDetailId = it
                 },
                 onOpenSeries = {
-                    bookDetail = null
-                    detail = SampleData.seriesById(book.id / 1000)
+                    scope.launch {
+                        rootViewModel.seriesStableIdForBook(book.id)?.let { seriesId ->
+                            bookDetail = null
+                            detail = Series(
+                                id = seriesId,
+                                title = "",
+                                author = "",
+                                hue = 0f,
+                                bookCount = 0,
+                                unreadCount = 0,
+                                progress = null,
+                            )
+                        }
+                    }
                 },
             )
         }
@@ -266,12 +337,33 @@ fun AppRoot(
             }
         }
 
-        // 阅读器按格式路由：CBZ/CBR → Divina（分页/条漫），EPUB → EPUB，PDF → PDF
-        reading?.let { book ->
-            when (SampleListDetailData.bookMetaOf(book).format) {
-                "EPUB" -> EpubReaderScreen(book = book, onBack = { reading = null })
-                "PDF" -> PdfReaderScreen(book = book, onBack = { reading = null })
-                else -> ReaderScreen(book = book, onBack = { reading = null })
+        // 阅读器按真实格式路由（服务器 mediaType）：CBZ/CBR → Divina，EPUB → EPUB，PDF → PDF
+        readerTarget?.let { target ->
+            when (target.format) {
+                null -> Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+
+                "EPUB" -> EpubReaderScreen(
+                    book = target.book,
+                    onBack = { readerTarget = null },
+                    incognito = target.incognito,
+                )
+
+                "PDF" -> PdfReaderScreen(
+                    book = target.book,
+                    onBack = { readerTarget = null },
+                    incognito = target.incognito,
+                )
+
+                else -> ReaderScreen(
+                    book = target.book,
+                    onBack = { readerTarget = null },
+                    incognito = target.incognito,
+                )
             }
         }
     }

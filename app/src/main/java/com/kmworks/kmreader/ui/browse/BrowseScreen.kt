@@ -198,7 +198,16 @@ private fun SearchResults(
             }
         }
         if (!state.loading && state.error == null) {
-            if (state.hasSession && query.isBlank()) {
+            if (!state.hasSession) {
+                item(key = "hint-offline", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = "未连接服务器，登录后搜索",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 24.dp),
+                    )
+                }
+            } else if (query.isBlank()) {
                 item(key = "hint", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         text = "输入关键词开始搜索",

@@ -68,79 +68,8 @@ data class DashboardSection<T>(
     val items: List<T>,
 )
 
+/** 共享 UI 模型容器（演示假数据已全部移除，内容一律来自服务器）。 */
 object SampleData {
-
-    val series: List<Series> = listOf(
-        Series(
-            1, "葬送的芙莉莲", "山田钟人 / アベツカサ", 210f, 12, 3, 0.75f,
-            publisher = "小学馆", status = "连载中", language = "日语", releaseYear = 2020,
-            totalBookCount = 14,
-            creators = listOf(
-                Creator("山田钟人", AuthorRole.Writer),
-                Creator("アベツカサ", AuthorRole.Penciller),
-            ),
-            notableEntities = listOf(
-                NotableEntity("芙莉莲", "character"),
-                NotableEntity("辛美尔", "character"),
-                NotableEntity("菲伦", "character"),
-                NotableEntity("休塔尔克", "character"),
-                NotableEntity("北部高原", "location"),
-            ),
-            genres = listOf("奇幻", "冒险", "治愈"),
-            tags = listOf("年度榜单", "已动画化", "治愈系"),
-            links = listOf("Bangumi" to "https://bgm.tv/subject/285267"),
-            summary = "打倒魔王的勇者一行人中的精灵魔法使芙莉莲，在勇者死后踏上了追忆往昔、理解人类的旅途。千年寿命的她与新的伙伴们一起，沿着当年的冒险之路缓缓前行。",
-        ),
-        Series(2, "咒术回战", "芥见下下", 150f, 26, 0, 1f),
-        Series(3, "间谍过家家", "远藤达哉", 320f, 14, 5, 0.6f),
-        Series(4, "怪兽8号", "松本直也", 90f, 13, 13, null),
-        Series(5, "链锯人", "藤本树", 25f, 18, 2, 0.9f),
-        Series(6, "蓝色监狱", "金城宗幸 / 野村优介", 190f, 28, 28, null),
-        Series(7, "我推的孩子", "赤坂明 / 横枪萌果", 275f, 16, 4, 0.72f),
-        Series(8, "地狱乐", "贺来ゆうじ", 40f, 13, 0, 1f),
-        Series(9, "王者天下", "原泰久", 55f, 72, 10, 0.86f),
-        Series(10, "迷宫饭", "九井谅子", 120f, 14, 0, 1f),
-    )
-
-    fun booksOf(s: Series): List<Book> =
-        (1..s.bookCount).map { n ->
-            val p = s.progress?.let { if (n.toFloat() / s.bookCount <= it) 1f else null }
-                ?: if (n == 1) 0.35f else null
-            Book(
-                id = s.id * 1000 + n,
-                number = "第 $n 卷",
-                title = "${s.title} 第 $n 卷",
-                seriesTitle = s.title,
-                hue = s.hue,
-                pageCount = 180 + (n * 13) % 40,
-                progress = p,
-            )
-        }
-
-    private fun inProgressBooks(): List<Book> =
-        series.filter { it.progress != null && it.progress < 1f }.map { s ->
-            val current = ((s.progress ?: 0f) * s.bookCount).toInt().coerceAtLeast(1)
-            Book(
-                id = s.id * 1000 + current + 500,
-                number = "第 ${current + 1} 卷",
-                title = "${s.title} 第 ${current + 1} 卷",
-                seriesTitle = s.title,
-                hue = s.hue,
-                pageCount = 180 + (current * 13) % 40,
-                progress = 0.2f + s.id * 0.11f % 0.7f,
-            )
-        }
-
-    /** 仪表盘分区：分区集合与默认卡片形态 1:1 对齐 KMReader（horizontal 横卡 / large 大卡 / small 小卡）。 */
-    val dashboardSections: List<DashboardSection<out Any>> = listOf(
-        DashboardSection("keepReading", "继续阅读", DashboardCardKind.Horizontal, inProgressBooks().take(6)),
-        DashboardSection("onDeck", "待读", DashboardCardKind.Large, booksOf(series[0]).filter { it.progress == null }.take(6)),
-        DashboardSection("recentlyAddedBooks", "最近添加书籍", DashboardCardKind.Large, series.take(6).flatMap { booksOf(it).take(1) }),
-        DashboardSection("recentlyUpdatedSeries", "最近更新系列", DashboardCardKind.Large, series.take(6)),
-        DashboardSection("readListsInProgress", "进行中的阅读列表", DashboardCardKind.Horizontal, inProgressBooks().reversed().take(4)),
-    )
-
-    val recentlyRead: List<Book> = inProgressBooks().take(4)
 
     data class ListGroup(val title: String, val items: List<ListEntry>)
     data class ListEntry(
@@ -153,36 +82,4 @@ object SampleData {
         val targetLabel: String? = null,
         val modifiedLabel: String? = null,
     )
-
-    /** 列表页三条横向条带：收藏 / 阅读列表 / 智能列表（置顶项排前），对齐 ListsBrowseContentView。
-     *  智能列表条带在服务器不支持或离线时隐藏。 */
-    val lists: List<ListGroup> = listOf(
-        ListGroup(
-            "收藏", listOf(
-                ListEntry(1, "少年漫画", 24, 210f, true),
-                ListEntry(2, "已完结经典", 15, 35f, false),
-                ListEntry(3, "画风向", 9, 300f, false),
-            )
-        ),
-        ListGroup(
-            "阅读列表", listOf(
-                ListEntry(11, "本月计划", 8, 150f, true),
-                ListEntry(12, "周末补完", 12, 260f, false),
-                ListEntry(13, "长篇连载", 20, 90f, false),
-                ListEntry(14, "推荐给朋友", 6, 0f, false),
-            )
-        ),
-        ListGroup(
-            "智能列表", listOf(
-                ListEntry(21, "未读新卷", 18, 200f, true, targetLabel = "书籍", modifiedLabel = "今天更新"),
-                ListEntry(22, "连载中·少年", 32, 150f, false, targetLabel = "系列", modifiedLabel = "昨天更新"),
-                ListEntry(23, "今年新增未读", 27, 280f, false, targetLabel = "书籍", modifiedLabel = "3 天前更新"),
-                ListEntry(24, "长篇（50 册以上）", 6, 40f, false, targetLabel = "系列", modifiedLabel = "上周更新"),
-            )
-        ),
-    )
-
-    val searchResults: List<Series> = series.take(8)
-
-    fun seriesById(id: Int): Series = series.first { it.id == id }
 }

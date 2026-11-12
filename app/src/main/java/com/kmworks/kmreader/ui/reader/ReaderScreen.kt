@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,7 +85,7 @@ private val PageLine = Color.White.copy(alpha = 0.12f)
 
 /**
  * 漫画阅读器（DIVINA）：真实页面管线（ReaderViewModel → BookPagesApi），
- * 无会话/样例书回退 ReaderViewItemGenerator 假数据。
+ * 页面列表失败时展示错误态 + 重试。
  *
  * 页面单元、宽图判定与切割规则对齐原作
  * KMReader/Features/Reader/Models/Divina/ReaderViewItemGenerator.swift：
@@ -98,6 +100,7 @@ private val PageLine = Color.White.copy(alpha = 0.12f)
 fun ReaderScreen(
     book: Book,
     onBack: () -> Unit,
+    incognito: Boolean = false,
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     var chromeVisible by remember { mutableStateOf(true) }
@@ -130,11 +133,13 @@ fun ReaderScreen(
     val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
 
-    // 真实页面管线；无会话/样例书回退假数据
+    // 真实页面管线；失败走错误态重试（无假数据回退）
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(book) { viewModel.load(book) }
-    val fallbackPages = remember(book) { ReaderViewItemGenerator.pagesFor(book) }
-    val readerPages = uiState.pages.ifEmpty { fallbackPages }
+    LaunchedEffect(book, incognito) {
+        viewModel.incognito = incognito
+        viewModel.load(book)
+    }
+    val readerPages = uiState.pages
     val pageCount = readerPages.size
 
     // 条漫/竖排不支持双页与拆分宽页（对齐原作的门控）
@@ -228,6 +233,37 @@ fun ReaderScreen(
                 translationY = pan.y
             }
 
+        // 页面列表三态：加载中 / 错误重试 / 就绪（Pager）
+        when (uiState.status) {
+            ReaderPagesStatus.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+
+            ReaderPagesStatus.Error -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        "页面列表加载失败",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White.copy(alpha = 0.85f),
+                    )
+                    TextButton(onClick = { viewModel.retry(book) }) {
+                        Text("重试", color = Color.White)
+                    }
+                }
+            }
+
+            ReaderPagesStatus.Ready -> {
         if (isVertical) {
             VerticalPager(
                 state = pagerState,
@@ -258,29 +294,10 @@ fun ReaderScreen(
             }
         }
 
-        // 页面列表失败：回退占位数据并给出重试入口
-        if (uiState.status == ReaderPagesStatus.Error) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 64.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(ScrimColor)
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "页面列表加载失败，正在显示占位页",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.85f),
-                )
-                TextButton(onClick = { viewModel.retry(book) }) {
-                    Text("重试", color = Color.White)
-                }
             }
         }
 
-        // 顶栏 chrome
+        // 顶栏 chrome（加载/错误态也保留，提供返回出口）
         AnimatedVisibility(
             visible = chromeVisible,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -301,7 +318,16 @@ fun ReaderScreen(
                         tint = Color.White,
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                // 隐私阅读指示（对齐原作顶栏标题前 eye.slash）
+                if (incognito) {
+                    Icon(
+                        Icons.Filled.VisibilityOff,
+                        contentDescription = "隐私阅读",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f).padding(start = if (incognito) 8.dp else 0.dp)) {
                     Text(
                         book.seriesTitle,
                         style = MaterialTheme.typography.titleSmall,
@@ -336,9 +362,9 @@ fun ReaderScreen(
             }
         }
 
-        // 底栏 chrome：缩略图条 + 滑杆 + 页码胶囊
+        // 底栏 chrome：缩略图条 + 滑杆 + 页码胶囊（仅就绪态）
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && uiState.status == ReaderPagesStatus.Ready,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),

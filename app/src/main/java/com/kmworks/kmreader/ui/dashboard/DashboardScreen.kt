@@ -40,8 +40,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.ReadListContinuationUi
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
-import com.kmworks.kmreader.data.SampleDashboardData
-import com.kmworks.kmreader.data.SampleData
+import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookHorizontalCard
@@ -62,11 +61,13 @@ fun DashboardScreen(
     onOpenBook: (Book) -> Unit = {},
     onOpenSectionDetail: (DashboardSection<out Any>) -> Unit = {},
     onOpenContinuation: (ReadListContinuationUi) -> Unit = {},
+    onVisitSeries: (Book) -> Unit = {},
+    onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
 ) {
     val viewModel: DashboardViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
-    // 有会话且拉到数据用真实分区；否则保持 SampleData 演示
-    val sections = state.sections ?: SampleData.dashboardSections
+    // real sections only; empty state when there is no session or nothing loaded
+    val sections = state.sections ?: emptyList()
     // 库范围切换（全部/已钉选/单库），对应 LibraryScopeMenu；仪表盘为独立会话内 scope
     var scope by remember { mutableStateOf("全部书库") }
     var scopeMenuOpen by remember { mutableStateOf(false) }
@@ -137,6 +138,15 @@ fun DashboardScreen(
                     )
                 }
             }
+            if (!state.hasSession) {
+                item(key = "empty") {
+                    EmptyState(
+                        title = "未连接服务器",
+                        subtitle = "登录后查看仪表盘",
+                        modifier = Modifier.fillParentMaxSize(),
+                    )
+                }
+            }
             items(sections, key = { it.id }) { section ->
                 DashboardSectionRow(
                     section = section,
@@ -147,6 +157,7 @@ fun DashboardScreen(
                     onSeriesLongClick = { seriesMenuTarget = it },
                     onBookLongClick = { bookMenuTarget = it },
                     thumbnails = state.thumbnails,
+                    continuations = state.continuations,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -181,9 +192,9 @@ fun DashboardScreen(
                 hasStarted = book.progress != null,
                 completed = book.progress == 1f,
                 downloaded = false,
-                onOpenSeries = {
-                    SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
-                },
+                onOpenSeries = { onVisitSeries(book) },
+                onRead = { onReadBook(book, false) },
+                onReadIncognito = { onReadBook(book, true) },
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
                 onAddToReadList = {
@@ -256,6 +267,7 @@ private fun DashboardSectionRow(
     onSeriesLongClick: (Series) -> Unit = {},
     onBookLongClick: (Book) -> Unit = {},
     thumbnails: Map<Int, String> = emptyMap(),
+    continuations: List<ReadListContinuationUi> = emptyList(),
 ) {
     SectionHeader(
         title = section.title,
@@ -268,10 +280,11 @@ private fun DashboardSectionRow(
     ) {
         // read-list section renders continuation cards (aligned with ReadListsInProgressSectionView)
         if (section.id == ReadListsInProgressSectionId) {
-            items(SampleDashboardData.readListContinuations, key = { it.readListId }) { continuation ->
+            items(continuations, key = { it.readListId }) { continuation ->
                 ReadListContinuationCard(
                     continuation = continuation,
                     onClick = { onOpenContinuation(continuation) },
+                    imageUrl = thumbnails[continuation.readListId],
                     modifier = Modifier.width(DashboardCardKind.Horizontal.widthDp.dp),
                 )
             }

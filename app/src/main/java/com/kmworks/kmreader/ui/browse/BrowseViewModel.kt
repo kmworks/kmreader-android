@@ -85,13 +85,19 @@ class BrowseViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     init {
-        // library list for the scope menu
+        // library list for the scope menu（失败降级为空列表，不进错误态）
         viewModelScope.launch {
             sessionManager.clients.collectLatest { clients ->
                 if (clients == null) {
                     _state.update { it.copy(hasSession = false, libraries = emptyList()) }
                 } else {
-                    val libraries = libraryRepository.libraries()
+                    val libraries = try {
+                        libraryRepository.libraries()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
                     _state.update { it.copy(hasSession = true, libraries = libraries) }
                 }
             }
@@ -124,30 +130,8 @@ class BrowseViewModel @Inject constructor(
     }
 
     private suspend fun performSearch(request: SearchRequest) {
-        // sample fallback without a session: local filter on demo data
-        if (!request.hasSession) {
-            val series = if (request.query.isBlank()) {
-                SampleData.searchResults
-            } else {
-                SampleData.series.filter {
-                    it.title.contains(request.query, ignoreCase = true) ||
-                        it.author.contains(request.query, ignoreCase = true)
-                }
-            }
-            _state.update {
-                it.copy(
-                    loading = false,
-                    error = null,
-                    series = series,
-                    books = emptyList(),
-                    readLists = emptyList(),
-                    collections = emptyList(),
-                    thumbnails = emptyMap(),
-                )
-            }
-            return
-        }
-        if (request.query.isBlank()) {
+        // 无会话或空关键词：清空结果，由屏幕展示空态（无假数据回退）
+        if (!request.hasSession || request.query.isBlank()) {
             _state.update {
                 it.copy(
                     loading = false,

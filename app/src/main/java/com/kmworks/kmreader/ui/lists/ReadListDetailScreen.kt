@@ -90,7 +90,7 @@ fun ReadListDetailScreen(
         summary = state.summary ?: readList.summary,
         ordered = state.ordered ?: readList.ordered,
     )
-    val sourceBooks = state.books ?: readList.books
+    val sourceBooks = state.books ?: emptyList()
     var layout by remember { mutableStateOf(BrowseLayout.List) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }

@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,16 +13,21 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,9 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
-import com.kmworks.kmreader.data.SampleData
+import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
@@ -61,25 +69,36 @@ fun LibraryScreen(
     onClearFilter: () -> Unit = {},
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    onVisitSeries: (Book) -> Unit = {},
+    onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
 ) {
     var contentType by remember { mutableStateOf(ContentType.Series) }
-    var scope by remember { mutableStateOf("已钉选") }
     var scopeMenuOpen by remember { mutableStateOf(false) }
+    var showPinSheet by remember { mutableStateOf(false) }
     // 「加入收藏/阅读列表」sheet 目标
     var addTarget by remember { mutableStateOf<Any?>(null) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
     var showOptionsSheet by remember { mutableStateOf(false) }
-    var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
     // 长按上下文菜单目标（对齐原作卡片 contextMenu）
     var menuSeries by remember { mutableStateOf<Series?>(null) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
 
     val viewModel: LibraryViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
-    // 有会话且拉到数据用真实内容；否则保持 SampleData 演示
-    val series = state.series ?: SampleData.series
-    val allBooks = state.books ?: SampleData.series.flatMap { SampleData.booksOf(it).take(2) }
+    // real content only; empty state when there is no session or nothing loaded
+    val series = state.series ?: emptyList()
+    val allBooks = state.books ?: emptyList()
+    // 当前范围显示名（对齐 iOS LibraryScopeMenu）
+    val scopeLabel = when {
+        state.scope == AppSettingsStore.SCOPE_ALL -> "全部书库"
+        state.scope == AppSettingsStore.SCOPE_PINNED -> "已钉选"
+        state.scope.startsWith("library:") -> {
+            val id = state.scope.removePrefix("library:")
+            state.libraries.find { it.id == id }?.name ?: "单个书库"
+        }
+        else -> "全部书库"
+    }
 
     Scaffold(
         topBar = {
@@ -87,22 +106,50 @@ fun LibraryScreen(
                 title = { Text("书库") },
                 actions = {
                     TextButton(onClick = { scopeMenuOpen = true }) {
-                        Text(scope)
+                        Text(scopeLabel)
                         Icon(Icons.Filled.ArrowDropDown, contentDescription = "切换书库范围")
                     }
                     DropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
-                        listOf("全部书库", "已钉选", "漫画", "日漫", "国漫").forEach { option ->
+                        // 对齐 iOS LibraryScopeMenu：已钉选（有钉选时）/全部书库/单库/钉选编辑
+                        if (state.pinnedIds.isNotEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(option) },
+                                text = { Text("已钉选") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.PushPin, contentDescription = null)
+                                },
                                 onClick = {
-                                    scope = option
+                                    viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
                                     scopeMenuOpen = false
                                 },
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text("全部书库") },
+                            onClick = {
+                                viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                                scopeMenuOpen = false
+                            },
+                        )
+                        state.libraries.forEach { library ->
+                            DropdownMenuItem(
+                                text = { Text(library.name) },
+                                onClick = {
+                                    viewModel.setScope(AppSettingsStore.scopeForLibrary(library.id))
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("钉选书库…") },
+                            onClick = {
+                                scopeMenuOpen = false
+                                showPinSheet = true
+                            },
+                        )
                     }
                     IconButton(onClick = { showOptionsSheet = true }) {
                         Icon(Icons.Filled.FilterList, contentDescription = "筛选")
@@ -143,9 +190,9 @@ fun LibraryScreen(
             }
             Text(
                 text = if (state.hasSession) {
-                    "$scope · ${state.libraryCount} 个库"
+                    "$scopeLabel · ${state.libraryCount} 个库"
                 } else {
-                    "$scope · 3 个库 · 共 86 GB"
+                    scopeLabel
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -168,31 +215,39 @@ fun LibraryScreen(
                     )
                 }
             }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 110.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                when (contentType) {
-                    ContentType.Series -> items(series, key = { it.id }) { item ->
-                        SeriesGridCard(
-                            series = item,
-                            onClick = { onOpenSeries(item) },
-                            modifier = Modifier.fillMaxWidth(),
-                            onLongClick = { menuSeries = item },
-                            imageUrl = state.thumbnails[item.id],
-                        )
-                    }
-                    ContentType.Books -> items(allBooks, key = { it.id }) { book ->
-                        BookGridCard(
-                            book = book,
-                            onClick = { onOpenBook(book) },
-                            modifier = Modifier.fillMaxWidth(),
-                            onLongClick = { menuBook = book },
-                            imageUrl = state.thumbnails[book.id],
-                        )
+            if (!state.hasSession) {
+                EmptyState(
+                    title = "未连接服务器",
+                    subtitle = "登录后浏览书库",
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    when (contentType) {
+                        ContentType.Series -> items(series, key = { it.id }) { item ->
+                            SeriesGridCard(
+                                series = item,
+                                onClick = { onOpenSeries(item) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onLongClick = { menuSeries = item },
+                                imageUrl = state.thumbnails[item.id],
+                            )
+                        }
+                        ContentType.Books -> items(allBooks, key = { it.id }) { book ->
+                            BookGridCard(
+                                book = book,
+                                onClick = { onOpenBook(book) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onLongClick = { menuBook = book },
+                                imageUrl = state.thumbnails[book.id],
+                            )
+                        }
                     }
                 }
             }
@@ -202,11 +257,22 @@ fun LibraryScreen(
     if (showOptionsSheet) {
         val browseSuggestions = rememberBrowseFilterSuggestions()
         BrowseOptionsSheet(
-            options = browseOptions,
-            onOptionsChange = { browseOptions = it },
+            options = state.browseOptions,
+            onOptionsChange = viewModel::setBrowseOptions,
             onDismiss = { showOptionsSheet = false },
             authorSuggestions = browseSuggestions.authors,
             tagSuggestions = browseSuggestions.tags,
+        )
+    }
+    if (showPinSheet) {
+        LibraryPinSheet(
+            libraries = state.libraries,
+            pinnedIds = state.pinnedIds,
+            onSave = { ids ->
+                viewModel.setPinnedLibraries(ids)
+                showPinSheet = false
+            },
+            onDismiss = { showPinSheet = false },
         )
     }
     menuSeries?.let { series ->
@@ -236,9 +302,9 @@ fun LibraryScreen(
                 hasStarted = book.progress != null,
                 completed = book.progress == 1f,
                 downloaded = false,
-                onOpenSeries = {
-                    SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
-                },
+                onOpenSeries = { onVisitSeries(book) },
+                onRead = { onReadBook(book, false) },
+                onReadIncognito = { onReadBook(book, true) },
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
                 onAddToReadList = {
@@ -297,6 +363,69 @@ fun LibraryScreen(
                 },
             )
             else -> Unit
+        }
+    }
+}
+
+/** 钉选编辑 sheet（对齐 iOS LibraryPickerSheet：勾选要钉选的书库，保存后「已钉选」范围生效）。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryPinSheet(
+    libraries: List<LibraryDto>,
+    pinnedIds: Set<String>,
+    onSave: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selection by remember { mutableStateOf(pinnedIds) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Text(
+                "钉选书库",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            Text(
+                "被钉选的书库会出现在「已钉选」范围",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            libraries.forEach { library ->
+                val checked = library.id in selection
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selection = if (checked) selection - library.id else selection + library.id
+                        }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.MenuBook,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        library.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp),
+                    )
+                    if (checked) {
+                        Icon(Icons.Filled.Check, contentDescription = "已钉选")
+                    }
+                }
+            }
+            TextButton(
+                onClick = { onSave(selection) },
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(vertical = 8.dp),
+            ) {
+                Text("完成")
+            }
         }
     }
 }

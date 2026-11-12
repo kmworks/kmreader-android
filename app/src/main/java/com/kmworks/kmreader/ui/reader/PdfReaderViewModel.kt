@@ -51,13 +51,16 @@ constructor(
     private var document: PdfDocument? = null
     private var lastReportedPage = 0
 
-    /** 入口：无真实映射时保持演示（hasSession=false，调用方显示占位）。 */
+    /** 隐私阅读（incognito）：跳过进度上报。 */
+    var incognito: Boolean = false
+
+    /** 入口：无真实映射时进入错误态（无演示回退）。 */
     fun load(book: Book) {
         if (lastBook?.id == book.id) return
         lastBook = book
         val dtoId = pdfRepository.bookDtoId(book.id)
         if (dtoId == null) {
-            _uiState.update { it.copy(hasSession = false) }
+            _uiState.update { it.copy(hasSession = false, loading = false, error = true) }
             return
         }
         _uiState.update {
@@ -108,8 +111,9 @@ constructor(
             .getOrDefault(emptyList())
     }
 
-    /** 上报当前页（去重；末页标记完成）。 */
+    /** 上报当前页（去重；末页标记完成）。incognito 跳过。 */
     fun reportProgress(page: Int) {
+        if (incognito) return
         val dtoId = _uiState.value.bookDtoId ?: return
         if (page == lastReportedPage) return
         lastReportedPage = page

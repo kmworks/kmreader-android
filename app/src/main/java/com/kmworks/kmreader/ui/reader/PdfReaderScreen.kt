@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -28,6 +25,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -40,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,6 +70,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun PdfReaderScreen(
     book: Book,
     onBack: () -> Unit,
+    incognito: Boolean = false,
     viewModel: PdfReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -88,7 +88,10 @@ fun PdfReaderScreen(
     // Initial-page application marker, keyed to the loaded document
     val initialApply = remember { InitialApply() }
 
-    LaunchedEffect(book.id) { viewModel.load(book) }
+    LaunchedEffect(book.id, incognito) {
+        viewModel.incognito = incognito
+        viewModel.load(book)
+    }
 
     val pageCount =
         when {
@@ -111,9 +114,9 @@ fun PdfReaderScreen(
     val scrim =
         if (pdfSettings.controlsScrim) Color.Black.copy(alpha = 0.78f) else Color.Transparent
 
-    // Progress reporting (real session only)
-    LaunchedEffect(currentPage, state.ready) {
-        if (state.ready) viewModel.reportProgress(currentPage)
+    // Progress reporting (real session only; incognito = Peek, no reporting)
+    LaunchedEffect(currentPage, state.ready, incognito) {
+        if (state.ready && !incognito) viewModel.reportProgress(currentPage)
     }
 
     // Debounced full-text search
@@ -198,12 +201,20 @@ fun PdfReaderScreen(
             }
 
             else -> {
-                // Demo fallback (no session / unmapped book): static placeholder
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                // No session / unmapped book: error state, no demo placeholder
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    PdfPagePlaceholder(page = currentPage)
+                    Text(
+                        "需要连接服务器才能阅读",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                    )
+                    TextButton(onClick = onBack) { Text("返回", color = Color.White) }
                 }
             }
         }
@@ -266,6 +277,15 @@ fun PdfReaderScreen(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                             tint = Color.White,
+                        )
+                    }
+                    // 隐私阅读指示（对齐原作顶栏标题前 eye.slash）
+                    if (incognito) {
+                        Icon(
+                            Icons.Filled.VisibilityOff,
+                            contentDescription = "隐私阅读",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(start = 4.dp, end = 8.dp),
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -482,20 +502,3 @@ private fun Modifier.unconsumedTap(onTap: () -> Unit): Modifier =
         }
     }
 
-/** Gray document page placeholder (demo fallback). */
-@Composable
-private fun PdfPagePlaceholder(page: Int) {
-    Box(
-        modifier = Modifier
-            .width(260.dp)
-            .aspectRatio(0.72f)
-            .background(Color(0xFF2A2A2C), RoundedCornerShape(4.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "PDF 第 $page 页",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White.copy(alpha = 0.55f),
-        )
-    }
-}

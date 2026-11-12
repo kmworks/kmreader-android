@@ -27,6 +27,50 @@ internal fun allOfCondition(conditions: List<JsonObject>): JsonObject =
         putJsonArray("allOf") { conditions.forEach { add(it) } }
     }
 
+/** 组合条件：{"anyOf":[...]}。 */
+internal fun anyOfCondition(conditions: List<JsonObject>): JsonObject =
+    buildJsonObject {
+        putJsonArray("anyOf") { conditions.forEach { add(it) } }
+    }
+
+/** 对象值叶子：{"<key>":{"operator":op,"value":{...}}}（作者条件等）。 */
+internal fun objectLeafCondition(key: String, operator: String, value: JsonObject): JsonObject =
+    buildJsonObject {
+        putJsonObject(key) {
+            put("operator", operator)
+            put("value", value)
+        }
+    }
+
+/** 无值叶子：{"<key>":{"operator":op}}（isTrue 等无 value 的操作符）。 */
+internal fun flagLeafCondition(key: String, operator: String): JsonObject =
+    buildJsonObject {
+        putJsonObject(key) {
+            put("operator", operator)
+        }
+    }
+
+/** 作者条件：{"author":{"is":{"name":name}}}（对齐 iOS BookSearch.buildCondition）。 */
+internal fun authorCondition(name: String): JsonObject =
+    objectLeafCondition(
+        "author",
+        "is",
+        buildJsonObject { put("name", name) },
+    )
+
+/** 库条件：单库为 libraryId is 叶子，多库为 anyOf（对齐 iOS libraryIds 分支）。 */
+internal fun libraryCondition(libraryIds: List<String>): JsonObject {
+    val leaves = libraryIds.map { leafCondition("libraryId", "is", it) }
+    return if (leaves.size == 1) leaves.single() else anyOfCondition(leaves)
+}
+
+/** 合并可选条件：多个→allOf，单个→原样，空→null。 */
+internal fun combinedCondition(conditions: List<JsonObject>): JsonObject? = when (conditions.size) {
+    0 -> null
+    1 -> conditions.single()
+    else -> allOfCondition(conditions)
+}
+
 /** POST list 请求体：{"condition":...,"fullTextSearch":...}（两者都可省）。 */
 internal fun searchBody(condition: JsonObject? = null, fullTextSearch: String? = null): JsonObject =
     buildJsonObject {

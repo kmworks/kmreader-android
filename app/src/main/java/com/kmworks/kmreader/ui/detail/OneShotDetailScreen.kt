@@ -15,6 +15,7 @@ fun OneShotDetailScreen(
     onDownload: (Book) -> Unit = {},
     onAddToReadList: (Book) -> Unit = {},
     onMenuAction: (BookMenuAction) -> Unit = {},
+    onReadIncognito: () -> Unit = {},
 ) {
     BookDetailBody(
         book = book,
@@ -26,6 +27,7 @@ fun OneShotDetailScreen(
         onDownload = onDownload,
         onAddToReadList = onAddToReadList,
         onMenuAction = onMenuAction,
+        onReadIncognito = onReadIncognito,
         modifier = modifier,
     )
 }

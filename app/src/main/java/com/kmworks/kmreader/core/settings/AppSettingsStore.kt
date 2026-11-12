@@ -84,6 +84,28 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.DIVINA_DIRECTION, direction)
     }
 
+    /** 钉选书库 id 集合（对齐 iOS dashboard.libraryIds；纯本地，不走 client-settings）。 */
+    val pinnedLibraryIds: Flow<Set<String>> = store.data.map { prefs ->
+        prefs[Keys.PINNED_LIBRARY_IDS]
+            ?.split(',')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+    }
+
+    suspend fun setPinnedLibraryIds(ids: Set<String>) {
+        store.edit { prefs -> prefs[Keys.PINNED_LIBRARY_IDS] = ids.joinToString(",") }
+    }
+
+    /** 库浏览范围（对齐 iOS LibraryBrowseScope rawValue：pinned/all/library:{id}）。 */
+    val libraryBrowseScope: Flow<String> = store.data.map { prefs ->
+        prefs[Keys.LIBRARY_BROWSE_SCOPE] ?: SCOPE_PINNED
+    }
+
+    suspend fun setLibraryBrowseScope(scope: String) {
+        store.edit { prefs -> prefs[Keys.LIBRARY_BROWSE_SCOPE] = scope }
+    }
+
     // remote-apply writers：不发出 change，避免上下行回环
     internal suspend fun writeSseEnabled(enabled: Boolean) {
         store.edit { prefs -> prefs[Keys.SSE_ENABLED] = enabled }
@@ -108,6 +130,9 @@ class AppSettingsStore @Inject constructor(
     companion object {
         const val THEME_SYSTEM = "system"
         const val DEFAULT_DIRECTION = "ltr"
+        const val SCOPE_PINNED = "pinned"
+        const val SCOPE_ALL = "all"
+        fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
     }
 
     private object Keys {
@@ -115,5 +140,7 @@ class AppSettingsStore @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val TRUE_BLACK = booleanPreferencesKey("true_black")
         val DIVINA_DIRECTION = stringPreferencesKey("divina_default_direction")
+        val PINNED_LIBRARY_IDS = stringPreferencesKey("dashboard_pinned_library_ids")
+        val LIBRARY_BROWSE_SCOPE = stringPreferencesKey("library_browse_scope")
     }
 }

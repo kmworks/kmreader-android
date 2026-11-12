@@ -77,12 +77,4 @@ object SampleDashboardData {
         ),
         DashboardSectionSetting("recentlyReadBooks", "最近阅读", DashboardCardKind.Small),
     )
-
-    /** Fake continuations for the in-progress read lists strip. */
-    val readListContinuations: List<ReadListContinuationUi> = listOf(
-        ReadListContinuationUi(11, "本月计划", 3, "葬送的芙莉莲 第 4 卷", 210f, 0.38f, 2, 8),
-        ReadListContinuationUi(12, "周末补完", 5, "链锯人 第 9 卷", 25f, null, 4, 12),
-        ReadListContinuationUi(13, "长篇连载", 1, "王者天下 第 63 卷", 55f, 0.12f, 62, 72),
-        ReadListContinuationUi(14, "推荐给朋友", 2, "迷宫饭 第 2 卷", 120f, null, 1, 14),
-    )
 }

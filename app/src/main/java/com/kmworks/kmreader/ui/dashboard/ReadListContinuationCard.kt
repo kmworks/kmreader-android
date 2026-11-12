@@ -36,6 +36,7 @@ fun ReadListContinuationCard(
     continuation: ReadListContinuationUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    imageUrl: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -45,10 +46,11 @@ fun ReadListContinuationCard(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 封面 = 服务端缩略图 /api/v1/readlists/{id}/thumbnail，此处为占位；实现时以 AsyncImage 加载
+        // 封面 = 服务端缩略图 /api/v1/readlists/{id}/thumbnail（无 URL 时 hue 占位）
         CoverArt(
             title = continuation.readListName,
             hue = continuation.hue,
+            imageUrl = imageUrl,
             modifier = Modifier
                 .width(52.dp)
                 .aspectRatio(2f / 3f),

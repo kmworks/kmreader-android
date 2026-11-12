@@ -41,9 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.HeatmapDay
-import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleSystemData
-import com.kmworks.kmreader.ui.components.BookHorizontalCard
 
 /** Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView).
  *  kmrs 能力门控：无会话回退假数据演示；stock Komga（无 ReadingStats 特性）显示占位。 */
@@ -164,15 +162,6 @@ fun ReadingStatsScreen(
                     )
                 }
 
-                // 「最近阅读」不在统计 API 内（iOS 用本地历史）：仅演示态显示
-                if (!state.hasSession) {
-                    StatsSectionTitle("最近阅读")
-                }
-            }
-            if (!state.hasSession) {
-                items(SampleData.recentlyRead, key = { it.id }) { book ->
-                    BookHorizontalCard(book = book, onClick = { })
-                }
             }
             item { Spacer(Modifier.height(24.dp)) }
         }

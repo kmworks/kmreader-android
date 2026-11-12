@@ -30,6 +30,10 @@ object DetailIdRegistry {
     fun collectionDtoId(stableId: Int): String? = collections[stableId]
     fun readListDtoId(stableId: Int): String? = readLists[stableId]
     fun smartListDtoId(stableId: Int): String? = smartLists[stableId]
+
+    /** 反向：由系列 DTO id 找已注册的 stableId（不存在返回 null）。 */
+    fun seriesStableId(dtoId: String): Int? =
+        series.entries.firstOrNull { it.value == dtoId }?.key
 }
 
 /** Single-entity fetches for detail screens; resolves DTO ids through DetailIdRegistry. */
@@ -75,6 +79,30 @@ class DetailRepository @Inject constructor(
     suspend fun bookDetail(dtoId: String): BookDto? {
         val api = sessionManager.clients.value?.books ?: return null
         return api.getBookById(dtoId).awaitBody()
+    }
+
+    /** 真实阅读器路由格式：按服务器 mediaType 判定（EPUB/PDF/其余 DIVINA）。 */
+    suspend fun bookFormat(stableId: Int): String? {
+        val dtoId = DetailIdRegistry.bookDtoId(stableId) ?: return null
+        val mediaType = bookDetail(dtoId)?.media?.mediaType?.lowercase() ?: return null
+        return when {
+            "epub" in mediaType -> "EPUB"
+            "pdf" in mediaType -> "PDF"
+            else -> "CBZ"
+        }
+    }
+
+    /**
+     * 书籍 → 所属系列 stableId（「访问系列」导航用）。
+     * 注册表已有直接用；否则注册 seriesId.hashCode() 稳定 id（与 Mappers 一致）。
+     */
+    suspend fun seriesStableIdForBook(bookStableId: Int): Int? {
+        val bookDtoId = DetailIdRegistry.bookDtoId(bookStableId) ?: return null
+        val seriesId = bookDetail(bookDtoId)?.seriesId ?: return null
+        DetailIdRegistry.seriesStableId(seriesId)?.let { return it }
+        val stableId = seriesId.hashCode()
+        DetailIdRegistry.registerSeries(stableId, seriesId)
+        return stableId
     }
 
     suspend fun collectionDetail(dtoId: String): CollectionDto? {

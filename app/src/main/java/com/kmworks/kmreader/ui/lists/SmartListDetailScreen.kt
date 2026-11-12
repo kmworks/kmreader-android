@@ -99,8 +99,8 @@ fun SmartListDetailScreen(
         target = state.target ?: smartList.target,
         modifiedLabel = state.modifiedLabel ?: smartList.modifiedLabel,
     )
-    val books = state.books ?: remember(smartList.id) { SampleListDetailData.smartListBooks(smartList) }
-    val series = state.series ?: remember(smartList.id) { SampleListDetailData.smartListSeries(smartList) }
+    val books = state.books ?: emptyList()
+    val series = state.series ?: emptyList()
 
     Scaffold(
         modifier = modifier,

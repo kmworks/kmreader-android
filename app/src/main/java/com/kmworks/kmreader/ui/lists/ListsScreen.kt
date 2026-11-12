@@ -54,9 +54,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
-import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleData.ListGroup
+import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
@@ -82,13 +82,11 @@ fun ListsScreen(
 
     val viewModel: ListsViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
-    // 有会话且拉到数据时替换收藏/阅读列表条带；智能列表保持示例
-    val groups = SampleData.lists.map { group ->
-        when (group.title) {
-            "收藏" -> state.collections?.let { group.copy(items = it) } ?: group
-            "阅读列表" -> state.readLists?.let { group.copy(items = it) } ?: group
-            else -> group
-        }
+    // real groups only (capability-gated: smart lists hidden when unsupported/empty)
+    val groups = buildList {
+        state.collections?.let { if (it.isNotEmpty()) add(ListGroup("收藏", it)) }
+        state.readLists?.let { if (it.isNotEmpty()) add(ListGroup("阅读列表", it)) }
+        state.smartLists?.let { if (it.isNotEmpty()) add(ListGroup("智能列表", it)) }
     }
 
     Scaffold(
@@ -144,6 +142,15 @@ fun ListsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            if (!state.hasSession) {
+                item(key = "empty") {
+                    EmptyState(
+                        title = "未连接服务器",
+                        subtitle = "登录后查看列表",
+                        modifier = Modifier.fillParentMaxSize(),
                     )
                 }
             }

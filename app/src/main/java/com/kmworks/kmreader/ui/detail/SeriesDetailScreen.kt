@@ -84,10 +84,8 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
-import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
-import com.kmworks.kmreader.ui.tracker.SampleTrackerLinks
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
@@ -130,11 +128,12 @@ fun SeriesDetailScreen(
     val displaySeries = (state.series ?: series).let {
         if (demoMarkedRead && state.series == null) it.copy(progress = 1f, unreadCount = 0) else it
     }
-    val rawBooks = state.books ?: SampleData.booksOf(displaySeries)
+    val rawBooks = state.books ?: emptyList()
     val books = if (demoMarkedRead && state.books == null) rawBooks.map { it.copy(progress = 1f) } else rawBooks
+    // reading target: first in-progress, else first unread, else first book (mirrors SeriesContinueReadingResolver)
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
-        ?: books.first()
+        ?: books.firstOrNull()
     // 对齐 seriesDetailLayout：列表/中网格/大网格三档，默认列表，逐页持久化
     var booksLayout by rememberSaveable { mutableStateOf(BrowseLayout.List) }
     // 筛选状态（对齐 BookBrowseOptions；真实实现逐页 AppStorage 持久化）
@@ -282,20 +281,15 @@ fun SeriesDetailScreen(
                             continueBook = continueBook,
                             centered = true,
                             downloaded = seriesDownloaded,
-                            onRead = { onRead(continueBook) },
+                            onRead = { continueBook?.let(onRead) },
                             onDownload = onDownloadSeries,
                         )
-                        DetailTimestamps()
                         DetailSummary(displaySeries)
                         DetailChips(series = displaySeries, onBrowseFilter = onBrowseFilter)
                         DetailMembershipChips(state.collections, onOpen = onOpenCollection)
-                        if (!state.hasSession || state.trackerSupported) {
+                        if (state.hasSession && state.trackerSupported) {
                             TrackerSection(
-                                links = if (state.hasSession) {
-                                    state.trackerLinks
-                                } else {
-                                    SampleTrackerLinks
-                                },
+                                links = state.trackerLinks,
                                 onManage = { showTrackerSheet = true },
                             )
                         }
@@ -358,20 +352,15 @@ fun SeriesDetailScreen(
                             continueBook = continueBook,
                             centered = true,
                             downloaded = seriesDownloaded,
-                            onRead = { onRead(continueBook) },
+                            onRead = { continueBook?.let(onRead) },
                             onDownload = onDownloadSeries,
                         )
-                        DetailTimestamps()
                         DetailSummary(displaySeries)
                         DetailChips(displaySeries, centered = true, onBrowseFilter = onBrowseFilter)
                         DetailMembershipChips(state.collections, centered = true, onOpen = onOpenCollection)
-                        if (!state.hasSession || state.trackerSupported) {
+                        if (state.hasSession && state.trackerSupported) {
                             TrackerSection(
-                                links = if (state.hasSession) {
-                                    state.trackerLinks
-                                } else {
-                                    SampleTrackerLinks
-                                },
+                                links = state.trackerLinks,
                                 onManage = { showTrackerSheet = true },
                             )
                         }
@@ -534,7 +523,7 @@ private fun HeroMetaItems(series: Series) {
 @Composable
 private fun DetailActionCard(
     series: Series,
-    continueBook: Book,
+    continueBook: Book?,
     centered: Boolean,
     downloaded: Boolean,
     onRead: () -> Unit,
@@ -574,7 +563,9 @@ private fun DetailActionCard(
                 },
             )
         }
-        ReadingActionButton(continueBook = continueBook, onRead = onRead)
+        if (continueBook != null) {
+            ReadingActionButton(continueBook = continueBook, onRead = onRead)
+        }
         OutlinedButton(
             onClick = onDownload,
             enabled = !downloaded,
@@ -591,18 +582,19 @@ private fun DetailActionCard(
     }
 }
 
-/** 继续阅读胶囊：白底深色字，两行（动作行 + 目标书籍行）。对应 ReadingActionButton。 */
+/** 阅读胶囊：白底深色字，两行（动作行 + 目标书籍行）。对应 SeriesReadingActionButton。 */
 @Composable
 private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
+    // caption: resume with page/percent when in progress, otherwise start (mirrors readLabel)
     val caption = continueBook.progress?.let { p ->
-        if (p in 0f..1f) {
+        if (p > 0f && p < 1f) {
             val page = (p * continueBook.pageCount).toInt().coerceAtLeast(1)
             val percent = (p * 100).toInt()
             "继续阅读 · 第 $page 页 · $percent%"
         } else {
-            "继续阅读"
+            "开始阅读"
         }
-    } ?: "继续阅读"
+    } ?: "开始阅读"
     Button(
         onClick = onRead,
         modifier = Modifier.fillMaxWidth(),
@@ -634,19 +626,6 @@ private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
             )
         }
     }
-}
-
-@Composable
-private fun DetailTimestamps() {
-    Text(
-        text = "创建于 2024-06-12 · 更新于 2 小时前",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp),
-    )
 }
 
 @Composable

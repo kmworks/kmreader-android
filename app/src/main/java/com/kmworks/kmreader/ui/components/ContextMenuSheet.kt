@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -120,6 +122,8 @@ fun bookContextMenuItems(
     completed: Boolean,
     downloaded: Boolean,
     onOpenSeries: () -> Unit = {},
+    onRead: () -> Unit = {},
+    onReadIncognito: () -> Unit = {},
     onMarkRead: () -> Unit = {},
     onMarkUnread: () -> Unit = {},
     onDownload: () -> Unit = {},
@@ -130,6 +134,9 @@ fun bookContextMenuItems(
     onShare: () -> Unit = {},
     onDelete: () -> Unit = {},
 ): List<ContextMenuItem> = buildList {
+    // read actions first (mirrors BookContextMenu ControlGroup: read / peek / series)
+    add(ContextMenuItem("阅读", Icons.AutoMirrored.Outlined.MenuBook, onClick = onRead))
+    add(ContextMenuItem("隐私阅读", Icons.Outlined.Visibility, onClick = onReadIncognito))
     add(ContextMenuItem("访问系列", Icons.Outlined.AutoStories, onClick = onOpenSeries))
     if (!completed) {
         add(ContextMenuItem("标记为已读", Icons.Outlined.CheckCircle, onClick = onMarkRead))

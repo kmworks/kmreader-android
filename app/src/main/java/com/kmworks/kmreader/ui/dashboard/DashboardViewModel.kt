@@ -16,6 +16,8 @@ import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSection
+import com.kmworks.kmreader.data.ReadListContinuationUi
+import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +38,8 @@ data class DashboardUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val sections: List<DashboardSection<out Any>>? = null,
+    /** 进行中的阅读列表续读卡（真实计算；无进行中列表时为空）。 */
+    val continuations: List<ReadListContinuationUi> = emptyList(),
     /** UI id -> thumbnail URL for series and books. */
     val thumbnails: Map<Int, String> = emptyMap(),
     val collections: List<ListEntry>? = null,
@@ -109,7 +113,7 @@ class DashboardViewModel @Inject constructor(
                 fetched.latestBooks.forEach { bookRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
                 fetched.latestSeries.forEach { seriesRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
                 fetched.updatedSeries.forEach { seriesRepository.thumbnailUrl(it.id)?.let { url -> put(it.id.stableIdForThumb(), url) } }
-            }
+            }.toMutableMap()
             val sections = listOfNotNull(
                 if (keepReading.isNotEmpty()) DashboardSection("keepReading", "继续阅读", DashboardCardKind.Large, keepReading) else null,
                 if (onDeck.isNotEmpty()) DashboardSection("onDeck", "待读", DashboardCardKind.Large, onDeck) else null,
@@ -125,10 +129,49 @@ class DashboardViewModel @Inject constructor(
             val readLists = readListDtos.map { dto ->
                 ListEntry(dto.id.hashCode(), dto.name, dto.bookIds.size, hueFor(dto.id), false)
             }
+            // 续读卡：逐列表拉书并找出第一本未读完（对齐 ReadListContinuation 语义）
+            val continuations = coroutineScope {
+                readListDtos.map { dto ->
+                    async {
+                        if (dto.bookIds.isEmpty()) return@async null
+                        val books = detailRepository.readListBooks(dto.id).map { b -> b.toUiBook() }
+                        if (books.isEmpty()) return@async null
+                        val booksRead = books.count { it.progress == 1f }
+                        if (booksRead >= books.size) return@async null
+                        val nextIdx = books.indexOfFirst { it.progress == null || it.progress < 1f }
+                            .let { if (it < 0) 0 else it }
+                        val next = books[nextIdx]
+                        ReadListContinuationUi(
+                            readListId = dto.id.hashCode(),
+                            readListName = dto.name,
+                            nextBookIndex = nextIdx + 1,
+                            nextBookTitle = next.title,
+                            hue = hueFor(dto.id),
+                            bookProgress = next.progress,
+                            booksRead = booksRead,
+                            bookCount = books.size,
+                        )
+                    }
+                }.mapNotNull { it.await() }
+            }
+            continuations.forEach { cont ->
+                detailRepository.readListDtoId(cont.readListId)
+                    ?.let { detailRepository.readListThumbnailUrl(it) }
+                    ?.let { url -> thumbs[cont.readListId] = url }
+            }
+            val allSections = if (continuations.isNotEmpty()) {
+                sections + DashboardSection(
+                    ReadListsInProgressSectionId, "进行中的阅读列表",
+                    DashboardCardKind.Horizontal, emptyList<Any>(),
+                )
+            } else {
+                sections
+            }
             _state.update {
                 it.copy(
                     loading = false,
-                    sections = sections,
+                    sections = allSections,
+                    continuations = continuations,
                     thumbnails = thumbs,
                     collections = collections,
                     readLists = readLists,
