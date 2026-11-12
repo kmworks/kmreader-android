@@ -224,6 +224,12 @@ fun AppRoot(
                     // 阅读列表详情叠加在书籍详情之上，返回回到书籍详情
                     readListDetailId = it
                 },
+                onBrowseFilter = { filter ->
+                    // 与系列详情一致：作者/标签 chip 跳到书库浏览页并携带筛选
+                    browseFilter = filter
+                    bookDetail = null
+                    tab = AppTab.Library
+                },
                 onOpenSeries = {
                     scope.launch {
                         rootViewModel.seriesStableIdForBook(book.id)?.let { seriesId ->

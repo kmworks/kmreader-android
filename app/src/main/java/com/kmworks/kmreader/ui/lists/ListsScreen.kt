@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,18 +55,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil3.SingletonImageLoader
-import coil3.compose.AsyncImage
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleData.ListGroup
+import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
-import dagger.hilt.android.EntryPointAccessors
 
 /** 列表 tab：对齐 KMReader ListsBrowseView —— 收藏 / 阅读列表 / 智能列表三条横向条带，
  *  pinned 置顶，条带头可进入对应类型全页；工具栏范围筛选（LibraryScopeMenu）。 */
@@ -162,9 +164,18 @@ fun ListsScreen(
                 }
                 ListStrip(
                     group = group,
+                    hasMore = when (group.title) {
+                        "收藏" -> state.collectionsHasMore
+                        "阅读列表" -> state.readListsHasMore
+                        else -> false
+                    },
+                    onLoadMore = when (group.title) {
+                        "收藏" -> viewModel::loadMoreCollections
+                        "阅读列表" -> viewModel::loadMoreReadLists
+                        else -> ({})
+                    },
                     onOpenEntry = onOpenEntry,
                     onEntryMenu = { entry -> menuTarget = group.title to entry },
-                    thumbnails = state.thumbnails,
                 )
             }
         }
@@ -218,14 +229,27 @@ fun ListsScreen(
     }
 }
 
-/** 单条横向条带：分区头（可点进入全页）+ 卡片横排。 */
+/** 单条横向条带：分区头（可点进入全页）+ 卡片横排；触底加载下一页。 */
 @Composable
 private fun ListStrip(
     group: ListGroup,
+    hasMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onOpenEntry: (ListEntry) -> Unit,
     onEntryMenu: (ListEntry) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
+    val listState = rememberLazyListState()
+    // 横向条带触底判定：最后可见项进入末尾 3 项内即请求下一页。
+    val shouldLoadMore by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore, hasMore) {
+        if (shouldLoadMore && hasMore) onLoadMore()
+    }
     Column(modifier = Modifier.padding(vertical = 10.dp)) {
         Row(
             modifier = Modifier
@@ -247,6 +271,7 @@ private fun ListStrip(
             )
         }
         LazyRow(
+            state = listState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -258,8 +283,20 @@ private fun ListStrip(
                     onClick = { onOpenEntry(entry) },
                     onLongClick = { onEntryMenu(entry) },
                     modifier = Modifier.width(110.dp),
-                    imageUrl = thumbnails[entry.id],
                 )
+            }
+            // 底部加载行：还有下一页时显示，滑到末尾会自动请求
+            if (hasMore) {
+                item(key = "load-more") {
+                    Box(
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(164.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                }
             }
         }
     }
@@ -274,7 +311,6 @@ private fun ListEntryCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
-    imageUrl: String? = null,
 ) {
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -282,30 +318,14 @@ private fun ListEntryCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    Color.hsv(entry.hue, 0.42f, 0.60f),
-                ),
+                .aspectRatio(2f / 3f),
         ) {
-            if (imageUrl != null) {
-                val context = LocalContext.current
-                val entryPoint = remember {
-                    EntryPointAccessors.fromApplication(
-                        context.applicationContext,
-                        ImageLoaderEntryPoint::class.java,
-                    )
-                }
-                val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
-                val fallbackLoader = remember { SingletonImageLoader.get(context) }
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    imageLoader = sessionLoader ?: fallbackLoader,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize(),
-                )
-            }
+            CoverArt(
+                title = entry.title,
+                hue = entry.hue,
+                stableId = entry.id,
+                modifier = Modifier.matchParentSize(),
+            )
             if (entry.pinned) {
                 Icon(
                     Icons.Filled.PushPin,

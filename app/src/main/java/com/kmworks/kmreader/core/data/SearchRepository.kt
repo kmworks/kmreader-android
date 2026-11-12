@@ -1,12 +1,11 @@
 package com.kmworks.kmreader.core.data
 
-import com.kmworks.kmreader.core.api.model.BookDto
-import com.kmworks.kmreader.core.api.model.CollectionDto
-import com.kmworks.kmreader.core.api.model.ReadListDto
-import com.kmworks.kmreader.core.api.model.SeriesDto
+import com.kmworks.kmreader.core.api.model.PageBookDto
+import com.kmworks.kmreader.core.api.model.PageSeriesDto
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.TriState
 import javax.inject.Inject
@@ -30,97 +29,163 @@ class SearchRepository @Inject constructor(
     fun bookThumbnailUrl(bookId: String): String? =
         sessionManager.clients.value?.bookThumbnailUrl(bookId)
 
-    /** Series full-text search (POST api/v1/series/list; library filter is a
+    /** Series full-text search page (POST api/v1/series/list; library filter is a
      *  hand-built condition, matching the iOS POST-only search). */
-    suspend fun searchSeries(
+    suspend fun searchSeriesPage(
         term: String,
         libraryId: String? = null,
+        page: Int = 0,
         size: Int = 30,
-    ): List<SeriesDto> {
-        val api = listSearchApi() ?: return emptyList()
-        return api.series(
+    ): Paged<Series> {
+        val api = listSearchApi() ?: return Paged(emptyList(), hasMore = false)
+        val result = api.series(
             searchBody(
                 condition = libraryId?.let { leafCondition("libraryId", "is", it) },
                 fullTextSearch = term.ifBlank { null },
             ),
+            page = page,
             size = size,
             sort = listOf("metadata.titleSort,asc"),
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        return result.toSeriesPage(size)
     }
 
-    /** Books full-text search (POST api/v1/books/list; same library condition). */
-    suspend fun searchBooks(
+    /** Books full-text search page (POST api/v1/books/list; same library condition). */
+    suspend fun searchBooksPage(
         term: String,
         libraryId: String? = null,
+        page: Int = 0,
         size: Int = 30,
-    ): List<BookDto> {
-        val api = listSearchApi() ?: return emptyList()
-        return api.books(
+    ): Paged<Book> {
+        val api = listSearchApi() ?: return Paged(emptyList(), hasMore = false)
+        val result = api.books(
             searchBody(
                 condition = libraryId?.let { leafCondition("libraryId", "is", it) },
                 fullTextSearch = term.ifBlank { null },
             ),
+            page = page,
             size = size,
             sort = listOf("metadata.numberSort,asc"),
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        return result.toBookPage(size)
     }
 
-    /** Read lists search (GET api/v1/readlists, native search + library_id). */
-    suspend fun searchReadLists(
+    /** Read lists search page (GET api/v1/readlists, native search + library_id). */
+    suspend fun searchReadListsPage(
         term: String,
         libraryId: String? = null,
+        page: Int = 0,
         size: Int = 20,
-    ): List<ReadListDto> {
-        val api = sessionManager.clients.value?.readlists ?: return emptyList()
-        return api.getReadLists(
+    ): Paged<SampleData.ListEntry> {
+        val api = sessionManager.clients.value?.readlists
+            ?: return Paged(emptyList(), hasMore = false)
+        val result = api.getReadLists(
             search = term.ifBlank { null },
             libraryId = libraryId?.let { listOf(it) },
+            page = page,
             size = size,
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        val items = result.content.orEmpty()
+        return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
     }
 
-    /** Collections search (GET api/v1/collections, native search + library_id). */
-    suspend fun searchCollections(
+    /** Collections search page (GET api/v1/collections, native search + library_id). */
+    suspend fun searchCollectionsPage(
         term: String,
         libraryId: String? = null,
+        page: Int = 0,
         size: Int = 20,
-    ): List<CollectionDto> {
-        val api = sessionManager.clients.value?.collections ?: return emptyList()
-        return api.getCollections(
+    ): Paged<SampleData.ListEntry> {
+        val api = sessionManager.clients.value?.collections
+            ?: return Paged(emptyList(), hasMore = false)
+        val result = api.getCollections(
             search = term.ifBlank { null },
             libraryId = libraryId?.let { listOf(it) },
+            page = page,
             size = size,
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        val items = result.content.orEmpty()
+        return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
+    }
+
+    // ---- 仪表盘分区「更多」页：同一数据源的分页（原作 DashboardSectionDetailView pageSize 50）----
+
+    /** 继续阅读（进行中书籍）分页。 */
+    suspend fun keepReadingPage(page: Int = 0, size: Int = 50): Paged<Book> {
+        val api = listSearchApi() ?: return Paged(emptyList(), false)
+        val result = api.books(
+            searchBody(condition = leafCondition("readStatus", "is", "IN_PROGRESS")),
+            page = page,
+            size = size,
+            sort = listOf("readProgress.lastModified,desc"),
+        ).awaitBody() ?: return Paged(emptyList(), false)
+        return result.toBookPage(size)
+    }
+
+    /** 待读（ondeck）分页。 */
+    suspend fun onDeckPage(page: Int = 0, size: Int = 50): Paged<Book> {
+        val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
+        val result = api.getBooksOnDeck(page = page, size = size).awaitBody()
+            ?: return Paged(emptyList(), false)
+        return result.toBookPage(size)
+    }
+
+    /** 最近更新书籍分页。 */
+    suspend fun latestBooksPage(page: Int = 0, size: Int = 50): Paged<Book> {
+        val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
+        val result = api.getBooksLatest(page = page, size = size).awaitBody()
+            ?: return Paged(emptyList(), false)
+        return result.toBookPage(size)
+    }
+
+    /** 最近更新系列分页。 */
+    suspend fun latestSeriesPage(page: Int = 0, size: Int = 50): Paged<Series> {
+        val api = sessionManager.clients.value?.series ?: return Paged(emptyList(), false)
+        val result = api.getSeriesLatest(page = page, size = size).awaitBody()
+            ?: return Paged(emptyList(), false)
+        return result.toSeriesPage(size)
+    }
+
+    /** 最近更新系列（内容）分页。 */
+    suspend fun recentlyUpdatedSeriesPage(page: Int = 0, size: Int = 50): Paged<Series> {
+        val api = sessionManager.clients.value?.series ?: return Paged(emptyList(), false)
+        val result = api.getSeriesUpdated(page = page, size = size).awaitBody()
+            ?: return Paged(emptyList(), false)
+        return result.toSeriesPage(size)
     }
 
     // ---- 库浏览筛选（BrowseOptionsSheet → POST 手写条件，对齐 iOS buildCondition）----
 
     /** 系列浏览：库范围+筛选+排序真实作用于 POST series/list；失败返回 null。 */
-    suspend fun browseSeries(
+    suspend fun browseSeriesPage(
         libraryIds: List<String>?,
         options: BookBrowseOptions,
-        size: Int = 100,
-    ): List<Series>? {
+        page: Int = 0,
+        size: Int = 50,
+    ): Paged<Series>? {
         val api = listSearchApi() ?: return null
         val body = searchBody(
             condition = combinedCondition(seriesConditions(libraryIds, options)),
         )
-        return api.series(body, size = size, sort = listOf(seriesSort(options)))
-            .awaitBody()?.content?.map { it.toUiSeries() }
+        val result = api.series(body, page = page, size = size, sort = listOf(seriesSort(options)))
+            .awaitBody() ?: return null
+        return result.toSeriesPage(size)
     }
 
     /** 书籍浏览：库范围+筛选+排序真实作用于 POST books/list；失败返回 null。 */
-    suspend fun browseBooks(
+    suspend fun browseBooksPage(
         libraryIds: List<String>?,
         options: BookBrowseOptions,
-        size: Int = 200,
-    ): List<Book>? {
+        page: Int = 0,
+        size: Int = 50,
+    ): Paged<Book>? {
         val api = listSearchApi() ?: return null
         val body = searchBody(
             condition = combinedCondition(bookConditions(libraryIds, options)),
         )
-        return api.books(body, size = size, sort = listOf(bookSort(options)))
-            .awaitBody()?.content?.map { it.toUiBook() }
+        val result = api.books(body, page = page, size = size, sort = listOf(bookSort(options)))
+            .awaitBody() ?: return null
+        return result.toBookPage(size)
     }
 
     /** 书籍筛选条件（对齐 iOS BookSearch.buildCondition 的条件键与操作符）。 */
@@ -219,5 +284,15 @@ class SearchRepository @Inject constructor(
             else -> "metadata.titleSort"
         }
         return "$field,${if (options.sortAscending) "asc" else "desc"}"
+    }
+
+    private fun PageSeriesDto.toSeriesPage(size: Int): Paged<Series> {
+        val items = content.orEmpty()
+        return Paged(items.map { it.toUiSeries() }, hasMore = items.size >= size && last != true)
+    }
+
+    private fun PageBookDto.toBookPage(size: Int): Paged<Book> {
+        val items = content.orEmpty()
+        return Paged(items.map { it.toUiBook() }, hasMore = items.size >= size && last != true)
     }
 }

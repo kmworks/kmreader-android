@@ -11,6 +11,7 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.Book
@@ -27,6 +28,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
@@ -44,6 +46,17 @@ data class DashboardUiState(
     val thumbnails: Map<Int, String> = emptyMap(),
     val collections: List<ListEntry>? = null,
     val readLists: List<ListEntry>? = null,
+    /** 分区标题右侧是否显示卡片形态菜单（设置页持久化）。 */
+    val kindMenuEnabled: Boolean = true,
+)
+
+/** 仪表盘布局配置（持久化于 AppSettingsStore，对齐 iOS DashboardConfiguration）。 */
+private data class DashboardLayout(
+    val order: List<String> = emptyList(),
+    val hidden: Set<String> = emptySet(),
+    val continuation: Boolean = true,
+    val kindMenu: Boolean = true,
+    val overrides: Map<String, DashboardCardKind> = emptyMap(),
 )
 
 /** Real dashboard data for the five sections (books + series feeds). */
@@ -55,11 +68,16 @@ class DashboardViewModel @Inject constructor(
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
     private val sseService: SseService,
+    private val appSettings: AppSettingsStore,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state = _state.asStateFlow()
+
+    /** 服务端产出的分区（未按设置裁剪），布局变化时重新派生 sections。 */
+    private var rawSections: List<DashboardSection<out Any>> = emptyList()
+    private var layout = DashboardLayout()
 
     /** 重新拉取分区内容（动作成功后的内容同步）。 */
     fun refresh() {
@@ -76,12 +94,66 @@ class DashboardViewModel @Inject constructor(
                 }
             }
         }
+        // 设置页改动顺序/显隐/卡片形态后即时重排，无需重新请求
+        viewModelScope.launch {
+            combine(
+                appSettings.dashboardSectionOrder,
+                appSettings.dashboardHiddenSections,
+                appSettings.dashboardContinuationEnabled,
+                appSettings.dashboardCardKindMenu,
+                appSettings.dashboardKindOverrides,
+            ) { order, hidden, continuation, kindMenu, overrides ->
+                DashboardLayout(
+                    order = order,
+                    hidden = hidden,
+                    continuation = continuation,
+                    kindMenu = kindMenu,
+                    overrides = overrides.mapNotNull { (id, value) ->
+                        DashboardCardKind.entries.firstOrNull { it.name == value }?.let { id to it }
+                    }.toMap(),
+                )
+            }.collect { next ->
+                layout = next
+                val sections = derivedSections()
+                _state.update {
+                    it.copy(
+                        sections = sections ?: it.sections,
+                        kindMenuEnabled = next.kindMenu,
+                    )
+                }
+            }
+        }
         // SSE 内容变化事件聚合 3s 后刷新
         viewModelScope.launch {
             sseService.events
                 .filter { it.kind in REFRESH_KINDS }
                 .debounce(3_000)
                 .collect { refresh() }
+        }
+    }
+
+    /** 按持久化顺序/显隐/卡片形态派生分区列表；尚未加载内容时返回 null。 */
+    private fun derivedSections(): List<DashboardSection<out Any>>? {
+        if (rawSections.isEmpty()) return null
+        return rawSections
+            .sortedBy { section ->
+                val index = layout.order.indexOf(section.id)
+                if (index < 0) Int.MAX_VALUE else index
+            }
+            .filter { section ->
+                section.id !in layout.hidden &&
+                    (section.id != ReadListsInProgressSectionId || layout.continuation)
+            }
+            .map { section ->
+                val kind = layout.overrides[section.id] ?: section.kind
+                if (kind == section.kind) section else section.copy(kind = kind)
+            }
+    }
+
+    /** 分区卡片形态切换（仪表盘分区标题右侧菜单）。 */
+    fun setSectionKind(sectionId: String, kind: DashboardCardKind?) {
+        viewModelScope.launch {
+            appSettings.setDashboardKindOverride(sectionId, kind?.name)
         }
     }
 
@@ -167,10 +239,11 @@ class DashboardViewModel @Inject constructor(
             } else {
                 sections
             }
+            rawSections = allSections
             _state.update {
                 it.copy(
                     loading = false,
-                    sections = allSections,
+                    sections = derivedSections() ?: allSections,
                     continuations = continuations,
                     thumbnails = thumbs,
                     collections = collections,

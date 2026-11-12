@@ -37,10 +37,13 @@ import kotlinx.coroutines.launch
 data class LibraryUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
+    val loadingMore: Boolean = false,
     val error: String? = null,
     val series: List<Series>? = null,
     val books: List<Book>? = null,
-    val thumbnails: Map<Int, String> = emptyMap(),
+    val seriesHasMore: Boolean = false,
+    val booksHasMore: Boolean = false,
+    val hasMore: Boolean = false,
     val libraries: List<LibraryDto> = emptyList(),
     val libraryCount: Int = 0,
     /** LibraryBrowseScope rawValue：pinned / all / library:{id}。 */
@@ -51,7 +54,7 @@ data class LibraryUiState(
     val readLists: List<ListEntry>? = null,
 )
 
-/** Real library content (scope + filters drive POST list queries). */
+/** Real library content (scope + filters drive paged POST list queries). */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val seriesRepository: SeriesRepository,
@@ -71,6 +74,20 @@ class LibraryViewModel @Inject constructor(
 
     private val browseOptionsFlow = MutableStateFlow(BookBrowseOptions())
 
+    /** 当前查询快照，翻页沿用同一条件；查询变化时自增 generation 丢弃迟到结果。 */
+    private data class Query(
+        val scope: String,
+        val pinned: Set<String>,
+        val options: BookBrowseOptions,
+    )
+
+    private var query: Query? = null
+    private var generation = 0
+    private var seriesPage = 0
+    private var booksPage = 0
+    private var loadingMoreSeries = false
+    private var loadingMoreBooks = false
+
     init {
         // 会话 × 范围 × 钉选 × 筛选 任一变化都重查（对齐原作 scope/filters 直接驱动查询）
         viewModelScope.launch {
@@ -80,30 +97,32 @@ class LibraryViewModel @Inject constructor(
                 appSettings.pinnedLibraryIds,
                 browseOptionsFlow,
             ) { clients, scope, pinned, options -> ScopeQuery(clients != null, scope, pinned, options) }
-                .collectLatest { query ->
-                    if (!query.hasSession) {
+                .collectLatest { snapshot ->
+                    if (!snapshot.hasSession) {
+                        generation++
+                        query = null
                         _state.update {
                             it.copy(
                                 hasSession = false,
                                 loading = false,
+                                loadingMore = false,
                                 series = null,
                                 books = null,
-                                thumbnails = emptyMap(),
                                 libraries = emptyList(),
-                                scope = query.scope,
-                                pinnedIds = query.pinned,
-                                browseOptions = query.options,
+                                scope = snapshot.scope,
+                                pinnedIds = snapshot.pinned,
+                                browseOptions = snapshot.options,
                             )
                         }
                     } else {
                         _state.update {
                             it.copy(
-                                scope = query.scope,
-                                pinnedIds = query.pinned,
-                                browseOptions = query.options,
+                                scope = snapshot.scope,
+                                pinnedIds = snapshot.pinned,
+                                browseOptions = snapshot.options,
                             )
                         }
-                        load(query.scope, query.pinned, query.options)
+                        load(snapshot.scope, snapshot.pinned, snapshot.options)
                     }
                 }
         }
@@ -119,8 +138,8 @@ class LibraryViewModel @Inject constructor(
     /** 重新拉取列表内容（动作成功或 SSE 事件后的内容同步）。 */
     fun refresh() {
         viewModelScope.launch {
-            val current = _state.value
-            if (current.hasSession) load(current.scope, current.pinnedIds, current.browseOptions)
+            val current = query
+            if (_state.value.hasSession && current != null) load(current.scope, current.pinned, current.options)
         }
     }
 
@@ -154,38 +173,35 @@ class LibraryViewModel @Inject constructor(
     }
 
     private suspend fun load(scope: String, pinned: Set<String>, options: BookBrowseOptions) {
-        _state.update { it.copy(hasSession = true, loading = true, error = null) }
+        val nextQuery = Query(scope, pinned, options)
+        val currentGeneration = ++generation
+        query = nextQuery
+        seriesPage = 0
+        booksPage = 0
+        loadingMoreSeries = false
+        loadingMoreBooks = false
+        _state.update {
+            it.copy(hasSession = true, loading = true, loadingMore = false, error = null)
+        }
         try {
             val libraryIds = resolveLibraryIds(scope, pinned)
             val libraries = libraryRepository.libraries()
-            val (seriesDtos, bookDtos) = coroutineScope {
+            val (seriesPageResult, bookPageResult) = coroutineScope {
                 val series = async {
-                    searchRepository.browseSeries(libraryIds, options)
+                    searchRepository.browseSeriesPage(libraryIds, options, page = 0, size = PAGE_SIZE)
                         ?: throw IllegalStateException("系列列表加载失败")
                 }
                 val books = async {
-                    searchRepository.browseBooks(libraryIds, options)
+                    searchRepository.browseBooksPage(libraryIds, options, page = 0, size = PAGE_SIZE)
                         ?: throw IllegalStateException("书籍列表加载失败")
                 }
                 series.await() to books.await()
             }
+            if (currentGeneration != generation) return
             val (collectionDtos, readListDtos) = coroutineScope {
                 val c = async { listRepository.collections() }
                 val r = async { listRepository.readLists() }
                 c.await() to r.await()
-            }
-            // 缩略图按 UI id 键（stableId = dtoId.hashCode()），dtoId 由注册表反查
-            val thumbMap = buildMap<Int, String> {
-                seriesDtos.forEach { dto ->
-                    detailRepository.seriesDtoId(dto.id)
-                        ?.let { searchRepository.seriesThumbnailUrl(it) }
-                        ?.let { put(dto.id, it) }
-                }
-                bookDtos.forEach { dto ->
-                    detailRepository.bookDtoId(dto.id)
-                        ?.let { searchRepository.bookThumbnailUrl(it) }
-                        ?.let { put(dto.id, it) }
-                }
             }
             val collections = collectionDtos.map { dto ->
                 ListEntry(dto.id.hashCode(), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
@@ -196,9 +212,12 @@ class LibraryViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     loading = false,
-                    series = seriesDtos,
-                    books = bookDtos,
-                    thumbnails = thumbMap,
+                    loadingMore = false,
+                    series = seriesPageResult.items,
+                    books = bookPageResult.items,
+                    seriesHasMore = seriesPageResult.hasMore,
+                    booksHasMore = bookPageResult.hasMore,
+                    hasMore = seriesPageResult.hasMore,
                     libraries = libraries,
                     libraryCount = libraries.size,
                     collections = collections,
@@ -208,7 +227,102 @@ class LibraryViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.copy(loading = false, error = e.message ?: "加载失败", series = null, books = null) }
+            if (currentGeneration != generation) return
+            _state.update {
+                it.copy(
+                    loading = false,
+                    loadingMore = false,
+                    error = e.message ?: "加载失败",
+                    series = null,
+                    books = null,
+                )
+            }
+        }
+    }
+
+    /** 触底加载系列下一页（并发/无更多/加载中直接忽略）。 */
+    fun loadMoreSeries() {
+        val current = query ?: return
+        val snapshot = _state.value
+        if (loadingMoreSeries || snapshot.loading || !snapshot.seriesHasMore) return
+        loadingMoreSeries = true
+        val currentGeneration = generation
+        viewModelScope.launch {
+            _state.update { it.copy(loadingMore = true) }
+            try {
+                val nextPage = seriesPage + 1
+                val result = searchRepository.browseSeriesPage(
+                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
+                    options = current.options,
+                    page = nextPage,
+                    size = PAGE_SIZE,
+                )
+                if (currentGeneration != generation) return@launch
+                if (result == null) {
+                    _state.update { it.copy(loadingMore = false, seriesHasMore = false) }
+                    return@launch
+                }
+                seriesPage = nextPage
+                _state.update { st ->
+                    val known = st.series?.mapTo(HashSet()) { item -> item.id } ?: HashSet()
+                    val appended = result.items.filter { known.add(it.id) }
+                    st.copy(
+                        series = st.series.orEmpty() + appended,
+                        seriesHasMore = result.hasMore,
+                        loadingMore = false,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (currentGeneration != generation) return@launch
+                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+            } finally {
+                loadingMoreSeries = false
+            }
+        }
+    }
+
+    /** 触底加载书籍下一页。 */
+    fun loadMoreBooks() {
+        val current = query ?: return
+        val snapshot = _state.value
+        if (loadingMoreBooks || snapshot.loading || !snapshot.booksHasMore) return
+        loadingMoreBooks = true
+        val currentGeneration = generation
+        viewModelScope.launch {
+            _state.update { it.copy(loadingMore = true) }
+            try {
+                val nextPage = booksPage + 1
+                val result = searchRepository.browseBooksPage(
+                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
+                    options = current.options,
+                    page = nextPage,
+                    size = PAGE_SIZE,
+                )
+                if (currentGeneration != generation) return@launch
+                if (result == null) {
+                    _state.update { it.copy(loadingMore = false, booksHasMore = false) }
+                    return@launch
+                }
+                booksPage = nextPage
+                _state.update { st ->
+                    val known = st.books?.mapTo(HashSet()) { item -> item.id } ?: HashSet()
+                    val appended = result.items.filter { known.add(it.id) }
+                    st.copy(
+                        books = st.books.orEmpty() + appended,
+                        booksHasMore = result.hasMore,
+                        loadingMore = false,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (currentGeneration != generation) return@launch
+                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+            } finally {
+                loadingMoreBooks = false
+            }
         }
     }
 
@@ -289,6 +403,9 @@ class LibraryViewModel @Inject constructor(
     )
 
     private companion object {
+        /** 每页数量，对齐原作 SeriesViewModel/BookViewModel 的 pageSize = 50。 */
+        const val PAGE_SIZE = 50
+
         /** 触发书库刷新的事件类别。 */
         val REFRESH_KINDS = setOf(
             SseEventKind.Book,

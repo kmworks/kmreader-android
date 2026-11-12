@@ -94,7 +94,6 @@ fun CollectionDetailScreen(
     val visible = sourceSeries.filter { it.id !in removedIds }
     val series = sortCollectionSeries(visible, options)
     // hero 封面：服务端无收藏缩略图端点，用首个系列的缩略图
-    val heroImageUrl = state.heroThumbnail ?: visible.firstOrNull()?.let { state.thumbnails[it.id] }
     val heroHue = visible.firstOrNull()?.hue ?: 210f
 
     Scaffold(
@@ -177,7 +176,7 @@ fun CollectionDetailScreen(
                             visible.size,
                             centered = false,
                             coverHue = heroHue,
-                            imageUrl = heroImageUrl,
+                            stableId = collection.id,
                         )
                     }
                     Column(
@@ -220,7 +219,6 @@ fun CollectionDetailScreen(
                             onToggleSelect = { id ->
                                 selected = if (id in selected) selected - id else selected + id
                             },
-                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -237,7 +235,7 @@ fun CollectionDetailScreen(
                             visible.size,
                             centered = true,
                             coverHue = heroHue,
-                            imageUrl = heroImageUrl,
+                            stableId = collection.id,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -274,7 +272,6 @@ fun CollectionDetailScreen(
                         onToggleSelect = { id ->
                             selected = if (id in selected) selected - id else selected + id
                         },
-                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -305,7 +302,7 @@ private fun CollectionHero(
     seriesCount: Int,
     centered: Boolean,
     coverHue: Float,
-    imageUrl: String? = null,
+    stableId: Int? = null,
 ) {
     Column(
         modifier = Modifier
@@ -317,7 +314,7 @@ private fun CollectionHero(
         CoverArt(
             title = collection.name,
             hue = coverHue,
-            imageUrl = imageUrl,
+            stableId = stableId,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(1f),
@@ -423,7 +420,6 @@ private fun SeriesContent(
     selected: Set<Int>,
     onOpenSeries: (Series) -> Unit,
     onToggleSelect: (Int) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     when (layout) {
         BrowseLayout.List -> Column {
@@ -431,7 +427,6 @@ private fun SeriesContent(
                 SeriesListRow(
                     series = item,
                     selected = if (selecting) item.id in selected else null,
-                    imageUrl = thumbnails[item.id],
                     onClick = {
                         if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
                     },
@@ -457,7 +452,6 @@ private fun SeriesContent(
                                         if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
                                     },
                                     modifier = Modifier.weight(1f),
-                                    imageUrl = thumbnails[item.id],
                                 )
                             }
                             repeat(columns - rowItems.size) {
@@ -476,7 +470,6 @@ private fun SeriesContent(
 private fun SeriesListRow(
     series: Series,
     selected: Boolean?,
-    imageUrl: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -498,7 +491,7 @@ private fun SeriesListRow(
         CoverArt(
             title = series.title,
             hue = series.hue,
-            imageUrl = imageUrl,
+            stableId = series.id,
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),

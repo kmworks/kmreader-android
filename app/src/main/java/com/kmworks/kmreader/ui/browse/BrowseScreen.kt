@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Checklist
@@ -35,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -153,6 +156,7 @@ fun BrowseScreen(
                 onOpenBook = onOpenBook,
                 onOpenReadList = onOpenReadList,
                 onOpenCollection = onOpenCollection,
+                onLoadMore = viewModel::loadMore,
             )
         }
     }
@@ -167,9 +171,23 @@ private fun SearchResults(
     onOpenBook: (Book) -> Unit,
     onOpenReadList: (Int) -> Unit,
     onOpenCollection: (Int) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
+    val gridState = rememberLazyGridState()
+    // 触底判定：最后可见项进入末尾 6 项内即请求下一页；loading/无更多时由 VM 自己兜底。
+    val shouldLoadMore by remember(gridState) {
+        derivedStateOf {
+            val info = gridState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+        }
+    }
+    LaunchedEffect(shouldLoadMore, state.hasMore, state.loading, state.loadingMore) {
+        if (shouldLoadMore && state.hasMore && !state.loading && !state.loadingMore) onLoadMore()
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -235,7 +253,6 @@ private fun SearchResults(
                             series = series,
                             onClick = { onOpenSeries(series) },
                             modifier = Modifier.fillMaxWidth(),
-                            imageUrl = state.thumbnails[series.id],
                         )
                     }
                 }
@@ -248,7 +265,6 @@ private fun SearchResults(
                             book = book,
                             onClick = { onOpenBook(book) },
                             modifier = Modifier.fillMaxWidth(),
-                            imageUrl = state.thumbnails[book.id],
                         )
                     }
                 }
@@ -283,6 +299,19 @@ private fun SearchResults(
                             onClick = { onOpenCollection(entry.id) },
                         )
                     }
+                }
+            }
+        }
+        // 底部加载行：还有下一页时显示，触底会自动请求
+        if (!state.loading && state.hasMore) {
+            item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 }
             }
         }

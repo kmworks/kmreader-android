@@ -43,6 +43,11 @@ data class BookDetailMeta(
     val summary: String,
     val authors: List<Creator>,
     val tags: List<String>,
+    /** 可编辑元数据原始值（对齐 BookEditSheet 的 General/Links 字段）。 */
+    val number: String = "",
+    val numberSort: Float? = null,
+    val isbn: String? = null,
+    val links: List<Pair<String, String>> = emptyList(),
 )
 
 /**

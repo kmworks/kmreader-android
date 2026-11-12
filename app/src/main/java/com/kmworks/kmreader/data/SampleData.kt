@@ -1,13 +1,37 @@
 package com.kmworks.kmreader.data
 
-/** 作者角色，对齐 KMReader AuthorRole（icon 映射一致）。 */
-enum class AuthorRole(val label: String) {
-    Writer("原作"), Penciller("作画"), Inker("勾线"), Colorist("上色"),
-    Letterer("嵌字"), Cover("封面"), Editor("编辑"), Translator("翻译"), Custom("其他"),
+/** 作者角色，对齐 KMReader AuthorRole（icon 映射一致）。token 为服务端 role 原文。 */
+enum class AuthorRole(val label: String, val token: String) {
+    Writer("原作", "writer"), Penciller("作画", "penciller"), Inker("勾线", "inker"),
+    Colorist("上色", "colorist"), Letterer("嵌字", "letterer"), Cover("封面", "cover"),
+    Editor("编辑", "editor"), Translator("翻译", "translator"), Custom("其他", "custom"),
+    ;
+
+    companion object {
+        /** 编辑表单可选的预定义角色（对齐 iOS AuthorRole.predefinedCases）。 */
+        val predefined: List<AuthorRole>
+            get() = listOf(Writer, Penciller, Inker, Colorist, Letterer, Cover, Editor, Translator)
+    }
 }
 
-/** 详情页创作者条目（按角色排序展示，对齐 SeriesHeroInfoView.creatorItems）。 */
-data class Creator(val name: String, val role: AuthorRole)
+/**
+ * 详情页创作者条目（按角色排序展示，对齐 SeriesHeroInfoView.creatorItems）。
+ * [customRole] 保留服务端自定义角色原文（AuthorRole.Custom 时用作显示名，对齐 iOS AuthorRole.custom(String)）。
+ */
+data class Creator(
+    val name: String,
+    val role: AuthorRole,
+    val customRole: String? = null,
+) {
+    /** 角色中文名；自定义角色优先用服务端原文，缺失时回退「其他」。 */
+    val roleLabel: String
+        get() = if (role == AuthorRole.Custom) {
+            customRole?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+                ?: AuthorRole.Custom.label
+        } else {
+            role.label
+        }
+}
 
 /** 书籍元数据中聚合出的知名实体（角色/团队/地点），对齐 NotableEntity。 */
 data class NotableEntity(val name: String, val kind: String)

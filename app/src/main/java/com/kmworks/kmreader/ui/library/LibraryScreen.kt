@@ -2,14 +2,18 @@ package com.kmworks.kmreader.ui.library
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -18,6 +22,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,6 +105,41 @@ fun LibraryScreen(
             state.libraries.find { it.id == id }?.name ?: "单个书库"
         }
         else -> "全部书库"
+    }
+
+    // 详情页元数据 chip 跳转：把「作者 · X」「标签 · Y」翻译成真实浏览筛选并落到查询里
+    var appliedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(activeFilter) {
+        val applied = appliedFilter
+        if (activeFilter == null) {
+            // 清除筛选时同步移除 chip 带来的作者/标签条件
+            if (applied != null) {
+                val current = state.browseOptions
+                viewModel.setBrowseOptions(
+                    when (applied.first) {
+                        "作者" -> current.copy(authors = current.authors - applied.second)
+                        "标签" -> current.copy(tags = current.tags - applied.second)
+                        else -> current
+                    },
+                )
+                appliedFilter = null
+            }
+            return@LaunchedEffect
+        }
+        val parts = activeFilter.split("·", limit = 2).map { it.trim() }
+        if (parts.size != 2 || parts[1].isBlank()) return@LaunchedEffect
+        val (kind, value) = parts
+        val current = state.browseOptions
+        when (kind) {
+            "作者" -> if (value !in current.authors) {
+                viewModel.setBrowseOptions(current.copy(authors = current.authors + value))
+            }
+            "标签" -> if (value !in current.tags) {
+                viewModel.setBrowseOptions(current.copy(tags = current.tags + value))
+            }
+            else -> Unit
+        }
+        appliedFilter = kind to value
     }
 
     Scaffold(
@@ -222,8 +264,32 @@ fun LibraryScreen(
                     modifier = Modifier.weight(1f),
                 )
             } else {
+                // 系列/书籍各自独立滚动位置；触底自动加载下一页
+                val seriesGridState = rememberLazyGridState()
+                val booksGridState = rememberLazyGridState()
+                val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
+                val shouldLoadMore by remember(contentType, gridState) {
+                    derivedStateOf {
+                        val info = gridState.layoutInfo
+                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                            ?: return@derivedStateOf false
+                        info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+                    }
+                }
+                LaunchedEffect(shouldLoadMore, contentType) {
+                    if (!shouldLoadMore) return@LaunchedEffect
+                    when (contentType) {
+                        ContentType.Series -> viewModel.loadMoreSeries()
+                        ContentType.Books -> viewModel.loadMoreBooks()
+                    }
+                }
+                val hasMore = when (contentType) {
+                    ContentType.Series -> state.seriesHasMore
+                    ContentType.Books -> state.booksHasMore
+                }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 110.dp),
+                    state = gridState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -236,7 +302,6 @@ fun LibraryScreen(
                                 onClick = { onOpenSeries(item) },
                                 modifier = Modifier.fillMaxWidth(),
                                 onLongClick = { menuSeries = item },
-                                imageUrl = state.thumbnails[item.id],
                             )
                         }
                         ContentType.Books -> items(allBooks, key = { it.id }) { book ->
@@ -245,8 +310,22 @@ fun LibraryScreen(
                                 onClick = { onOpenBook(book) },
                                 modifier = Modifier.fillMaxWidth(),
                                 onLongClick = { menuBook = book },
-                                imageUrl = state.thumbnails[book.id],
                             )
+                        }
+                    }
+                    if (hasMore) {
+                        item(
+                            key = "load-more",
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }

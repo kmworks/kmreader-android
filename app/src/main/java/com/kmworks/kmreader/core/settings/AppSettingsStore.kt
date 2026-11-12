@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.settings
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -106,6 +107,116 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.LIBRARY_BROWSE_SCOPE] = scope }
     }
 
+    /** 仪表盘分区顺序（可见分区的 id，按展示顺序；对齐 iOS dashboard.sections 有序数组）。 */
+    val dashboardSectionOrder: Flow<List<String>> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_SECTION_ORDER].toCsvList()
+    }
+
+    suspend fun setDashboardSectionOrder(ids: List<String>) {
+        store.edit { prefs -> prefs[Keys.DASHBOARD_SECTION_ORDER] = ids.joinToString(",") }
+    }
+
+    /** 仪表盘隐藏分区（不在可见顺序里的分区 id）。 */
+    val dashboardHiddenSections: Flow<Set<String>> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_HIDDEN_SECTIONS].toCsvList().toSet()
+    }
+
+    suspend fun setDashboardHiddenSections(ids: Set<String>) {
+        store.edit { prefs -> prefs[Keys.DASHBOARD_HIDDEN_SECTIONS] = ids.joinToString(",") }
+    }
+
+    /** 分区标题右侧是否显示卡片形态菜单（默认开）。 */
+    val dashboardCardKindMenu: Flow<Boolean> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_CARD_KIND_MENU] ?: true
+    }
+
+    suspend fun setDashboardCardKindMenu(enabled: Boolean) {
+        store.edit { prefs -> prefs[Keys.DASHBOARD_CARD_KIND_MENU] = enabled }
+    }
+
+    /** 是否显示「进行中的阅读列表」分区（默认开）。 */
+    val dashboardContinuationEnabled: Flow<Boolean> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_CONTINUATION] ?: true
+    }
+
+    suspend fun setDashboardContinuationEnabled(enabled: Boolean) {
+        store.edit { prefs -> prefs[Keys.DASHBOARD_CONTINUATION] = enabled }
+    }
+
+    /** 分区卡片形态覆盖（"id=kind" 逗号分隔；未覆盖的分区跟随默认）。 */
+    val dashboardKindOverrides: Flow<Map<String, String>> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_KIND_OVERRIDES].toCsvList()
+            .mapNotNull { entry ->
+                val parts = entry.split('=', limit = 2)
+                if (parts.size == 2 && parts[0].isNotBlank()) parts[0] to parts[1] else null
+            }
+            .toMap()
+    }
+
+    suspend fun setDashboardKindOverride(sectionId: String, kind: String?) {
+        store.edit { prefs ->
+            val current = prefs[Keys.DASHBOARD_KIND_OVERRIDES].toCsvList()
+                .filter { it.substringBefore('=') != sectionId }
+            val next = if (kind == null) current else current + "$sectionId=$kind"
+            prefs[Keys.DASHBOARD_KIND_OVERRIDES] = next.joinToString(",")
+        }
+    }
+
+    /** 仅封面卡片（隐藏标题/副标题；对齐 iOS coverOnlyCards）。 */
+    val cardCoverOnly: Flow<Boolean> = booleanPref(Keys.CARD_COVER_ONLY, false)
+
+    suspend fun setCardCoverOnly(enabled: Boolean) = writeBoolean(Keys.CARD_COVER_ONLY, enabled)
+
+    /** 文字叠加在封面上（对齐 iOS cardTextOverlayMode）。 */
+    val cardTextOverlay: Flow<Boolean> = booleanPref(Keys.CARD_TEXT_OVERLAY, false)
+
+    suspend fun setCardTextOverlay(enabled: Boolean) = writeBoolean(Keys.CARD_TEXT_OVERLAY, enabled)
+
+    /** 书籍卡显示所属系列名（对齐 iOS showBookCardSeriesTitle）。 */
+    val cardShowBookSeriesTitle: Flow<Boolean> = booleanPref(Keys.CARD_SHOW_BOOK_SERIES_TITLE, true)
+
+    suspend fun setCardShowBookSeriesTitle(enabled: Boolean) =
+        writeBoolean(Keys.CARD_SHOW_BOOK_SERIES_TITLE, enabled)
+
+    /** 封面保持原始比例（不裁剪；对齐 iOS thumbnailPreserveAspectRatio）。 */
+    val thumbnailPreserveAspectRatio: Flow<Boolean> =
+        booleanPref(Keys.THUMBNAIL_PRESERVE_ASPECT_RATIO, true)
+
+    suspend fun setThumbnailPreserveAspectRatio(enabled: Boolean) =
+        writeBoolean(Keys.THUMBNAIL_PRESERVE_ASPECT_RATIO, enabled)
+
+    /** 封面投影（对齐 iOS thumbnailShowShadow）。 */
+    val thumbnailShowShadow: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_SHOW_SHADOW, true)
+
+    suspend fun setThumbnailShowShadow(enabled: Boolean) =
+        writeBoolean(Keys.THUMBNAIL_SHOW_SHADOW, enabled)
+
+    /** 未读角标（对齐 iOS thumbnailShowUnreadIndicator）。 */
+    val thumbnailShowUnreadIndicator: Flow<Boolean> =
+        booleanPref(Keys.THUMBNAIL_SHOW_UNREAD_INDICATOR, true)
+
+    suspend fun setThumbnailShowUnreadIndicator(enabled: Boolean) =
+        writeBoolean(Keys.THUMBNAIL_SHOW_UNREAD_INDICATOR, enabled)
+
+    /** 进度条（对齐 iOS thumbnailShowProgressBar）。 */
+    val thumbnailShowProgressBar: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_SHOW_PROGRESS_BAR, true)
+
+    suspend fun setThumbnailShowProgressBar(enabled: Boolean) =
+        writeBoolean(Keys.THUMBNAIL_SHOW_PROGRESS_BAR, enabled)
+
+    /** 未读封面模糊（对齐 iOS thumbnailBlurUnreadCovers）。 */
+    val thumbnailBlurUnreadCovers: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_BLUR_UNREAD_COVERS, false)
+
+    suspend fun setThumbnailBlurUnreadCovers(enabled: Boolean) =
+        writeBoolean(Keys.THUMBNAIL_BLUR_UNREAD_COVERS, enabled)
+
+    private fun booleanPref(key: Preferences.Key<Boolean>, default: Boolean): Flow<Boolean> =
+        store.data.map { prefs -> prefs[key] ?: default }
+
+    private suspend fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) {
+        store.edit { prefs -> prefs[key] = value }
+    }
+
     // remote-apply writers：不发出 change，避免上下行回环
     internal suspend fun writeSseEnabled(enabled: Boolean) {
         store.edit { prefs -> prefs[Keys.SSE_ENABLED] = enabled }
@@ -142,5 +253,21 @@ class AppSettingsStore @Inject constructor(
         val DIVINA_DIRECTION = stringPreferencesKey("divina_default_direction")
         val PINNED_LIBRARY_IDS = stringPreferencesKey("dashboard_pinned_library_ids")
         val LIBRARY_BROWSE_SCOPE = stringPreferencesKey("library_browse_scope")
+        val DASHBOARD_SECTION_ORDER = stringPreferencesKey("dashboard_section_order")
+        val DASHBOARD_HIDDEN_SECTIONS = stringPreferencesKey("dashboard_hidden_sections")
+        val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")
+        val DASHBOARD_CONTINUATION = booleanPreferencesKey("dashboard_continuation_enabled")
+        val DASHBOARD_KIND_OVERRIDES = stringPreferencesKey("dashboard_kind_overrides")
+        val CARD_COVER_ONLY = booleanPreferencesKey("card_cover_only")
+        val CARD_TEXT_OVERLAY = booleanPreferencesKey("card_text_overlay")
+        val CARD_SHOW_BOOK_SERIES_TITLE = booleanPreferencesKey("card_show_book_series_title")
+        val THUMBNAIL_PRESERVE_ASPECT_RATIO = booleanPreferencesKey("thumbnail_preserve_aspect_ratio")
+        val THUMBNAIL_SHOW_SHADOW = booleanPreferencesKey("thumbnail_show_shadow")
+        val THUMBNAIL_SHOW_UNREAD_INDICATOR = booleanPreferencesKey("thumbnail_show_unread_indicator")
+        val THUMBNAIL_SHOW_PROGRESS_BAR = booleanPreferencesKey("thumbnail_show_progress_bar")
+        val THUMBNAIL_BLUR_UNREAD_COVERS = booleanPreferencesKey("thumbnail_blur_unread_covers")
     }
 }
+
+private fun String?.toCsvList(): List<String> =
+    this?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()

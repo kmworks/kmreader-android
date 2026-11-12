@@ -273,7 +273,6 @@ fun SeriesDetailScreen(
                         DetailHero(
                             series = displaySeries,
                             centered = true,
-                            imageUrl = state.seriesThumbnail,
                             onBrowseFilter = onBrowseFilter,
                         )
                         DetailActionCard(
@@ -323,7 +322,6 @@ fun SeriesDetailScreen(
                                 onOpenBook = onOpenBook,
                                 selection = selectedIds,
                                 onToggleSelect = toggleSelect,
-                                thumbnails = state.thumbnails,
                             )
                         }
                     }
@@ -344,7 +342,6 @@ fun SeriesDetailScreen(
                         DetailHero(
                             series = displaySeries,
                             centered = true,
-                            imageUrl = state.seriesThumbnail,
                             onBrowseFilter = onBrowseFilter,
                         )
                         DetailActionCard(
@@ -386,7 +383,6 @@ fun SeriesDetailScreen(
                         onOpenBook = onOpenBook,
                         selection = selectedIds,
                         onToggleSelect = toggleSelect,
-                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -404,7 +400,20 @@ fun SeriesDetailScreen(
         )
     }
     if (showEditSheet) {
-        SeriesEditSheet(series = series, onDismiss = { showEditSheet = false })
+        var editSaving by remember { mutableStateOf(false) }
+        SeriesEditSheet(
+            series = series,
+            values = state.editable,
+            saving = editSaving,
+            onSave = { dto ->
+                editSaving = true
+                viewModel.saveMetadata(dto) { ok ->
+                    editSaving = false
+                    if (ok) showEditSheet = false
+                }
+            },
+            onDismiss = { if (!editSaving) showEditSheet = false },
+        )
     }
     if (showKomfSheet) {
         KomfIdentifySheet(
@@ -442,7 +451,6 @@ fun SeriesDetailScreen(
 private fun DetailHero(
     series: Series,
     centered: Boolean,
-    imageUrl: String? = null,
     onBrowseFilter: (String) -> Unit,
 ) {
     Column(
@@ -452,7 +460,7 @@ private fun DetailHero(
         CoverArt(
             title = series.title,
             hue = series.hue,
-            imageUrl = imageUrl,
+            stableId = series.id,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(2f / 3f),
@@ -795,7 +803,6 @@ private fun BooksSection(
     onOpenBook: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     when (layout) {
         BrowseLayout.List -> Column {
@@ -805,7 +812,6 @@ private fun BooksSection(
                         book = book,
                         onClick = { onOpenBook(book) },
                         onLongClick = { onToggleSelect(book) },
-                        imageUrl = thumbnails[book.id],
                     )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -813,7 +819,6 @@ private fun BooksSection(
                             book = book,
                             onClick = { onToggleSelect(book) },
                             modifier = Modifier.weight(1f),
-                            imageUrl = thumbnails[book.id],
                         )
                         Checkbox(
                             checked = book.id in selection,
@@ -831,7 +836,6 @@ private fun BooksSection(
             onOpenBook = onOpenBook,
             selection = selection,
             onToggleSelect = onToggleSelect,
-            thumbnails = thumbnails,
         )
     }
 }
@@ -843,7 +847,6 @@ private fun BooksGrid(
     onOpenBook: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -862,7 +865,6 @@ private fun BooksGrid(
                                 book = book,
                                 onClick = { if (inSelection) onToggleSelect(book) else onOpenBook(book) },
                                 onLongClick = { if (!inSelection) onToggleSelect(book) },
-                                imageUrl = thumbnails[book.id],
                             )
                             if (selection != null && book.id in selection) {
                                 Icon(

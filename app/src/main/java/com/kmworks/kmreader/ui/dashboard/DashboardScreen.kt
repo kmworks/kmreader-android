@@ -26,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,6 +41,8 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.ReadListContinuationUi
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
+import com.kmworks.kmreader.data.SampleDashboardData
+import com.kmworks.kmreader.data.label
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
@@ -156,8 +159,9 @@ fun DashboardScreen(
                     onOpenContinuation = onOpenContinuation,
                     onSeriesLongClick = { seriesMenuTarget = it },
                     onBookLongClick = { bookMenuTarget = it },
-                    thumbnails = state.thumbnails,
                     continuations = state.continuations,
+                    kindMenuEnabled = state.kindMenuEnabled,
+                    onKindChange = { kind -> viewModel.setSectionKind(section.id, kind) },
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -266,13 +270,51 @@ private fun DashboardSectionRow(
     onOpenContinuation: (ReadListContinuationUi) -> Unit,
     onSeriesLongClick: (Series) -> Unit = {},
     onBookLongClick: (Book) -> Unit = {},
-    thumbnails: Map<Int, String> = emptyMap(),
     continuations: List<ReadListContinuationUi> = emptyList(),
+    kindMenuEnabled: Boolean = false,
+    onKindChange: (DashboardCardKind?) -> Unit = {},
 ) {
+    val defaultKind = SampleDashboardData.section(section.id)?.defaultKind ?: section.kind
+    val availableKinds = SampleDashboardData.section(section.id)?.availableKinds
+        ?: DashboardCardKind.entries.toList()
+    var kindMenuOpen by remember(section.id) { mutableStateOf(false) }
+    // 分区标题右侧的卡片形态菜单（可在设置页关闭，对齐 SettingsDashboardView 的卡片形态菜单开关）
+    val kindTrailing: (@Composable () -> Unit)? = if (kindMenuEnabled) {
+        {
+            Box {
+                TextButton(onClick = { kindMenuOpen = true }) {
+                    Icon(
+                        Icons.Filled.ViewModule,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(section.kind.label)
+                }
+                DropdownMenu(
+                    expanded = kindMenuOpen,
+                    onDismissRequest = { kindMenuOpen = false },
+                ) {
+                    availableKinds.forEach { kind ->
+                        DropdownMenuItem(
+                            text = { Text(if (kind == defaultKind) "${kind.label}（默认）" else kind.label) },
+                            onClick = {
+                                kindMenuOpen = false
+                                onKindChange(if (kind == defaultKind) null else kind)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        null
+    }
     SectionHeader(
         title = section.title,
         onMore = { onOpenSectionDetail(section) },
         modifier = Modifier.padding(horizontal = 16.dp),
+        trailing = kindTrailing,
     )
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -284,7 +326,7 @@ private fun DashboardSectionRow(
                 ReadListContinuationCard(
                     continuation = continuation,
                     onClick = { onOpenContinuation(continuation) },
-                    imageUrl = thumbnails[continuation.readListId],
+                    stableId = continuation.readListId.hashCode(),
                     modifier = Modifier.width(DashboardCardKind.Horizontal.widthDp.dp),
                 )
             }
@@ -298,7 +340,6 @@ private fun DashboardSectionRow(
                             onClick = { onOpenBook(item) },
                             onLongClick = { onBookLongClick(item) },
                             modifier = Modifier.width(DashboardCardKind.Horizontal.widthDp.dp),
-                            imageUrl = thumbnails[item.id],
                         )
 
                     item is Book ->
@@ -307,7 +348,6 @@ private fun DashboardSectionRow(
                             onClick = { onOpenBook(item) },
                             onLongClick = { onBookLongClick(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
-                            imageUrl = thumbnails[item.id],
                         )
 
                     item is Series ->
@@ -316,7 +356,6 @@ private fun DashboardSectionRow(
                             onClick = { onOpenSeries(item) },
                             onLongClick = { onSeriesLongClick(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
-                            imageUrl = thumbnails[item.id],
                         )
                 }
             }

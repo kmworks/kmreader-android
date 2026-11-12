@@ -30,6 +30,7 @@ data class SmartListDetailUiState(
     val summary: String? = null,
     val target: SmartListTarget? = null,
     val modifiedLabel: String? = null,
+    val createdLabel: String? = null,
     val books: List<Book>? = null,
     val series: List<Series>? = null,
     /** Hero thumbnail (smart-list cover endpoint). */
@@ -107,6 +108,7 @@ class SmartListDetailViewModel @Inject constructor(
                         summary = detail.summary.ifBlank { null },
                         target = target,
                         modifiedLabel = "更新于 ${detail.lastModifiedDate.take(10)}",
+                        createdLabel = detail.createdDate.takeIf { it.isNotBlank() }?.let { "创建于 ${it.take(10)}" },
                         books = books,
                         series = series,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),

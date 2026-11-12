@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
@@ -20,33 +21,50 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import com.kmworks.kmreader.core.data.CoverUrlRegistry
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.EntryPointAccessors
 
 private val CoverShape = RoundedCornerShape(8.dp)
 
-/** 封面占位：纯色块 + 首字；imageUrl 非空时叠加 Komga 缩略图（加载中/失败保持占位）。 */
+/**
+ * 封面：纯色块 + 首字占位。
+ *
+ * 两种取图方式，互不重叠：
+ * - [stableId]：Komga 内容封面，URL 由 [CoverUrlRegistry] 按 stableId 解析，始终用会话 ImageLoader
+ *   （带认证）。会话就绪前先显示占位，绝不退回到无认证的单例 loader。
+ * - [imageUrl]：外部绝对地址（Komf 识别结果、tracker 远程封面），走单例 loader，
+ *   避免把 Komga 凭据发送到第三方图片站。
+ */
 @Composable
 fun CoverArt(
     title: String,
     hue: Float,
     modifier: Modifier = Modifier,
+    stableId: Int? = null,
     imageUrl: String? = null,
+    coverVersion: Int = 0,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     Box(
         modifier = modifier
@@ -59,22 +77,49 @@ fun CoverArt(
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White.copy(alpha = 0.85f),
         )
-        if (imageUrl != null) {
-            val context = LocalContext.current
-            val entryPoint = remember {
-                EntryPointAccessors.fromApplication(
-                    context.applicationContext,
-                    ImageLoaderEntryPoint::class.java,
-                )
+        val context = LocalContext.current
+        val entryPoint = remember(context) {
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                ImageLoaderEntryPoint::class.java,
+            )
+        }
+        val session = remember(entryPoint) { entryPoint.sessionManager() }
+        val clients by session.clients.collectAsState()
+        val sessionLoader by session.imageLoader.collectAsState()
+        val externalLoader = remember(context) { SingletonImageLoader.get(context) }
+        val resolvedUrl = remember(stableId, imageUrl, clients, coverVersion) {
+            val base = stableId?.let { CoverUrlRegistry.url(it, clients) } ?: imageUrl
+            if (base != null && coverVersion > 0) {
+                // 「刷新封面」：附加版本参数换缓存键，强制重新拉取服务端封面
+                val separator = if (base.contains('?')) "&" else "?"
+                "$base${separator}v=$coverVersion"
+            } else {
+                base
             }
-            val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
-            val fallbackLoader = remember { SingletonImageLoader.get(context) }
+        }
+        // Komga 封面必须等带认证的会话 loader；外部地址用无认证的单例 loader。
+        val loader = if (stableId != null) sessionLoader else externalLoader
+
+        LaunchedEffect(stableId, clients) {
+            if (stableId != null && clients != null && resolvedUrl == null) {
+                AppLog.w("CoverArt", "cover url missing: stableId=$stableId title=$title")
+            }
+        }
+
+        if (resolvedUrl != null && loader != null) {
             AsyncImage(
-                model = imageUrl,
+                model = resolvedUrl,
                 contentDescription = null,
-                imageLoader = sessionLoader ?: fallbackLoader,
-                contentScale = ContentScale.Crop,
+                imageLoader = loader,
+                contentScale = contentScale,
                 modifier = Modifier.matchParentSize(),
+                onError = { state ->
+                    AppLog.w(
+                        "CoverArt",
+                        "cover load failed: $resolvedUrl (${state.result.throwable.message})",
+                    )
+                },
             )
         }
     }
@@ -82,7 +127,12 @@ fun CoverArt(
 
 /** 分区标题行：左侧标题，右侧「更多」。对应 KMReader DashboardSectionLayout 的 header。 */
 @Composable
-fun SectionHeader(title: String, onMore: () -> Unit, modifier: Modifier = Modifier) {
+fun SectionHeader(
+    title: String,
+    onMore: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -92,6 +142,7 @@ fun SectionHeader(title: String, onMore: () -> Unit, modifier: Modifier = Modifi
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
+        trailing?.invoke()
         TextButton(onClick = onMore) { Text("更多") }
     }
 }
@@ -104,44 +155,54 @@ fun SeriesGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    imageUrl: String? = null,
 ) {
+    val display = LocalCardDisplay.current
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        CoverArt(
-            title = series.title,
-            hue = series.hue,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f),
-            imageUrl = imageUrl,
-        )
-        series.progress?.let { p ->
-            if (p < 1f) {
-                LinearProgressIndicator(
-                    progress = { p },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp)
-                        .height(3.dp),
+        Box {
+            CoverArt(
+                title = series.title,
+                hue = series.hue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(seriesAspect(display))
+                    .coverDecoration(display, unread = series.unreadCount > 0),
+                stableId = series.id,
+                contentScale = coverScale(display),
+            )
+            if (display.showUnreadIndicator && series.unreadCount > 0) {
+                UnreadBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
+            if (display.textOverlay) {
+                CardTextOverlay(
+                    title = series.title,
+                    subtitle = series.subtitle,
+                    modifier = Modifier.align(Alignment.BottomStart),
                 )
             }
         }
-        Text(
-            text = series.title,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        Text(
-            text = series.subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (display.showProgressBar) {
+            series.progress?.let { p ->
+                if (p < 1f) ProgressBar(p)
+            }
+        }
+        if (!display.coverOnly && !display.textOverlay) {
+            Text(
+                text = series.title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                text = series.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -153,45 +214,124 @@ fun BookGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    imageUrl: String? = null,
 ) {
+    val display = LocalCardDisplay.current
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        CoverArt(
-            title = book.seriesTitle,
-            hue = book.hue,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f),
-            imageUrl = imageUrl,
-        )
-        book.progress?.let { p ->
-            if (p < 1f) {
-                LinearProgressIndicator(
-                    progress = { p },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp)
-                        .height(3.dp),
+        Box {
+            CoverArt(
+                title = book.seriesTitle,
+                hue = book.hue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(seriesAspect(display))
+                    .coverDecoration(display, unread = book.progress == null),
+                stableId = book.id,
+                contentScale = coverScale(display),
+            )
+            if (display.showUnreadIndicator && book.progress == null) {
+                UnreadBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
+            if (display.textOverlay) {
+                CardTextOverlay(
+                    title = book.number,
+                    subtitle = if (display.showBookSeriesTitle) book.seriesTitle else null,
+                    modifier = Modifier.align(Alignment.BottomStart),
                 )
             }
         }
-        Text(
-            text = book.number,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        Text(
-            text = book.seriesTitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (display.showProgressBar) {
+            book.progress?.let { p ->
+                if (p < 1f) ProgressBar(p)
+            }
+        }
+        if (!display.coverOnly && !display.textOverlay) {
+            Text(
+                text = book.number,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            if (display.showBookSeriesTitle) {
+                Text(
+                    text = book.seriesTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
+}
+
+/** 卡片封面宽高比：保持原始比例时用漫画封面比，否则方形裁切。 */
+private fun seriesAspect(display: CardDisplayOptions): Float =
+    if (display.preserveAspectRatio) 2f / 3f else 1f
+
+private fun coverScale(display: CardDisplayOptions): ContentScale =
+    if (display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
+
+/** 封面装饰：投影 + 未读模糊（对齐 thumbnailShowShadow / thumbnailBlurUnreadCovers）。 */
+private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
+    this
+        .then(if (display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
+        .then(if (display.blurUnreadCovers && unread) Modifier.blur(6.dp) else Modifier)
+
+/** 未读角标。 */
+@Composable
+private fun UnreadBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(8.dp)
+            .background(MaterialTheme.colorScheme.primary, CircleShape),
+    )
+}
+
+/** 文字叠加在封面底部（对齐 cardTextOverlayMode）。 */
+@Composable
+private fun CardTextOverlay(
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.inverseOnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.8f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 卡片进度条。 */
+@Composable
+private fun ProgressBar(progress: Float, topPadding: Dp = 6.dp) {
+    LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = topPadding)
+            .height(3.dp),
+    )
 }
 
 /** 横向卡片：左封面小图 + 右文本块 + 进度。对应 KMReader horizontal 卡片（继续阅读等分区）。 */
@@ -202,8 +342,8 @@ fun BookHorizontalCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    imageUrl: String? = null,
 ) {
+    val display = LocalCardDisplay.current
     Row(
         modifier = modifier
             .clip(CoverShape)
@@ -217,8 +357,10 @@ fun BookHorizontalCard(
             hue = book.hue,
             modifier = Modifier
                 .width(52.dp)
-                .aspectRatio(2f / 3f),
-            imageUrl = imageUrl,
+                .aspectRatio(seriesAspect(display))
+                .coverDecoration(display, unread = book.progress == null),
+            stableId = book.id,
+            contentScale = coverScale(display),
         )
         Spacer(Modifier.width(12.dp))
         Column(
@@ -236,14 +378,16 @@ fun BookHorizontalCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            book.progress?.let { p ->
-                LinearProgressIndicator(
-                    progress = { p },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .height(3.dp),
-                )
+            if (display.showProgressBar) {
+                book.progress?.let { p ->
+                    LinearProgressIndicator(
+                        progress = { p },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .height(3.dp),
+                    )
+                }
             }
         }
     }
@@ -257,8 +401,8 @@ fun BookListRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    imageUrl: String? = null,
 ) {
+    val display = LocalCardDisplay.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -271,8 +415,10 @@ fun BookListRow(
             hue = book.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
-            imageUrl = imageUrl,
+                .aspectRatio(seriesAspect(display))
+                .coverDecoration(display, unread = book.progress == null),
+            stableId = book.id,
+            contentScale = coverScale(display),
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -287,15 +433,17 @@ fun BookListRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            book.progress?.let { p ->
-                if (p < 1f) {
-                    LinearProgressIndicator(
-                        progress = { p },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .height(3.dp),
-                    )
+            if (display.showProgressBar) {
+                book.progress?.let { p ->
+                    if (p < 1f) {
+                        LinearProgressIndicator(
+                            progress = { p },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .height(3.dp),
+                        )
+                    }
                 }
             }
         }

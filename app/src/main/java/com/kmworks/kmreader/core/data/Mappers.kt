@@ -26,9 +26,10 @@ private fun mapStatus(status: String): String = when (status.uppercase()) {
     else -> status
 }
 
+/** 角色词表：Komga 的 role 是自由文本，未命中的角色按自定义角色保留原文。 */
 private fun mapRole(role: String): AuthorRole = when (role.lowercase()) {
-    "writer" -> AuthorRole.Writer
-    "penciller" -> AuthorRole.Penciller
+    "writer", "author" -> AuthorRole.Writer
+    "penciller", "artist", "illustrator" -> AuthorRole.Penciller
     "inker" -> AuthorRole.Inker
     "colorist" -> AuthorRole.Colorist
     "letterer" -> AuthorRole.Letterer
@@ -38,13 +39,18 @@ private fun mapRole(role: String): AuthorRole = when (role.lowercase()) {
     else -> AuthorRole.Custom
 }
 
-/** Map a Komga author to the UI creator model. */
-fun AuthorDto.toCreator(): Creator = Creator(name, mapRole(role))
+/** Map a Komga author to the UI creator model (custom role text preserved). */
+fun AuthorDto.toCreator(): Creator = Creator(
+    name = name,
+    role = mapRole(role),
+    customRole = role.takeIf { mapRole(it) == AuthorRole.Custom },
+)
 
 /** Map a Komga series to the UI model (progress from read counts). */
 fun SeriesDto.toUiSeries(): Series {
     val stableId = id.stableId()
     DetailIdRegistry.registerSeries(stableId, id)
+    CoverUrlRegistry.registerSeries(stableId, id)
     return Series(
         id = stableId,
     title = metadata.title.ifBlank { name },
@@ -63,7 +69,7 @@ fun SeriesDto.toUiSeries(): Series {
     directionRtl = metadata.readingDirection.contains("RIGHT", ignoreCase = true),
     totalBookCount = metadata.totalBookCount,
     ageRating = metadata.ageRating,
-    creators = booksMetadata.authors.map { Creator(it.name, mapRole(it.role)) },
+    creators = booksMetadata.authors.map { it.toCreator() },
     genres = metadata.genres.toList(),
     tags = metadata.tags.toList(),
     links = metadata.links.map { it.label to it.url },
@@ -75,6 +81,7 @@ fun SeriesDto.toUiSeries(): Series {
 fun BookDto.toUiBook(): Book {
     val stableId = id.stableId()
     DetailIdRegistry.registerBook(stableId, id)
+    CoverUrlRegistry.registerBook(stableId, id)
     val n = metadata.number.ifBlank { number.toString() }
     val numberLabel = if (n.toFloatOrNull() != null) "第 $n 卷" else n
     return Book(
@@ -95,19 +102,43 @@ fun BookDto.toUiBook(): Book {
 }
 
 /** Map a Komga read list to the UI list entry (count = books). */
-fun ReadListDto.toListEntry(): SampleData.ListEntry = SampleData.ListEntry(
-    id = id.stableId(),
-    title = name,
-    count = bookIds.size,
-    hue = hueFor(id),
-    pinned = false,
-)
+fun ReadListDto.toListEntry(): SampleData.ListEntry {
+    val stableId = id.stableId()
+    DetailIdRegistry.registerReadList(stableId, id)
+    CoverUrlRegistry.registerReadList(stableId, id)
+    return SampleData.ListEntry(
+        id = stableId,
+        title = name,
+        count = bookIds.size,
+        hue = hueFor(id),
+        pinned = false,
+    )
+}
 
 /** Map a Komga collection to the UI list entry (count = series). */
-fun CollectionDto.toListEntry(): SampleData.ListEntry = SampleData.ListEntry(
-    id = id.stableId(),
-    title = name,
-    count = seriesIds.size,
-    hue = hueFor(id),
-    pinned = false,
-)
+fun CollectionDto.toListEntry(): SampleData.ListEntry {
+    val stableId = id.stableId()
+    DetailIdRegistry.registerCollection(stableId, id)
+    CoverUrlRegistry.registerCollection(stableId, id)
+    return SampleData.ListEntry(
+        id = stableId,
+        title = name,
+        count = seriesIds.size,
+        hue = hueFor(id),
+        pinned = false,
+    )
+}
+
+/** Map a kmrs smart list to the UI list entry (count is resolved by the source screen). */
+fun SmartListDto.toListEntry(count: Int = 0): SampleData.ListEntry {
+    val stableId = id.stableId()
+    DetailIdRegistry.registerSmartList(stableId, id)
+    CoverUrlRegistry.registerSmartList(stableId, id)
+    return SampleData.ListEntry(
+        id = stableId,
+        title = name,
+        count = count,
+        hue = hueFor(id),
+        pinned = false,
+    )
+}

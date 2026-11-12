@@ -36,7 +36,7 @@ fun ReadListContinuationCard(
     continuation: ReadListContinuationUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    imageUrl: String? = null,
+    stableId: Int? = null,
 ) {
     Row(
         modifier = modifier
@@ -50,7 +50,7 @@ fun ReadListContinuationCard(
         CoverArt(
             title = continuation.readListName,
             hue = continuation.hue,
-            imageUrl = imageUrl,
+            stableId = stableId,
             modifier = Modifier
                 .width(52.dp)
                 .aspectRatio(2f / 3f),

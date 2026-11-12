@@ -11,18 +11,23 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +38,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.DashboardSection
@@ -57,8 +66,8 @@ private val scopeOptions = listOf("全部", "已钉选", "漫画", "画集")
 
 /**
  * Section detail page ("More" destination): adaptive grid/list with three-way layout
- * cycling, library scope menu and browse-options filter sheet.
- * Aligned with DashboardSectionDetailView (+ dashboardSectionDetailLayout).
+ * cycling, library scope menu and browse-options filter sheet. Feed items are re-fetched
+ * page by page (pageSize 50) and appended on scroll, aligned with DashboardSectionDetailView.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,12 +76,39 @@ fun DashboardSectionDetailScreen(
     onBack: () -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
     var layout by rememberSaveable { mutableStateOf(BrowseLayout.Grid) }
     var scope by rememberSaveable { mutableStateOf(scopeOptions.first()) }
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
+
+    val detail by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(section.id) { viewModel.start(section) }
+
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
+    val listShouldLoadMore by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+        }
+    }
+    val gridShouldLoadMore by remember(gridState) {
+        derivedStateOf {
+            val info = gridState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+        }
+    }
+    val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
+    LaunchedEffect(shouldLoadMore, detail.hasMore, detail.loading, detail.loadingMore) {
+        if (shouldLoadMore && detail.hasMore && !detail.loading && !detail.loadingMore) {
+            viewModel.loadMore()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -120,10 +156,11 @@ fun DashboardSectionDetailScreen(
             )
         },
     ) { padding ->
-        val books = section.items.filterIsInstance<Book>()
-        val seriesItems = section.items.filterIsInstance<Series>()
+        val books = detail.items.filterIsInstance<Book>()
+        val seriesItems = detail.items.filterIsInstance<Series>()
         when (layout) {
             BrowseLayout.List -> LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
@@ -135,11 +172,15 @@ fun DashboardSectionDetailScreen(
                 items(seriesItems, key = { it.id }) { series ->
                     SeriesListRow(series = series, onClick = { onOpenSeries(series) })
                 }
+                if (detail.hasMore) {
+                    item(key = "load-more") { LoadMoreRow() }
+                }
             }
 
             else -> LazyVerticalGrid(
                 // grid / largeGrid: adaptive columns sized from the layout card width
                 columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
+                state = gridState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
@@ -162,6 +203,26 @@ fun DashboardSectionDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                if (detail.hasMore) {
+                    item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) { LoadMoreRow() }
+                }
+            }
+        }
+        // initial page spinner / error hint (both layouts)
+        if (detail.loading && detail.items.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp))
+            }
+        }
+        detail.error?.let { message ->
+            if (detail.items.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -172,6 +233,19 @@ fun DashboardSectionDetailScreen(
             onOptionsChange = { options = it },
             onDismiss = { showOptions = false },
         )
+    }
+}
+
+/** 底部加载行：还有下一页时显示，触底会自动请求。 */
+@Composable
+private fun LoadMoreRow() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp))
     }
 }
 
@@ -188,6 +262,7 @@ private fun SeriesListRow(series: Series, onClick: () -> Unit) {
         CoverArt(
             title = series.title,
             hue = series.hue,
+            stableId = series.id,
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),

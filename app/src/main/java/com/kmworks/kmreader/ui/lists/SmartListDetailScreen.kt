@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.Delete
@@ -59,7 +58,6 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
-import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
 private val WideLayoutBreakpoint = 960.dp
@@ -89,8 +87,8 @@ fun SmartListDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var editOpen by remember { mutableStateOf(false) }
-    var selecting by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(setOf<Int>()) }
+    // 「刷新封面」的缓存键版本：自增后重新请求服务端封面
+    var coverVersion by remember { mutableStateOf(0) }
 
     // 真实数据优先，未接端点/无会话时回退假数据
     val display = smartList.copy(
@@ -140,7 +138,10 @@ fun SmartListDetailScreen(
                             DropdownMenuItem(
                                 text = { Text("刷新封面") },
                                 leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
-                                onClick = { menuOpen = false },
+                                onClick = {
+                                    menuOpen = false
+                                    coverVersion++
+                                },
                             )
                             DropdownMenuItem(
                                 text = { Text("删除智能列表", color = MaterialTheme.colorScheme.error) },
@@ -168,11 +169,6 @@ fun SmartListDetailScreen(
                 .fillMaxSize(),
         ) {
             val hitCount = if (display.target == SmartListTarget.Book) books.size else series.size
-            val hitIds = if (display.target == SmartListTarget.Book) {
-                books.map { it.id }
-            } else {
-                series.map { it.id }
-            }
             val coverHue = if (display.target == SmartListTarget.Book) {
                 books.firstOrNull()?.hue
             } else {
@@ -188,7 +184,15 @@ fun SmartListDetailScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
-                        SmartListHero(display, hitCount, coverHue, imageUrl = state.heroThumbnail, centered = false)
+                        SmartListHero(
+                            display,
+                            hitCount,
+                            coverHue,
+                            stableId = smartList.id,
+                            centered = false,
+                            createdLabel = state.createdLabel,
+                            coverVersion = coverVersion,
+                        )
                     }
                     Column(
                         modifier = Modifier
@@ -203,35 +207,14 @@ fun SmartListDetailScreen(
                             onLayoutChange = { layout = it },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
-                            selecting = selecting,
-                            selectedCount = selected.size,
-                            totalCount = hitCount,
-                            onStartSelecting = { selecting = true },
-                            onSelectAll = {
-                                selected = if (selected.size == hitCount) {
-                                    emptySet()
-                                } else {
-                                    hitIds.toSet()
-                                }
-                            },
-                            onDoneSelecting = {
-                                selecting = false
-                                selected = emptySet()
-                            },
                         )
                         SmartListContent(
                             smartList = display,
                             books = books,
                             series = series,
                             layout = layout,
-                            selecting = selecting,
-                            selected = selected,
                             onOpenBook = onOpenBook,
                             onOpenSeries = onOpenSeries,
-                            onToggleSelect = { id ->
-                                selected = if (id in selected) selected - id else selected + id
-                            },
-                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -243,7 +226,15 @@ fun SmartListDetailScreen(
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        SmartListHero(display, hitCount, coverHue, imageUrl = state.heroThumbnail, centered = true)
+                        SmartListHero(
+                            display,
+                            hitCount,
+                            coverHue,
+                            stableId = smartList.id,
+                            centered = true,
+                            createdLabel = state.createdLabel,
+                            coverVersion = coverVersion,
+                        )
                     }
                     SmartListToolbar(
                         options = options,
@@ -251,35 +242,14 @@ fun SmartListDetailScreen(
                         onLayoutChange = { layout = it },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
-                        selecting = selecting,
-                        selectedCount = selected.size,
-                        totalCount = hitCount,
-                        onStartSelecting = { selecting = true },
-                        onSelectAll = {
-                            selected = if (selected.size == hitCount) {
-                                emptySet()
-                            } else {
-                                hitIds.toSet()
-                            }
-                        },
-                        onDoneSelecting = {
-                            selecting = false
-                            selected = emptySet()
-                        },
                     )
                     SmartListContent(
                         smartList = display,
                         books = books,
                         series = series,
                         layout = layout,
-                        selecting = selecting,
-                        selected = selected,
                         onOpenBook = onOpenBook,
                         onOpenSeries = onOpenSeries,
-                        onToggleSelect = { id ->
-                            selected = if (id in selected) selected - id else selected + id
-                        },
-                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -338,8 +308,10 @@ private fun SmartListHero(
     display: SmartListDetail,
     hitCount: Int,
     coverHue: Float,
-    imageUrl: String?,
     centered: Boolean,
+    stableId: Int? = null,
+    createdLabel: String? = null,
+    coverVersion: Int = 0,
 ) {
     Column(
         modifier = Modifier
@@ -351,7 +323,8 @@ private fun SmartListHero(
         CoverArt(
             title = display.name,
             hue = coverHue,
-            imageUrl = imageUrl,
+            stableId = stableId,
+            coverVersion = coverVersion,
             modifier = Modifier
                 .width(168.dp)
                 .aspectRatio(1f),
@@ -401,7 +374,9 @@ private fun SmartListHero(
             )
         }
         Text(
-            text = "创建于 2024-06-12 · 更新于 2 小时前",
+            text = listOfNotNull(createdLabel, display.modifiedLabel)
+                .joinToString(" · ")
+                .ifBlank { display.modifiedLabel },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 12.dp),
@@ -409,7 +384,8 @@ private fun SmartListHero(
     }
 }
 
-/** 工具行：筛选 chip 流 + 多选入口；多选态切换为 SelectionToolbar（对齐 SmartListBooksListView/SmartListSeriesListView 的 filter 行）。 */
+/** 工具行：筛选 chip 流（对齐 SmartListBooksListView/SmartListSeriesListView 的 filter 行）。
+ *  智能列表是服务端保存的筛选条件，成员不可增删，因此没有批量操作。 */
 @Composable
 private fun SmartListToolbar(
     options: BookBrowseOptions,
@@ -417,27 +393,7 @@ private fun SmartListToolbar(
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
     onApplyPreset: (com.kmworks.kmreader.data.SavedFilter) -> Unit,
-    selecting: Boolean,
-    selectedCount: Int,
-    totalCount: Int,
-    onStartSelecting: () -> Unit,
-    onSelectAll: () -> Unit,
-    onDoneSelecting: () -> Unit,
 ) {
-    if (selecting) {
-        SelectionToolbar(
-            selectedCount = selectedCount,
-            totalCount = totalCount,
-            onSelectAll = onSelectAll,
-            onMarkRead = {},
-            onMarkUnread = {},
-            onDownload = {},
-            onAddToReadList = {},
-            onDelete = {},
-            onDone = onDoneSelecting,
-        )
-        return
-    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         BrowseFilterChipFlow(
             options = options,
@@ -447,9 +403,6 @@ private fun SmartListToolbar(
             onApplyPreset = onApplyPreset,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onStartSelecting) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = "多选")
-        }
     }
 }
 
@@ -460,12 +413,8 @@ private fun SmartListContent(
     books: List<Book>,
     series: List<Series>,
     layout: BrowseLayout,
-    selecting: Boolean,
-    selected: Set<Int>,
     onOpenBook: (Book) -> Unit,
     onOpenSeries: (Series) -> Unit,
-    onToggleSelect: (Int) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     val minCell = if (layout == BrowseLayout.LargeGrid) 160 else 108
     BoxWithConstraints(
@@ -481,10 +430,7 @@ private fun SmartListContent(
                         rowItems.forEach { book ->
                             BookGridCard(
                                 book = book,
-                                imageUrl = thumbnails[book.id],
-                                onClick = {
-                                    if (selecting) onToggleSelect(book.id) else onOpenBook(book)
-                                },
+                                onClick = { onOpenBook(book) },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -497,10 +443,7 @@ private fun SmartListContent(
                         rowItems.forEach { item ->
                             SeriesGridCard(
                                 series = item,
-                                imageUrl = thumbnails[item.id],
-                                onClick = {
-                                    if (selecting) onToggleSelect(item.id) else onOpenSeries(item)
-                                },
+                                onClick = { onOpenSeries(item) },
                                 modifier = Modifier.weight(1f),
                             )
                         }

@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.awaitBody
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toCreator
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.download.DownloadRepository
+import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
@@ -20,6 +22,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -33,6 +36,8 @@ data class BookDetailUiState(
     val thumbnail: String? = null,
     /** 归属阅读列表（真实数据；Mappers.toListEntry 映射，点击经 onOpenReadList 上抛）。 */
     val readLists: List<ListEntry> = emptyList(),
+    /** 当前账号是否管理员（编辑/分析/刷新/删除菜单门控，对齐 iOS current.isAdmin）。 */
+    val isAdmin: Boolean = false,
 )
 
 /** 书籍详情数据：按注册表反查 DTO id，拉单本书（含 readProgress 与媒体信息）。 */
@@ -43,6 +48,7 @@ class BookDetailViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
+    private val configStore: ServerConfigStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BookDetailUiState())
@@ -58,6 +64,12 @@ class BookDetailViewModel @Inject constructor(
 
     private var loadedId: Int? = null
 
+    private fun reloadDetail() {
+        val stableId = loadedId ?: return
+        loadedId = null
+        load(stableId)
+    }
+
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
@@ -70,9 +82,10 @@ class BookDetailViewModel @Inject constructor(
         _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         viewModelScope.launch {
             try {
+                val isAdmin = configStore.config.first()?.isAdmin == true
                 val dto = detailRepository.bookDetail(dtoId)
                 if (dto == null) {
-                    _uiState.update { it.copy(loading = false) }
+                    _uiState.update { it.copy(loading = false, isAdmin = isAdmin) }
                     return@launch
                 }
                 val meta = BookDetailMeta(
@@ -86,6 +99,10 @@ class BookDetailViewModel @Inject constructor(
                     },
                     authors = dto.metadata.authors.map { it.toCreator() },
                     tags = dto.metadata.tags.toList(),
+                    number = dto.metadata.number,
+                    numberSort = dto.metadata.numberSort,
+                    isbn = dto.metadata.isbn.ifBlank { null },
+                    links = dto.metadata.links.map { it.label to it.url },
                 )
                 val memberships = detailRepository.bookReadLists(dtoId)
                     .map { it.toListEntry() }
@@ -96,6 +113,7 @@ class BookDetailViewModel @Inject constructor(
                         meta = meta,
                         thumbnail = detailRepository.bookThumbnailUrl(dto.id),
                         readLists = memberships,
+                        isAdmin = isAdmin,
                     )
                 }
                 _downloaded.value = downloadRepository.isBookDownloaded(dto.id)
@@ -153,6 +171,77 @@ class BookDetailViewModel @Inject constructor(
         val book = _uiState.value.book ?: return false
         downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
         return true
+    }
+
+    /** 保存元数据编辑（只提交改动字段 + 对应锁，对齐 iOS BookMetadataUpdate.toAPIDict）。 */
+    fun saveMetadata(draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
+        val state = _uiState.value
+        val baseTitle = state.book?.title
+        if (dtoId == null || baseTitle == null) {
+            onDone(false)
+            return
+        }
+        val body = draft.toUpdateDto(baseTitle, state.meta)
+        if (body == null) {
+            onDone(true)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.updateBookMetadata(dtoId, body)
+            if (ok) reloadDetail()
+            onDone(ok)
+        }
+    }
+
+    /** 重新分析书籍（POST /books/{id}/analyze，管理员）。 */
+    fun analyze(onDone: (Boolean) -> Unit) {
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
+        val clients = sessionManager.clients.value
+        if (dtoId == null || clients == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = clients.books.bookAnalyze(dtoId).awaitBody() != null
+            onDone(ok)
+        }
+    }
+
+    /** 刷新元数据（POST /books/{id}/metadata/refresh，管理员）。 */
+    fun refreshMetadata(onDone: (Boolean) -> Unit) {
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
+        val clients = sessionManager.clients.value
+        if (dtoId == null || clients == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = clients.books.bookRefreshMetadata(dtoId).awaitBody() != null
+            if (ok) reloadDetail()
+            onDone(ok)
+        }
+    }
+
+    /** 删除书籍文件（DELETE /books/{id}/file，管理员）。 */
+    fun deleteBook(onDone: (Boolean) -> Unit) {
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
+        val clients = sessionManager.clients.value
+        if (dtoId == null || clients == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = clients.books.deleteBookFile(dtoId).awaitBody() != null
+            onDone(ok)
+        }
+    }
+
+    /** Komga 网页地址（分享用，对齐 iOS KomgaWebLinkBuilder.book）。 */
+    fun bookWebUrl(): String? {
+        val clients = sessionManager.clients.value ?: return null
+        val dtoId = loadedId?.let { detailRepository.bookDtoId(it) } ?: return null
+        return "${clients.baseUrl}/book/$dtoId"
     }
 }
 

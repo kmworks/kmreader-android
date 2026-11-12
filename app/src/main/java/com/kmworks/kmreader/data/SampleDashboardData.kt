@@ -62,19 +62,19 @@ data class DashboardSectionSetting(
 
 object SampleDashboardData {
 
-    /** Default section order and card kinds, 1:1 with DashboardSection.allCases. */
-    val sectionSettings: List<DashboardSectionSetting> = listOf(
+    /** 仪表盘真实分区：与 DashboardViewModel 产出的 id / 标题 / 默认卡片形态一致。 */
+    val dashboardSections: List<DashboardSectionSetting> = listOf(
         DashboardSectionSetting(ReadListsInProgressSectionId, "进行中的阅读列表", DashboardCardKind.Horizontal),
-        DashboardSectionSetting("keepReading", "继续阅读", DashboardCardKind.Horizontal),
+        DashboardSectionSetting("keepReading", "继续阅读", DashboardCardKind.Large),
         DashboardSectionSetting("onDeck", "待读", DashboardCardKind.Large),
-        DashboardSectionSetting("recentlyReleasedBooks", "最近发布书籍", DashboardCardKind.Large),
-        DashboardSectionSetting("recentlyAddedBooks", "最近添加书籍", DashboardCardKind.Large),
+        DashboardSectionSetting("recentlyAddedBooks", "最近更新书籍", DashboardCardKind.Large),
         DashboardSectionSetting(
-            "recentlyAddedSeries", "最近添加系列", DashboardCardKind.Small, seriesContent = true,
+            "recentlyAddedSeries", "最近更新系列", DashboardCardKind.Large, seriesContent = true,
         ),
         DashboardSectionSetting(
-            "recentlyUpdatedSeries", "最近更新系列", DashboardCardKind.Large, seriesContent = true,
+            "recentlyUpdatedSeries", "最近更新系列（内容）", DashboardCardKind.Large, seriesContent = true,
         ),
-        DashboardSectionSetting("recentlyReadBooks", "最近阅读", DashboardCardKind.Small),
     )
+
+    fun section(id: String): DashboardSectionSetting? = dashboardSections.firstOrNull { it.id == id }
 }

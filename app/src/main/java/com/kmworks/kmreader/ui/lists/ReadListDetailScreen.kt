@@ -195,7 +195,6 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = false,
                             first = heroFirst,
-                            imageUrl = state.heroThumbnail ?: heroFirst?.let { state.thumbnails[it.id] },
                         )
                     }
                     Column(
@@ -264,7 +263,6 @@ fun ReadListDetailScreen(
                                 selected = if (id in selected) selected - id else selected + id
                             },
                             onMenu = { menuBook = it },
-                            thumbnails = state.thumbnails,
                         )
                     }
                 }
@@ -281,7 +279,6 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = true,
                             first = heroFirst,
-                            imageUrl = state.heroThumbnail ?: heroFirst?.let { state.thumbnails[it.id] },
                         )
                     }
                     if (continuation != null) {
@@ -342,7 +339,6 @@ fun ReadListDetailScreen(
                             selected = if (id in selected) selected - id else selected + id
                         },
                         onMenu = { menuBook = it },
-                        thumbnails = state.thumbnails,
                     )
                 }
             }
@@ -422,7 +418,6 @@ private fun ReadListHero(
     bookCount: Int,
     centered: Boolean,
     first: Book?,
-    imageUrl: String? = null,
 ) {
     Column(
         modifier = Modifier
@@ -434,7 +429,7 @@ private fun ReadListHero(
             CoverArt(
                 title = first.seriesTitle,
                 hue = first.hue,
-                imageUrl = imageUrl,
+                stableId = first.id,
                 modifier = Modifier
                     .width(112.dp)
                     .aspectRatio(2f / 3f),
@@ -587,7 +582,6 @@ private fun ReadListBookList(
     onRead: (Book) -> Unit,
     onToggleSelect: (Int) -> Unit,
     onMenu: (Book) -> Unit,
-    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     Column {
         books.forEachIndexed { index, book ->
@@ -595,7 +589,6 @@ private fun ReadListBookList(
                 index = index,
                 book = book,
                 selected = if (selecting) book.id in selected else null,
-                imageUrl = thumbnails[book.id],
                 onClick = {
                     if (selecting) onToggleSelect(book.id) else onRead(book)
                 },
@@ -611,7 +604,6 @@ private fun ReadListBookRow(
     index: Int,
     book: Book,
     selected: Boolean?,
-    imageUrl: String? = null,
     onMenu: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -641,7 +633,7 @@ private fun ReadListBookRow(
         CoverArt(
             title = book.seriesTitle,
             hue = book.hue,
-            imageUrl = imageUrl,
+            stableId = book.id,
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),

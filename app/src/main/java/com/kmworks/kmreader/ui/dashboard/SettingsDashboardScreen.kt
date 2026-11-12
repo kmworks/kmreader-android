@@ -1,6 +1,5 @@
 package com.kmworks.kmreader.ui.dashboard
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,15 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,30 +26,27 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kmworks.kmreader.data.DashboardCardKind
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.DashboardSectionSetting
-import com.kmworks.kmreader.data.SampleDashboardData
 import com.kmworks.kmreader.data.label
 
 /**
- * Dashboard customization: options (card kind menu / read list continuation),
- * section list with visibility toggles, arrow-based reorder and card kind override,
- * then reset. Aligned with SettingsDashboardView (iOS).
+ * 仪表盘自定义（对齐 iOS SettingsDashboardView）：
+ * 选项开关 + 分区顺序（上移/下移）+ 分区显示开关，全部持久化到 AppSettingsStore。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsDashboardScreen(onBack: () -> Unit) {
-    var sections by remember { mutableStateOf(SampleDashboardData.sectionSettings) }
-    var cardKindMenu by rememberSaveable { mutableStateOf(true) }
-    var continuationEnabled by rememberSaveable { mutableStateOf(true) }
-    var kindMenuFor by remember { mutableStateOf<String?>(null) }
+fun SettingsDashboardScreen(
+    onBack: () -> Unit,
+    viewModel: SettingsDashboardViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val visibleSections = state.visibleSections
+    val hiddenSections = state.hiddenSections
 
     Scaffold(
         topBar = {
@@ -79,16 +71,16 @@ fun SettingsDashboardScreen(onBack: () -> Unit) {
                 SwitchRow(
                     title = "卡片形态菜单",
                     subtitle = "在分区标题右侧显示卡片形态切换",
-                    checked = cardKindMenu,
-                    onCheckedChange = { cardKindMenu = it },
+                    checked = state.cardKindMenu,
+                    onCheckedChange = viewModel::setCardKindMenu,
                 )
             }
             item {
                 SwitchRow(
                     title = "阅读列表续读",
                     subtitle = "显示「进行中的阅读列表」分区",
-                    checked = continuationEnabled,
-                    onCheckedChange = { continuationEnabled = it },
+                    checked = state.continuation,
+                    onCheckedChange = viewModel::setContinuation,
                 )
             }
             item {
@@ -102,31 +94,33 @@ fun SettingsDashboardScreen(onBack: () -> Unit) {
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
             item { GroupHeader("分区") }
-            itemsIndexed(sections, key = { _, s -> s.id }) { index, setting ->
+            items(visibleSections.size, key = { index -> visibleSections[index].id }) { index ->
+                val setting = visibleSections[index]
                 SectionSettingRow(
                     setting = setting,
                     isFirst = index == 0,
-                    isLast = index == sections.lastIndex,
-                    kindMenuOpen = kindMenuFor == setting.id,
-                    onKindMenuOpenChange = { open -> kindMenuFor = if (open) setting.id else null },
-                    onToggle = { enabled ->
-                        sections = sections.map {
-                            if (it.id == setting.id) it.copy(enabled = enabled) else it
-                        }
-                    },
-                    onMove = { delta -> sections = sections.moved(index, delta) },
-                    onKindChange = { kind ->
-                        sections = sections.map {
-                            if (it.id == setting.id) it.copy(kindOverride = kind) else it
-                        }
-                    },
+                    isLast = index == visibleSections.lastIndex,
+                    onMove = { delta -> viewModel.move(setting.id, delta) },
+                    onToggle = { viewModel.setVisible(setting.id, false) },
                 )
+            }
+
+            if (hiddenSections.isNotEmpty()) {
+                item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+                item { GroupHeader("隐藏分区") }
+                items(hiddenSections.size, key = { index -> hiddenSections[index].id }) { index ->
+                    val setting = hiddenSections[index]
+                    HiddenSectionRow(
+                        setting = setting,
+                        onShow = { viewModel.setVisible(setting.id, true) },
+                    )
+                }
             }
 
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
             item {
                 TextButton(
-                    onClick = { sections = SampleDashboardData.sectionSettings },
+                    onClick = viewModel::reset,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
@@ -138,90 +132,69 @@ fun SettingsDashboardScreen(onBack: () -> Unit) {
     }
 }
 
-/** One section row: handle placeholder + name/default kind + toggle; arrows + kind override below. */
+/** 可见分区一行：名称 + 默认卡片形态 + 上移/下移 + 显示开关。 */
 @Composable
 private fun SectionSettingRow(
     setting: DashboardSectionSetting,
     isFirst: Boolean,
     isLast: Boolean,
-    kindMenuOpen: Boolean,
-    onKindMenuOpenChange: (Boolean) -> Unit,
-    onToggle: (Boolean) -> Unit,
     onMove: (Int) -> Unit,
-    onKindChange: (DashboardCardKind?) -> Unit,
+    onToggle: () -> Unit,
 ) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // drag handle placeholder; reorder uses the arrows below in this mock
-            Icon(
-                Icons.Filled.DragHandle,
-                contentDescription = "排序手柄",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = setting.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = setting.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (setting.enabled) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-                Text(
-                    text = "默认：${setting.defaultKind.label}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = setting.enabled, onCheckedChange = onToggle)
+            Text(
+                text = "默认：${setting.defaultKind.label}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 48.dp, end = 16.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { onMove(-1) }, enabled = !isFirst) {
-                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "上移")
-            }
-            IconButton(onClick = { onMove(1) }, enabled = !isLast) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "下移")
-            }
-            Spacer(Modifier.width(8.dp))
-            Box {
-                AssistChip(
-                    onClick = { onKindMenuOpenChange(true) },
-                    label = { Text("卡片：${setting.kindOverride?.label ?: "跟随默认"}") },
-                )
-                DropdownMenu(
-                    expanded = kindMenuOpen,
-                    onDismissRequest = { onKindMenuOpenChange(false) },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("跟随默认") },
-                        onClick = {
-                            onKindMenuOpenChange(false)
-                            onKindChange(null)
-                        },
-                    )
-                    setting.availableKinds.forEach { kind ->
-                        DropdownMenuItem(
-                            text = { Text(kind.label) },
-                            onClick = {
-                                onKindMenuOpenChange(false)
-                                onKindChange(kind)
-                            },
-                        )
-                    }
-                }
-            }
+        IconButton(onClick = { onMove(-1) }, enabled = !isFirst) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "上移")
+        }
+        IconButton(onClick = { onMove(1) }, enabled = !isLast) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "下移")
+        }
+        Switch(checked = true, onCheckedChange = { onToggle() })
+    }
+}
+
+/** 隐藏分区一行：名称 + 加回按钮。 */
+@Composable
+private fun HiddenSectionRow(
+    setting: DashboardSectionSetting,
+    onShow: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = setting.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "已隐藏",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onShow) {
+            Icon(Icons.Filled.Add, contentDescription = "显示分区")
         }
     }
 }
@@ -257,12 +230,7 @@ private fun SwitchRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Spacer(Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
-}
-
-private fun List<DashboardSectionSetting>.moved(index: Int, delta: Int): List<DashboardSectionSetting> {
-    val target = (index + delta).coerceIn(0, size - 1)
-    if (target == index) return this
-    return toMutableList().apply { add(target, removeAt(index)) }
 }

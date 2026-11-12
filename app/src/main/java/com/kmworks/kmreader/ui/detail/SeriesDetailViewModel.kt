@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
@@ -68,6 +69,8 @@ data class SeriesDetailUiState(
     val trackerSupported: Boolean = false,
     /** Tracker 已绑定条目（仅 trackerSupported 且有值时非空）。 */
     val trackerLinks: List<TrackerLink> = emptyList(),
+    /** 元数据编辑的初始值（DTO 直出；无会话/演示数据时为 null）。 */
+    val editable: SeriesEditValues? = null,
 )
 
 /** 系列详情数据：按注册表反查 DTO id，拉单系列与其书籍列表。 */
@@ -152,6 +155,24 @@ class SeriesDetailViewModel @Inject constructor(
                         thumbnails = thumbnails,
                         komfAvailable = komfAvailable,
                         trackerSupported = trackerRepository.supported,
+                        editable = seriesDto?.metadata?.let { metadata ->
+                            SeriesEditValues(
+                                title = metadata.title,
+                                titleSort = metadata.titleSort,
+                                summary = metadata.summary,
+                                status = metadata.status,
+                                readingDirection = metadata.readingDirection,
+                                language = metadata.language,
+                                publisher = metadata.publisher,
+                                ageRating = metadata.ageRating?.toString().orEmpty(),
+                                totalBookCount = metadata.totalBookCount?.toString().orEmpty(),
+                                genres = metadata.genres.toList(),
+                                tags = metadata.tags.toList(),
+                                links = metadata.links.map { it.label to it.url },
+                                alternateTitles = metadata.alternateTitles.map { it.label to it.title },
+                                sharingLabels = metadata.sharingLabels.toList(),
+                            )
+                        },
                         libraryId = seriesDto?.libraryId,
                     )
                 }
@@ -355,6 +376,32 @@ class SeriesDetailViewModel @Inject constructor(
         val stableId = loadedId ?: return
         loadedId = null
         load(stableId)
+    }
+
+    /**
+     * 保存系列元数据；dto 为 null 表示没有改动（直接关闭，不发请求）。
+     * 保存成功后重拉详情，让 hero/summary/chips 立刻反映服务端数据。
+     */
+    fun saveMetadata(dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {
+        val seriesDtoId = dtoId
+        if (dto == null) {
+            onDone(true)
+            return
+        }
+        if (seriesDtoId == null) {
+            _komfEvents.tryEmit("保存失败：无服务器数据")
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.updateSeriesMetadata(seriesDtoId, dto)
+            if (ok) {
+                reloadDetail()
+            } else {
+                _komfEvents.tryEmit("保存失败，请稍后重试")
+            }
+            onDone(ok)
+        }
     }
 
     /**
