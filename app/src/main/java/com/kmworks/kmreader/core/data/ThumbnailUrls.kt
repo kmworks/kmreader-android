@@ -11,3 +11,9 @@ fun ApiClients.bookThumbnailUrl(bookId: String): String =
 
 fun ApiClients.smartListThumbnailUrl(smartListId: String): String =
     "$baseUrl/api/v1/smart-lists/$smartListId/thumbnail"
+
+fun ApiClients.collectionThumbnailUrl(collectionId: String): String =
+    "$baseUrl/api/v1/collections/$collectionId/thumbnail"
+
+fun ApiClients.readListThumbnailUrl(readListId: String): String =
+    "$baseUrl/api/v1/readlists/$readListId/thumbnail"

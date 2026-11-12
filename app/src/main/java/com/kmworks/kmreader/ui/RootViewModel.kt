@@ -11,6 +11,7 @@ import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -25,7 +26,7 @@ class RootViewModel @Inject constructor(
     private val configStore: ServerConfigStore,
     private val appSettings: AppSettingsStore,
     private val sseService: SseService,
-    sessionManager: SessionManager,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     val config: StateFlow<ServerConfig?> = configStore.config
@@ -65,8 +66,16 @@ class RootViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setSseEnabled(enabled) }
     }
 
-    /** 清除实例配置，门控自动回到登录页。 */
+    /** 清除实例配置，门控自动回到登录页；先对活动实例发 logout（尽力而为）。 */
     fun logout() {
+        val clients = sessionManager.clients.value
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                clients?.serverApi?.logout()?.execute()
+            } catch (_: Exception) {
+                // fire-and-forget：失败不影响本地登出
+            }
+        }
         viewModelScope.launch { configStore.clear() }
     }
 

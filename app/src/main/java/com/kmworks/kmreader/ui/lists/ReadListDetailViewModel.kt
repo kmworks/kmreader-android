@@ -27,10 +27,12 @@ data class ReadListDetailUiState(
     val summary: String? = null,
     val ordered: Boolean? = null,
     val books: List<Book>? = null,
+    /** 阅读列表封面（服务端缩略图端点）。 */
+    val heroThumbnail: String? = null,
     val thumbnails: Map<Int, String> = emptyMap(),
 )
 
-/** 阅读列表详情数据：反查 DTO，再按 bookIds 顺序并发拉各本书（含真实 readProgress）。 */
+/** 阅读列表详情数据：反查 DTO，书籍经 GET api/v1/readlists/{id}/books 按序拉取（含真实 readProgress）。 */
 @HiltViewModel
 class ReadListDetailViewModel @Inject constructor(
     private val sessionManager: SessionManager,
@@ -64,7 +66,7 @@ class ReadListDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(loading = false) }
                     return@launch
                 }
-                val bookDtos = detailRepository.readListBooks(readList.bookIds)
+                val bookDtos = detailRepository.readListBooks(dtoId)
                 val thumbnails = bookDtos.mapNotNull { dto ->
                     detailRepository.bookThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
                 }.toMap()
@@ -75,6 +77,7 @@ class ReadListDetailViewModel @Inject constructor(
                         summary = readList.summary,
                         ordered = readList.ordered,
                         books = bookDtos.map { dto -> dto.toUiBook() },
+                        heroThumbnail = detailRepository.readListThumbnailUrl(dtoId),
                         thumbnails = thumbnails,
                     )
                 }

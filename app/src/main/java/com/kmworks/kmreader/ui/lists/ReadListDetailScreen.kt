@@ -195,7 +195,7 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = false,
                             first = heroFirst,
-                            imageUrl = heroFirst?.let { state.thumbnails[it.id] },
+                            imageUrl = state.heroThumbnail ?: heroFirst?.let { state.thumbnails[it.id] },
                         )
                     }
                     Column(
@@ -281,7 +281,7 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = true,
                             first = heroFirst,
-                            imageUrl = heroFirst?.let { state.thumbnails[it.id] },
+                            imageUrl = state.heroThumbnail ?: heroFirst?.let { state.thumbnails[it.id] },
                         )
                     }
                     if (continuation != null) {

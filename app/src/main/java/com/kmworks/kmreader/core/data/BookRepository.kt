@@ -14,17 +14,19 @@ class BookRepository @Inject constructor(
 
     private val api get() = sessionManager.clients.value?.books
 
+    private fun listSearchApi(): ListSearchApi? =
+        sessionManager.clients.value?.let { LocalApiFactory.create(it, ListSearchApi::class.java) }
+
     /** Thumbnail URL for a book id; null without a session. */
     fun thumbnailUrl(bookId: String): String? =
         sessionManager.clients.value?.bookThumbnailUrl(bookId)
 
-    /** Books currently in progress, most recently read first.
-     *  Uses the deprecated GET endpoint to avoid the POST /books/list condition DSL. */
-    @Suppress("DEPRECATION")
+    /** Books currently in progress, most recently read first
+     *  (POST api/v1/books/list, condition readStatus is IN_PROGRESS). */
     suspend fun keepReading(size: Int = 12): List<BookDto> {
-        val api = api ?: return emptyList()
-        return api.getAllBooksDeprecated(
-            readStatus = listOf("IN_PROGRESS"),
+        val api = listSearchApi() ?: return emptyList()
+        return api.books(
+            search = searchBody(condition = leafCondition("readStatus", "is", "IN_PROGRESS")),
             size = size,
             sort = listOf("readProgress.lastModified,desc"),
         ).awaitBody()?.content.orEmpty()

@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.core.data
 
+import com.kmworks.kmreader.core.api.CollectionSeriesApi
+import com.kmworks.kmreader.core.api.ReadlistBooksApi
 import com.kmworks.kmreader.core.api.model.BookDto
 import com.kmworks.kmreader.core.api.model.CollectionDto
 import com.kmworks.kmreader.core.api.model.ReadListDto
@@ -8,8 +10,6 @@ import com.kmworks.kmreader.core.network.SessionManager
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 
 /** In-process map from UI stable id (Int) to DTO id (String); mappers register while lists load. */
 object DetailIdRegistry {
@@ -44,6 +44,12 @@ class DetailRepository @Inject constructor(
     fun bookThumbnailUrl(bookId: String): String? =
         sessionManager.clients.value?.bookThumbnailUrl(bookId)
 
+    fun collectionThumbnailUrl(collectionId: String): String? =
+        sessionManager.clients.value?.collectionThumbnailUrl(collectionId)
+
+    fun readListThumbnailUrl(readListId: String): String? =
+        sessionManager.clients.value?.readListThumbnailUrl(readListId)
+
     fun seriesDtoId(stableId: Int): String? = DetailIdRegistry.seriesDtoId(stableId)
 
     fun bookDtoId(stableId: Int): String? = DetailIdRegistry.bookDtoId(stableId)
@@ -76,13 +82,13 @@ class DetailRepository @Inject constructor(
         return api.getCollectionById(dtoId).awaitBody()
     }
 
-    suspend fun collectionSeries(seriesIds: List<String>): List<SeriesDto> {
-        val api = sessionManager.clients.value?.series ?: return emptyList()
-        return coroutineScope {
-            seriesIds
-                .map { id -> async { api.getSeriesById(id).awaitBody() } }
-                .mapNotNull { it.await() }
-        }
+    /** Collection members in server order (GET api/v1/collections/{id}/series).
+     *  ApiClients 未暴露 CollectionSeriesApi，经 LocalApiFactory 本地构建。 */
+    suspend fun collectionSeries(dtoId: String): List<SeriesDto> {
+        val clients = sessionManager.clients.value ?: return emptyList()
+        val api = LocalApiFactory.create(clients, CollectionSeriesApi::class.java)
+        return api.getSeriesByCollectionId(dtoId, unpaged = true)
+            .awaitBody()?.content.orEmpty()
     }
 
     suspend fun readListDetail(dtoId: String): ReadListDto? {
@@ -90,12 +96,11 @@ class DetailRepository @Inject constructor(
         return api.getReadListById(dtoId).awaitBody()
     }
 
-    suspend fun readListBooks(bookIds: List<String>): List<BookDto> {
-        val api = sessionManager.clients.value?.books ?: return emptyList()
-        return coroutineScope {
-            bookIds
-                .map { id -> async { id to api.getBookById(id).awaitBody() } }
-                .mapNotNull { it.await().second }
-        }
+    /** Read list books in list order (GET api/v1/readlists/{id}/books). */
+    suspend fun readListBooks(dtoId: String): List<BookDto> {
+        val clients = sessionManager.clients.value ?: return emptyList()
+        val api = LocalApiFactory.create(clients, ReadlistBooksApi::class.java)
+        return api.getBooksByReadListId(dtoId, unpaged = true)
+            .awaitBody()?.content.orEmpty()
     }
 }

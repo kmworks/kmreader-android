@@ -94,7 +94,7 @@ fun CollectionDetailScreen(
     val visible = sourceSeries.filter { it.id !in removedIds }
     val series = sortCollectionSeries(visible, options)
     // hero 封面：服务端无收藏缩略图端点，用首个系列的缩略图
-    val heroImageUrl = visible.firstOrNull()?.let { state.thumbnails[it.id] }
+    val heroImageUrl = state.heroThumbnail ?: visible.firstOrNull()?.let { state.thumbnails[it.id] }
     val heroHue = visible.firstOrNull()?.hue ?: 210f
 
     Scaffold(
