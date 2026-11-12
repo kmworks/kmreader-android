@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.Delete
@@ -113,11 +114,12 @@ fun seriesContextMenuItems(
     add(ContextMenuItem("删除", Icons.Outlined.Delete, destructive = true, onClick = onDelete))
 }
 
-/** 书籍上下文菜单（对齐 BookContextMenu）。 */
+/** 书籍上下文菜单（对齐 BookContextMenu；「访问系列」对应原作的系列导航入口）。 */
 fun bookContextMenuItems(
     hasStarted: Boolean,
     completed: Boolean,
     downloaded: Boolean,
+    onOpenSeries: () -> Unit = {},
     onMarkRead: () -> Unit = {},
     onMarkUnread: () -> Unit = {},
     onDownload: () -> Unit = {},
@@ -128,6 +130,7 @@ fun bookContextMenuItems(
     onShare: () -> Unit = {},
     onDelete: () -> Unit = {},
 ): List<ContextMenuItem> = buildList {
+    add(ContextMenuItem("访问系列", Icons.Outlined.AutoStories, onClick = onOpenSeries))
     if (!completed) {
         add(ContextMenuItem("标记为已读", Icons.Outlined.CheckCircle, onClick = onMarkRead))
     }

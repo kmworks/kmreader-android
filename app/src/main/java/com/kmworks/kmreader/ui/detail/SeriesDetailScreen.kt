@@ -70,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.data.Book
@@ -205,7 +206,7 @@ fun SeriesDetailScreen(
                         )
                         DetailTimestamps()
                         DetailSummary(series)
-                        DetailChips(series, onBrowseFilter)
+                        DetailChips(series = series, onBrowseFilter = onBrowseFilter)
                         TrackerSection(onManage = { showTrackerSheet = true })
                     }
                     LazyColumn(
@@ -242,14 +243,18 @@ fun SeriesDetailScreen(
                     }
                 }
             } else {
-                // 手机：单列滚动
+                // 手机：单列滚动，内容居中（对齐原作 DetailHeroView 居中态：
+                // 操作卡 maxWidth 480 水平居中，时间戳居中，chips 流居中）
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 16.dp),
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         DetailHero(series = series, centered = true, onBrowseFilter = onBrowseFilter)
                         DetailActionCard(
                             series = series,
@@ -259,7 +264,7 @@ fun SeriesDetailScreen(
                         )
                         DetailTimestamps()
                         DetailSummary(series)
-                        DetailChips(series, onBrowseFilter)
+                        DetailChips(series, centered = true, onBrowseFilter = onBrowseFilter)
                         TrackerSection(onManage = { showTrackerSheet = true })
                         Spacer(Modifier.height(16.dp))
                     }
@@ -492,6 +497,7 @@ private fun DetailTimestamps() {
         text = "创建于 2024-06-12 · 更新于 2 小时前",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
@@ -514,7 +520,11 @@ private fun DetailSummary(series: Series) {
  *  知名实体(角色 person/团队 person.2/地点 mappin)、分类(theatermasks)、标签(tag) 均可点击
  *  跳转对应元数据筛选的系列浏览页；链接(link) 打开外部 URL；长流折叠在 "+N" 后原地展开（limit 6）。 */
 @Composable
-private fun DetailChips(series: Series, onBrowseFilter: (String) -> Unit) {
+private fun DetailChips(
+    series: Series,
+    centered: Boolean = false,
+    onBrowseFilter: (String) -> Unit,
+) {
     if (series.notableEntities.isEmpty() && series.genres.isEmpty() &&
         series.tags.isEmpty() && series.links.isEmpty()
     ) return
@@ -526,6 +536,7 @@ private fun DetailChips(series: Series, onBrowseFilter: (String) -> Unit) {
             CollapsibleMetaChipFlow(
                 items = series.notableEntities.map { e -> e.icon() to (e.kindLabel to e.name) },
                 limit = 6,
+                centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
             )
         }
@@ -533,6 +544,7 @@ private fun DetailChips(series: Series, onBrowseFilter: (String) -> Unit) {
             CollapsibleMetaChipFlow(
                 items = series.genres.map { Icons.Outlined.TheaterComedy to ("分类" to it) },
                 limit = 6,
+                centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
             )
         }
@@ -540,12 +552,16 @@ private fun DetailChips(series: Series, onBrowseFilter: (String) -> Unit) {
             CollapsibleMetaChipFlow(
                 items = series.tags.map { Icons.Outlined.Sell to ("标签" to it) },
                 limit = 6,
+                centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
             )
         }
         if (series.links.isNotEmpty()) {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(
+                    8.dp,
+                    if (centered) Alignment.CenterHorizontally else Alignment.Start,
+                ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 series.links.forEach { (label, _) ->

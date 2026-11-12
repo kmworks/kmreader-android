@@ -7,24 +7,32 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -38,8 +46,11 @@ import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookHorizontalCard
 import com.kmworks.kmreader.data.DashboardCardKind
+import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.SectionHeader
 import com.kmworks.kmreader.ui.components.SeriesGridCard
+import com.kmworks.kmreader.ui.components.bookContextMenuItems
+import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 
 /** 仪表盘：分区列表，每分区 = 标题头 + 横向卡片流。对齐 KMReader DashboardView。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,15 +66,43 @@ fun DashboardScreen(
     val state by viewModel.state.collectAsState()
     // 有会话且拉到数据用真实分区；否则保持 SampleData 演示
     val sections = state.sections ?: SampleData.dashboardSections
+    // 库范围切换（全部/已钉选/单库），对应 LibraryScopeMenu；仪表盘为独立会话内 scope
+    var scope by remember { mutableStateOf("全部书库") }
+    var scopeMenuOpen by remember { mutableStateOf(false) }
+    // 长按上下文菜单（对齐原作仪表盘卡片的 contextMenu）
+    var seriesMenuTarget by remember { mutableStateOf<Series?>(null) }
+    var bookMenuTarget by remember { mutableStateOf<Book?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("仪表盘") },
                 actions = {
-                    // 库范围切换（全部/已钉选/单库），对应 LibraryScopeMenu；仪表盘为独立会话内 scope
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Outlined.Checklist, contentDescription = "库范围")
+                    // 与书库/列表页一致的可见范围切换：文字按钮 + 下拉
+                    Box {
+                        TextButton(onClick = { scopeMenuOpen = true }) {
+                            Icon(
+                                Icons.Filled.Checklist,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(scope)
+                        }
+                        DropdownMenu(
+                            expanded = scopeMenuOpen,
+                            onDismissRequest = { scopeMenuOpen = false },
+                        ) {
+                            listOf("全部书库", "已钉选", "漫画", "日漫", "国漫").forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text(s) },
+                                    onClick = {
+                                        scope = s
+                                        scopeMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "设置")
@@ -100,11 +139,39 @@ fun DashboardScreen(
                     onOpenBook = onOpenBook,
                     onOpenSectionDetail = onOpenSectionDetail,
                     onOpenContinuation = onOpenContinuation,
+                    onSeriesLongClick = { seriesMenuTarget = it },
+                    onBookLongClick = { bookMenuTarget = it },
                     thumbnails = state.thumbnails,
                 )
                 Spacer(Modifier.height(8.dp))
             }
         }
+    }
+
+    // 长按菜单：系列 / 书籍（书籍含「访问系列」导航，对齐原作 BookContextMenu）
+    seriesMenuTarget?.let { series ->
+        ContextMenuSheet(
+            items = seriesContextMenuItems(
+                pinned = false,
+                hasStarted = series.progress != null,
+                completed = series.unreadCount == 0,
+                downloaded = false,
+            ),
+            onDismiss = { seriesMenuTarget = null },
+        )
+    }
+    bookMenuTarget?.let { book ->
+        ContextMenuSheet(
+            items = bookContextMenuItems(
+                hasStarted = book.progress != null,
+                completed = book.progress == 1f,
+                downloaded = false,
+                onOpenSeries = {
+                    SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
+                },
+            ),
+            onDismiss = { bookMenuTarget = null },
+        )
     }
 }
 
@@ -115,6 +182,8 @@ private fun DashboardSectionRow(
     onOpenBook: (Book) -> Unit,
     onOpenSectionDetail: (DashboardSection<out Any>) -> Unit,
     onOpenContinuation: (ReadListContinuationUi) -> Unit,
+    onSeriesLongClick: (Series) -> Unit = {},
+    onBookLongClick: (Book) -> Unit = {},
     thumbnails: Map<Int, String> = emptyMap(),
 ) {
     SectionHeader(
@@ -143,6 +212,7 @@ private fun DashboardSectionRow(
                         BookHorizontalCard(
                             book = item,
                             onClick = { onOpenBook(item) },
+                            onLongClick = { onBookLongClick(item) },
                             modifier = Modifier.width(DashboardCardKind.Horizontal.widthDp.dp),
                             imageUrl = thumbnails[item.id],
                         )
@@ -151,6 +221,7 @@ private fun DashboardSectionRow(
                         BookGridCard(
                             book = item,
                             onClick = { onOpenBook(item) },
+                            onLongClick = { onBookLongClick(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
                             imageUrl = thumbnails[item.id],
                         )
@@ -159,6 +230,7 @@ private fun DashboardSectionRow(
                         SeriesGridCard(
                             series = item,
                             onClick = { onOpenSeries(item) },
+                            onLongClick = { onSeriesLongClick(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
                             imageUrl = thumbnails[item.id],
                         )

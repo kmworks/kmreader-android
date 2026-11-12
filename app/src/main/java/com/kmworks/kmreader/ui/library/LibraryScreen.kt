@@ -217,6 +217,9 @@ fun LibraryScreen(
                 hasStarted = book.progress != null,
                 completed = book.progress == 1f,
                 downloaded = false,
+                onOpenSeries = {
+                    SampleData.seriesById(book.id / 1000)?.let(onOpenSeries)
+                },
             ),
             onDismiss = { menuBook = null },
         )
