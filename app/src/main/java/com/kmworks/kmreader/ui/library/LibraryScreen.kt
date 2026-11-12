@@ -20,12 +20,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.SampleData
@@ -66,7 +69,11 @@ fun LibraryScreen(
     var menuSeries by remember { mutableStateOf<Series?>(null) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
 
-    val allBooks = SampleData.series.flatMap { SampleData.booksOf(it).take(2) }
+    val viewModel: LibraryViewModel = hiltViewModel()
+    val state by viewModel.state.collectAsState()
+    // 有会话且拉到数据用真实内容；否则保持 SampleData 演示
+    val series = state.series ?: SampleData.series
+    val allBooks = state.books ?: SampleData.series.flatMap { SampleData.booksOf(it).take(2) }
 
     Scaffold(
         topBar = {
@@ -103,13 +110,24 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            if (state.loading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            state.error?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ContentType.entries.forEach { type ->
-                    val count = if (type == ContentType.Series) SampleData.series.size else allBooks.size
+                    val count = if (type == ContentType.Series) series.size else allBooks.size
                     FilterChip(
                         selected = contentType == type,
                         onClick = { contentType = type },
@@ -118,7 +136,11 @@ fun LibraryScreen(
                 }
             }
             Text(
-                text = "$scope · 3 个库 · 共 86 GB",
+                text = if (state.hasSession) {
+                    "$scope · ${state.libraryCount} 个库"
+                } else {
+                    "$scope · 3 个库 · 共 86 GB"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -148,12 +170,13 @@ fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 when (contentType) {
-                    ContentType.Series -> items(SampleData.series, key = { it.id }) { series ->
+                    ContentType.Series -> items(series, key = { it.id }) { item ->
                         SeriesGridCard(
-                            series = series,
-                            onClick = { onOpenSeries(series) },
+                            series = item,
+                            onClick = { onOpenSeries(item) },
                             modifier = Modifier.fillMaxWidth(),
-                            onLongClick = { menuSeries = series },
+                            onLongClick = { menuSeries = item },
+                            imageUrl = state.thumbnails[item.id],
                         )
                     }
                     ContentType.Books -> items(allBooks, key = { it.id }) { book ->
@@ -162,6 +185,7 @@ fun LibraryScreen(
                             onClick = { onOpenBook(book) },
                             modifier = Modifier.fillMaxWidth(),
                             onLongClick = { menuBook = book },
+                            imageUrl = state.thumbnails[book.id],
                         )
                     }
                 }

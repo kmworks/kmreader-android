@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.SampleData
@@ -61,9 +63,12 @@ private enum class SettingsPage {
  */
 @OptIn(ExperimentalMaterial3AdaptiveNavigationSuiteApi::class)
 @Composable
-fun AppRoot() {
-    var showLogin by remember { mutableStateOf(false) }
-    if (showLogin) {
+fun AppRoot(
+    rootViewModel: RootViewModel = hiltViewModel(),
+) {
+    // 会话门控：未配置实例时只渲染登录页
+    val hasSession by rootViewModel.hasSession.collectAsStateWithLifecycle()
+    if (!hasSession) {
         LoginScreen()
         return
     }

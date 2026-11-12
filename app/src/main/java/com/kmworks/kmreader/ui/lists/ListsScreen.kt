@@ -29,12 +29,14 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +45,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import coil3.SingletonImageLoader
+import coil3.compose.AsyncImage
+import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleData.ListGroup
@@ -54,6 +62,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
+import dagger.hilt.android.EntryPointAccessors
 
 /** 列表 tab：对齐 KMReader ListsBrowseView —— 收藏 / 阅读列表 / 智能列表三条横向条带，
  *  pinned 置顶，条带头可进入对应类型全页；工具栏范围筛选（LibraryScopeMenu）。 */
@@ -70,6 +79,17 @@ fun ListsScreen(
     var menuTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
     // 编辑 sheet 目标（从上下文菜单「编辑」进入）
     var editTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
+
+    val viewModel: ListsViewModel = hiltViewModel()
+    val state by viewModel.state.collectAsState()
+    // 有会话且拉到数据时替换收藏/阅读列表条带；智能列表保持示例
+    val groups = SampleData.lists.map { group ->
+        when (group.title) {
+            "收藏" -> state.collections?.let { group.copy(items = it) } ?: group
+            "阅读列表" -> state.readLists?.let { group.copy(items = it) } ?: group
+            else -> group
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -112,7 +132,22 @@ fun ListsScreen(
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            items(SampleData.lists, key = { it.title }) { group ->
+            if (state.loading) {
+                item(key = "loading") {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+            state.error?.let { message ->
+                item(key = "error") {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            items(groups, key = { it.title }) { group ->
                 val onOpenEntry: (ListEntry) -> Unit = when (group.title) {
                     "收藏" -> ({ e -> onOpenCollection(e.id) })
                     "阅读列表" -> ({ e -> onOpenReadList(e.id) })
@@ -122,6 +157,7 @@ fun ListsScreen(
                     group = group,
                     onOpenEntry = onOpenEntry,
                     onEntryMenu = { entry -> menuTarget = group.title to entry },
+                    thumbnails = state.thumbnails,
                 )
             }
         }
@@ -181,6 +217,7 @@ private fun ListStrip(
     group: ListGroup,
     onOpenEntry: (ListEntry) -> Unit,
     onEntryMenu: (ListEntry) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     Column(modifier = Modifier.padding(vertical = 10.dp)) {
         Row(
@@ -214,6 +251,7 @@ private fun ListStrip(
                     onClick = { onOpenEntry(entry) },
                     onLongClick = { onEntryMenu(entry) },
                     modifier = Modifier.width(110.dp),
+                    imageUrl = thumbnails[entry.id],
                 )
             }
         }
@@ -229,6 +267,7 @@ private fun ListEntryCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    imageUrl: String? = null,
 ) {
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -239,9 +278,27 @@ private fun ListEntryCard(
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(
-                    Color.hsv(entry.hue.toFloat(), 0.42f, 0.60f),
+                    Color.hsv(entry.hue, 0.42f, 0.60f),
                 ),
         ) {
+            if (imageUrl != null) {
+                val context = LocalContext.current
+                val entryPoint = remember {
+                    EntryPointAccessors.fromApplication(
+                        context.applicationContext,
+                        ImageLoaderEntryPoint::class.java,
+                    )
+                }
+                val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
+                val fallbackLoader = remember { SingletonImageLoader.get(context) }
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    imageLoader = sessionLoader ?: fallbackLoader,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
             if (entry.pinned) {
                 Icon(
                     Icons.Filled.PushPin,

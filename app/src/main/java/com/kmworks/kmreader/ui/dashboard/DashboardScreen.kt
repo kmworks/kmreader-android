@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -13,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -20,8 +23,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.ReadListContinuationUi
@@ -45,6 +51,11 @@ fun DashboardScreen(
     onOpenSectionDetail: (DashboardSection<out Any>) -> Unit = {},
     onOpenContinuation: (ReadListContinuationUi) -> Unit = {},
 ) {
+    val viewModel: DashboardViewModel = hiltViewModel()
+    val state by viewModel.state.collectAsState()
+    // 有会话且拉到数据用真实分区；否则保持 SampleData 演示
+    val sections = state.sections ?: SampleData.dashboardSections
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,13 +78,29 @@ fun DashboardScreen(
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            items(SampleData.dashboardSections, key = { it.id }) { section ->
+            if (state.loading) {
+                item(key = "loading") {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+            state.error?.let { message ->
+                item(key = "error") {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            items(sections, key = { it.id }) { section ->
                 DashboardSectionRow(
                     section = section,
                     onOpenSeries = onOpenSeries,
                     onOpenBook = onOpenBook,
                     onOpenSectionDetail = onOpenSectionDetail,
                     onOpenContinuation = onOpenContinuation,
+                    thumbnails = state.thumbnails,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -88,6 +115,7 @@ private fun DashboardSectionRow(
     onOpenBook: (Book) -> Unit,
     onOpenSectionDetail: (DashboardSection<out Any>) -> Unit,
     onOpenContinuation: (ReadListContinuationUi) -> Unit,
+    thumbnails: Map<Int, String> = emptyMap(),
 ) {
     SectionHeader(
         title = section.title,
@@ -116,6 +144,7 @@ private fun DashboardSectionRow(
                             book = item,
                             onClick = { onOpenBook(item) },
                             modifier = Modifier.width(DashboardCardKind.Horizontal.widthDp.dp),
+                            imageUrl = thumbnails[item.id],
                         )
 
                     item is Book ->
@@ -123,6 +152,7 @@ private fun DashboardSectionRow(
                             book = item,
                             onClick = { onOpenBook(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
+                            imageUrl = thumbnails[item.id],
                         )
 
                     item is Series ->
@@ -130,6 +160,7 @@ private fun DashboardSectionRow(
                             series = item,
                             onClick = { onOpenSeries(item) },
                             modifier = Modifier.width(section.kind.widthDp.dp),
+                            imageUrl = thumbnails[item.id],
                         )
                 }
             }

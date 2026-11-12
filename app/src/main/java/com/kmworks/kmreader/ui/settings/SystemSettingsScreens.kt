@@ -1,6 +1,5 @@
 package com.kmworks.kmreader.ui.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,10 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -42,7 +42,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.SampleSystemData
+import com.kmworks.kmreader.ui.RootViewModel
 import kotlin.math.roundToInt
 
 /** Cache settings (mirrors SettingsCacheView). */
@@ -244,12 +247,15 @@ fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-/** Server account switcher (mirrors SettingsAccountView: multi-server cards). */
+/** Current server account (mirrors SettingsAccountView: instance info + sign out). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountSettingsScreen(onBack: () -> Unit) {
-    val accounts = remember { SampleSystemData.serverAccounts }
-    var activeId by remember { mutableStateOf(accounts.first { it.active }.id) }
+fun AccountSettingsScreen(
+    onBack: () -> Unit,
+    rootViewModel: RootViewModel = hiltViewModel(),
+) {
+    val config by rootViewModel.config.collectAsStateWithLifecycle()
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     SystemScaffold(title = "服务器账户", onBack = onBack) { padding ->
         LazyColumn(
@@ -258,53 +264,70 @@ fun AccountSettingsScreen(onBack: () -> Unit) {
                 .padding(padding),
             contentPadding = PaddingValues(16.dp),
         ) {
-            items(accounts, key = { it.id }) { account ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                        .clickable { activeId = account.id },
-                ) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                account.name,
+                                "当前服务器",
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
                             )
-                            if (account.id == activeId) {
-                                Text(
-                                    "当前",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Text(
+                                "已连接",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            account.url,
+                            config?.normalizedBaseUrl.orEmpty(),
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                         )
                         Text(
-                            "${account.user} · Komga ${account.serverVersion}",
+                            when {
+                                config == null -> ""
+                                config?.useApiKey == true -> "认证方式：API Key"
+                                else -> "账户：${config?.username.orEmpty()}"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-            }
-            item {
-                TextButton(
-                    onClick = { /* wiring point: add-server flow */ },
+                Spacer(Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = { showLogoutConfirm = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text("添加服务器")
+                    Text("退出登录")
                 }
             }
         }
+    }
+
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("退出登录") },
+            text = { Text("将清除本机保存的服务器与凭据，需要重新连接。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutConfirm = false
+                        rootViewModel.logout()
+                    },
+                ) {
+                    Text("退出登录")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirm = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

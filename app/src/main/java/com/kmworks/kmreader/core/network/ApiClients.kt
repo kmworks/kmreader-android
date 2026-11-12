@@ -25,6 +25,9 @@ import retrofit2.converter.scalars.ScalarsConverterFactory
  */
 class ApiClients(config: ServerConfig) {
 
+    /** 规范化 base URL（缩略图等直连地址拼接用）。 */
+    val baseUrl: String = config.normalizedBaseUrl
+
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true

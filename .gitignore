@@ -8,3 +8,6 @@ local.properties
 .cxx/
 .kotlin/
 captures/
+
+build-*.log
+build-out.txt

@@ -20,20 +20,34 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
+import coil3.compose.AsyncImage
+import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
+import dagger.hilt.android.EntryPointAccessors
 
 private val CoverShape = RoundedCornerShape(8.dp)
 
-/** 封面占位（设计稿用纯色块 + 首字，真实实现时替换为 Komga 缩略图）。 */
+/** 封面占位：纯色块 + 首字；imageUrl 非空时叠加 Komga 缩略图（加载中/失败保持占位）。 */
 @Composable
-fun CoverArt(title: String, hue: Float, modifier: Modifier = Modifier) {
+fun CoverArt(
+    title: String,
+    hue: Float,
+    modifier: Modifier = Modifier,
+    imageUrl: String? = null,
+) {
     Box(
         modifier = modifier
             .clip(CoverShape)
@@ -45,6 +59,24 @@ fun CoverArt(title: String, hue: Float, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White.copy(alpha = 0.85f),
         )
+        if (imageUrl != null) {
+            val context = LocalContext.current
+            val entryPoint = remember {
+                EntryPointAccessors.fromApplication(
+                    context.applicationContext,
+                    ImageLoaderEntryPoint::class.java,
+                )
+            }
+            val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
+            val fallbackLoader = remember { SingletonImageLoader.get(context) }
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                imageLoader = sessionLoader ?: fallbackLoader,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }
 
@@ -72,6 +104,7 @@ fun SeriesGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    imageUrl: String? = null,
 ) {
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -82,6 +115,7 @@ fun SeriesGridCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f),
+            imageUrl = imageUrl,
         )
         series.progress?.let { p ->
             if (p < 1f) {
@@ -119,6 +153,7 @@ fun BookGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    imageUrl: String? = null,
 ) {
     Column(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -129,6 +164,7 @@ fun BookGridCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f),
+            imageUrl = imageUrl,
         )
         book.progress?.let { p ->
             if (p < 1f) {
@@ -166,6 +202,7 @@ fun BookHorizontalCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    imageUrl: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -181,6 +218,7 @@ fun BookHorizontalCard(
             modifier = Modifier
                 .width(52.dp)
                 .aspectRatio(2f / 3f),
+            imageUrl = imageUrl,
         )
         Spacer(Modifier.width(12.dp))
         Column(
@@ -219,6 +257,7 @@ fun BookListRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    imageUrl: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -233,6 +272,7 @@ fun BookListRow(
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),
+            imageUrl = imageUrl,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
