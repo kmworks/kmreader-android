@@ -25,6 +25,8 @@ import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.ReadListDetail
 import com.kmworks.kmreader.data.SampleListDetailData
+import com.kmworks.kmreader.data.SmartListDetail
+import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.browse.BrowseScreen
 import com.kmworks.kmreader.ui.components.AppTab
@@ -277,20 +279,29 @@ fun AppRoot(
         }
 
         smartListDetailId?.let { id ->
-            SampleListDetailData.smartListById(id)?.let { smartList ->
-                SmartListDetailScreen(
-                    smartList = smartList,
-                    onBack = { smartListDetailId = null },
-                    onOpenBook = {
-                        smartListDetailId = null
-                        bookDetail = it
-                    },
-                    onOpenSeries = {
-                        smartListDetailId = null
-                        detail = it
-                    },
+            // 真实智能列表的 stableId 不在样本里：构造空壳，由 ViewModel 按 DetailIdRegistry 反查加载
+            val smartList = SampleListDetailData.smartListById(id)
+                ?: SmartListDetail(
+                    id = id,
+                    name = "",
+                    summary = null,
+                    target = SmartListTarget.Book,
+                    modifiedLabel = "",
+                    bookIds = emptyList(),
+                    seriesIds = emptyList(),
                 )
-            }
+            SmartListDetailScreen(
+                smartList = smartList,
+                onBack = { smartListDetailId = null },
+                onOpenBook = {
+                    smartListDetailId = null
+                    bookDetail = it
+                },
+                onOpenSeries = {
+                    smartListDetailId = null
+                    detail = it
+                },
+            )
         }
 
         dashboardSection?.let { section ->

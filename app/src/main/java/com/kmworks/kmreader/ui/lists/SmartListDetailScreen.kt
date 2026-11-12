@@ -73,9 +73,6 @@ fun SmartListDetailScreen(
     onOpenBook: (Book) -> Unit,
     onOpenSeries: (Series) -> Unit,
     modifier: Modifier = Modifier,
-    onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
     viewModel: SmartListDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -120,14 +117,6 @@ fun SmartListDetailScreen(
                             onDismissRequest = { menuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("置顶") },
-                                leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    onTogglePin()
-                                },
-                            )
-                            DropdownMenuItem(
                                 text = { Text("编辑") },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
@@ -143,20 +132,23 @@ fun SmartListDetailScreen(
                                     coverVersion++
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("删除智能列表", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Outlined.Delete,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                    )
-                                },
-                                onClick = {
-                                    menuOpen = false
-                                    deleteConfirm = true
-                                },
-                            )
+                            // 只有服务端真实智能列表才可删除；本地回退数据没有可删对象，隐藏该项
+                            if (state.hasRealSmartList) {
+                                DropdownMenuItem(
+                                    text = { Text("删除智能列表", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        deleteConfirm = true
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -269,12 +261,7 @@ fun SmartListDetailScreen(
             message = "「${display.name}」将被删除，命中内容保留在书库中。",
             onConfirm = {
                 deleteConfirm = false
-                // 真实列表走 DELETE；演示数据走外部回调
-                if (state.hasRealSmartList) {
-                    viewModel.delete { onBack() }
-                } else {
-                    onDelete()
-                }
+                viewModel.delete { onBack() }
             },
             onDismiss = { deleteConfirm = false },
         )
@@ -287,16 +274,22 @@ fun SmartListDetailScreen(
                     name = name,
                     summary = display.summary ?: "",
                     search = buildSmartListSearchDocument(matchAll, rules),
-                ) { }
-                editOpen = false
+                ) { ok ->
+                    // 保存失败时保留编辑器，避免静默丢修改
+                    if (ok) editOpen = false
+                }
             },
             onDismiss = { editOpen = false },
             initialName = display.name,
             initialTarget = display.target,
             isEdit = true,
-            onDelete = {
-                editOpen = false
-                deleteConfirm = true
+            onDelete = if (state.hasRealSmartList) {
+                {
+                    editOpen = false
+                    deleteConfirm = true
+                }
+            } else {
+                null
             },
         )
     }
