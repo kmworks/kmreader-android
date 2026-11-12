@@ -21,7 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.FormatListNumbered
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Delete
@@ -160,7 +160,7 @@ fun ReadListDetailScreen(
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
-                            .width(maxOf(maxWidth * 0.382f, 340.dp))
+                            .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
@@ -328,7 +328,7 @@ private fun ReadListHero(readList: ReadListDetail, bookCount: Int, centered: Boo
             if (readList.ordered) {
                 Spacer(Modifier.width(12.dp))
                 Icon(
-                    Icons.AutoMirrored.Outlined.FormatListNumbered,
+                    Icons.Filled.FormatListNumbered,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -376,7 +376,7 @@ private fun ContinuationHintCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.AutoMirrored.Outlined.FormatListNumbered,
+            Icons.Filled.FormatListNumbered,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )

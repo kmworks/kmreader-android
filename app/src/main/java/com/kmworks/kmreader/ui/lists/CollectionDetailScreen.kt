@@ -19,7 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.FormatListNumbered
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Delete
@@ -152,7 +152,7 @@ fun CollectionDetailScreen(
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
-                            .width(maxOf(maxWidth * 0.382f, 340.dp))
+                            .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
@@ -303,7 +303,7 @@ private fun CollectionHero(collection: CollectionDetail, seriesCount: Int, cente
             if (collection.ordered) {
                 Spacer(Modifier.width(12.dp))
                 Icon(
-                    Icons.AutoMirrored.Outlined.FormatListNumbered,
+                    Icons.Filled.FormatListNumbered,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,

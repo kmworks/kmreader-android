@@ -591,7 +591,7 @@ private fun AuthorRole.icon(): ImageVector = when (this) {
     AuthorRole.Letterer -> Icons.Outlined.TextFormat
     AuthorRole.Cover -> Icons.Outlined.Photo
     AuthorRole.Editor -> Icons.Outlined.ContentCut
-    AuthorRole.Translator -> Icons.Outlined.Public
+    AuthorRole.Translator -> Icons.Filled.Public
     AuthorRole.Custom -> Icons.Outlined.Person
 }
 

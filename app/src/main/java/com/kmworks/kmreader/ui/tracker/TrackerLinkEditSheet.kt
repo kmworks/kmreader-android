@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -126,7 +126,7 @@ fun TrackerLinkEditSheet(
                     }
                     IconButton(onClick = { }) {
                         Icon(
-                            Icons.Filled.OpenInNew,
+                            Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = "在 ${provider.displayName} 打开",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),

@@ -19,7 +19,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.FilterList
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.outlined.Checklist
@@ -114,7 +114,7 @@ fun DashboardSectionDetailScreen(
                         }
                     }
                     IconButton(onClick = { showOptions = true }) {
-                        Icon(Icons.AutoMirrored.Filled.FilterList, contentDescription = "筛选")
+                        Icon(Icons.Filled.FilterList, contentDescription = "筛选")
                     }
                 },
             )

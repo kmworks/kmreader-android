@@ -211,7 +211,7 @@ internal fun BookDetailBody(
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
-                            .width(maxOf(maxWidth * 0.382f, 340.dp))
+                            .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp, vertical = 16.dp),
