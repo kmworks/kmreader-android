@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
  */
 @Singleton
 class ServerProfileStore @Inject constructor(
-    sessionManager: SessionManager,
+    private val sessionManager: SessionManager,
     scope: CoroutineScope,
 ) {
 
@@ -40,6 +40,11 @@ class ServerProfileStore @Inject constructor(
     /** 无 profile（stock Komga 或未探测）→ 全部 false。 */
     fun hasFeature(feature: ServerFeature): Boolean =
         _profile.value?.features?.contains(feature) == true
+
+    /** 重新探测一次（对齐 iOS ServerProfileService.refresh()；komf 409 等能力变化场景调用）。 */
+    suspend fun refresh() {
+        sessionManager.clients.value?.let { probe(it) }
+    }
 
     private suspend fun probe(clients: ApiClients) = withContext(Dispatchers.IO) {
         _profile.value = try {

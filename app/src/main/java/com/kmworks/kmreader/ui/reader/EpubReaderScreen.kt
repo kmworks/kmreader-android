@@ -24,6 +24,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -63,14 +66,17 @@ import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.epub.EpubChapter
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
+import com.kmworks.kmreader.core.epub.EpubLinkDto
 import com.kmworks.kmreader.core.epub.EpubRepository
 import com.kmworks.kmreader.core.epub.EpubResource
 import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.CustomFont
 import com.kmworks.kmreader.data.SampleSystemData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -88,6 +94,7 @@ data class EpubUiState(
     val error: String? = null,
     val bookDtoId: String? = null,
     val chapters: List<EpubChapter> = emptyList(),
+    val toc: List<EpubLinkDto> = emptyList(),
     val currentChapterIndex: Int = 0,
     val totalProgression: Float = 0f,
     val scrollToFraction: Float? = null,
@@ -101,12 +108,17 @@ data class EpubUiState(
 class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
+    private val fontRepository: FontRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         EpubUiState(hasSession = sessionManager.clients.value != null),
     )
     val uiState: StateFlow<EpubUiState> = _uiState.asStateFlow()
+
+    /** 已下载到本地的字体家庭（设置 sheet 字体选择的数据源）。 */
+    private val _downloadedFamilies = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedFamilies: StateFlow<Set<String>> = _downloadedFamilies.asStateFlow()
 
     private var bookDtoId: String? = null
     private var loadedBookId: Int = -1
@@ -131,7 +143,9 @@ class EpubReaderViewModel @Inject constructor(
                 return@launch
             }
             bookDtoId = dtoId
-            val order = epubRepository.manifest(dtoId)?.readingOrder.orEmpty()
+            refreshFonts()
+            val manifest = epubRepository.manifest(dtoId)
+            val order = manifest?.readingOrder.orEmpty()
                 .filter { !it.href.isNullOrBlank() }
             if (order.isEmpty()) {
                 _uiState.value = _uiState.value.copy(loading = false, error = "无法加载目录")
@@ -170,6 +184,7 @@ class EpubReaderViewModel @Inject constructor(
                 loading = false,
                 bookDtoId = dtoId,
                 chapters = chapters,
+                toc = manifest?.toc.orEmpty(),
                 currentChapterIndex = startIndex,
                 scrollToFraction = startFraction,
                 totalProgression = totalFor(chapters, startIndex, startFraction ?: 0f),
@@ -245,6 +260,17 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
+    /** 假域 fonts 路由的本地字体读取（WebViewClient 线程同步调用）。 */
+    fun fetchLocalFont(path: String): EpubResource? = fontRepository.localFontResource(path)
+
+    /** 已下载字体家庭的 @font-face css（url 已重写为假域路由）。 */
+    fun fontCssFor(family: String): String? = fontRepository.localCss(family)
+
+    /** 刷新已下载字体家庭集合。 */
+    fun refreshFonts() {
+        _downloadedFamilies.value = fontRepository.downloadedFamilies()
+    }
+
     private fun selectChapter(index: Int, scrollFraction: Float?) {
         currentChapterFraction = scrollFraction ?: 0f
         _uiState.value = _uiState.value.copy(
@@ -317,7 +343,17 @@ private fun RealEpubReader(
 ) {
     var epubSettings by remember { mutableStateOf(EpubReaderSettings()) }
     val dark = isSystemInDarkTheme()
-    val themeConfig = remember(epubSettings, dark) { mapEpubThemeConfig(epubSettings, dark) }
+    val downloadedFamilies by viewModel.downloadedFamilies.collectAsStateWithLifecycle()
+    val fontCss = remember(epubSettings.typeface, downloadedFamilies) {
+        if (epubSettings.typeface in downloadedFamilies) {
+            viewModel.fontCssFor(epubSettings.typeface)
+        } else {
+            null
+        }
+    }
+    val themeConfig = remember(epubSettings, dark, fontCss) {
+        mapEpubThemeConfig(epubSettings, dark, fontCss)
+    }
     var latestConfig by remember { mutableStateOf(themeConfig) }
     SideEffect { latestConfig = themeConfig }
 
@@ -380,6 +416,7 @@ private fun RealEpubReader(
                             pendingScroll = null
                         }
                     },
+                    resolveFont = viewModel::fetchLocalFont,
                 )
                 createEpubWebView(context, bridge, client).also { webView = it }
             },
@@ -509,7 +546,14 @@ private fun RealEpubReader(
         EpubSettingsSheet(
             settings = epubSettings,
             onSettingsChange = { epubSettings = it },
-            customFonts = SampleSystemData.customFonts,
+            customFonts = downloadedFamilies.sorted().map { family ->
+                CustomFont(
+                    id = family.hashCode(),
+                    name = family,
+                    fileName = "服务器字体",
+                    sizeLabel = "已下载",
+                )
+            },
             onOpenCustomFonts = { /* wiring point: open CustomFontsScreen */ },
             onDismiss = { showSettings = false },
         )
@@ -517,6 +561,7 @@ private fun RealEpubReader(
     if (showToc) {
         EpubChapterSheet(
             chapters = state.chapters,
+            toc = state.toc,
             currentIndex = state.currentChapterIndex,
             onJump = {
                 viewModel.goToChapter(it)
@@ -730,15 +775,78 @@ private fun ChapterCapsule(text: String, onClick: () -> Unit) {
     )
 }
 
-/** Manifest chapter sheet (mirrors EpubTocSheetView). */
+/** Flattened toc row（path 定位展开态，depth 决定缩进）。 */
+private data class TocRow(
+    val link: EpubLinkDto,
+    val path: String,
+    val depth: Int,
+    val hasChildren: Boolean,
+)
+
+private fun flattenToc(
+    links: List<EpubLinkDto>,
+    expanded: Set<String>,
+    pathPrefix: String,
+    depth: Int,
+    out: MutableList<TocRow>,
+) {
+    links.forEachIndexed { index, link ->
+        val path = if (pathPrefix.isEmpty()) "$index" else "$pathPrefix/$index"
+        val children = link.children.orEmpty()
+        out += TocRow(link, path, depth, children.isNotEmpty())
+        if (children.isNotEmpty() && path in expanded) {
+            flattenToc(children, expanded, path, depth + 1, out)
+        }
+    }
+}
+
+private fun tocContainsHref(href: String, links: List<EpubLinkDto>): Boolean =
+    links.any { it.href == href || tocContainsHref(href, it.children.orEmpty()) }
+
+/** 含当前项的容器链默认展开（对齐 EpubTocSheetView 的 DisclosureGroup 初始化）。 */
+private fun initialTocExpanded(
+    links: List<EpubLinkDto>,
+    currentHref: String?,
+    pathPrefix: String = "",
+    into: MutableSet<String> = mutableSetOf(),
+): Set<String> {
+    if (currentHref == null) return into
+    links.forEachIndexed { index, link ->
+        val path = if (pathPrefix.isEmpty()) "$index" else "$pathPrefix/$index"
+        val children = link.children.orEmpty()
+        if (children.isNotEmpty() && tocContainsHref(currentHref, children)) {
+            into += path
+            initialTocExpanded(children, currentHref, path, into)
+        }
+    }
+    return into
+}
+
+private fun firstDescendantHref(link: EpubLinkDto): String? =
+    link.href ?: link.children.orEmpty().firstNotNullOfOrNull(::firstDescendantHref)
+
+/** Manifest toc sheet（mirrors EpubTocSheetView：层级缩进、容器可展开、当前项书签高亮）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EpubChapterSheet(
     chapters: List<EpubChapter>,
+    toc: List<EpubLinkDto>,
     currentIndex: Int,
     onJump: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val currentHref = chapters.getOrNull(currentIndex)?.href
+    var expanded by remember { mutableStateOf(initialTocExpanded(toc, currentHref)) }
+    val rows = remember(toc, expanded) {
+        mutableListOf<TocRow>().also { flattenToc(toc, expanded, "", 0, it) }
+    }
+
+    fun jumpTo(link: EpubLinkDto) {
+        val href = firstDescendantHref(link) ?: return
+        val index = chapters.indexOfFirst { it.href == href }
+        if (index >= 0) onJump(index)
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text(
             "目录",
@@ -746,32 +854,39 @@ private fun EpubChapterSheet(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
         LazyColumn {
-            items(chapters.size) { index ->
-                val chapter = chapters[index]
-                val current = index == currentIndex
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onJump(index) }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "${index + 1}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(32.dp),
+            if (rows.isEmpty()) {
+                // toc 缺失回退 readingOrder 平铺
+                items(chapters.size) { index ->
+                    val chapter = chapters[index]
+                    val current = index == currentIndex
+                    TocEntryRow(
+                        title = chapter.title,
+                        depth = 0,
+                        hasChildren = false,
+                        expanded = false,
+                        isCurrent = current,
+                        onClick = { onJump(index) },
+                        onToggle = {},
                     )
-                    Text(
-                        chapter.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (current) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
+                }
+            } else {
+                items(rows.size) { index ->
+                    val row = rows[index]
+                    val isCurrent = row.link.href != null && row.link.href == currentHref
+                    TocEntryRow(
+                        title = row.link.title ?: row.link.href ?: "",
+                        depth = row.depth,
+                        hasChildren = row.hasChildren,
+                        expanded = row.path in expanded,
+                        isCurrent = isCurrent,
+                        onClick = { jumpTo(row.link) },
+                        onToggle = {
+                            expanded = if (row.path in expanded) {
+                                expanded - row.path
+                            } else {
+                                expanded + row.path
+                            }
                         },
-                        fontWeight = if (current) FontWeight.Bold else null,
-                        maxLines = 1,
                     )
                 }
             }
@@ -780,8 +895,63 @@ private fun EpubChapterSheet(
     }
 }
 
-/** EpubReaderSettings → WebView 注入配置（主题灰阶对齐全自定主题，字体下载为留口）。 */
-private fun mapEpubThemeConfig(settings: EpubReaderSettings, dark: Boolean): EpubThemeConfig {
+/** Single toc row: indent by depth, container shows expand toggle, current shows bookmark. */
+@Composable
+private fun TocEntryRow(
+    title: String,
+    depth: Int,
+    hasChildren: Boolean,
+    expanded: Boolean,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = (20 + depth * 16).dp, end = 8.dp)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isCurrent) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            fontWeight = if (isCurrent) FontWeight.Bold else null,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        if (isCurrent) {
+            Icon(
+                Icons.Filled.Bookmark,
+                contentDescription = "当前",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(18.dp),
+            )
+        }
+        if (hasChildren) {
+            IconButton(onClick = onToggle) {
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ChevronRight,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** EpubReaderSettings → WebView 注入配置（主题灰阶对齐全自定主题）。 */
+private fun mapEpubThemeConfig(
+    settings: EpubReaderSettings,
+    dark: Boolean,
+    fontCss: String?,
+): EpubThemeConfig {
     val (background, foreground) = when (settings.theme) {
         "安静" -> "#FAFAFA" to "#1E1E1E"
         "米黄" -> "#F0F0F0" to "#2A2A2A"
@@ -791,8 +961,7 @@ private fun mapEpubThemeConfig(settings: EpubReaderSettings, dark: Boolean): Epu
     val fontFamily = when (settings.typeface) {
         "出版方默认" -> ""
         "系统默认" -> "serif"
-        // wiring point: custom font @font-face injection（字体下载留口，按名回退）
-        else -> "${settings.typeface}, serif"
+        else -> cssFontFamilyValue(settings.typeface)
     }
     return EpubThemeConfig(
         background = background,
@@ -802,5 +971,14 @@ private fun mapEpubThemeConfig(settings: EpubReaderSettings, dark: Boolean): Epu
         lineHeight = settings.lineHeight,
         marginHPx = (settings.margins * 24f).toInt().coerceIn(8, 64),
         publisherStyles = settings.publisherStyles,
+        fontCss = fontCss,
     )
 }
+
+/** CSS 字体族值（对齐原作 cssFontFamilyValue：含空格/引号时加双引号）。 */
+private fun cssFontFamilyValue(name: String): String =
+    if (name.any { it == ' ' || it == '"' }) {
+        "\"${name.replace("\"", "\\\"")}\""
+    } else {
+        name
+    }

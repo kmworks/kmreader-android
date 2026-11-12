@@ -13,6 +13,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -64,6 +66,9 @@ class DownloadRepository @Inject constructor(
         _autoDownloadUnread.value = enabled
     }
 
+    // 暂停/恢复/入队等本地动作通过 tick 驱动 downloads flow 重新合成
+    private val tick = MutableStateFlow(0)
+
     /** 入队整本下载；同名任务 REPLACE 重跑（重试语义）。 */
     fun enqueueBook(bookDtoId: String, title: String, pageCount: Int) {
         enqueueMeta.edit()
@@ -86,38 +91,90 @@ class DownloadRepository @Inject constructor(
             .addTag(bookDtoId)
             .build()
         workManager.enqueueUniqueWork(workName(bookDtoId), androidx.work.ExistingWorkPolicy.REPLACE, request)
+        tick.value += 1
     }
 
-    /** 下载中队列（进行中 + 失败）。 */
+    /** 真暂停：标记暂停态并取消任务；已落盘的页保留（续传时自动跳过）。 */
+    suspend fun pauseBook(bookDtoId: String) = withContext(Dispatchers.IO) {
+        enqueueMeta.edit().putBoolean("$bookDtoId#paused", true).apply()
+        workManager.cancelUniqueWork(workName(bookDtoId))
+        tick.value += 1
+    }
+
+    /** 恢复下载：清除暂停标记并重新入队（已存在的页自动跳过，天然续传）。 */
+    suspend fun resumeBook(bookDtoId: String) = withContext(Dispatchers.IO) {
+        val title = enqueueMeta.getString(bookDtoId, null) ?: return@withContext
+        val pageCount = enqueueMeta.getInt("$bookDtoId#pages", 0)
+        if (pageCount <= 0) return@withContext
+        enqueueMeta.edit().putBoolean("$bookDtoId#paused", false).apply()
+        enqueueBook(bookDtoId, title, pageCount)
+    }
+
+    /** 下载中队列（进行中 + 已暂停 + 失败）。 */
     val downloads: Flow<List<DownloadTaskUi>> =
-        workManager.getWorkInfosByTagFlow(DownloadWorker.TAG).map { infos ->
-            infos.mapNotNull { info ->
-                val bookId = info.tags.firstOrNull { it != DownloadWorker.TAG }
-                    ?: return@mapNotNull null
-                val title = enqueueMeta.getString(bookId, null) ?: bookId
-                val total = enqueueMeta.getInt("$bookId#pages", 0)
-                when (info.state) {
-                    WorkInfo.State.ENQUEUED,
-                    WorkInfo.State.RUNNING,
-                    WorkInfo.State.BLOCKED,
-                    -> DownloadTaskUi(
-                        bookDtoId = bookId,
-                        title = title,
-                        pageDone = info.progress.getInt(DownloadWorker.KEY_PAGE_DONE, 0),
-                        pageTotal = info.progress.getInt(DownloadWorker.KEY_PAGE_TOTAL, total),
-                        status = DownloadTaskUi.Status.Downloading,
-                    )
-                    WorkInfo.State.FAILED -> DownloadTaskUi(
-                        bookDtoId = bookId,
-                        title = title,
-                        pageDone = info.progress.getInt(DownloadWorker.KEY_PAGE_DONE, 0),
-                        pageTotal = info.progress.getInt(DownloadWorker.KEY_PAGE_TOTAL, total),
-                        status = DownloadTaskUi.Status.Failed,
-                    )
-                    else -> null
+        workManager.getWorkInfosByTagFlow(DownloadWorker.TAG)
+            .combine(tick) { infos, _ -> infos }
+            .map { infos ->
+                val rows = infos.mapNotNull { info ->
+                    val bookId = info.tags.firstOrNull { it != DownloadWorker.TAG }
+                        ?: return@mapNotNull null
+                    val title = enqueueMeta.getString(bookId, null) ?: bookId
+                    val total = enqueueMeta.getInt("$bookId#pages", 0)
+                    val paused = enqueueMeta.getBoolean("$bookId#paused", false)
+                    val pageDone = info.progress.getInt(DownloadWorker.KEY_PAGE_DONE, 0)
+                    val pageTotal = info.progress.getInt(DownloadWorker.KEY_PAGE_TOTAL, total)
+                    when {
+                        paused && info.state != WorkInfo.State.RUNNING -> DownloadTaskUi(
+                            bookDtoId = bookId,
+                            title = title,
+                            pageDone = pageDone,
+                            pageTotal = pageTotal,
+                            status = DownloadTaskUi.Status.Paused,
+                        )
+                        info.state == WorkInfo.State.ENQUEUED ||
+                            info.state == WorkInfo.State.RUNNING ||
+                            info.state == WorkInfo.State.BLOCKED -> DownloadTaskUi(
+                            bookDtoId = bookId,
+                            title = title,
+                            pageDone = pageDone,
+                            pageTotal = pageTotal,
+                            status = DownloadTaskUi.Status.Downloading,
+                        )
+                        info.state == WorkInfo.State.FAILED -> DownloadTaskUi(
+                            bookDtoId = bookId,
+                            title = title,
+                            pageDone = pageDone,
+                            pageTotal = pageTotal,
+                            status = DownloadTaskUi.Status.Failed,
+                        )
+                        else -> null
+                    }
                 }
+                // WorkInfo 已被回收的暂停项（重启后）：按文件扫描补齐 Paused 行
+                val present = rows.map { it.bookDtoId }.toSet()
+                val pausedOrphans = enqueueMeta.all
+                    .filter { it.key.endsWith("#paused") && it.value == true }
+                    .map { it.key.removeSuffix("#paused") }
+                    .filter { it !in present }
+                    .mapNotNull { bookId ->
+                        val dir = File(downloadsDir, bookId)
+                        val pageTotal = enqueueMeta.getInt("$bookId#pages", 0)
+                        if (!dir.isDirectory || pageTotal <= 0) return@mapNotNull null
+                        val pageDone = dir.listFiles()
+                            ?.count { it.name != DownloadWorker.META_FILE } ?: 0
+                        // 已完整的不该出现在队列（等 completed 列表接管）
+                        if (pageDone >= pageTotal) return@mapNotNull null
+                        DownloadTaskUi(
+                            bookDtoId = bookId,
+                            title = enqueueMeta.getString(bookId, null) ?: bookId,
+                            pageDone = pageDone,
+                            pageTotal = pageTotal,
+                            status = DownloadTaskUi.Status.Paused,
+                        )
+                    }
+                rows + pausedOrphans
             }
-        }
+            .flowOn(Dispatchers.IO)
 
     /** 已下载书籍（文件扫描；需 meta.txt 与页文件齐全）。 */
     suspend fun downloadedBooks(): List<DownloadedBookUi> = withContext(Dispatchers.IO) {
@@ -154,15 +211,25 @@ class DownloadRepository @Inject constructor(
     /** 取消任务并删除已落盘的页文件。 */
     suspend fun cancelBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
-        enqueueMeta.edit().remove(bookDtoId).remove("$bookDtoId#pages").apply()
+        enqueueMeta.edit()
+            .remove(bookDtoId)
+            .remove("$bookDtoId#pages")
+            .remove("$bookDtoId#paused")
+            .apply()
         File(downloadsDir, bookDtoId).deleteRecursively()
+        tick.value += 1
     }
 
     /** 删除已完成的书籍文件。 */
     suspend fun deleteBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
-        enqueueMeta.edit().remove(bookDtoId).remove("$bookDtoId#pages").apply()
+        enqueueMeta.edit()
+            .remove(bookDtoId)
+            .remove("$bookDtoId#pages")
+            .remove("$bookDtoId#paused")
+            .apply()
         File(downloadsDir, bookDtoId).deleteRecursively()
+        tick.value += 1
     }
 
     /** 下载目录总占用字节数。 */

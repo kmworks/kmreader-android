@@ -71,6 +71,16 @@ class DownloadViewModel @Inject constructor(
         downloadRepository.enqueueBook(task.bookDtoId, task.title, task.pageTotal)
     }
 
+    /** 真暂停：取消任务但保留已落盘的页（恢复时跳过续传）。 */
+    fun pause(task: DownloadTaskUi) {
+        viewModelScope.launch { downloadRepository.pauseBook(task.bookDtoId) }
+    }
+
+    /** 恢复已暂停任务（重新入队，已存在的页自动跳过）。 */
+    fun resume(task: DownloadTaskUi) {
+        viewModelScope.launch { downloadRepository.resumeBook(task.bookDtoId) }
+    }
+
     /** 删除已完成书籍并释放空间。 */
     fun deleteBook(book: DownloadedBookUi) {
         viewModelScope.launch {

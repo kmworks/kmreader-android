@@ -20,6 +20,13 @@ object EpubWeb {
     const val FAKE_BASE = "https://kmreader-epub.local"
     const val FAKE_HOST = "kmreader-epub.local"
 
+    /** 本地字体的假域路由前缀（对齐原作 __fonts__ 虚拟前缀）。 */
+    const val FONTS_PREFIX = "/fonts/"
+
+    /** Fake-domain font file URL（服务端 css 的重写目标）。 */
+    fun fontUrl(family: String, fileName: String): String =
+        "$FAKE_BASE$FONTS_PREFIX${Uri.encode(family, "/")}/${Uri.encode(fileName, "/")}"
+
     /** 章节页面 URL：/{bookDtoId}/{href}（href 按段编码）。 */
     fun pageUrl(bookDtoId: String, href: String): String =
         "$FAKE_BASE/$bookDtoId/${Uri.encode(href, "/")}"
@@ -72,6 +79,8 @@ data class EpubThemeConfig(
     val lineHeight: Float = 1.4f,
     val marginHPx: Int = 24,
     val publisherStyles: Boolean = true,
+    /** 本地字体 @font-face css（url 已重写为假域 fonts 路由）；null = 无自定义字体。 */
+    val fontCss: String? = null,
 ) {
 
     /** JS 对象字面量（值均已白名单/格式化，无注入面）。 */
@@ -92,8 +101,11 @@ object EpubJs {
      * readerBridge 模式：滚动/resize 200ms 节流上报 metrics；
      * 点按（无文本选择）上报 tap 的 x 视口比例。
      */
-    fun injectScript(config: EpubThemeConfig): String = """
+    fun injectScript(config: EpubThemeConfig): String {
+        val fontCssJs = org.json.JSONObject.quote(config.fontCss ?: "")
+        return """
         (function() {
+          window.__kmFontCss = $fontCssJs;
           if (window.__kmInjected) { window.__kmApplyTheme(${config.toJs()}); return; }
           window.__kmInjected = true;
           window.__kmApplyTheme = function(c) {
@@ -105,6 +117,9 @@ object EpubJs {
               + (c.publisherStyles ? '' : 'body,body *{font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + ff + 'color:' + c.fg + ' !important;}')
               + 'img,svg,video{max-width:100% !important;height:auto !important;}';
             style.textContent = css;
+            var fontStyle = document.getElementById('km-fonts');
+            if (!fontStyle) { fontStyle = document.createElement('style'); fontStyle.id = 'km-fonts'; document.head.appendChild(fontStyle); }
+            fontStyle.textContent = window.__kmFontCss || '';
             document.documentElement.style.background = c.bg;
             window.__kmReport();
           };
@@ -144,6 +159,7 @@ object EpubJs {
           window.__kmApplyTheme(${config.toJs()});
         })();
     """.trimIndent()
+    }
 }
 
 /** JS 桥（@JavascriptInterface 在 JS 线程回调，统一切主线程）。 */
@@ -173,6 +189,7 @@ class EpubJsBridge(
 class EpubWebViewClient(
     private val resolveResource: (String) -> EpubResource?,
     private val onPageReady: (WebView) -> Unit,
+    private val resolveFont: (String) -> EpubResource? = { null },
 ) : WebViewClient() {
 
     override fun shouldInterceptRequest(
@@ -181,8 +198,13 @@ class EpubWebViewClient(
     ): WebResourceResponse? {
         val url = request.url?.toString() ?: return emptyResponse()
         if (!url.startsWith(EpubWeb.FAKE_BASE)) return emptyResponse()
-        val href = EpubWeb.hrefFromUrl(url) ?: return emptyResponse()
-        val resource = resolveResource(href) ?: return emptyResponse()
+        val path = request.url?.path.orEmpty()
+        val resource = if (path.startsWith(EpubWeb.FONTS_PREFIX)) {
+            resolveFont(path)
+        } else {
+            val href = EpubWeb.hrefFromUrl(url) ?: return emptyResponse()
+            resolveResource(href)
+        } ?: return emptyResponse()
         val encoding = resource.encoding
             ?: if (EpubWeb.isTextMediaType(resource.mimeType)) "utf-8" else null
         return WebResourceResponse(resource.mimeType, encoding, ByteArrayInputStream(resource.data))

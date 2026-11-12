@@ -5,6 +5,7 @@ import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.network.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -33,8 +34,9 @@ class PdfRepository @Inject constructor(
 
     /**
      * 下载整本 PDF；已缓存直接返回。
+     * 断点续传：存在 .part 半成品时带 Range 头（响应 206 追加；服务端忽略 Range
+     * 返回 200 则全量重写）。失败保留 .part 供下次续传。
      * onProgress(copiedBytes, totalBytes)；total 未知时传 -1（不定进度）。
-     * 失败返回 null 并清理半成品。
      */
     suspend fun downloadPdf(
         bookDtoId: String,
@@ -42,19 +44,24 @@ class PdfRepository @Inject constructor(
     ): File? = withContext(Dispatchers.IO) {
         cachedFile(bookDtoId)?.let { return@withContext it }
         val clients = sessionManager.clients.value ?: return@withContext null
-        val request = Request.Builder()
-            .url("${clients.baseUrl}/api/v1/books/$bookDtoId/file")
-            .build()
         val tmp = File(pdfDir, "$bookDtoId.pdf.part")
+        val resumeFrom = if (tmp.isFile) tmp.length() else 0L
+        val requestBuilder = Request.Builder()
+            .url("${clients.baseUrl}/api/v1/books/$bookDtoId/file")
+        if (resumeFrom > 0) requestBuilder.header("Range", "bytes=$resumeFrom-")
         try {
-            clients.okHttpClient.newCall(request).execute().use { response ->
+            clients.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body ?: return@withContext null
                 pdfDir.mkdirs()
-                val total = body.contentLength()
-                var copied = 0L
+                val append = response.code == 206 && resumeFrom > 0
+                val total = body.contentLength().let { length ->
+                    if (length >= 0) length + (if (append) resumeFrom else 0L) else -1L
+                }
+                var copied = if (append) resumeFrom else 0L
+                onProgress(copied, total)
                 body.byteStream().use { input ->
-                    tmp.outputStream().buffered().use { output ->
+                    FileOutputStream(tmp, append).buffered().use { output ->
                         val buffer = ByteArray(64 * 1024)
                         while (true) {
                             val read = input.read(buffer)
@@ -69,7 +76,7 @@ class PdfRepository @Inject constructor(
                 if (tmp.renameTo(target)) target else null
             }
         } catch (e: Exception) {
-            tmp.delete()
+            // 保留 .part 半成品：下次调用从断点续传
             null
         }
     }

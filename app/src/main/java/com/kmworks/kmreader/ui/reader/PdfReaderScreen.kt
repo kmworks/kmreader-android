@@ -1,21 +1,17 @@
 package com.kmworks.kmreader.ui.reader
 
-import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,15 +19,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -40,38 +36,36 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.pdf.PdfDocument
+import androidx.pdf.view.PdfView
 import com.kmworks.kmreader.data.Book
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * PDF reader (mirrors PdfReaderView / PdfControlsOverlayView)：
- * 整本下载到本地缓存 → PdfRenderer 逐页渲染；页码/缩放/chrome 与 DIVINA 一致。
- * 无会话回退演示占位骨架。
+ * PDF reader (mirrors PdfReaderView / PdfControlsOverlayView) backed by androidx.pdf PdfView:
+ * native rendering, text selection / copy, zoom and search.
  */
 @Composable
 fun PdfReaderScreen(
@@ -79,215 +73,137 @@ fun PdfReaderScreen(
     onBack: () -> Unit,
     viewModel: PdfReaderViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
-    LaunchedEffect(book.id) { viewModel.load(book) }
-
-    val pageCount = if (state.ready) state.pageCount else book.pageCount.coerceAtLeast(1)
-    var currentPage by rememberSaveable(book.id) { mutableIntStateOf(1) }
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var pdfSettings by remember { mutableStateOf(PdfReaderSettings()) }
     var chromeVisible by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showPageJump by remember { mutableStateOf(false) }
-    var pdfSettings by remember { mutableStateOf(PdfReaderSettings()) }
+    var currentPage by remember { mutableIntStateOf(1) }
+    var searchVisible by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var searchIndex by remember { mutableIntStateOf(0) }
+    var pdfViewRef by remember { mutableStateOf<PdfView?>(null) }
+    // Initial-page application marker, keyed to the loaded document
+    val initialApply = remember { InitialApply() }
 
-    // 初始页：真实数据就绪后应用一次
-    var initialApplied by rememberSaveable(book.id) { mutableStateOf(false) }
-    LaunchedEffect(state.ready) {
-        if (state.ready && !initialApplied) {
-            initialApplied = true
-            currentPage = state.initialPage.coerceIn(1, pageCount)
+    LaunchedEffect(book.id) { viewModel.load(book) }
+
+    val pageCount =
+        when {
+            state.ready && state.pageCount > 0 -> state.pageCount
+            else -> book.pageCount.coerceAtLeast(1)
         }
+
+    fun jumpTo(page: Int) {
+        val target = page.coerceIn(1, pageCount)
+        currentPage = target
+        pdfViewRef?.scrollToPage(target - 1)
     }
 
-    // 阅读进度上报（真实会话；末页标记完成）
+    val backgroundColor =
+        when (pdfSettings.background) {
+            "白" -> Color.White
+            "灰" -> Color(0xFF3A3A3C)
+            else -> if (isSystemInDarkTheme()) Color.Black else Color.White
+        }
+    val scrim =
+        if (pdfSettings.controlsScrim) Color.Black.copy(alpha = 0.78f) else Color.Transparent
+
+    // Progress reporting (real session only)
     LaunchedEffect(currentPage, state.ready) {
         if (state.ready) viewModel.reportProgress(currentPage)
     }
 
-    // 阅读背景：白/灰/黑/跟随系统（本 app 深色单色系，跟随系统=黑）
-    val darkTheme = isSystemInDarkTheme()
-    val backgroundColor = when (pdfSettings.background) {
-        "白" -> Color.White
-        "灰" -> Color(0xFF6E6E73)
-        "黑" -> Color.Black
-        else -> if (darkTheme) Color.Black else Color.White
-    }
-    val onBackground = if (backgroundColor == Color.White) Color.Black else Color.White
-    val scrimAlpha = if (pdfSettings.controlsScrim) 0.78f else 0f
-
-    // 缩放：双击切换（对齐 ReaderScreen），捏合仅在放大态
-    var zoomed by remember { mutableStateOf(false) }
-    var zoom by remember { mutableStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
-    val animatedZoom by animateFloatAsState(if (zoomed) zoom.coerceAtLeast(2.2f) else 1f, label = "pdfZoom")
-
-    val pagerState = rememberPagerState(initialPage = 0) { pageCount }
-    // 页码同步：pager → currentPage
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { currentPage = it + 1 }
-    }
-    // 初始页应用后滚动 pager 到对应页
-    LaunchedEffect(state.ready, initialApplied) {
-        if (state.ready && initialApplied && !pdfSettings.continuousScroll &&
-            pdfSettings.pagePresentation != "单页连续" && pdfSettings.pagePresentation != "双页连续"
-        ) {
-            pagerState.scrollToPage((currentPage - 1).coerceIn(0, pageCount - 1))
+    // Debounced full-text search
+    LaunchedEffect(searchQuery, state.document) {
+        val query = searchQuery.trim()
+        if (query.isEmpty() || state.document == null) {
+            searchMatches = emptyList()
+            searchIndex = 0
+            return@LaunchedEffect
         }
+        delay(400)
+        val matches = viewModel.search(query)
+        searchMatches = matches
+        searchIndex = 0
+        if (matches.isNotEmpty()) jumpTo(matches[0])
     }
 
-    // 渲染目标宽：屏宽像素（封顶防大图 OOM）
-    val density = LocalDensity.current
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val renderWidthPx = remember(screenWidthDp) {
-        (screenWidthDp * density.density).toInt().coerceIn(720, 1600)
-    }
-
-    // 连续模式（含双页连续）
-    val isContinuous = pdfSettings.continuousScroll ||
-        pdfSettings.pagePresentation == "单页连续" ||
-        pdfSettings.pagePresentation == "双页连续"
-    val isDualPage = pdfSettings.pagePresentation == "双页连续"
-    // 双页行：封面独立成页时第 1 页单独一行
-    val pageRows: List<List<Int>> = remember(pageCount, isDualPage, pdfSettings.soloCoverPage) {
-        if (!isDualPage) {
-            (1..pageCount).map { listOf(it) }
-        } else if (pdfSettings.soloCoverPage && pageCount > 1) {
-            listOf(listOf(1)) + (2..pageCount).chunked(2)
-        } else {
-            (1..pageCount).chunked(2)
-        }
-    }
-    val listState = rememberLazyListState()
-    LaunchedEffect(listState, isContinuous) {
-        if (isContinuous) {
-            snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
-                currentPage = pageRows.getOrNull(index)?.first() ?: currentPage
-            }
-        }
-    }
-
-    val zoomModifier = Modifier
-        .pointerInput(zoomed) {
-            if (zoomed) {
-                detectTransformGestures { _, panChange, zoomChange, _ ->
-                    zoom = (zoom * zoomChange).coerceIn(1f, 4f)
-                    pan += panChange
+    Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
+        when {
+            state.loading -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                    val progress = state.downloadProgress
+                    Text(
+                        if (progress != null) "下载中 ${(progress * 100).toInt()}%" else "下载中…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.65f),
+                    )
                 }
             }
-        }
-        .graphicsLayer {
-            scaleX = animatedZoom
-            scaleY = animatedZoom
-            translationX = pan.x
-            translationY = pan.y
-        }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundColor)
-            .pointerInput(zoomed) {
-                detectTapGestures(
-                    onTap = { chromeVisible = !chromeVisible },
-                    onDoubleTap = {
-                        zoomed = !zoomed
-                        if (!zoomed) {
-                            zoom = 1f
-                            pan = Offset.Zero
-                        } else {
-                            zoom = 2.2f
+            state.error -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "PDF 加载失败",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                    )
+                    Button(onClick = { viewModel.retry() }) { Text("重试") }
+                }
+            }
+
+            state.ready && state.document != null -> {
+                AndroidView(
+                    factory = { ctx ->
+                        PdfView(ctx).also { view ->
+                            view.setOnScrollChangeListener { _, _, _, _, _ ->
+                                if (state.document != null) {
+                                    currentPage = (view.firstVisiblePage + 1).coerceIn(1, pageCount)
+                                }
+                            }
+                            pdfViewRef = view
                         }
                     },
-                )
-            },
-    ) {
-        when {
-            state.hasSession && state.loading -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CircularProgressIndicator(color = onBackground)
-                    Text(
-                        text = state.downloadProgress?.let { "下载中 ${(it * 100).toInt()}%" }
-                            ?: "正在下载 PDF…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = onBackground.copy(alpha = 0.7f),
-                    )
-                }
-            }
-            state.hasSession && state.error != null -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = state.error ?: "加载失败",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = onBackground.copy(alpha = 0.8f),
-                    )
-                    Button(onClick = { viewModel.retry(book) }) {
-                        Text("重试")
-                    }
-                }
-            }
-            isContinuous -> {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(zoomModifier),
-                    userScrollEnabled = !zoomed,
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    items(pageRows.size, key = { it }) { rowIndex ->
-                        val row = pageRows[rowIndex]
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            row.forEach { page ->
-                                Box(modifier = Modifier.weight(1f)) {
-                                    PdfPage(
-                                        page = page,
-                                        ready = state.ready,
-                                        renderWidthPx = renderWidthPx / row.size,
-                                        viewModel = viewModel,
-                                    )
-                                }
-                            }
-                            // 双页连续：奇数行补半宽占位（单页列不补）
-                            if (isDualPage) {
-                                repeat((2 - row.size).coerceAtLeast(0)) {
-                                    Box(modifier = Modifier.weight(1f))
-                                }
-                            }
+                    update = { view ->
+                        if (view.pdfDocument !== state.document) {
+                            view.pdfDocument = state.document
                         }
-                    }
-                }
+                        val wantedRows = if (pdfSettings.pagePresentation == "双页连续") 2 else 1
+                        if (view.pagesPerRow != wantedRows) view.pagesPerRow = wantedRows
+                        view.setBackgroundColor(backgroundColor.toArgb())
+                        val doc = state.document
+                        if (doc != null && initialApply.appliedFor !== doc) {
+                            initialApply.appliedFor = doc
+                            view.scrollToPage(state.initialPage - 1)
+                            currentPage = state.initialPage
+                        }
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .unconsumedTap { chromeVisible = !chromeVisible },
+                )
             }
+
             else -> {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(zoomModifier),
-                    userScrollEnabled = !zoomed,
-                    contentPadding = PaddingValues(horizontal = 4.dp),
-                    pageSpacing = 8.dp,
-                ) { index ->
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        PdfPage(
-                            page = index + 1,
-                            ready = state.ready,
-                            renderWidthPx = renderWidthPx,
-                            viewModel = viewModel,
-                        )
-                    }
+                // Demo fallback (no session / unmapped book): static placeholder
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PdfPagePlaceholder(page = currentPage)
                 }
             }
         }
@@ -299,8 +215,8 @@ fun PdfReaderScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth(),
-                color = onBackground.copy(alpha = 0.8f),
-                trackColor = onBackground.copy(alpha = 0.2f),
+                color = Color.White.copy(alpha = 0.8f),
+                trackColor = Color.White.copy(alpha = 0.2f),
             )
         }
 
@@ -311,79 +227,126 @@ fun PdfReaderScreen(
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = scrimAlpha))
-                    .statusBarsPadding()
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
-                        tint = Color.White,
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        book.seriesTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Text(
-                        "第 ${book.number} 册 · PDF",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
-                        maxLines = 1,
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
+            if (searchVisible) {
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    matchIndex = searchIndex,
+                    matchCount = searchMatches.size,
+                    onPrev = {
+                        if (searchMatches.isNotEmpty()) {
+                            searchIndex =
+                                (searchIndex - 1 + searchMatches.size) % searchMatches.size
+                            jumpTo(searchMatches[searchIndex])
+                        }
+                    },
+                    onNext = {
+                        if (searchMatches.isNotEmpty()) {
+                            searchIndex = (searchIndex + 1) % searchMatches.size
+                            jumpTo(searchMatches[searchIndex])
+                        }
+                    },
+                    onClose = {
+                        searchVisible = false
+                        searchQuery = ""
+                    },
+                    scrim = scrim,
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(scrim)
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
                         Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "更多",
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
                             tint = Color.White,
                         )
                     }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("连续滚动", modifier = Modifier.weight(1f))
-                                    if (pdfSettings.continuousScroll) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            book.seriesTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color.White,
+                            maxLines = 1,
+                        )
+                        Text(
+                            "第 ${book.number} 册 · PDF",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.65f),
+                            maxLines = 1,
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "更多",
+                                tint = Color.White,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("连续滚动", modifier = Modifier.weight(1f))
+                                        if (pdfSettings.continuousScroll) {
+                                            Icon(
+                                                Icons.Filled.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    pdfSettings =
+                                        pdfSettings.copy(
+                                            continuousScroll = !pdfSettings.continuousScroll,
+                                        )
+                                    menuExpanded = false
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("搜索", modifier = Modifier.weight(1f))
                                         Icon(
-                                            Icons.Filled.Check,
+                                            Icons.Filled.Search,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                }
-                            },
-                            onClick = {
-                                pdfSettings = pdfSettings.copy(continuousScroll = !pdfSettings.continuousScroll)
-                                menuExpanded = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("阅读器设置") },
-                            onClick = {
-                                menuExpanded = false
-                                showSettings = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("跳页") },
-                            onClick = {
-                                menuExpanded = false
-                                showPageJump = true
-                            },
-                        )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    searchVisible = true
+                                },
+                                enabled = state.document != null,
+                            )
+                            DropdownMenuItem(
+                                text = { Text("阅读器设置") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showSettings = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("跳页") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showPageJump = true
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -391,7 +354,7 @@ fun PdfReaderScreen(
 
         // Bottom bar: slider + page capsule
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !searchVisible,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
@@ -399,13 +362,13 @@ fun PdfReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = scrimAlpha))
+                    .background(scrim)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Slider(
                     value = currentPage.toFloat(),
-                    onValueChange = { currentPage = it.toInt().coerceIn(1, pageCount) },
+                    onValueChange = { jumpTo(it.toInt()) },
                     valueRange = 1f..pageCount.toFloat(),
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
@@ -422,19 +385,6 @@ fun PdfReaderScreen(
         }
     }
 
-    // 跳页/滑杆结果同步到容器（pager/列表）
-    LaunchedEffect(currentPage) {
-        if (isContinuous) {
-            val rowIndex = pageRows.indexOfFirst { it.contains(currentPage) }
-            if (rowIndex >= 0 && listState.firstVisibleItemIndex != rowIndex) {
-                listState.scrollToItem(rowIndex)
-            }
-        } else {
-            val target = (currentPage - 1).coerceIn(0, pageCount - 1)
-            if (pagerState.currentPage != target) pagerState.scrollToPage(target)
-        }
-    }
-
     if (showSettings) {
         PdfPreferencesSheet(
             settings = pdfSettings,
@@ -447,7 +397,7 @@ fun PdfReaderScreen(
             currentPage = currentPage,
             pageCount = pageCount,
             onJump = {
-                currentPage = it.coerceIn(1, pageCount)
+                jumpTo(it)
                 showPageJump = false
             },
             onDismiss = { showPageJump = false },
@@ -455,35 +405,84 @@ fun PdfReaderScreen(
     }
 }
 
-/** 单页内容：真实渲染 Bitmap（渲染中/演示态显示占位）。 */
+/** Tracks whether the initial page has been applied for the current document. */
+private class InitialApply {
+    var appliedFor: PdfDocument? = null
+}
+
+/** Search chrome row (query input + prev/next navigation). */
 @Composable
-private fun PdfPage(
-    page: Int,
-    ready: Boolean,
-    renderWidthPx: Int,
-    viewModel: PdfReaderViewModel,
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    matchIndex: Int,
+    matchCount: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+    scrim: Color,
 ) {
-    if (!ready) {
-        PdfPagePlaceholder(page = page)
-        return
-    }
-    val bitmap by produceState<Bitmap?>(initialValue = null, page, renderWidthPx) {
-        value = viewModel.renderPage(page, renderWidthPx)
-    }
-    val rendered = bitmap
-    if (rendered == null) {
-        PdfPagePlaceholder(page = page)
-    } else {
-        Image(
-            bitmap = rendered.asImageBitmap(),
-            contentDescription = "第 $page 页",
-            contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(scrim)
+            .statusBarsPadding()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose) {
+            Icon(Icons.Filled.Close, contentDescription = "关闭搜索", tint = Color.White)
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            placeholder = { Text("搜索文档内容") },
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
+        Text(
+            if (matchCount > 0) "${matchIndex + 1}/$matchCount" else "0/0",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.65f),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        IconButton(onClick = onPrev, enabled = matchCount > 0) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "上一处", tint = Color.White)
+        }
+        IconButton(onClick = onNext, enabled = matchCount > 0) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "下一处", tint = Color.White)
+        }
     }
 }
 
-/** Gray document page placeholder（渲染中/演示态）。 */
+/** Detects short taps without consuming events (PdfView keeps selection/gestures). */
+private fun Modifier.unconsumedTap(onTap: () -> Unit): Modifier =
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false)
+            val startPos = down.position
+            var moved = false
+            val up =
+                withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: continue
+                        if (
+                            (change.position - startPos).getDistance() >
+                                viewConfiguration.touchSlop
+                        ) {
+                            moved = true
+                        }
+                        if (!change.pressed) return@withTimeoutOrNull change
+                    }
+                    @Suppress("UNREACHABLE_CODE") null
+                }
+            if (up != null && !moved) onTap()
+        }
+    }
+
+/** Gray document page placeholder (demo fallback). */
 @Composable
 private fun PdfPagePlaceholder(page: Int) {
     Box(

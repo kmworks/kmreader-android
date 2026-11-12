@@ -17,6 +17,8 @@ import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
+import com.kmworks.kmreader.core.sse.SseEventKind
+import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
@@ -36,6 +38,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -78,6 +82,7 @@ class SeriesDetailViewModel @Inject constructor(
     private val trackerRepository: TrackerRepository,
     private val serverProfileStore: ServerProfileStore,
     private val configStore: ServerConfigStore,
+    private val sseService: SseService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
@@ -96,6 +101,7 @@ class SeriesDetailViewModel @Inject constructor(
     val downloaded: StateFlow<Map<Int, Boolean>> = _downloaded.asStateFlow()
 
     private var loadedId: Int? = null
+    private var sseJob: Job? = null
 
     /** 当前详情的 DTO id（komf 调用与任务完成后刷新用）。 */
     private var dtoId: String? = null
@@ -151,6 +157,7 @@ class SeriesDetailViewModel @Inject constructor(
                 }
                 refreshDownloaded()
                 refreshTrackerLinks()
+                observeReadProgressEvents()
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
             }
@@ -348,5 +355,36 @@ class SeriesDetailViewModel @Inject constructor(
         val stableId = loadedId ?: return
         loadedId = null
         load(stableId)
+    }
+
+    /**
+     * 阅读进度事件：读完书籍的 tracker 推进发生在服务端（对齐原作，客户端不推送）；
+     * 订阅 SSE ReadProgress/Book 事件，防抖后重拉书籍列表与 tracker 绑定以反映服务端推进。
+     */
+    private fun observeReadProgressEvents() {
+        if (sseJob != null) return
+        sseJob = viewModelScope.launch {
+            sseService.events
+                .filter { it.kind in setOf(SseEventKind.ReadProgress, SseEventKind.Book) }
+                .debounce(3_000)
+                .collect {
+                    reloadBooks()
+                    refreshTrackerLinks()
+                }
+        }
+    }
+
+    /** 仅重拉书籍列表与缩略图（SSE 触发；详情主体不变）。 */
+    private fun reloadBooks() {
+        val dtoId = dtoId ?: return
+        viewModelScope.launch {
+            val bookDtos = detailRepository.seriesBooks(dtoId)
+            val books = bookDtos.map { it.toUiBook() }
+            val thumbnails = bookDtos.mapNotNull { dto ->
+                detailRepository.bookThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
+            }.toMap()
+            _uiState.update { it.copy(books = books, thumbnails = thumbnails) }
+            refreshDownloaded()
+        }
     }
 }

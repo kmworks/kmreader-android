@@ -12,6 +12,7 @@ data class DownloadTaskUi(
 
     enum class Status(val label: String) {
         Downloading("下载中"),
+        Paused("已暂停"),
         Failed("失败"),
     }
 }

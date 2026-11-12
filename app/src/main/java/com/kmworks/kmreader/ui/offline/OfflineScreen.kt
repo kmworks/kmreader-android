@@ -116,10 +116,10 @@ fun OfflineScreen(
                 items(tasks, key = { it.bookDtoId }) { task ->
                     DownloadTaskRow(
                         task = task,
-                        // MVP：暂停降级为取消（WorkManager 单请求不支持断点暂停）
                         onPauseResume = {
                             when (task.status) {
-                                DownloadTaskUi.Status.Downloading -> viewModel.cancel(task)
+                                DownloadTaskUi.Status.Downloading -> viewModel.pause(task)
+                                DownloadTaskUi.Status.Paused -> viewModel.resume(task)
                                 DownloadTaskUi.Status.Failed -> viewModel.retry(task)
                             }
                         },
@@ -222,6 +222,21 @@ private fun DownloadTaskRow(
                     )
                 }
 
+                DownloadTaskUi.Status.Paused -> {
+                    LinearProgressIndicator(
+                        progress = { task.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "已暂停 · 已下载 ${task.pageDone} 页，恢复后续传",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 DownloadTaskUi.Status.Failed -> {
                     Text(
                         "下载失败，可重试",
@@ -237,6 +252,7 @@ private fun DownloadTaskRow(
                 Text(
                     when (task.status) {
                         DownloadTaskUi.Status.Downloading -> "暂停"
+                        DownloadTaskUi.Status.Paused -> "继续"
                         DownloadTaskUi.Status.Failed -> "重试"
                     },
                 )

@@ -11,7 +11,7 @@ android {
     compileSdk = 37
     defaultConfig {
         applicationId = "com.kmworks.kmreader"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
@@ -72,5 +72,8 @@ dependencies {
     implementation(libs.okhttp.sse)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    // PDF 文本层（选择/复制/搜索）：Jetpack 官方 PdfView + 沙箱文档加载
+    implementation("androidx.pdf:pdf-viewer:1.0.0-beta01")
+    implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
     testImplementation(libs.junit)
 }
