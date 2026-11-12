@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "kmreader-android"
 
 include(":app")
+include(":core:api")
