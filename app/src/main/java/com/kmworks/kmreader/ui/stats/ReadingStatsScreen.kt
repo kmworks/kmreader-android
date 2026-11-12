@@ -30,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,16 +39,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.HeatmapDay
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SampleSystemData
 import com.kmworks.kmreader.ui.components.BookHorizontalCard
 
-/** Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView). */
+/** Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView).
+ *  kmrs 能力门控：无会话回退假数据演示；stock Komga（无 ReadingStats 特性）显示占位。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReadingStatsScreen(onBack: () -> Unit) {
-    val stats = SampleSystemData.readingStats
+fun ReadingStatsScreen(
+    onBack: () -> Unit,
+    viewModel: ReadingStatsViewModel = hiltViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+    // 真实数据优先；无会话（或未加载完成前）回退假数据演示
+    val stats = state.summary ?: SampleSystemData.readingStats
+    val weeks = state.heatmapWeeks ?: SampleSystemData.heatmapWeeks
+    val maxPages = if (state.heatmapWeeks != null) state.maxHeatmapPages else SampleSystemData.maxHeatmapPages
     var selectedDay by remember { mutableStateOf<HeatmapDay?>(null) }
 
     Scaffold(
@@ -62,6 +72,24 @@ fun ReadingStatsScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
+        if (state.unavailable) {
+            // kmrs 能力缺失：占位说明，不报错
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "该服务器不支持阅读统计（kmrs 特性）",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -69,6 +97,14 @@ fun ReadingStatsScreen(onBack: () -> Unit) {
                 .padding(horizontal = 16.dp),
         ) {
             item {
+                state.error?.let { error ->
+                    Text(
+                        text = "加载失败：$error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 // Overview cards (mirrors stats grid; 4 key figures)
                 Row(
                     modifier = Modifier
@@ -112,8 +148,8 @@ fun ReadingStatsScreen(onBack: () -> Unit) {
 
                 StatsSectionTitle("页数热力图")
                 PagesHeatmap(
-                    weeks = SampleSystemData.heatmapWeeks,
-                    maxPages = SampleSystemData.maxHeatmapPages,
+                    weeks = weeks,
+                    maxPages = maxPages,
                     selected = selectedDay,
                     onSelect = { selectedDay = it },
                 )
@@ -128,10 +164,15 @@ fun ReadingStatsScreen(onBack: () -> Unit) {
                     )
                 }
 
-                StatsSectionTitle("最近阅读")
+                // 「最近阅读」不在统计 API 内（iOS 用本地历史）：仅演示态显示
+                if (!state.hasSession) {
+                    StatsSectionTitle("最近阅读")
+                }
             }
-            items(SampleData.recentlyRead, key = { it.id }) { book ->
-                BookHorizontalCard(book = book, onClick = { })
+            if (!state.hasSession) {
+                items(SampleData.recentlyRead, key = { it.id }) { book ->
+                    BookHorizontalCard(book = book, onClick = { })
+                }
             }
             item { Spacer(Modifier.height(24.dp)) }
         }

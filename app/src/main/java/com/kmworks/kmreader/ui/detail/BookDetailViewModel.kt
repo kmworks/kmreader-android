@@ -7,6 +7,7 @@ import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toCreator
+import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.network.SessionManager
@@ -30,6 +31,8 @@ data class BookDetailUiState(
     val book: Book? = null,
     val meta: BookDetailMeta? = null,
     val thumbnail: String? = null,
+    /** 归属阅读列表（真实数据；Mappers.toListEntry 映射，点击经 onOpenReadList 上抛）。 */
+    val readLists: List<ListEntry> = emptyList(),
 )
 
 /** 书籍详情数据：按注册表反查 DTO id，拉单本书（含 readProgress 与媒体信息）。 */
@@ -84,12 +87,15 @@ class BookDetailViewModel @Inject constructor(
                     authors = dto.metadata.authors.map { it.toCreator() },
                     tags = dto.metadata.tags.toList(),
                 )
+                val memberships = detailRepository.bookReadLists(dtoId)
+                    .map { it.toListEntry() }
                 _uiState.update {
                     it.copy(
                         loading = false,
                         book = dto.toUiBook(),
                         meta = meta,
                         thumbnail = detailRepository.bookThumbnailUrl(dto.id),
+                        readLists = memberships,
                     )
                 }
                 _downloaded.value = downloadRepository.isBookDownloaded(dto.id)

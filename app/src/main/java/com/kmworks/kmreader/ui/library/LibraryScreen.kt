@@ -42,6 +42,7 @@ import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
@@ -199,10 +200,13 @@ fun LibraryScreen(
     }
 
     if (showOptionsSheet) {
+        val browseSuggestions = rememberBrowseFilterSuggestions()
         BrowseOptionsSheet(
             options = browseOptions,
             onOptionsChange = { browseOptions = it },
             onDismiss = { showOptionsSheet = false },
+            authorSuggestions = browseSuggestions.authors,
+            tagSuggestions = browseSuggestions.tags,
         )
     }
     menuSeries?.let { series ->

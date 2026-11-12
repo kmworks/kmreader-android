@@ -6,6 +6,7 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
@@ -31,6 +32,8 @@ data class SeriesDetailUiState(
     val series: Series? = null,
     val books: List<Book>? = null,
     val seriesThumbnail: String? = null,
+    /** 归属收藏（真实数据；Mappers.toListEntry 映射，点击经 onOpenCollection 上抛）。 */
+    val collections: List<ListEntry> = emptyList(),
     val thumbnails: Map<Int, String> = emptyMap(),
 )
 
@@ -74,6 +77,9 @@ class SeriesDetailViewModel @Inject constructor(
                     val b = async { detailRepository.seriesBooks(dtoId) }
                     s.await() to b.await()
                 }
+                // 归属收藏：失败返回空，不阻塞详情主体
+                val memberships = detailRepository.seriesCollections(dtoId)
+                    .map { it.toListEntry() }
                 val books = bookDtos.map { it.toUiBook() }
                 val thumbnails = bookDtos.mapNotNull { dto ->
                     detailRepository.bookThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
@@ -84,6 +90,7 @@ class SeriesDetailViewModel @Inject constructor(
                         series = seriesDto?.toUiSeries(),
                         books = books,
                         seriesThumbnail = detailRepository.seriesThumbnailUrl(dtoId),
+                        collections = memberships,
                         thumbnails = thumbnails,
                     )
                 }

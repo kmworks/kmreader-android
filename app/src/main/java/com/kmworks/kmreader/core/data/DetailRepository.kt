@@ -103,4 +103,16 @@ class DetailRepository @Inject constructor(
         return api.getBooksByReadListId(dtoId, unpaged = true)
             .awaitBody()?.content.orEmpty()
     }
+
+    /** 系列所属收藏（失败返回空，归属展示不阻塞详情）。 */
+    suspend fun seriesCollections(dtoId: String): List<CollectionDto> {
+        val api = sessionManager.clients.value?.series ?: return emptyList()
+        return api.getCollectionsBySeriesId(dtoId).awaitBody().orEmpty()
+    }
+
+    /** 书籍所属阅读列表（失败返回空，归属展示不阻塞详情）。 */
+    suspend fun bookReadLists(dtoId: String): List<ReadListDto> {
+        val api = sessionManager.clients.value?.books ?: return emptyList()
+        return api.getReadListsByBookId(dtoId).awaitBody().orEmpty()
+    }
 }

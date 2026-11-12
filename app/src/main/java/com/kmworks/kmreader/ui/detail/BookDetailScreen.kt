@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.DateRange
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
+import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleListDetailData
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.lists.AddToListSheet
@@ -97,6 +100,7 @@ fun BookDetailScreen(
     onDownload: (Book) -> Unit = {},
     onAddToReadList: (Book) -> Unit = {},
     onMenuAction: (BookMenuAction) -> Unit = {},
+    onOpenReadList: (Int) -> Unit = {},
 ) {
     BookDetailBody(
         book = book,
@@ -108,6 +112,7 @@ fun BookDetailScreen(
         onDownload = onDownload,
         onAddToReadList = onAddToReadList,
         onMenuAction = onMenuAction,
+        onOpenReadList = onOpenReadList,
         modifier = modifier,
     )
 }
@@ -125,6 +130,7 @@ internal fun BookDetailBody(
     onDownload: (Book) -> Unit,
     onAddToReadList: (Book) -> Unit,
     onMenuAction: (BookMenuAction) -> Unit,
+    onOpenReadList: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: BookDetailViewModel = hiltViewModel(),
 ) {
@@ -278,6 +284,12 @@ internal fun BookDetailBody(
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                     ) {
                         BookSecondaryContent(displayed, meta)
+                        if (state.readLists.isNotEmpty()) {
+                            BookMembershipChips(
+                                entries = state.readLists,
+                                onOpen = onOpenReadList,
+                            )
+                        }
                     }
                 }
             } else {
@@ -322,6 +334,13 @@ internal fun BookDetailBody(
                     )
                     DetailTimestamps()
                     BookSecondaryContent(displayed, meta)
+                    if (state.readLists.isNotEmpty()) {
+                        BookMembershipChips(
+                            entries = state.readLists,
+                            centered = true,
+                            onOpen = onOpenReadList,
+                        )
+                    }
                 }
             }
         }
@@ -699,6 +718,58 @@ private fun MetaChip(text: String, icon: ImageVector? = null) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** 归属阅读列表 chips，对应 BookDetailReadListsView。 */
+@Composable
+private fun BookMembershipChips(
+    entries: List<ListEntry>,
+    centered: Boolean = false,
+    onOpen: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.padding(top = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "阅读列表",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(
+                8.dp,
+                if (centered) Alignment.CenterHorizontally else Alignment.Start,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            entries.forEach { entry ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.clickable { onOpen(entry.id) },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ListAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }

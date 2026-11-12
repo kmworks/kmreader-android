@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material.icons.outlined.EditNote
@@ -82,12 +83,14 @@ import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData
+import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.lists.AddToListSheet
@@ -112,6 +115,7 @@ fun SeriesDetailScreen(
     onRead: (Book) -> Unit,
     onBrowseFilter: (String) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    onOpenCollection: (Int) -> Unit = {},
     viewModel: SeriesDetailViewModel = hiltViewModel(),
 ) {
     // 真实数据：进入时按注册表反查 DTO id 拉单系列与书籍；无会话/未注册回退假数据
@@ -259,6 +263,7 @@ fun SeriesDetailScreen(
                         DetailTimestamps()
                         DetailSummary(displaySeries)
                         DetailChips(series = displaySeries, onBrowseFilter = onBrowseFilter)
+                        DetailMembershipChips(state.collections, onOpen = onOpenCollection)
                         TrackerSection(onManage = { showTrackerSheet = true })
                     }
                     LazyColumn(
@@ -325,6 +330,7 @@ fun SeriesDetailScreen(
                         DetailTimestamps()
                         DetailSummary(displaySeries)
                         DetailChips(displaySeries, centered = true, onBrowseFilter = onBrowseFilter)
+                        DetailMembershipChips(state.collections, centered = true, onOpen = onOpenCollection)
                         TrackerSection(onManage = { showTrackerSheet = true })
                         Spacer(Modifier.height(16.dp))
                     }
@@ -356,10 +362,13 @@ fun SeriesDetailScreen(
     }
 
     if (showOptionsSheet) {
+        val browseSuggestions = rememberBrowseFilterSuggestions()
         BrowseOptionsSheet(
             options = browseOptions,
             onOptionsChange = { browseOptions = it },
             onDismiss = { showOptionsSheet = false },
+            authorSuggestions = browseSuggestions.authors,
+            tagSuggestions = browseSuggestions.tags,
         )
     }
     if (showEditSheet) {
@@ -650,6 +659,41 @@ private fun DetailChips(
                 series.links.forEach { (label, _) ->
                     MetaChip(text = label, icon = Icons.Outlined.Link, onClick = { })
                 }
+            }
+        }
+    }
+}
+
+/** 归属收藏 chips，对应 SeriesDetailCollectionsView。 */
+@Composable
+private fun DetailMembershipChips(
+    entries: List<ListEntry>,
+    centered: Boolean = false,
+    onOpen: (Int) -> Unit,
+) {
+    if (entries.isEmpty()) return
+    Column(
+        modifier = Modifier.padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "收藏",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(
+                8.dp,
+                if (centered) Alignment.CenterHorizontally else Alignment.Start,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            entries.forEach { entry ->
+                MetaChip(
+                    text = entry.title,
+                    icon = Icons.Outlined.CollectionsBookmark,
+                    onClick = { onOpen(entry.id) },
+                )
             }
         }
     }

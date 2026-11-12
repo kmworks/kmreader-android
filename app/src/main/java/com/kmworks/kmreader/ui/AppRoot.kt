@@ -151,6 +151,7 @@ fun AppRoot(
                     tab = AppTab.Library
                 },
                 onOpenBook = openBook,
+                onOpenCollection = { collectionDetailId = it },
             )
         }
 
@@ -160,6 +161,10 @@ fun AppRoot(
                 seriesTitle = book.seriesTitle,
                 onBack = { bookDetail = null },
                 onRead = openReader,
+                onOpenReadList = {
+                    // 阅读列表详情叠加在书籍详情之上，返回回到书籍详情
+                    readListDetailId = it
+                },
                 onOpenSeries = {
                     bookDetail = null
                     detail = SampleData.seriesById(book.id / 1000)

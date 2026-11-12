@@ -29,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.SampleSystemData
 import com.kmworks.kmreader.ui.reader.EpubReaderSettings
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
@@ -40,9 +42,15 @@ import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 /** Reader engine defaults hub (mirrors ReaderPreferencesView + Divina/Epub/Pdf preferences). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReaderDefaultsScreen(onBack: () -> Unit) {
+fun ReaderDefaultsScreen(
+    onBack: () -> Unit,
+    prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
+) {
     // Divina defaults (mirrors DivinaPreferencesView)
-    var divinaDirection by remember { mutableStateOf(ReadingDirection.Ltr) }
+    // 默认阅读方向走 AppSettingsStore 持久化（自动获得 client-settings 云同步）
+    val persistedDirection by prefsViewModel.divinaDefaultDirection.collectAsStateWithLifecycle()
+    val divinaDirection = ReadingDirection.entries
+        .firstOrNull { it.name.lowercase() == persistedDirection } ?: ReadingDirection.Ltr
     var divinaDualPage by remember { mutableStateOf(false) }
     var divinaSplitWideMode by remember { mutableStateOf(SplitWidePageMode.Auto) }
     // EPUB / PDF defaults reuse the option models from the reader sheets
@@ -71,10 +79,11 @@ fun ReaderDefaultsScreen(onBack: () -> Unit) {
                 DefaultsSectionTitle("Divina（漫画）")
                 DefaultsChipRow(
                     label = "默认阅读方向",
-                    options = ReadingDirection.values().map { it.label },
+                    options = ReadingDirection.entries.map { it.label },
                     selected = divinaDirection.label,
                     onSelect = { label ->
-                        divinaDirection = ReadingDirection.values().first { it.label == label }
+                        ReadingDirection.entries.firstOrNull { it.label == label }
+                            ?.let { prefsViewModel.setDivinaDefaultDirection(it.name.lowercase()) }
                     },
                 )
                 DefaultsSwitchRow(

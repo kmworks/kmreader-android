@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,7 +30,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.server.ServerFeature
+import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.ui.tracker.TrackerSettingsScreen
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+
+/** 阅读统计入口的 kmrs 能力门控（SettingsScreen 副标题提示用）。 */
+@HiltViewModel
+class SettingsEntryViewModel @Inject constructor(
+    serverProfileStore: ServerProfileStore,
+) : ViewModel() {
+    val readingStatsSupported: StateFlow<Boolean> = serverProfileStore.profile
+        .map { it?.features?.contains(ServerFeature.ReadingStats) == true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+}
 
 /** Settings hub (mirrors SettingsView). New entries are exposed via callbacks; host navigates. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,9 +71,12 @@ fun SettingsScreen(
     onOpenAccount: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onOpenLicenses: () -> Unit = {},
+    viewModel: SettingsEntryViewModel = hiltViewModel(),
 ) {
     var trueBlack by remember { mutableStateOf(true) }
     var showTrackerSettings by remember { mutableStateOf(false) }
+    // kmrs 能力门控：无 ReadingStats 特性时统计入口副标题提示
+    val statsSupported by viewModel.readingStatsSupported.collectAsState()
 
     if (showTrackerSettings) {
         TrackerSettingsScreen(onBack = { showTrackerSettings = false })
@@ -133,7 +158,11 @@ fun SettingsScreen(
             item {
                 SettingsNavRow(
                     title = "阅读统计",
-                    subtitle = "阅读历史、连续天数与热力图",
+                    subtitle = if (statsSupported) {
+                        "阅读历史、连续天数与热力图"
+                    } else {
+                        "阅读历史、连续天数与热力图（需要 kmrs 服务器）"
+                    },
                     onClick = onOpenStats,
                 )
             }

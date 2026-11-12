@@ -154,6 +154,7 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
 /**
  * 筛选与排序面板（对齐原作 BookBrowseOptionsSheet）：
  * 排序字段+方向；阅读状态三态循环；单发/已删除；作者/标签多选+∧∨；存为预设；完成。
+ * authorSuggestions/tagSuggestions：Referential 可选值（空列表则不显示建议行）。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -162,6 +163,8 @@ fun BrowseOptionsSheet(
     onOptionsChange: (BookBrowseOptions) -> Unit,
     onDismiss: () -> Unit,
     onSavePreset: (String, BookBrowseOptions) -> Unit = { _, _ -> },
+    authorSuggestions: List<String> = emptyList(),
+    tagSuggestions: List<String> = emptyList(),
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -251,6 +254,10 @@ fun BrowseOptionsSheet(
                     onOptionsChange(options.copy(authorLogicAnd = !options.authorLogicAnd))
                 },
             )
+            SuggestionChipRow(
+                suggestions = authorSuggestions.filter { it !in options.authors },
+                onPick = { onOptionsChange(options.copy(authors = options.authors + it)) },
+            )
 
             SheetSectionTitle("标签")
             MultiValueFilterRow(
@@ -258,6 +265,10 @@ fun BrowseOptionsSheet(
                 logicAnd = options.tagLogicAnd,
                 onRemove = { tag -> onOptionsChange(options.copy(tags = options.tags - tag)) },
                 onToggleLogic = { onOptionsChange(options.copy(tagLogicAnd = !options.tagLogicAnd)) },
+            )
+            SuggestionChipRow(
+                suggestions = tagSuggestions.filter { it !in options.tags },
+                onPick = { onOptionsChange(options.copy(tags = options.tags + it)) },
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
@@ -364,6 +375,29 @@ private fun MultiValueFilterRow(
         TextButton(onClick = onToggleLogic) { Text(if (logicAnd) "∧" else "∨") }
     }
 }
+
+/** Referential 可选值建议行：点 chip 把值加入多选条件（已选值不再出现）。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SuggestionChipRow(
+    suggestions: List<String>,
+    onPick: (String) -> Unit,
+) {
+    if (suggestions.isEmpty()) return
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 6.dp),
+    ) {
+        suggestions.take(MAX_SUGGESTIONS).forEach { value ->
+            AssistChip(
+                onClick = { onPick(value) },
+                label = { Text(value, style = MaterialTheme.typography.labelMedium) },
+            )
+        }
+    }
+}
+
+private const val MAX_SUGGESTIONS = 12
 
 /** 存为预设（对齐 SaveFilterSheet）。 */
 @Composable

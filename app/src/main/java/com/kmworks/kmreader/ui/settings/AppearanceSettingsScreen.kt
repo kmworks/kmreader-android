@@ -36,13 +36,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** 主题选项（存储值 ↔ 显示标签）。 */
+private val ThemeOptions = listOf(
+    "system" to "跟随系统",
+    "light" to "浅色",
+    "dark" to "深色",
+)
 
 /** Appearance settings (mirrors SettingsAppearanceView + AppIconOption). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppearanceSettingsScreen(onBack: () -> Unit) {
-    var theme by remember { mutableStateOf("跟随系统") }
-    var trueBlack by remember { mutableStateOf(true) }
+fun AppearanceSettingsScreen(
+    onBack: () -> Unit,
+    prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
+) {
+    // 主题/纯黑走 AppSettingsStore 持久化（自动获得 client-settings 云同步）
+    val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
+    val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
     var iconOption by remember { mutableStateOf("默认") }
 
     Scaffold(
@@ -66,11 +79,11 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
             item {
                 AppearanceSectionTitle("主题")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("跟随系统", "浅色", "深色").forEach { option ->
+                    ThemeOptions.forEach { option ->
                         FilterChip(
-                            selected = theme == option,
-                            onClick = { theme = option },
-                            label = { Text(option) },
+                            selected = themeMode == option.first,
+                            onClick = { prefsViewModel.setThemeMode(option.first) },
+                            label = { Text(option.second) },
                         )
                     }
                 }
@@ -90,7 +103,10 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(checked = trueBlack, onCheckedChange = { trueBlack = it })
+                    Switch(
+                        checked = trueBlack,
+                        onCheckedChange = { prefsViewModel.setTrueBlackDark(it) },
+                    )
                 }
             }
             item {
