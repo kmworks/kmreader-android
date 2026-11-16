@@ -550,3 +550,70 @@ fun BookListRow(
         }
     }
 }
+
+/** 系列列表行（列表布局用，对齐 iOS SeriesRowView）。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun SeriesListRow(
+    series: Series,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+) {
+    val display = LocalCardDisplay.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoverArt(
+            title = series.title,
+            hue = series.hue,
+            modifier = Modifier
+                .width(44.dp)
+                .aspectRatio(seriesAspect(display))
+                .coverDecoration(display, unread = series.progress == null),
+            stableId = series.id,
+            contentScale = coverScale(display),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = series.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = series.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (display.showProgressBar) {
+                series.progress?.let { p ->
+                    if (p < 1f) {
+                        LinearProgressIndicator(
+                            progress = { p },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .height(3.dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (series.progress == 1f) {
+            Text(
+                text = "已读",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+        }
+    }
+}

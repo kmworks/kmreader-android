@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,10 +59,14 @@ import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
+import com.kmworks.kmreader.ui.components.BookListRow
+import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
+import com.kmworks.kmreader.ui.components.SeriesListRow
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 import com.kmworks.kmreader.ui.lists.AddToListSheet
@@ -80,6 +87,11 @@ fun LibraryScreen(
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
 ) {
     var contentType by remember { mutableStateOf(ContentType.Series) }
+    // 布局逐内容类型持久化（对齐 iOS seriesBrowseLayout / bookBrowseLayout，默认 grid）
+    val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.Grid)
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.Grid)
+    val layout = if (contentType == ContentType.Series) seriesLayout else booksLayout
+    val setLayout = if (contentType == ContentType.Series) setSeriesLayout else setBooksLayout
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     // 「加入收藏/阅读列表」sheet 目标
@@ -193,6 +205,9 @@ fun LibraryScreen(
                             },
                         )
                     }
+                    IconButton(onClick = { setLayout(layout.next) }) {
+                        Icon(Icons.Filled.GridView, contentDescription = "布局：${layout.label}")
+                    }
                     IconButton(onClick = { showOptionsSheet = true }) {
                         Icon(Icons.Filled.FilterList, contentDescription = "筛选")
                     }
@@ -273,7 +288,10 @@ fun LibraryScreen(
                 val seriesGridState = rememberLazyGridState()
                 val booksGridState = rememberLazyGridState()
                 val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
-                val shouldLoadMore by remember(contentType, gridState) {
+                val seriesListState = rememberLazyListState()
+                val booksListState = rememberLazyListState()
+                val listState = if (contentType == ContentType.Series) seriesListState else booksListState
+                val gridShouldLoadMore by remember(contentType, gridState) {
                     derivedStateOf {
                         val info = gridState.layoutInfo
                         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
@@ -281,6 +299,15 @@ fun LibraryScreen(
                         info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
                     }
                 }
+                val listShouldLoadMore by remember(contentType, listState) {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                            ?: return@derivedStateOf false
+                        info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+                    }
+                }
+                val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
                 val hasMore = when (contentType) {
                     ContentType.Series -> state.seriesHasMore
                     ContentType.Books -> state.booksHasMore
@@ -294,44 +321,83 @@ fun LibraryScreen(
                         ContentType.Books -> viewModel.loadMoreBooks()
                     }
                 }
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
-                    state = gridState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    when (contentType) {
-                        ContentType.Series -> items(series, key = { it.id }) { item ->
-                            SeriesGridCard(
-                                series = item,
-                                onClick = { onOpenSeries(item) },
-                                modifier = Modifier.fillMaxWidth(),
-                                onLongClick = { menuSeries = item },
-                            )
+                when (layout) {
+                    BrowseLayout.List -> LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        when (contentType) {
+                            ContentType.Series -> items(series.size, key = { series[it].id }) { index ->
+                                val item = series[index]
+                                SeriesListRow(
+                                    series = item,
+                                    onClick = { onOpenSeries(item) },
+                                    onLongClick = { menuSeries = item },
+                                )
+                            }
+                            ContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
+                                val book = allBooks[index]
+                                BookListRow(
+                                    book = book,
+                                    onClick = { onOpenBook(book) },
+                                    onLongClick = { menuBook = book },
+                                )
+                            }
                         }
-                        ContentType.Books -> items(allBooks, key = { it.id }) { book ->
-                            BookGridCard(
-                                book = book,
-                                onClick = { onOpenBook(book) },
-                                modifier = Modifier.fillMaxWidth(),
-                                onLongClick = { menuBook = book },
-                            )
+                        if (hasMore) {
+                            item(key = "load-more") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
+                            }
                         }
                     }
-                    if (hasMore) {
-                        item(
-                            key = "load-more",
-                            span = { GridItemSpan(maxLineSpan) },
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center,
+
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        when (contentType) {
+                            ContentType.Series -> items(series, key = { it.id }) { item ->
+                                SeriesGridCard(
+                                    series = item,
+                                    onClick = { onOpenSeries(item) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onLongClick = { menuSeries = item },
+                                )
+                            }
+                            ContentType.Books -> items(allBooks, key = { it.id }) { book ->
+                                BookGridCard(
+                                    book = book,
+                                    onClick = { onOpenBook(book) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onLongClick = { menuBook = book },
+                                )
+                            }
+                        }
+                        if (hasMore) {
+                            item(
+                                key = "load-more",
+                                span = { GridItemSpan(maxLineSpan) },
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
                             }
                         }
                     }
