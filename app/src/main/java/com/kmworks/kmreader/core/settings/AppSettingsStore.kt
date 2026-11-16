@@ -210,6 +210,18 @@ class AppSettingsStore @Inject constructor(
     suspend fun setThumbnailBlurUnreadCovers(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_BLUR_UNREAD_COVERS, enabled)
 
+    /** 仅 Wi-Fi 预加载（对齐 iOS wifiOnlyPreload）。 */
+    val wifiOnlyPreload: Flow<Boolean> = booleanPref(Keys.WIFI_ONLY_PRELOAD, true)
+
+    suspend fun setWifiOnlyPreload(enabled: Boolean) = writeBoolean(Keys.WIFI_ONLY_PRELOAD, enabled)
+
+    /** 应用图标变体：primary / classic / legacy（对齐 iOS AppIconOption）。 */
+    val appIcon: Flow<String> = store.data.map { prefs -> prefs[Keys.APP_ICON] ?: APP_ICON_PRIMARY }
+
+    suspend fun setAppIcon(value: String) {
+        store.edit { prefs -> prefs[Keys.APP_ICON] = value }
+    }
+
     private fun booleanPref(key: Preferences.Key<Boolean>, default: Boolean): Flow<Boolean> =
         store.data.map { prefs -> prefs[key] ?: default }
 
@@ -243,6 +255,7 @@ class AppSettingsStore @Inject constructor(
         const val DEFAULT_DIRECTION = "ltr"
         const val SCOPE_PINNED = "pinned"
         const val SCOPE_ALL = "all"
+        const val APP_ICON_PRIMARY = "primary"
         fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
     }
 
@@ -266,6 +279,8 @@ class AppSettingsStore @Inject constructor(
         val THUMBNAIL_SHOW_UNREAD_INDICATOR = booleanPreferencesKey("thumbnail_show_unread_indicator")
         val THUMBNAIL_SHOW_PROGRESS_BAR = booleanPreferencesKey("thumbnail_show_progress_bar")
         val THUMBNAIL_BLUR_UNREAD_COVERS = booleanPreferencesKey("thumbnail_blur_unread_covers")
+        val WIFI_ONLY_PRELOAD = booleanPreferencesKey("wifi_only_preload")
+        val APP_ICON = stringPreferencesKey("app_icon")
     }
 }
 

@@ -24,7 +24,6 @@ data class CollectionDetailUiState(
     val series: List<Series>? = null,
     /** 收藏封面（服务端缩略图端点）。 */
     val heroThumbnail: String? = null,
-    val thumbnails: Map<Int, String> = emptyMap(),
 )
 
 /** 收藏详情数据：反查收藏 DTO，成员经 GET api/v1/collections/{id}/series 拉取。 */
@@ -57,9 +56,6 @@ class CollectionDetailViewModel @Inject constructor(
                     return@launch
                 }
                 val seriesDtos = detailRepository.collectionSeries(dtoId)
-                val thumbnails = seriesDtos.mapNotNull { dto ->
-                    detailRepository.seriesThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
-                }.toMap()
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -67,7 +63,6 @@ class CollectionDetailViewModel @Inject constructor(
                         ordered = collection.ordered,
                         series = seriesDtos.map { dto -> dto.toUiSeries() },
                         heroThumbnail = detailRepository.collectionThumbnailUrl(dtoId),
-                        thumbnails = thumbnails,
                     )
                 }
             } catch (e: Exception) {

@@ -3,7 +3,6 @@ package com.kmworks.kmreader.ui.lists
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.SmartListRepository
-import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
@@ -35,8 +34,6 @@ data class SmartListDetailUiState(
     val series: List<Series>? = null,
     /** Hero thumbnail (smart-list cover endpoint). */
     val heroThumbnail: String? = null,
-    /** Thumbnails keyed by stable Int book/series id. */
-    val thumbnails: Map<Int, String> = emptyMap(),
 )
 
 /** Real smart list detail + hits via the kmrs private endpoints. */
@@ -89,18 +86,6 @@ class SmartListDetailViewModel @Inject constructor(
                     }
                     b.await() to s.await()
                 }
-                val thumbs = buildMap {
-                    books.forEach { book ->
-                        DetailIdRegistry.bookDtoId(book.id)?.let { dtoBookId ->
-                            smartListRepository.bookThumbnailUrl(dtoBookId)?.let { put(book.id, it) }
-                        }
-                    }
-                    series.forEach { item ->
-                        DetailIdRegistry.seriesDtoId(item.id)?.let { dtoSeriesId ->
-                            smartListRepository.seriesThumbnailUrl(dtoSeriesId)?.let { put(item.id, it) }
-                        }
-                    }
-                }
                 _state.update {
                     it.copy(
                         loading = false,
@@ -112,7 +97,6 @@ class SmartListDetailViewModel @Inject constructor(
                         books = books,
                         series = series,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),
-                        thumbnails = thumbs,
                     )
                 }
             } catch (e: Exception) {

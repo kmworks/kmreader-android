@@ -55,7 +55,6 @@ data class SeriesDetailUiState(
     val seriesThumbnail: String? = null,
     /** 归属收藏（真实数据；Mappers.toListEntry 映射，点击经 onOpenCollection 上抛）。 */
     val collections: List<ListEntry> = emptyList(),
-    val thumbnails: Map<Int, String> = emptyMap(),
     /** komf 能力：hasFeature(Komf) && 管理员 && 有 DTO 映射；为 false 时菜单三项不渲染。 */
     val komfAvailable: Boolean = false,
     /** 当前系列的 libraryId（DTO 直出，komf 调用需要）。 */
@@ -142,9 +141,6 @@ class SeriesDetailViewModel @Inject constructor(
                 val memberships = detailRepository.seriesCollections(dtoId)
                     .map { it.toListEntry() }
                 val books = bookDtos.map { it.toUiBook() }
-                val thumbnails = bookDtos.mapNotNull { dto ->
-                    detailRepository.bookThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
-                }.toMap()
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -152,7 +148,6 @@ class SeriesDetailViewModel @Inject constructor(
                         books = books,
                         seriesThumbnail = detailRepository.seriesThumbnailUrl(dtoId),
                         collections = memberships,
-                        thumbnails = thumbnails,
                         komfAvailable = komfAvailable,
                         trackerSupported = trackerRepository.supported,
                         editable = seriesDto?.metadata?.let { metadata ->
@@ -433,16 +428,13 @@ class SeriesDetailViewModel @Inject constructor(
         }
     }
 
-    /** 仅重拉书籍列表与缩略图（SSE 触发；详情主体不变）。 */
+    /** 仅重拉书籍列表（SSE 触发；详情主体不变）。封面由 stableId 注册表解析。 */
     private fun reloadBooks() {
         val dtoId = dtoId ?: return
         viewModelScope.launch {
             val bookDtos = detailRepository.seriesBooks(dtoId)
             val books = bookDtos.map { it.toUiBook() }
-            val thumbnails = bookDtos.mapNotNull { dto ->
-                detailRepository.bookThumbnailUrl(dto.id)?.let { dto.id.hashCode() to it }
-            }.toMap()
-            _uiState.update { it.copy(books = books, thumbnails = thumbnails) }
+            _uiState.update { it.copy(books = books) }
             refreshDownloaded()
         }
     }

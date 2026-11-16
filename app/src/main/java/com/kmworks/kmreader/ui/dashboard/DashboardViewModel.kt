@@ -231,7 +231,6 @@ class DashboardViewModel @Inject constructor(
                     loading = false,
                     sections = derivedSections() ?: allSections,
                     continuations = continuations,
-                    thumbnails = thumbs,
                     collections = collections,
                     readLists = readLists,
                 )
@@ -310,6 +309,3 @@ private data class DashboardFeeds(
     val latestSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
     val updatedSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
 )
-
-// Same Int mapping as Mappers.stableId (kept local to avoid exposing internals).
-private fun String.stableIdForThumb(): Int = hashCode()

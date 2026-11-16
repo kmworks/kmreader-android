@@ -182,6 +182,8 @@ class BrowseViewModel @Inject constructor(
                     val booksResult = books.await()
                     val readListsResult = readLists.await()
                     val collectionsResult = collections.await()
+                    // 搜索条件在请求期间变化时丢弃这一页，避免把旧结果追加到新查询里
+                    if (currentRequest != request) return@coroutineScope
                     if (nextSeries != null) seriesPage = nextSeries
                     if (nextBooks != null) booksPage = nextBooks
                     if (nextReadLists != null) readListsPage = nextReadLists
