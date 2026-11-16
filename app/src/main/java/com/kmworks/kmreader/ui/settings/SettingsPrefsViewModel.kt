@@ -1,10 +1,14 @@
 package com.kmworks.kmreader.ui.settings
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.ui.components.CardDisplayOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +23,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingsPrefsViewModel @Inject constructor(
     private val appSettings: AppSettingsStore,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     val themeMode: StateFlow<String> = appSettings.themeMode
@@ -105,8 +110,33 @@ class SettingsPrefsViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setDivinaDefaultDirection(direction) }
     }
 
+    /**
+     * 应用图标变体（primary/classic/legacy）。持久化后立即切换 manifest
+     * activity-alias：启用目标 alias、禁用其余（DONT_KILL_APP，不打断当前会话）。
+     */
     fun setAppIcon(value: String) {
         viewModelScope.launch { appSettings.setAppIcon(value) }
+        applyAppIcon(value)
+    }
+
+    private fun applyAppIcon(value: String) {
+        val aliases = mapOf(
+            AppSettingsStore.APP_ICON_PRIMARY to ".AppIconPrimary",
+            "classic" to ".AppIconClassic",
+            "legacy" to ".AppIconLegacy",
+        )
+        val pm = appContext.packageManager
+        aliases.forEach { (key, alias) ->
+            pm.setComponentEnabledSetting(
+                ComponentName(appContext.packageName, appContext.packageName + alias),
+                if (key == value) {
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                } else {
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                },
+                PackageManager.DONT_KILL_APP,
+            )
+        }
     }
 
     fun setWifiOnlyPreload(enabled: Boolean) {

@@ -1,8 +1,10 @@
 package com.kmworks.kmreader.ui.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,9 +34,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
 
 /** 主题选项（存储值 ↔ 显示标签）。 */
 private val ThemeOptions = listOf(
@@ -119,6 +125,7 @@ fun AppearanceSettingsScreen(
                     // Mirrors AppIconOption: primary / classic / legacy
                     AppIconOptions.forEach { (value, label) ->
                         AppIconCell(
+                            value = value,
                             label = label,
                             selected = appIcon == value,
                             onClick = { prefsViewModel.setAppIcon(value) },
@@ -131,8 +138,18 @@ fun AppearanceSettingsScreen(
     }
 }
 
+/**
+ * 图标预览：镜像 iOS AppIconPreview —— 真实启动图标的前景字形 + 背景填充。
+ * primary/legacy 背景白/深灰，classic 为蓝色渐变（深色模式下 iOS 塌缩为深灰纯色）。
+ */
 @Composable
-private fun AppIconCell(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun AppIconCell(value: String, label: String, selected: Boolean, onClick: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val foreground = when (value) {
+        "classic" -> R.mipmap.ic_launcher_classic_foreground
+        "legacy" -> R.mipmap.ic_launcher_legacy_foreground
+        else -> R.mipmap.ic_launcher_foreground
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(onClick = onClick),
@@ -141,7 +158,18 @@ private fun AppIconCell(label: String, selected: Boolean, onClick: () -> Unit) {
             modifier = Modifier
                 .size(64.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .then(
+                    if (value == "classic" && !dark) {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                // iOS appIconBackgroundClassicTop/Bottom
+                                listOf(Color(0xFF275CC9), Color(0xFF0088FF)),
+                            ),
+                        )
+                    } else {
+                        Modifier.background(if (dark) Color(0xFF131316) else Color.White)
+                    },
+                )
                 .then(
                     if (selected) {
                         Modifier.border(
@@ -155,10 +183,10 @@ private fun AppIconCell(label: String, selected: Boolean, onClick: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "KM",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Image(
+                painter = painterResource(foreground),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
             )
         }
         Spacer(Modifier.height(6.dp))
