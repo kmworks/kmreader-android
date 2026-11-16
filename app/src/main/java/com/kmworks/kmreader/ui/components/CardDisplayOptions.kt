@@ -1,6 +1,6 @@
 package com.kmworks.kmreader.ui.components
 
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
 
 /**
  * 浏览卡片显示选项，对应 KMReader SettingsBrowseView 的 AppStorage 项。
@@ -19,4 +19,4 @@ data class CardDisplayOptions(
     val blurUnreadCovers: Boolean = false,
 )
 
-val LocalCardDisplay = staticCompositionLocalOf { CardDisplayOptions() }
+val LocalCardDisplay = compositionLocalOf { CardDisplayOptions() }

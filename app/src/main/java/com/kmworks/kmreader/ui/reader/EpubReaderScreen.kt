@@ -84,6 +84,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** EPUB reader UI state. */
 data class EpubUiState(
@@ -125,6 +126,13 @@ class EpubReaderViewModel @Inject constructor(
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
 
+    // 进度上报门控（对齐原作 EpubReaderViewModel 的 ReaderProgressRecordingGate）：
+    // 未读过的书不移动 3 页以上不上报；在读过的书移动 1 页即上报；完成/已记录总放行。
+    private var sessionStartTotalProgression: Float? = null
+    private var estimatedTotalPages: Int = 0
+    private var wasInProgress: Boolean = false
+    private var hasRecorded: Boolean = false
+
     /** 隐私阅读（incognito）：跳过进度上报。 */
     var incognito: Boolean = false
 
@@ -161,16 +169,21 @@ class EpubReaderViewModel @Inject constructor(
             }
             equalWeight = 1f / chapters.size
             val positions = epubRepository.positions(dtoId)
+            val positionsTotal = positions?.total ?: 0
             weightsByHref = positions
                 ?.takeIf { it.total > 0 }
                 ?.positions
                 ?.groupingBy { it.href }
                 ?.eachCount()
-                ?.mapValues { it.value.toFloat() / positions.total }
+                ?.mapValues { it.value.toFloat() / positionsTotal }
                 .orEmpty()
+            estimatedTotalPages = positionsTotal
 
             // Restore saved progression (mirrors decodeRemoteWebPubProgression fallback to start)
             val saved = epubRepository.savedProgression(dtoId)
+            wasInProgress = saved != null
+            sessionStartTotalProgression = null
+            hasRecorded = false
             var startIndex = 0
             var startFraction: Float? = null
             if (saved != null) {
@@ -198,9 +211,11 @@ class EpubReaderViewModel @Inject constructor(
         val state = _uiState.value
         if (state.chapters.isEmpty()) return
         currentChapterFraction = chapterFraction.coerceIn(0f, 1f)
-        _uiState.value = state.copy(
-            totalProgression = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction),
-        )
+        val total = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction)
+        if (sessionStartTotalProgression == null) {
+            sessionStartTotalProgression = total
+        }
+        _uiState.value = state.copy(totalProgression = total)
         scheduleReport()
     }
 
@@ -297,8 +312,11 @@ class EpubReaderViewModel @Inject constructor(
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
         val fraction = currentChapterFraction
         val total = state.totalProgression
+        // 完成 = 最后一章且滚动到章末（对齐原作 reachedLastPage 的近似：Android 只有章内比例）
+        val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
+        if (!admitsRecording(total, completed)) return
         viewModelScope.launch {
-            epubRepository.reportProgression(
+            val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
                 href = chapter.href,
                 chapterFraction = fraction,
@@ -306,7 +324,21 @@ class EpubReaderViewModel @Inject constructor(
                 deviceId = deviceId,
                 deviceName = deviceName,
             )
+            if (ok) hasRecorded = true
         }
+    }
+
+    /** 对齐原作 ReaderProgressRecordingGate：threshold=3，clamp 到 pageCount-1，在读过的书 req=1。 */
+    private fun admitsRecording(currentTotal: Float, completed: Boolean): Boolean {
+        if (completed || hasRecorded) return true
+        val start = sessionStartTotalProgression ?: return false
+        val pageCount = estimatedTotalPages
+        if (pageCount <= 0) return false
+        val threshold = minOf(ReaderProgressRecordingGate.THRESHOLD, pageCount - 1)
+        val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
+        if (requiredDistance <= 0) return true
+        val distance = abs(currentTotal - start) * pageCount
+        return distance.toInt() >= requiredDistance
     }
 
     private fun weightOf(chapter: EpubChapter): Float =
@@ -327,6 +359,7 @@ fun EpubReaderScreen(
     onBack: () -> Unit,
     incognito: Boolean = false,
     viewModel: EpubReaderViewModel = hiltViewModel(),
+    settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(book.id, incognito) {
@@ -338,6 +371,7 @@ fun EpubReaderScreen(
             book = book,
             state = state,
             viewModel = viewModel,
+            settingsViewModel = settingsViewModel,
             onBack = onBack,
             incognito = incognito,
         )
@@ -369,10 +403,12 @@ private fun RealEpubReader(
     book: Book,
     state: EpubUiState,
     viewModel: EpubReaderViewModel,
+    settingsViewModel: DivinaSettingsViewModel,
     onBack: () -> Unit,
     incognito: Boolean,
 ) {
-    var epubSettings by remember { mutableStateOf(EpubReaderSettings()) }
+    // EPUB 偏好全局持久化（对齐原作 epubPreferences 等 @AppStorage），阅读器与默认值页共享同一份
+    val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
     val dark = isSystemInDarkTheme()
     val downloadedFamilies by viewModel.downloadedFamilies.collectAsStateWithLifecycle()
     val fontCss = remember(epubSettings.typeface, downloadedFamilies) {
@@ -585,7 +621,7 @@ private fun RealEpubReader(
     if (showSettings) {
         EpubSettingsSheet(
             settings = epubSettings,
-            onSettingsChange = { epubSettings = it },
+            onSettingsChange = { new -> settingsViewModel.updateEpub { new } },
             customFonts = downloadedFamilies.sorted().map { family ->
                 CustomFont(
                     id = family.hashCode(),

@@ -34,6 +34,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -44,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +68,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
+import kotlinx.coroutines.launch
 
 /** 列表 tab：对齐 KMReader ListsBrowseView —— 收藏 / 阅读列表 / 智能列表三条横向条带，
  *  pinned 置顶，条带头可进入对应类型全页；工具栏范围筛选（LibraryScopeMenu）。 */
@@ -84,6 +88,11 @@ fun ListsScreen(
 
     val viewModel: ListsViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val notifyActionFailure: suspend (String) -> Unit = { action ->
+        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+    }
     // real groups only (capability-gated: smart lists hidden when unsupported/empty)
     val groups = buildList {
         state.collections?.let { if (it.isNotEmpty()) add(ListGroup("收藏", it)) }
@@ -92,6 +101,7 @@ fun ListsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("列表") },
@@ -203,28 +213,53 @@ fun ListsScreen(
     editTarget?.let { (groupTitle, entry) ->
         when (groupTitle) {
             "收藏" -> CollectionEditSheet(
-                onSave = { _, _ -> },
+                onSave = { name, ordered ->
+                    viewModel.saveCollection(entry, name, ordered) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存收藏") }
+                    }
+                },
                 onDismiss = { editTarget = null },
                 initialName = entry.title,
-                initialOrdered = false,
+                initialOrdered = entry.ordered ?: false,
                 isEdit = true,
-                onDelete = { },
+                onDelete = {
+                    viewModel.deleteCollection(entry) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除收藏") }
+                    }
+                },
             )
             "阅读列表" -> ReadListEditSheet(
-                onSave = { _, _, _ -> },
+                onSave = { name, summary, ordered ->
+                    viewModel.saveReadList(entry, name, summary, ordered) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存阅读列表") }
+                    }
+                },
                 onDismiss = { editTarget = null },
                 initialName = entry.title,
-                initialSummary = "",
-                initialOrdered = true,
+                initialSummary = entry.summary.orEmpty(),
+                initialOrdered = entry.ordered ?: true,
                 isEdit = true,
-                onDelete = { },
+                onDelete = {
+                    viewModel.deleteReadList(entry) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除阅读列表") }
+                    }
+                },
             )
             else -> SmartListEditSheet(
-                onSave = { _, _, _, _ -> },
+                onSave = { name, _, matchAll, rules ->
+                    viewModel.saveSmartList(entry, name, matchAll, rules) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存智能列表") }
+                    }
+                },
                 onDismiss = { editTarget = null },
                 initialName = entry.title,
+                initialTarget = entry.smartListTarget ?: com.kmworks.kmreader.data.SmartListTarget.Book,
                 isEdit = true,
-                onDelete = { },
+                onDelete = {
+                    viewModel.deleteSmartList(entry) { ok ->
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除智能列表") }
+                    }
+                },
             )
         }
     }

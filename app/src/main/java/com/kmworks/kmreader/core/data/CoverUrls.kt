@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.data
 
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.ApiClients
 import java.util.concurrent.ConcurrentHashMap
 
@@ -32,6 +33,12 @@ object CoverUrlRegistry {
     fun registerSmartList(stableId: Int, dtoId: String) =
         put(stableId, CoverRef(Kind.SmartList, dtoId))
 
+    /** Whether this stable id was registered by a DTO -> UI mapper. */
+    fun contains(stableId: Int): Boolean = refs.containsKey(stableId)
+
+    /** Human-readable mapping for diagnosing a missing/colliding cover. */
+    fun debugRef(stableId: Int): String? = refs[stableId]?.let { "${it.kind}:${it.dtoId}" }
+
     /** Absolute cover URL for a UI stable id, or null when unknown / not logged in. */
     fun url(stableId: Int, clients: ApiClients?): String? {
         val ref = refs[stableId] ?: return null
@@ -51,6 +58,13 @@ object CoverUrlRegistry {
     }
 
     private fun put(stableId: Int, ref: CoverRef) {
-        refs[stableId] = ref
+        val previous = refs.put(stableId, ref)
+        if (previous != null && previous != ref) {
+            // UI 使用 Int stableId；同一 id 映射到另一个 DTO 时封面会串图，必须能在日志里定位。
+            AppLog.w(
+                "CoverUrlRegistry",
+                "stableId collision: id=$stableId ${previous.kind}:${previous.dtoId} -> ${ref.kind}:${ref.dtoId}",
+            )
+        }
     }
 }

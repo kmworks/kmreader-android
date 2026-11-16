@@ -23,39 +23,40 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kmworks.kmreader.data.SampleSystemData
-import com.kmworks.kmreader.ui.reader.EpubReaderSettings
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
-import com.kmworks.kmreader.ui.reader.PdfReaderSettings
+import com.kmworks.kmreader.ui.reader.PageLayout
 import com.kmworks.kmreader.ui.reader.PdfSettingsContent
 import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 
-/** Reader engine defaults hub (mirrors ReaderPreferencesView + Divina/Epub/Pdf preferences). */
+/**
+ * 阅读器默认值（对齐原作 ReaderPreferencesView + Divina/Epub/Pdf preferences）。
+ *
+ * 语义对齐原作：这里的默认值是【全局偏好】，立即持久化生效；
+ * 阅读器会话内改动的「方向/布局/拆分宽页/独显封面」只活在当次会话，不回写这里的默认值
+ * （对齐原作 DivinaReaderView @State 初始值 + resetReaderPreferencesForCurrentBook 语义）。
+ * 默认阅读方向走 AppSettingsStore（自动获得 client-settings 云同步），其余走 DivinaSettingsStore。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderDefaultsScreen(
     onBack: () -> Unit,
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
+    readerSettingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
     // Divina defaults (mirrors DivinaPreferencesView)
-    // 默认阅读方向走 AppSettingsStore 持久化（自动获得 client-settings 云同步）
     val persistedDirection by prefsViewModel.divinaDefaultDirection.collectAsStateWithLifecycle()
     val divinaDirection = ReadingDirection.entries
         .firstOrNull { it.name.lowercase() == persistedDirection } ?: ReadingDirection.Ltr
-    var divinaDualPage by remember { mutableStateOf(false) }
-    var divinaSplitWideMode by remember { mutableStateOf(SplitWidePageMode.Auto) }
-    // EPUB / PDF defaults reuse the option models from the reader sheets
-    var epubDefaults by remember { mutableStateOf(EpubReaderSettings()) }
-    var pdfDefaults by remember { mutableStateOf(PdfReaderSettings()) }
+    val divinaSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
+    val epubSettings by readerSettingsViewModel.epubSettings.collectAsStateWithLifecycle()
+    val pdfSettings by readerSettingsViewModel.pdfSettings.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -87,36 +88,59 @@ fun ReaderDefaultsScreen(
                     },
                 )
                 DefaultsSwitchRow(
-                    label = "横屏双页",
-                    checked = divinaDualPage,
-                    onCheckedChange = { divinaDualPage = it },
+                    label = "强制默认阅读方向",
+                    checked = divinaSettings.forceDefaultDirection,
+                    onCheckedChange = { value ->
+                        readerSettingsViewModel.update { it.copy(forceDefaultDirection = value) }
+                    },
+                )
+                DefaultsHintText("开启后忽略系列自带的阅读方向（对齐原作 forceDefaultReadingDirection）")
+                // 对齐 DivinaPreferencesView：页面布局 single/auto/dual
+                DefaultsChipRow(
+                    label = "页面布局",
+                    options = PageLayout.entries.map { it.label },
+                    selected = divinaSettings.defaultPageLayout.label,
+                    onSelect = { label ->
+                        PageLayout.entries.firstOrNull { it.label == label }?.let { layout ->
+                            readerSettingsViewModel.update { it.copy(defaultPageLayout = layout) }
+                        }
+                    },
                 )
                 // 对齐 DivinaPreferencesView：拆分宽页是 5 档 picker（none/auto/ltr/rtl/scroll），不是开关
                 DefaultsChipRow(
                     label = "拆分宽页",
                     options = SplitWidePageMode.entries.map { it.label },
-                    selected = divinaSplitWideMode.label,
+                    selected = divinaSettings.defaultSplitWideMode.label,
                     onSelect = { label ->
-                        divinaSplitWideMode = SplitWidePageMode.entries.first { it.label == label }
+                        SplitWidePageMode.entries.firstOrNull { it.label == label }?.let { mode ->
+                            readerSettingsViewModel.update { it.copy(defaultSplitWideMode = mode) }
+                        }
                     },
                 )
-                DefaultsHintText(divinaSplitWideMode.hint)
+                DefaultsHintText(divinaSettings.defaultSplitWideMode.hint)
+                DefaultsSwitchRow(
+                    label = "双页模式下独显封面",
+                    checked = divinaSettings.defaultSoloCoverPage,
+                    onCheckedChange = { value ->
+                        readerSettingsViewModel.update { it.copy(defaultSoloCoverPage = value) }
+                    },
+                )
             }
             item {
                 DefaultsSectionTitle("EPUB")
                 EpubSettingsContent(
-                    settings = epubDefaults,
-                    onSettingsChange = { epubDefaults = it },
-                    customFonts = SampleSystemData.customFonts,
-                    onOpenPresets = { /* wiring point: open presets sheet */ },
-                    onOpenCustomFonts = { /* wiring point: open CustomFontsScreen */ },
+                    settings = epubSettings,
+                    onSettingsChange = { new -> readerSettingsViewModel.updateEpub { new } },
+                    customFonts = emptyList(),
+                    onOpenPresets = { /* wiring point: open presets sheet（导航越界，待 lead 接线） */ },
+                    onOpenCustomFonts = { /* wiring point: open CustomFontsScreen（导航越界，待 lead 接线） */ },
                 )
             }
             item {
                 DefaultsSectionTitle("PDF")
                 PdfSettingsContent(
-                    settings = pdfDefaults,
-                    onSettingsChange = { pdfDefaults = it },
+                    settings = pdfSettings,
+                    onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
                 )
                 Spacer(Modifier.height(24.dp))
             }

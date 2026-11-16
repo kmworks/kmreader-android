@@ -71,8 +71,7 @@ fun DashboardScreen(
     val state by viewModel.state.collectAsState()
     // real sections only; empty state when there is no session or nothing loaded
     val sections = state.sections ?: emptyList()
-    // 库范围切换（全部/已钉选/单库），对应 LibraryScopeMenu；仪表盘为独立会话内 scope
-    var scope by remember { mutableStateOf("全部书库") }
+    // 库范围切换（全部/单库），对应 LibraryScopeMenu；仪表盘为独立会话内 scope
     var scopeMenuOpen by remember { mutableStateOf(false) }
     // 长按上下文菜单（对齐原作仪表盘卡片的 contextMenu）
     var seriesMenuTarget by remember { mutableStateOf<Series?>(null) }
@@ -96,17 +95,32 @@ fun DashboardScreen(
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text(scope)
+                            Text(
+                                state.libraries.firstOrNull { it.id == state.libraryScope }?.name
+                                    ?: "全部书库",
+                            )
                         }
                         DropdownMenu(
                             expanded = scopeMenuOpen,
                             onDismissRequest = { scopeMenuOpen = false },
                         ) {
-                            listOf("全部书库", "已钉选", "漫画", "日漫", "国漫").forEach { s ->
+                            DropdownMenuItem(
+                                text = { Text("全部书库") },
+                                onClick = {
+                                    viewModel.setLibraryScope(null)
+                                    scopeMenuOpen = false
+                                },
+                            )
+                            state.libraries.forEach { library ->
                                 DropdownMenuItem(
-                                    text = { Text(s) },
+                                    text = {
+                                        Text(
+                                            if (library.id == state.libraryScope) "✓ ${library.name}"
+                                            else library.name,
+                                        )
+                                    },
                                     onClick = {
-                                        scope = s
+                                        viewModel.setLibraryScope(library.id)
                                         scopeMenuOpen = false
                                     },
                                 )

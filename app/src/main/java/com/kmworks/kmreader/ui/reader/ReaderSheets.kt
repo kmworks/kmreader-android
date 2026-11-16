@@ -1,6 +1,5 @@
 package com.kmworks.kmreader.ui.reader
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,17 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,7 +26,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,23 +57,41 @@ enum class SplitWidePageMode(val label: String, val hint: String) {
     val next: SplitWidePageMode get() = entries[(ordinal + 1) % entries.size]
 }
 
+/** 页面布局（对齐原作 PageLayout：single/auto/dual-forced；双页只在横屏生效，由阅读器按屏幕方向门控）。 */
+enum class PageLayout(val label: String) {
+    Single("单页"),
+    Auto("自动"),
+    Dual("双页");
+
+    val next: PageLayout get() = entries[(ordinal + 1) % entries.size]
+}
+
+/** 菜单「当前页」区的独显动作（对应原作 ReaderPageSoloActions；null = 当前页不可独显）。 */
+data class SoloMenuAction(
+    val isSolo: Boolean,
+    val displayPage: Int,
+    val onToggle: () -> Unit,
+)
+
 /**
  * 阅读器顶栏「更多」菜单（对应 DivinaControlsOverlayView+Menu）：
- * 当前阅读选项（方向/布局循环切换）→ 设置/目录/跳页/分享。
+ * Current Reading Options（方向/布局/拆分宽页/旋转循环）→ 阅读器设置 → 当前页（分享/独显）→ 跳页。
+ * 原作菜单里还有目录，但 DIVINA（图片）书籍没有目录数据源，故不显示（对齐 hasTOC 门控）。
  */
 @Composable
 fun ReaderOptionsMenu(
     expanded: Boolean,
     direction: ReadingDirection,
-    dualPage: Boolean,
+    pageLayout: PageLayout,
     splitWideMode: SplitWidePageMode,
     rotationDegrees: Int,
+    soloAction: SoloMenuAction?,
     onDirectionChange: (ReadingDirection) -> Unit,
-    onDualPageChange: (Boolean) -> Unit,
+    onPageLayoutChange: (PageLayout) -> Unit,
     onSplitWideModeChange: (SplitWidePageMode) -> Unit,
     onRotationChange: (Int) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenToc: () -> Unit,
+    onSharePage: () -> Unit,
     onOpenPageJump: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -97,8 +105,8 @@ fun ReaderOptionsMenu(
         if (direction != ReadingDirection.Webtoon) {
             MenuCycleItem(
                 label = "页面布局",
-                value = if (dualPage) "双页" else "单页",
-                onClick = { onDualPageChange(!dualPage) },
+                value = pageLayout.label,
+                onClick = { onPageLayoutChange(pageLayout.next) },
             )
             MenuCycleItem(
                 label = "拆分宽页",
@@ -119,24 +127,36 @@ fun ReaderOptionsMenu(
                 onOpenSettings()
             },
         )
+        HorizontalDivider()
+        // Current Page（对齐原作：分享 + 双页时的单页独显切换）
         androidx.compose.material3.DropdownMenuItem(
-            text = { Text("目录") },
+            text = { Text("分享页面") },
+            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
             onClick = {
                 onDismiss()
-                onOpenToc()
+                onSharePage()
             },
         )
+        if (soloAction != null) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = {
+                    Text(
+                        if (soloAction.isSolo) "取消独显"
+                        else "独显第 ${soloAction.displayPage} 页",
+                    )
+                },
+                onClick = {
+                    onDismiss()
+                    soloAction.onToggle()
+                },
+            )
+        }
         androidx.compose.material3.DropdownMenuItem(
             text = { Text("跳页") },
             onClick = {
                 onDismiss()
                 onOpenPageJump()
             },
-        )
-        androidx.compose.material3.DropdownMenuItem(
-            text = { Text("分享页面") },
-            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
-            onClick = onDismiss,
         )
     }
 }
@@ -156,97 +176,6 @@ private fun MenuCycleItem(label: String, value: String, onClick: () -> Unit) {
         },
         onClick = onClick,
     )
-}
-
-/** 目录条目（设计稿静态示例）。 */
-data class TocEntry(
-    val title: String,
-    val page: Int,
-    val children: List<TocEntry> = emptyList(),
-)
-
-val SampleToc = listOf(
-    TocEntry("第 87 话 启程", 3),
-    TocEntry("第 88 话 魔法使的弟子", 24, children = listOf(TocEntry("回忆", 30))),
-    TocEntry("第 89 话 考验", 47, children = listOf(TocEntry("插曲", 52), TocEntry("觉醒", 61))),
-    TocEntry("第 90 话 新的旅程", 78),
-)
-
-/** 目录（对应 DivinaTOCSheetView：树形、当前项书签标记、含当前项子树自动展开）。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ReaderTocSheet(currentPage: Int, onJump: (Int) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp)
-                .padding(bottom = 28.dp),
-        ) {
-            Text(
-                "目录",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-            SampleToc.forEach { entry ->
-                TocNode(entry = entry, depth = 0, currentPage = currentPage, onJump = onJump)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TocNode(entry: TocEntry, depth: Int, currentPage: Int, onJump: (Int) -> Unit) {
-    val endPage = entry.children.lastOrNull()?.page ?: entry.page
-    val isCurrent = currentPage in entry.page..endPage
-    var expanded by remember { mutableStateOf(isCurrent) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                if (entry.children.isNotEmpty()) expanded = !expanded else onJump(entry.page)
-            }
-            .padding(start = (12 + depth * 20).dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (entry.children.isNotEmpty()) {
-            Icon(
-                if (expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-        } else {
-            Spacer(Modifier.width(22.dp))
-        }
-        Text(
-            entry.title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (isCurrent) MaterialTheme.colorScheme.onSurfaceVariant
-            else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        if (isCurrent) {
-            Icon(
-                Icons.Filled.Bookmark,
-                contentDescription = "当前位置",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(
-            "${entry.page}",
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    if (expanded) {
-        entry.children.forEach { child ->
-            TocNode(entry = child, depth = depth + 1, currentPage = currentPage, onJump = onJump)
-        }
-    }
 }
 
 /** 跳页（对应 PageJumpSheetView：预览 + 滑杆 + 页码）。 */

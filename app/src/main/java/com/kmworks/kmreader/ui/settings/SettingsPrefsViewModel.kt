@@ -30,6 +30,46 @@ class SettingsPrefsViewModel @Inject constructor(
     val divinaDefaultDirection: StateFlow<String> = appSettings.divinaDefaultDirection
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.DEFAULT_DIRECTION)
 
+    /** 应用图标变体（primary/classic/legacy；持久化，切换由 manifest alias 落地）。 */
+    val appIcon: StateFlow<String> = appSettings.appIcon
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.APP_ICON_PRIMARY)
+
+    /** 仅 Wi-Fi 预加载（阅读器消费）。 */
+    val wifiOnlyPreload: StateFlow<Boolean> = appSettings.wifiOnlyPreload
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** 网络请求超时（秒）。 */
+    val networkTimeoutSeconds: StateFlow<Int> = appSettings.networkTimeoutSeconds
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_NETWORK_TIMEOUT_SECONDS,
+        )
+
+    /** 整本下载页级并发数（DownloadWorker 消费）。 */
+    val downloadConcurrency: StateFlow<Int> = appSettings.downloadConcurrency
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY,
+        )
+
+    /** 图片磁盘缓存上限（MB）。 */
+    val imageCacheLimitMb: StateFlow<Int> = appSettings.imageCacheLimitMb
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_IMAGE_CACHE_LIMIT_MB,
+        )
+
+    /** SSE 事件驱动仪表盘自动刷新（随 SSE 总开关联动禁用）。 */
+    val sseAutoRefresh: StateFlow<Boolean> = appSettings.sseAutoRefresh
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** SSE 连接/任务完成通知（通知基础设施接入前仅持久化）。 */
+    val sseNotify: StateFlow<Boolean> = appSettings.sseNotify
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** 浏览卡片显示选项（持久化，卡片组件通过 LocalCardDisplay 消费）。 */
     val cardDisplay: StateFlow<CardDisplayOptions> = combine(
         appSettings.cardCoverOnly,
@@ -63,6 +103,34 @@ class SettingsPrefsViewModel @Inject constructor(
 
     fun setDivinaDefaultDirection(direction: String) {
         viewModelScope.launch { appSettings.setDivinaDefaultDirection(direction) }
+    }
+
+    fun setAppIcon(value: String) {
+        viewModelScope.launch { appSettings.setAppIcon(value) }
+    }
+
+    fun setWifiOnlyPreload(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setWifiOnlyPreload(enabled) }
+    }
+
+    fun setNetworkTimeoutSeconds(seconds: Int) {
+        viewModelScope.launch { appSettings.setNetworkTimeoutSeconds(seconds) }
+    }
+
+    fun setDownloadConcurrency(value: Int) {
+        viewModelScope.launch { appSettings.setDownloadConcurrency(value) }
+    }
+
+    fun setImageCacheLimitMb(value: Int) {
+        viewModelScope.launch { appSettings.setImageCacheLimitMb(value) }
+    }
+
+    fun setSseAutoRefresh(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setSseAutoRefresh(enabled) }
+    }
+
+    fun setSseNotify(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setSseNotify(enabled) }
     }
 
     fun setCardCoverOnly(enabled: Boolean) {

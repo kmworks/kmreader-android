@@ -105,5 +105,9 @@ object SampleData {
         /** 智能列表用：目标类型（书籍/系列）与更新日期；普通列表为 null。 */
         val targetLabel: String? = null,
         val modifiedLabel: String? = null,
+        /** 编辑 sheet 初始值；来自真实 DTO，避免以空白覆盖服务端字段。 */
+        val summary: String? = null,
+        val ordered: Boolean? = null,
+        val smartListTarget: SmartListTarget? = null,
     )
 }

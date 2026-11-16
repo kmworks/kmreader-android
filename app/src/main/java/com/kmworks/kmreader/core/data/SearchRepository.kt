@@ -111,10 +111,20 @@ class SearchRepository @Inject constructor(
     // ---- 仪表盘分区「更多」页：同一数据源的分页（原作 DashboardSectionDetailView pageSize 50）----
 
     /** 继续阅读（进行中书籍）分页。 */
-    suspend fun keepReadingPage(page: Int = 0, size: Int = 50): Paged<Book> {
+    suspend fun keepReadingPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Book> {
         val api = listSearchApi() ?: return Paged(emptyList(), false)
+        val condition = combinedCondition(
+            listOfNotNull(
+                leafCondition("readStatus", "is", "IN_PROGRESS"),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
         val result = api.books(
-            searchBody(condition = leafCondition("readStatus", "is", "IN_PROGRESS")),
+            searchBody(condition = condition),
             page = page,
             size = size,
             sort = listOf("readProgress.lastModified,desc"),
@@ -123,34 +133,69 @@ class SearchRepository @Inject constructor(
     }
 
     /** 待读（ondeck）分页。 */
-    suspend fun onDeckPage(page: Int = 0, size: Int = 50): Paged<Book> {
+    suspend fun onDeckPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Book> {
         val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
-        val result = api.getBooksOnDeck(page = page, size = size).awaitBody()
-            ?: return Paged(emptyList(), false)
+        val result = api.getBooksOnDeck(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            page = page,
+            size = size,
+        ).awaitBody() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
-    /** 最近更新书籍分页。 */
-    suspend fun latestBooksPage(page: Int = 0, size: Int = 50): Paged<Book> {
-        val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
-        val result = api.getBooksLatest(page = page, size = size).awaitBody()
-            ?: return Paged(emptyList(), false)
+    /** 最近更新书籍分页（有库范围时与 iOS 一样改走 POST books/list + createdDate desc）。 */
+    suspend fun latestBooksPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Book> {
+        if (libraryIds.isNullOrEmpty()) {
+            val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
+            val result = api.getBooksLatest(page = page, size = size).awaitBody()
+                ?: return Paged(emptyList(), false)
+            return result.toBookPage(size)
+        }
+        val api = listSearchApi() ?: return Paged(emptyList(), false)
+        val result = api.books(
+            searchBody(condition = libraryCondition(libraryIds)),
+            page = page,
+            size = size,
+            sort = listOf("createdDate,desc"),
+        ).awaitBody() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
     /** 最近更新系列分页。 */
-    suspend fun latestSeriesPage(page: Int = 0, size: Int = 50): Paged<Series> {
+    suspend fun latestSeriesPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Series> {
         val api = sessionManager.clients.value?.series ?: return Paged(emptyList(), false)
-        val result = api.getSeriesLatest(page = page, size = size).awaitBody()
-            ?: return Paged(emptyList(), false)
+        val result = api.getSeriesLatest(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            page = page,
+            size = size,
+        ).awaitBody() ?: return Paged(emptyList(), false)
         return result.toSeriesPage(size)
     }
 
     /** 最近更新系列（内容）分页。 */
-    suspend fun recentlyUpdatedSeriesPage(page: Int = 0, size: Int = 50): Paged<Series> {
+    suspend fun recentlyUpdatedSeriesPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Series> {
         val api = sessionManager.clients.value?.series ?: return Paged(emptyList(), false)
-        val result = api.getSeriesUpdated(page = page, size = size).awaitBody()
-            ?: return Paged(emptyList(), false)
+        val result = api.getSeriesUpdated(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            page = page,
+            size = size,
+        ).awaitBody() ?: return Paged(emptyList(), false)
         return result.toSeriesPage(size)
     }
 

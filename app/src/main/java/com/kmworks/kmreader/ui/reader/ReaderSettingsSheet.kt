@@ -72,6 +72,10 @@ fun ReaderSettingsSheet(
             SettingsToggleRow("阅读时显示进度条", settings.showProgressBar) { value ->
                 onUpdate { it.copy(showProgressBar = value) }
             }
+            // 对齐原作 ReaderSettingsSheet.keepScreenAwakeWhileReading（默认 false）
+            SettingsToggleRow("阅读时保持屏幕常亮", settings.keepScreenAwake) { value ->
+                onUpdate { it.copy(keepScreenAwake = value) }
+            }
             if (isWebtoon) {
                 SettingsSliderRow(
                     label = "条漫页面宽度",

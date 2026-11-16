@@ -44,13 +44,37 @@ private val DarkColors = darkColorScheme(
     outline = Color(0xFF2E2E33),
 )
 
+// 非纯黑深色（纯黑开关关闭时）：背景/容器上移为深灰，其余与纯黑方案一致。
+private val DarkSoftColors = darkColorScheme(
+    primary = Color(0xFFFFFFFF),
+    onPrimary = Color(0xFF111111),
+    primaryContainer = Color(0xFF2E2E33),
+    onPrimaryContainer = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFF232326),
+    onSecondaryContainer = Color(0xFFE8E8EA),
+    background = Color(0xFF141416),
+    onBackground = Color(0xFFE8E8EA),
+    surface = Color(0xFF1C1C1F),
+    onSurface = Color(0xFFE8E8EA),
+    surfaceVariant = Color(0xFF2A2A2E),
+    onSurfaceVariant = Color(0xFFA5A5AA),
+    surfaceContainer = Color(0xFF1C1C1F),
+    surfaceContainerHigh = Color(0xFF242428),
+    outline = Color(0xFF34343A),
+)
+
 @Composable
 fun KMReaderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    trueBlack: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = when {
+            !darkTheme -> LightColors
+            trueBlack -> DarkColors
+            else -> DarkSoftColors
+        },
         content = content,
     )
 }

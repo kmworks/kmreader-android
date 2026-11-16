@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 阅读统计状态；summary/heatmapWeeks 为 null 时界面回退假数据演示。 */
+/** 阅读统计状态；summary/heatmapWeeks 为 null 表示未加载/无会话，界面显示加载或空态。 */
 data class ReadingStatsUiState(
     val hasSession: Boolean = false,
     /** kmrs 能力缺失（stock Komga）：显示占位，不报错。 */

@@ -82,7 +82,12 @@ class BookDetailViewModel @Inject constructor(
         _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val isAdmin = configStore.config.first()?.isAdmin == true
+                val isAdmin = configStore.config.first()?.isAdmin == true ||
+                    runCatching {
+                        clients.currentUser.getCurrentUser().awaitBody()
+                            ?.roles
+                            ?.contains("ADMIN") == true
+                    }.getOrDefault(false)
                 val dto = detailRepository.bookDetail(dtoId)
                 if (dto == null) {
                     _uiState.update { it.copy(loading = false, isAdmin = isAdmin) }

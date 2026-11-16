@@ -166,6 +166,7 @@ fun TrackerSection(
 fun TrackerSeriesSheet(
     series: Series,
     onDismiss: () -> Unit,
+    alternateTitles: List<String> = emptyList(),
     viewModel: TrackerSeriesViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(series.id) { viewModel.load(series) }
@@ -267,6 +268,7 @@ fun TrackerSeriesSheet(
     editingProvider?.let { provider ->
         TrackerLinkEditSheet(
             series = series,
+            alternateTitles = alternateTitles,
             provider = provider,
             existing = links.firstOrNull { it.provider == provider },
             onUnlink = { viewModel.unlink(provider) },

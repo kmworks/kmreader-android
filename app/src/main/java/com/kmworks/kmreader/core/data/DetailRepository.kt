@@ -112,11 +112,12 @@ class DetailRepository @Inject constructor(
 
     /** Collection members in server order (GET api/v1/collections/{id}/series).
      *  ApiClients 未暴露 CollectionSeriesApi，经 LocalApiFactory 本地构建。 */
-    suspend fun collectionSeries(dtoId: String): List<SeriesDto> {
-        val clients = sessionManager.clients.value ?: return emptyList()
+    suspend fun collectionSeries(dtoId: String, page: Int = 0, size: Int = 50): Paged<SeriesDto> {
+        val clients = sessionManager.clients.value ?: return Paged(emptyList(), hasMore = false)
         val api = LocalApiFactory.create(clients, CollectionSeriesApi::class.java)
-        return api.getSeriesByCollectionId(dtoId, unpaged = true)
-            .awaitBody()?.content.orEmpty()
+        val body = api.getSeriesByCollectionId(dtoId, page = page, size = size).awaitBody()
+        val items = body?.content.orEmpty()
+        return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
     suspend fun readListDetail(dtoId: String): ReadListDto? {
@@ -125,11 +126,12 @@ class DetailRepository @Inject constructor(
     }
 
     /** Read list books in list order (GET api/v1/readlists/{id}/books). */
-    suspend fun readListBooks(dtoId: String): List<BookDto> {
-        val clients = sessionManager.clients.value ?: return emptyList()
+    suspend fun readListBooks(dtoId: String, page: Int = 0, size: Int = 50): Paged<BookDto> {
+        val clients = sessionManager.clients.value ?: return Paged(emptyList(), hasMore = false)
         val api = LocalApiFactory.create(clients, ReadlistBooksApi::class.java)
-        return api.getBooksByReadListId(dtoId, unpaged = true)
-            .awaitBody()?.content.orEmpty()
+        val body = api.getBooksByReadListId(dtoId, page = page, size = size).awaitBody()
+        val items = body?.content.orEmpty()
+        return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
     /** 系列所属收藏（失败返回空，归属展示不阻塞详情）。 */

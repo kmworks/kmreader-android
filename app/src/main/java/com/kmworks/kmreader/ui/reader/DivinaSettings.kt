@@ -15,6 +15,9 @@ enum class ReaderBackground(val label: String) {
     Sepia("米色"),
     System("跟随系统");
 
+    /** 对齐原作 ReaderBackground.appliesImageMultiplyBlend：仅 sepia 对页面图片做正片叠底。 */
+    val appliesImageMultiplyBlend: Boolean get() = this == Sepia
+
     fun color(dark: Boolean): Color = when (this) {
         Black -> Color.Black
         White -> Color.White
@@ -31,8 +34,8 @@ enum class ReaderBackground(val label: String) {
     }
 
     companion object {
-        private val SepiaPaper = Color(0xFFF4ECD8)
-        private val SepiaInk = Color(0xFF5C4A37)
+        val SepiaPaper = Color(0xFFF4ECD8)
+        val SepiaInk = Color(0xFF5C4A37)
     }
 }
 
@@ -82,11 +85,20 @@ enum class LongPressAction(val label: String) {
     Disabled("关闭")
 }
 
-/** 图片预加载窗口（对齐原作 ReaderPreloadProfile 的三档窗口）。 */
-enum class PreloadProfile(val label: String, val before: Int, val after: Int) {
-    LowMemory("低内存", 1, 1),
-    Balanced("均衡", 2, 2),
-    FastPageTurns("快速翻页", 4, 4)
+/**
+ * 图片预加载窗口（1:1 对齐原作 ReaderPreloadProfile 的三档窗口，ReaderViewModel.swift）：
+ * before/after = 预取窗口，keepBefore/keepAfter = 内存保留窗口（超出即清理）。
+ */
+enum class PreloadProfile(
+    val label: String,
+    val before: Int,
+    val after: Int,
+    val keepBefore: Int,
+    val keepAfter: Int,
+) {
+    LowMemory("低内存", 1, 3, 1, 3),
+    Balanced("均衡", 3, 5, 5, 7),
+    FastPageTurns("快速翻页", 5, 7, 7, 9)
 }
 
 /** 裁边模式（对齐原作 ReaderPageBorderCropMode：disabled/conservative/aggressive）。 */
@@ -99,6 +111,10 @@ enum class BorderCropMode(val label: String, val maxFraction: Float, val toleran
 /**
  * DIVINA 阅读器设置（对齐原作 ReaderSettingsSheet 的 @AppStorage 键与默认值）。
  * 面板模式 / Waifu2x 超分 / Live Text 按项目红线不做，记录在 README 差异清单。
+ *
+ * defaultPageLayout/defaultSplitWideMode/defaultSoloCoverPage 对应原作 DivinaPreferencesView 的
+ * 「Default Reading Options」：只在打开新会话时作为初始值消费，阅读器内改动不回写
+ * （对齐原作 DivinaReaderView @State 初始值 + resetReaderPreferencesForCurrentBook 语义）。
  */
 data class DivinaSettings(
     val background: ReaderBackground = ReaderBackground.System,
@@ -118,6 +134,12 @@ data class DivinaSettings(
     val longPressAction: LongPressAction = LongPressAction.ContextMenu,
     val preloadProfile: PreloadProfile = PreloadProfile.Balanced,
     val borderCrop: BorderCropMode = BorderCropMode.Disabled,
+    val keepScreenAwake: Boolean = false,
+    val defaultPageLayout: PageLayout = PageLayout.Auto,
+    val defaultSplitWideMode: SplitWidePageMode = SplitWidePageMode.Auto,
+    val defaultSoloCoverPage: Boolean = true,
+    /** 对齐原作 forceDefaultReadingDirection：true 时忽略系列方向，永远用全局默认方向。 */
+    val forceDefaultDirection: Boolean = false,
 )
 
 /** 点按结果（对齐原作 TapZoneAction）。 */

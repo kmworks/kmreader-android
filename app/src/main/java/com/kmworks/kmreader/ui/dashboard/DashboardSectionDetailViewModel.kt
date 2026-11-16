@@ -2,6 +2,8 @@ package com.kmworks.kmreader.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.Paged
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.data.Book
@@ -22,6 +24,10 @@ data class DashboardSectionDetailUiState(
     val error: String? = null,
     val items: List<Any> = emptyList(),
     val hasMore: Boolean = false,
+    /** 库范围菜单数据：服务器真实库列表。 */
+    val libraries: List<LibraryDto> = emptyList(),
+    /** 库范围选择（null = 全部）；分页查询经 libraryIds 参数过滤。 */
+    val libraryScope: String? = null,
 )
 
 /**
@@ -31,6 +37,7 @@ data class DashboardSectionDetailUiState(
 @HiltViewModel
 class DashboardSectionDetailViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
+    private val libraryRepository: LibraryRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardSectionDetailUiState())
@@ -39,6 +46,8 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private var sectionId: String? = null
     private var page = 0
     private var loadingMore = false
+    /** 代际号：库范围切换/重新绑定后，丢弃在途旧查询的结果。 */
+    private var generation = 0
 
     /** Bind to a section; only the first call per section id triggers a fresh load. */
     fun start(section: DashboardSection<out Any>) {
@@ -46,7 +55,31 @@ class DashboardSectionDetailViewModel @Inject constructor(
         sectionId = section.id
         page = 0
         loadingMore = false
+        generation++
         _state.value = DashboardSectionDetailUiState(loading = true)
+        viewModelScope.launch { loadPage(0) }
+        viewModelScope.launch {
+            val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+            _state.update { it.copy(libraries = libraries) }
+        }
+    }
+
+    /** 库范围切换（LibraryScopeMenu）：重置分页并按 libraryIds 重新拉取（null = 全部）。 */
+    fun setLibraryScope(libraryId: String?) {
+        if (_state.value.libraryScope == libraryId) return
+        generation++
+        page = 0
+        loadingMore = false
+        _state.update {
+            it.copy(
+                libraryScope = libraryId,
+                items = emptyList(),
+                hasMore = false,
+                error = null,
+                loading = true,
+                loadingMore = false,
+            )
+        }
         viewModelScope.launch { loadPage(0) }
     }
 
@@ -59,9 +92,11 @@ class DashboardSectionDetailViewModel @Inject constructor(
 
     private suspend fun loadPage(target: Int) {
         val id = sectionId ?: return
+        val gen = generation
         _state.update { it.copy(loadingMore = true) }
         try {
             val result = fetch(id, target, PAGE_SIZE)
+            if (gen != generation) return // 代际已切换，丢弃旧结果
             if (result == null) {
                 _state.update {
                     it.copy(loading = false, loadingMore = false, error = "该分区暂不支持分页")
@@ -85,23 +120,26 @@ class DashboardSectionDetailViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (gen != generation) return // 代际已切换，不覆盖新查询的状态
             _state.update {
                 it.copy(loading = false, loadingMore = false, error = e.message ?: "加载失败")
             }
         } finally {
-            loadingMore = false
+            if (gen == generation) loadingMore = false
         }
     }
 
-    private suspend fun fetch(sectionId: String, page: Int, size: Int): Paged<Any>? =
-        when (sectionId) {
-            "keepReading" -> searchRepository.keepReadingPage(page, size).eraseType()
-            "onDeck" -> searchRepository.onDeckPage(page, size).eraseType()
-            "recentlyAddedBooks" -> searchRepository.latestBooksPage(page, size).eraseType()
-            "recentlyAddedSeries" -> searchRepository.latestSeriesPage(page, size).eraseType()
-            "recentlyUpdatedSeries" -> searchRepository.recentlyUpdatedSeriesPage(page, size).eraseType()
+    private suspend fun fetch(sectionId: String, page: Int, size: Int): Paged<Any>? {
+        val libraryIds = _state.value.libraryScope?.let { listOf(it) }
+        return when (sectionId) {
+            "keepReading" -> searchRepository.keepReadingPage(page, size, libraryIds).eraseType()
+            "onDeck" -> searchRepository.onDeckPage(page, size, libraryIds).eraseType()
+            "recentlyAddedBooks" -> searchRepository.latestBooksPage(page, size, libraryIds).eraseType()
+            "recentlyAddedSeries" -> searchRepository.latestSeriesPage(page, size, libraryIds).eraseType()
+            "recentlyUpdatedSeries" -> searchRepository.recentlyUpdatedSeriesPage(page, size, libraryIds).eraseType()
             else -> null
         }
+    }
 
     private fun <T> Paged<T>.eraseType(): Paged<Any> = Paged(items.toList().map { it as Any }, hasMore)
 

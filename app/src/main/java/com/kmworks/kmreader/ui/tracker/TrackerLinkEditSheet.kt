@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +79,7 @@ fun TrackerLinkEditSheet(
     series: Series,
     provider: TrackerProvider,
     existing: TrackerLink?,
+    alternateTitles: List<String> = emptyList(),
     onUnlink: () -> Unit,
     onDismiss: () -> Unit,
     viewModel: TrackerLinkEditViewModel = hiltViewModel(),
@@ -93,6 +95,8 @@ fun TrackerLinkEditSheet(
     val searched by viewModel.searched.collectAsStateWithLifecycle()
     val supported by viewModel.supported.collectAsStateWithLifecycle()
     val remoteState by viewModel.remoteState.collectAsStateWithLifecycle()
+    val suggestion by viewModel.suggestion.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(series.id, provider) {
         viewModel.bind(series, provider)
@@ -103,13 +107,18 @@ fun TrackerLinkEditSheet(
         selectedId?.let { viewModel.select(it) }
     }
 
-    val titles = remember(series) { listOf(series.title) }
+    val titles = remember(series, alternateTitles) {
+        (listOf(series.title) + alternateTitles).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    }
     val results: List<TrackerSearchItemDto> = searchResults.orEmpty()
-    // 来自系列链接的建议：仅当系列 metadata links 能反解出当前 provider 的条目 id 时展示
+    // 来自系列链接的建议：先用 metadata links 反解 provider URL，再按 iOS 行为用该 URL 查真实条目。
     val linkSuggestion = remember(series, provider) {
         series.links.firstNotNullOfOrNull { (_, url) ->
             provider.trackIdFromUrl(url)?.let { trackId -> trackId to url }
         }
+    }
+    LaunchedEffect(provider, linkSuggestion?.second, existing?.trackId) {
+        if (existing == null) linkSuggestion?.second?.let { viewModel.loadSuggestion(it) }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -158,7 +167,14 @@ fun TrackerLinkEditSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { }) {
+                    IconButton(
+                        onClick = {
+                            val selectedUrl = searchResults.orEmpty().firstOrNull { it.id == selectedId }?.url
+                                ?: suggestion?.takeIf { it.id == selectedId }?.url
+                                ?: provider.entryUrl(selectedId.orEmpty())
+                            if (selectedUrl.isNotBlank()) uriHandler.openUri(selectedUrl)
+                        },
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = "在 ${provider.displayName} 打开",
@@ -196,27 +212,49 @@ fun TrackerLinkEditSheet(
                         )
                     }
                 }
-                // 来自系列链接的建议（系列 metadata links 反解 entryId；无匹配则不显示）
-                linkSuggestion?.let { (suggestedId, _) ->
+                // 来自系列链接的建议：只在建议 URL 查询到真实条目时展示，对齐 iOS。
+                suggestion?.let { item ->
                     Surface(
                         onClick = {
-                            selectedId = suggestedId
-                            selectedTitle = series.title
+                            selectedId = item.id
+                            selectedTitle = item.title
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                "来自系列链接",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CoverArt(
+                                title = item.title,
+                                hue = series.hue,
+                                imageUrl = item.coverUrl,
+                                modifier = Modifier
+                                    .width(36.dp)
+                                    .height(54.dp),
                             )
-                            Text(
-                                "${series.title} · #$suggestedId",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "来自系列链接",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    item.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "#${item.id}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -422,6 +460,9 @@ class TrackerLinkEditViewModel @Inject constructor(
     private val _remoteState = MutableStateFlow<TrackerRemoteStateDto?>(null)
     val remoteState: StateFlow<TrackerRemoteStateDto?> = _remoteState.asStateFlow()
 
+    private val _suggestion = MutableStateFlow<TrackerSearchItemDto?>(null)
+    val suggestion: StateFlow<TrackerSearchItemDto?> = _suggestion.asStateFlow()
+
     private var seriesDtoId: String? = null
     private var provider: TrackerProvider = TrackerProvider.AniList
     private var searchJob: Job? = null
@@ -430,6 +471,15 @@ class TrackerLinkEditViewModel @Inject constructor(
         this.provider = provider
         seriesDtoId = detailRepository.seriesDtoId(series.id)
         _supported.value = trackerRepository.supported
+        _suggestion.value = null
+    }
+
+    /** 按系列链接建议 URL 拉取真实 tracker 条目；失败/无结果时不显示假建议。 */
+    fun loadSuggestion(url: String) {
+        if (!trackerRepository.supported) return
+        viewModelScope.launch {
+            _suggestion.value = trackerRepository.search(provider.apiName, url).firstOrNull()
+        }
     }
 
     /** 300ms 防抖远端搜索；空关键词清空结果，无能力时保持空。 */

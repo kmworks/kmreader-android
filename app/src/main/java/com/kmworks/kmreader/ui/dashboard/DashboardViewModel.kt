@@ -2,9 +2,11 @@ package com.kmworks.kmreader.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
 import com.kmworks.kmreader.core.data.hueFor
@@ -46,6 +48,10 @@ data class DashboardUiState(
     val readLists: List<ListEntry>? = null,
     /** 分区标题右侧是否显示卡片形态菜单（设置页持久化）。 */
     val kindMenuEnabled: Boolean = true,
+    /** 库范围菜单数据：服务器真实库列表。 */
+    val libraries: List<LibraryDto> = emptyList(),
+    /** 库范围选择（null = 全部书库）；各分区查询经 core/data 的 libraryIds 参数过滤。 */
+    val libraryScope: String? = null,
 )
 
 /** 仪表盘布局配置（持久化于 AppSettingsStore，对齐 iOS DashboardConfiguration）。 */
@@ -65,6 +71,7 @@ class DashboardViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
+    private val libraryRepository: LibraryRepository,
     private val sseService: SseService,
     private val appSettings: AppSettingsStore,
     sessionManager: SessionManager,
@@ -121,10 +128,13 @@ class DashboardViewModel @Inject constructor(
                 }
             }
         }
-        // SSE 内容变化事件聚合 3s 后刷新
+        // SSE 内容变化事件聚合 3s 后刷新（设置页「自动刷新」关闭时不跟随事件）
         viewModelScope.launch {
-            sseService.events
-                .filter { it.kind in REFRESH_KINDS }
+            combine(
+                sseService.events.filter { it.kind in REFRESH_KINDS },
+                appSettings.sseAutoRefresh,
+            ) { _, autoRefresh -> autoRefresh }
+                .filter { it }
                 .debounce(3_000)
                 .collect { refresh() }
         }
@@ -155,15 +165,23 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /** 库范围选择（LibraryScopeMenu）；切换后按 libraryIds 重新拉取各分区（null/全部走原行为）。 */
+    fun setLibraryScope(libraryId: String?) {
+        if (_state.value.libraryScope == libraryId) return
+        _state.update { it.copy(libraryScope = libraryId) }
+        if (_state.value.hasSession) refresh()
+    }
+
     private suspend fun load() {
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
+        val libraryIds = _state.value.libraryScope?.let { listOf(it) }
         try {
             val fetched = coroutineScope {
-                val keepReading = async { bookRepository.keepReading() }
-                val onDeck = async { bookRepository.onDeck() }
-                val latestBooks = async { bookRepository.latest() }
-                val latestSeries = async { seriesRepository.latest() }
-                val updatedSeries = async { seriesRepository.recentlyUpdated() }
+                val keepReading = async { bookRepository.keepReading(libraryIds = libraryIds) }
+                val onDeck = async { bookRepository.onDeck(libraryIds = libraryIds) }
+                val latestBooks = async { bookRepository.latest(libraryIds = libraryIds) }
+                val latestSeries = async { seriesRepository.latest(libraryIds = libraryIds) }
+                val updatedSeries = async { seriesRepository.recentlyUpdated(libraryIds = libraryIds) }
                 DashboardFeeds(
                     keepReading.await(),
                     onDeck.await(),
@@ -186,6 +204,7 @@ class DashboardViewModel @Inject constructor(
             )
             val collectionDtos = listRepository.collections()
             val readListDtos = listRepository.readLists()
+            val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
             val collections = collectionDtos.map { dto ->
                 ListEntry(dto.id.hashCode(), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
             }
@@ -197,7 +216,7 @@ class DashboardViewModel @Inject constructor(
                 readListDtos.map { dto ->
                     async {
                         if (dto.bookIds.isEmpty()) return@async null
-                        val books = detailRepository.readListBooks(dto.id).map { b -> b.toUiBook() }
+                        val books = detailRepository.readListBooks(dto.id).items.map { b -> b.toUiBook() }
                         if (books.isEmpty()) return@async null
                         val booksRead = books.count { it.progress == 1f }
                         if (booksRead >= books.size) return@async null
@@ -233,6 +252,7 @@ class DashboardViewModel @Inject constructor(
                     continuations = continuations,
                     collections = collections,
                     readLists = readLists,
+                    libraries = libraries,
                 )
             }
         } catch (e: Exception) {

@@ -54,13 +54,25 @@ class ActionRepository @Inject constructor(
     }
 
     suspend fun addBookToReadList(readListDtoId: String, bookDtoId: String): Boolean {
+        return addBooksToReadList(readListDtoId, listOf(bookDtoId))
+    }
+
+    /** 批量加入阅读列表；保留服务端顺序并过滤已存在项。 */
+    suspend fun addBooksToReadList(readListDtoId: String, bookDtoIds: List<String>): Boolean {
         val clients = sessionManager.clients.value ?: return false
         val current = clients.readlists.getReadListById(readListDtoId).awaitBody() ?: return false
-        if (bookDtoId in current.bookIds) return true
-        val ids = current.bookIds + bookDtoId
+        val newIds = bookDtoIds.distinct().filterNot { it in current.bookIds }
+        if (newIds.isEmpty()) return true
+        val ids = current.bookIds + newIds
         return clients.readlists
             .updateReadListById(readListDtoId, ReadListUpdateDto(bookIds = ids))
             .awaitBody() != null
+    }
+
+    /** Komga 的书籍删除操作对应删除书籍文件（DELETE /api/v1/books/{bookId}/file）。 */
+    suspend fun deleteBook(bookDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.books.deleteBookFile(bookDtoId).awaitBody() != null
     }
 
     /** 更新书籍元数据（PATCH /api/v1/books/{bookId}/metadata；只带上锁字段）。 */
@@ -73,6 +85,16 @@ class ActionRepository @Inject constructor(
     suspend fun updateSeriesMetadata(seriesDtoId: String, body: SeriesMetadataUpdateDto): Boolean {
         val clients = sessionManager.clients.value ?: return false
         return clients.series.updateSeriesMetadata(seriesDtoId, body).awaitBody() != null
+    }
+
+    suspend fun removeSeriesFromCollection(collectionDtoId: String, seriesDtoIds: List<String>): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        val current = clients.collections.getCollectionById(collectionDtoId).awaitBody() ?: return false
+        val ids = current.seriesIds.filterNot { it in seriesDtoIds }
+        if (ids.size == current.seriesIds.size) return true
+        return clients.collections
+            .updateCollectionById(collectionDtoId, CollectionUpdateDto(seriesIds = ids))
+            .awaitBody() != null
     }
 
     suspend fun removeBooksFromReadList(readListDtoId: String, bookDtoIds: List<String>): Boolean {

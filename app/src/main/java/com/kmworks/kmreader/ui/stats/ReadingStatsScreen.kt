@@ -41,10 +41,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.HeatmapDay
-import com.kmworks.kmreader.data.SampleSystemData
 
 /** Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView).
- *  kmrs 能力门控：无会话回退假数据演示；stock Komga（无 ReadingStats 特性）显示占位。 */
+ *  kmrs 能力门控：stock Komga（无 ReadingStats 特性）显示占位；无会话/加载中显示空态，不回退假数据。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingStatsScreen(
@@ -52,10 +51,6 @@ fun ReadingStatsScreen(
     viewModel: ReadingStatsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    // 真实数据优先；无会话（或未加载完成前）回退假数据演示
-    val stats = state.summary ?: SampleSystemData.readingStats
-    val weeks = state.heatmapWeeks ?: SampleSystemData.heatmapWeeks
-    val maxPages = if (state.heatmapWeeks != null) state.maxHeatmapPages else SampleSystemData.maxHeatmapPages
     var selectedDay by remember { mutableStateOf<HeatmapDay?>(null) }
 
     Scaffold(
@@ -88,6 +83,36 @@ fun ReadingStatsScreen(
             }
             return@Scaffold
         }
+        // 数据未就绪：加载中/失败/无会话空态（不使用示例假数据）
+        val stats = state.summary
+        val weeks = state.heatmapWeeks
+        if (stats == null || weeks == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = when {
+                        state.loading -> "加载中…"
+                        state.error != null -> "加载失败：${state.error}"
+                        !state.hasSession -> "登录后查看阅读统计"
+                        else -> "暂无阅读统计数据"
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (state.error != null && !state.loading) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            return@Scaffold
+        }
+        val maxPages = state.maxHeatmapPages
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

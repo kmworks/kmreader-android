@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,12 +33,15 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -45,7 +50,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +72,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
+import kotlinx.coroutines.launch
 
 private val WideLayoutBreakpoint = 960.dp
 
@@ -75,6 +83,7 @@ fun ReadListDetailScreen(
     readList: ReadListDetail,
     onBack: () -> Unit,
     onRead: (Book) -> Unit,
+    onOpenSeries: (Int) -> Unit,
     modifier: Modifier = Modifier,
     onTogglePin: () -> Unit = {},
     onEdit: () -> Unit = {},
@@ -82,8 +91,13 @@ fun ReadListDetailScreen(
     onRemoveBooks: (List<Int>) -> Unit = {},
     viewModel: ReadListDetailViewModel = hiltViewModel(),
 ) {
-    // 真实数据：反查 DTO 并按 bookIds 顺序拉各本书（含真实进度）；无会话回退假数据
+    // 真实数据：反查 DTO 并按 bookIds 顺序拉各本书（含真实进度）；无会话时显示空态
     val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val notifyActionFailure: suspend (String) -> Unit = { action ->
+        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+    }
     LaunchedEffect(readList.id) { viewModel.load(readList.id) }
     val displayReadList = readList.copy(
         name = state.name ?: readList.name,
@@ -99,10 +113,13 @@ fun ReadListDetailScreen(
     var removedIds by remember { mutableStateOf(setOf<Int>()) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
+    val wideListScrollState = rememberScrollState()
+    val narrowListScrollState = rememberScrollState()
     // per-book 「…」菜单与「加入阅读列表」sheet
     var menuBook by remember { mutableStateOf<Book?>(null) }
     var addTarget by remember { mutableStateOf<Book?>(null) }
     var addToReadListOpen by remember { mutableStateOf(false) }
+    var addSelectedToReadListOpen by remember { mutableStateOf(false) }
     // 演示数据（无会话）下的本地即时反馈：标读/未读覆盖
     var demoMarks by remember { mutableStateOf(mapOf<Int, Boolean>()) }
     val readLists by viewModel.readLists.collectAsState()
@@ -117,6 +134,7 @@ fun ReadListDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {},
@@ -195,13 +213,15 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = false,
                             first = heroFirst,
+                            createdDate = state.createdDate,
+                            lastModifiedDate = state.lastModifiedDate,
                         )
                     }
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(wideListScrollState)
                             .padding(vertical = 8.dp),
                     ) {
                         if (continuation != null) {
@@ -241,6 +261,17 @@ fun ReadListDetailScreen(
                                 selected = emptySet()
                                 selecting = false
                             },
+                            onDownload = {
+                                viewModel.downloadBooks(selected) { ok ->
+                                    if (!ok) coroutineScope.launch { notifyActionFailure("下载所选书籍") }
+                                }
+                                selected = emptySet()
+                                selecting = false
+                            },
+                            onAddToReadList = {
+                                viewModel.ensureReadListsLoaded()
+                                addSelectedToReadListOpen = true
+                            },
                             onRemoveSelected = {
                                 if (!viewModel.removeBooks(selected)) {
                                     removedIds = removedIds + selected
@@ -264,13 +295,21 @@ fun ReadListDetailScreen(
                             },
                             onMenu = { menuBook = it },
                         )
+                        if (state.loadingMore) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            }
+                        }
                     }
                 }
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(narrowListScrollState)
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -279,6 +318,8 @@ fun ReadListDetailScreen(
                             bookCount = visible.size,
                             centered = true,
                             first = heroFirst,
+                            createdDate = state.createdDate,
+                            lastModifiedDate = state.lastModifiedDate,
                         )
                     }
                     if (continuation != null) {
@@ -317,6 +358,17 @@ fun ReadListDetailScreen(
                             selected = emptySet()
                             selecting = false
                         },
+                        onDownload = {
+                            viewModel.downloadBooks(selected) { ok ->
+                                if (!ok) coroutineScope.launch { notifyActionFailure("下载所选书籍") }
+                            }
+                            selected = emptySet()
+                            selecting = false
+                        },
+                        onAddToReadList = {
+                            viewModel.ensureReadListsLoaded()
+                            addSelectedToReadListOpen = true
+                        },
                         onRemoveSelected = {
                             if (!viewModel.removeBooks(selected)) {
                                 removedIds = removedIds + selected
@@ -340,8 +392,22 @@ fun ReadListDetailScreen(
                         },
                         onMenu = { menuBook = it },
                     )
+                    if (state.loadingMore) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    }
                 }
             }
+            AutoLoadMore(
+                scrollState = if (maxWidth >= WideLayoutBreakpoint) wideListScrollState else narrowListScrollState,
+                hasMore = state.hasMore,
+                loadingMore = state.loadingMore,
+                onLoadMore = viewModel::loadMore,
+            )
         }
     }
 
@@ -359,7 +425,17 @@ fun ReadListDetailScreen(
                 hasStarted = target.progress != null,
                 completed = target.progress == 1f,
                 downloaded = false,
-                onOpenSeries = { },
+                onOpenSeries = {
+                    viewModel.seriesStableIdForBook(target.id) { seriesStableId ->
+                        if (seriesStableId != null) onOpenSeries(seriesStableId)
+                        else coroutineScope.launch { notifyActionFailure("打开所属系列") }
+                    }
+                },
+                onDownload = {
+                    viewModel.downloadBooks(setOf(target.id)) { ok ->
+                        if (!ok) coroutineScope.launch { notifyActionFailure("下载书籍") }
+                    }
+                },
                 onMarkRead = {
                     if (!viewModel.markBooksRead(setOf(target.id), true)) {
                         demoMarks = demoMarks + (target.id to true)
@@ -382,6 +458,21 @@ fun ReadListDetailScreen(
                 },
             ),
             onDismiss = { menuBook = null },
+        )
+    }
+    if (addSelectedToReadListOpen) {
+        AddToListSheet(
+            collections = emptyList(),
+            readLists = readLists ?: emptyList(),
+            onSelect = { entry ->
+                viewModel.addBooksToReadList(entry, selected) { ok ->
+                    if (!ok) coroutineScope.launch { notifyActionFailure("加入阅读列表") }
+                }
+                addSelectedToReadListOpen = false
+                selected = emptySet()
+                selecting = false
+            },
+            onDismiss = { addSelectedToReadListOpen = false },
         )
     }
     if (addToReadListOpen) {
@@ -411,6 +502,24 @@ fun ReadListDetailScreen(
     }
 }
 
+@Composable
+private fun AutoLoadMore(
+    scrollState: ScrollState,
+    hasMore: Boolean,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(scrollState, hasMore, loadingMore) {
+        snapshotFlow {
+            Triple(scrollState.value, scrollState.maxValue, scrollState.viewportSize)
+        }.collect { (value, maxValue, viewportSize) ->
+            if (hasMore && !loadingMore && maxValue > 0 && maxValue - value <= viewportSize) {
+                onLoadMore()
+            }
+        }
+    }
+}
+
 /** Hero：封面 + 名称 + 本数/有序 + 简介 + 时间戳（对齐 ReadListDetailContentView）。 */
 @Composable
 private fun ReadListHero(
@@ -418,6 +527,8 @@ private fun ReadListHero(
     bookCount: Int,
     centered: Boolean,
     first: Book?,
+    createdDate: String?,
+    lastModifiedDate: String?,
 ) {
     Column(
         modifier = Modifier
@@ -473,12 +584,18 @@ private fun ReadListHero(
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        Text(
-            text = "创建于 2024-06-12 · 更新于 2 小时前",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
-        )
+        val timestamps = listOfNotNull(
+            createdDate?.take(10)?.let { "创建于 $it" },
+            lastModifiedDate?.take(10)?.let { "更新于 $it" },
+        ).joinToString(" · ")
+        if (timestamps.isNotEmpty()) {
+            Text(
+                text = timestamps,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 
@@ -541,6 +658,8 @@ private fun ReadListToolbar(
     onSelectAll: () -> Unit,
     onMarkRead: () -> Unit,
     onMarkUnread: () -> Unit,
+    onDownload: () -> Unit,
+    onAddToReadList: () -> Unit,
     onRemoveSelected: () -> Unit,
     onDoneSelecting: () -> Unit,
 ) {
@@ -551,8 +670,8 @@ private fun ReadListToolbar(
             onSelectAll = onSelectAll,
             onMarkRead = onMarkRead,
             onMarkUnread = onMarkUnread,
-            onDownload = {},
-            onAddToReadList = {},
+            onDownload = onDownload,
+            onAddToReadList = onAddToReadList,
             onDelete = onRemoveSelected,
             onDone = onDoneSelecting,
         )

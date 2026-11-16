@@ -25,6 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,28 +70,32 @@ fun BrowseSettingsScreen(
         ) {
             item {
                 BrowseSectionTitle("卡片预览")
-                CompositionLocalProvider(LocalCardDisplay provides display) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        SeriesGridCard(
-                            series = previewSeries,
-                            onClick = { },
-                            modifier = Modifier.width(132.dp),
-                        )
-                        BookGridCard(
-                            book = previewInProgressBook,
-                            onClick = { },
-                            modifier = Modifier.width(132.dp),
-                        )
-                        BookGridCard(
-                            book = previewCompletedBook,
-                            onClick = { },
-                            modifier = Modifier.width(132.dp),
-                        )
+                // LocalCardDisplay 是 staticCompositionLocalOf（ui/components 侧），
+                // key(display) 强制重建预览子树，保证开关在预览里立即生效。
+                key(display) {
+                    CompositionLocalProvider(LocalCardDisplay provides display) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            SeriesGridCard(
+                                series = previewSeries,
+                                onClick = { },
+                                modifier = Modifier.width(132.dp),
+                            )
+                            BookGridCard(
+                                book = previewInProgressBook,
+                                onClick = { },
+                                modifier = Modifier.width(132.dp),
+                            )
+                            BookGridCard(
+                                book = previewCompletedBook,
+                                onClick = { },
+                                modifier = Modifier.width(132.dp),
+                            )
+                        }
                     }
                 }
                 Text(

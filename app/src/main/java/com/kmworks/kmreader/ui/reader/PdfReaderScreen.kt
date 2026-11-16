@@ -40,6 +40,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,9 +73,11 @@ fun PdfReaderScreen(
     onBack: () -> Unit,
     incognito: Boolean = false,
     viewModel: PdfReaderViewModel = hiltViewModel(),
+    settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var pdfSettings by remember { mutableStateOf(PdfReaderSettings()) }
+    // PDF 偏好全局持久化（对齐原作 pdf* @AppStorage），阅读器与默认值页共享同一份
+    val pdfSettings by settingsViewModel.pdfSettings.collectAsStateWithLifecycle()
     var chromeVisible by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -115,8 +118,15 @@ fun PdfReaderScreen(
         if (pdfSettings.controlsScrim) Color.Black.copy(alpha = 0.78f) else Color.Transparent
 
     // Progress reporting (real session only; incognito = Peek, no reporting)
+    // 对齐原作：2s 节流上报，退出时 flush 最后一次
     LaunchedEffect(currentPage, state.ready, incognito) {
-        if (state.ready && !incognito) viewModel.reportProgress(currentPage)
+        if (state.ready && !incognito) {
+            delay(2_000)
+            viewModel.reportProgress(currentPage)
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.reportProgress(currentPage) }
     }
 
     // Debounced full-text search
@@ -328,10 +338,9 @@ fun PdfReaderScreen(
                                     }
                                 },
                                 onClick = {
-                                    pdfSettings =
-                                        pdfSettings.copy(
-                                            continuousScroll = !pdfSettings.continuousScroll,
-                                        )
+                                    settingsViewModel.updatePdf {
+                                        it.copy(continuousScroll = !it.continuousScroll)
+                                    }
                                     menuExpanded = false
                                 },
                             )
@@ -408,7 +417,7 @@ fun PdfReaderScreen(
     if (showSettings) {
         PdfPreferencesSheet(
             settings = pdfSettings,
-            onSettingsChange = { pdfSettings = it },
+            onSettingsChange = { new -> settingsViewModel.updatePdf { new } },
             onDismiss = { showSettings = false },
         )
     }

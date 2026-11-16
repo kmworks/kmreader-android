@@ -62,8 +62,6 @@ import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
-private val scopeOptions = listOf("全部", "已钉选", "漫画", "画集")
-
 /**
  * Section detail page ("More" destination): adaptive grid/list with three-way layout
  * cycling, library scope menu and browse-options filter sheet. Feed items are re-fetched
@@ -79,7 +77,6 @@ fun DashboardSectionDetailScreen(
     viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
     var layout by rememberSaveable { mutableStateOf(BrowseLayout.Grid) }
-    var scope by rememberSaveable { mutableStateOf(scopeOptions.first()) }
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
@@ -133,15 +130,27 @@ fun DashboardSectionDetailScreen(
                             expanded = scopeMenuOpen,
                             onDismissRequest = { scopeMenuOpen = false },
                         ) {
-                            scopeOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text("全部") },
+                                onClick = {
+                                    viewModel.setLibraryScope(null)
+                                    scopeMenuOpen = false
+                                },
+                                trailingIcon = {
+                                    if (detail.libraryScope == null) {
+                                        Icon(Icons.Filled.Check, contentDescription = null)
+                                    }
+                                },
+                            )
+                            detail.libraries.forEach { library ->
                                 DropdownMenuItem(
-                                    text = { Text(option) },
+                                    text = { Text(library.name) },
                                     onClick = {
-                                        scope = option
+                                        viewModel.setLibraryScope(library.id)
                                         scopeMenuOpen = false
                                     },
                                     trailingIcon = {
-                                        if (option == scope) {
+                                        if (library.id == detail.libraryScope) {
                                             Icon(Icons.Filled.Check, contentDescription = null)
                                         }
                                     },

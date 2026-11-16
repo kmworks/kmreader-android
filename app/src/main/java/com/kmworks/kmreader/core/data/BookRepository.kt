@@ -23,25 +23,42 @@ class BookRepository @Inject constructor(
 
     /** Books currently in progress, most recently read first
      *  (POST api/v1/books/list, condition readStatus is IN_PROGRESS). */
-    suspend fun keepReading(size: Int = 12): List<BookDto> {
+    suspend fun keepReading(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
         val api = listSearchApi() ?: return emptyList()
+        val condition = combinedCondition(
+            listOfNotNull(
+                leafCondition("readStatus", "is", "IN_PROGRESS"),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
         return api.books(
-            search = searchBody(condition = leafCondition("readStatus", "is", "IN_PROGRESS")),
+            search = searchBody(condition = condition),
             size = size,
             sort = listOf("readProgress.lastModified,desc"),
         ).awaitBody()?.content.orEmpty()
     }
 
     /** First unread book of series with at least one book read (GET api/v1/books/ondeck). */
-    suspend fun onDeck(size: Int = 12): List<BookDto> {
+    suspend fun onDeck(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
         val api = api ?: return emptyList()
-        return api.getBooksOnDeck(size = size).awaitBody()?.content.orEmpty()
+        return api.getBooksOnDeck(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            size = size,
+        ).awaitBody()?.content.orEmpty()
     }
 
-    /** Newly added or updated books (GET api/v1/books/latest). */
-    suspend fun latest(size: Int = 12): List<BookDto> {
-        val api = api ?: return emptyList()
-        return api.getBooksLatest(size = size).awaitBody()?.content.orEmpty()
+    /** Newly added books. Scoped mode follows iOS DashboardSection: POST books/list sorted by createdDate. */
+    suspend fun latest(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
+        if (libraryIds.isNullOrEmpty()) {
+            val api = api ?: return emptyList()
+            return api.getBooksLatest(size = size).awaitBody()?.content.orEmpty()
+        }
+        val api = listSearchApi() ?: return emptyList()
+        return api.books(
+            search = searchBody(condition = libraryCondition(libraryIds)),
+            size = size,
+            sort = listOf("createdDate,desc"),
+        ).awaitBody()?.content.orEmpty()
     }
 
     /** Paged book list for the library grid (POST api/v1/books/list). */

@@ -4,6 +4,7 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import com.kmworks.kmreader.core.download.AutoDownloadUnreadTrigger
 import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 interface LogInitEntryPoint {
     fun sseService(): SseService
     fun appScope(): CoroutineScope
+    fun autoDownloadUnreadTrigger(): AutoDownloadUnreadTrigger
 }
 
 /**
@@ -34,6 +36,8 @@ class LogInitProvider : ContentProvider() {
                 LogInitEntryPoint::class.java,
             )
             val sse = entryPoint.sseService()
+            // 提前实例化自动下载未读触发器（内部在 appScope 常驻订阅 SSE 事件）
+            entryPoint.autoDownloadUnreadTrigger()
             entryPoint.appScope().launch {
                 sse.connectionState.collect { state ->
                     AppLog.i("SSE", "connection -> $state")

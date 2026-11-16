@@ -66,11 +66,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -97,6 +100,8 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 private val ChromeScrim = Color.Black.copy(alpha = 0.82f)
@@ -108,12 +113,17 @@ private val ChromeText = Color.White
  * 漫画阅读器（DIVINA）：真实页面管线（ReaderViewModel → BookPagesApi），
  * 设置面板里的每一项都会真正作用到画面上（背景/页码/阴影/翻页动画/点按区域/双击/长按/预加载/裁边）。
  *
- * 阅读方向与页面单元对齐原作：
- * - ltr / rtl：横向分页，宽图（横版）在「拆分宽页」开启时整幅展示或切前后半，双页模式独占 spread
- * - vertical：纵向分页；webtoon：连续纵向滚动（无吸附），页宽与点按滚动高度可调
- *
- * 手势：单指点按分区（TapZoneHelper 六种布局 + 左右镜像）、双击缩放、双指捏合缩放与平移、
- * 长按图片菜单；全部可在设置面板调整。
+ * 行为 1:1 对齐原作 DivinaReaderView / ReaderViewModel：
+ * - 初始页：完成或隐私阅读从第 0 页起，否则恢复 readProgress.page（VM 提供 initialPage）
+ * - 阅读方向：forceDefaultReadingDirection 时用全局默认，否则用系列方向，否则用全局默认；
+ *   方向/布局/拆分宽页/独显封面是【会话内】状态，改动不回写默认（对齐原作 @State + reset 语义）
+ * - 双页仅横屏（shouldUseDualPage：宽>高 且 layout!=single 且方向非 vertical/webtoon）；
+ *   layout==dual 为强制双页（受同样的横屏门控）
+ * - 拆分宽页：none 不切 / auto·ltr·rtl 切前后半 / scroll 保留整幅、点按先在半幅停靠点间平移再翻页
+ * - ltr / rtl：横向分页；vertical：纵向分页；webtoon：连续纵向滚动（页宽与点按滚动高度可调）
+ * - 手势：点按分区（六种布局 + 镜像）、双击缩放（可关）、捏合缩放平移、长按上下文菜单（分享/独显）
+ * - 进度：ReaderProgressRecordingGate（阈值 3 页/完成放行/incognito 跳过），退出时 flush
+ * - 预加载：ReaderPreloadProfile 窗口 + 0.3s 节流 + 「仅 Wi-Fi 预加载」门控
  */
 @Composable
 fun ReaderScreen(
@@ -125,39 +135,38 @@ fun ReaderScreen(
 ) {
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
+    val wifiOnlyPreload by settingsViewModel.wifiOnlyPreload.collectAsStateWithLifecycle()
     val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val readerBackground = settings.background.color(darkTheme)
     val pageContentColor = settings.background.contentColor(darkTheme)
 
     var chromeVisible by remember { mutableStateOf(true) }
-    var page by remember {
-        mutableIntStateOf(((book.progress ?: 0f) * book.pageCount).roundToInt().coerceAtLeast(1))
-    }
+    var page by remember { mutableIntStateOf(1) }
+    var pageInitialized by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var direction by remember { mutableStateOf(defaultDirection) }
-    var directionTouched by remember { mutableStateOf(false) }
-    var dualPage by remember { mutableStateOf(false) }
-    var splitWideMode by remember { mutableStateOf(SplitWidePageMode.Auto) }
+
+    // 会话内阅读偏好（对齐原作 @State 初始值：从默认值取，改动不回写默认）
+    var direction by remember { mutableStateOf<ReadingDirection?>(null) }
+    var pageLayout by remember { mutableStateOf<PageLayout?>(null) }
+    var splitWideMode by remember { mutableStateOf<SplitWidePageMode?>(null) }
+    var soloCoverPage by remember { mutableStateOf<Boolean?>(null) }
     var rotationDegrees by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showToc by remember { mutableStateOf(false) }
     var showPageJump by remember { mutableStateOf(false) }
     var contextMenuPage by remember { mutableStateOf<ReaderPage?>(null) }
-    var infoPage by remember { mutableStateOf<ReaderPage?>(null) }
 
     // 缩放：双击在 1x / 设置倍率之间切换，捏合连续缩放
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
 
-    LaunchedEffect(defaultDirection) {
-        if (!directionTouched) direction = defaultDirection
-    }
+    // 整幅跨页（scroll 模式）的平移停靠点：0f=首缘（ltr 左/rtl 右），1f=尾缘
+    var spreadPan by remember { mutableFloatStateOf(0f) }
 
-    // 阅读时保持屏幕常亮（对齐原作阅读器行为）
+    // 阅读时保持屏幕常亮（对齐原作 keepScreenAwakeWhileReading，默认 false）
     val view = LocalView.current
-    DisposableEffect(view) {
-        view.keepScreenOn = true
+    DisposableEffect(view, settings.keepScreenAwake) {
+        view.keepScreenOn = settings.keepScreenAwake
         onDispose { view.keepScreenOn = false }
     }
 
@@ -176,30 +185,81 @@ fun ReaderScreen(
         viewModel.incognito = incognito
         viewModel.load(book)
     }
+    // 退出阅读时 flush 未上报的进度（对齐原作 flushProgress）
+    DisposableEffect(Unit) {
+        onDispose { viewModel.flushProgress(page) }
+    }
     val readerPages = uiState.pages
+    val soloPages by viewModel.soloPages.collectAsStateWithLifecycle()
     val pageCount = readerPages.size
+    val ready = uiState.status == ReaderPagesStatus.Ready
 
-    val isWebtoon = direction == ReadingDirection.Webtoon
-    val isVertical = direction == ReadingDirection.Vertical
+    // 加载完成后：恢复初始页 + 解析会话内阅读偏好（只执行一次）
+    LaunchedEffect(ready) {
+        if (!ready || pageInitialized) return@LaunchedEffect
+        page = uiState.initialPage ?: 1
+        direction = resolveReadingDirection(
+            seriesDirection = uiState.seriesDirection,
+            forceDefault = settings.forceDefaultDirection,
+            defaultDirection = defaultDirection,
+        )
+        pageLayout = settings.defaultPageLayout
+        splitWideMode = settings.defaultSplitWideMode
+        soloCoverPage = settings.defaultSoloCoverPage
+        pageInitialized = true
+    }
+
+    val directionNow = direction ?: defaultDirection
+    val pageLayoutNow = pageLayout ?: settings.defaultPageLayout
+    val splitWideNow = splitWideMode ?: settings.defaultSplitWideMode
+    val soloCoverNow = soloCoverPage ?: settings.defaultSoloCoverPage
+
+    val isWebtoon = directionNow == ReadingDirection.Webtoon
+    val isVertical = directionNow == ReadingDirection.Vertical
     val isPaged = !isWebtoon && !isVertical
 
-    // 条漫/竖排不支持双页与拆分宽页（对齐原作门控）
-    val effectiveDualPage = dualPage && isPaged
-    val items = remember(readerPages, effectiveDualPage, splitWideMode) {
+    // 双页门控（对齐原作 shouldUseDualPage：仅横屏；webtoon/vertical 无双页）
+    val configuration = LocalConfiguration.current
+    val isLandscapeScreen = configuration.screenWidthDp > configuration.screenHeightDp
+    val allowDualPairs = isLandscapeScreen && pageLayoutNow != PageLayout.Single && isPaged
+    val forceDualPairs = allowDualPairs && pageLayoutNow == PageLayout.Dual
+    val noCover = !(soloCoverNow && allowDualPairs)
+
+    val items = remember(
+        readerPages,
+        allowDualPairs,
+        forceDualPairs,
+        splitWideNow,
+        soloPages,
+        noCover,
+    ) {
         ReaderViewItemGenerator.generate(
             pages = readerPages,
-            dualPage = effectiveDualPage,
-            splitWidePages = splitWideMode.isEnabled,
-            keepsSplitSpreadsWhole = splitWideMode.keepsWholeSpread,
+            allowDualPairs = allowDualPairs,
+            forceDualPairs = forceDualPairs,
+            splitWidePages = splitWideNow.isEnabled && !isWebtoon,
+            keepsSplitSpreadsWhole = splitWideNow.keepsWholeSpread,
+            soloPages = soloPages,
+            noCover = noCover,
         )
     }
     val pagerState = rememberPagerState(
-        initialPage = items.indexOfFirst { it.pages.contains(page) }.coerceAtLeast(0),
-    ) { items.size }
-    val webtoonState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (page - 1).coerceIn(0, max(0, readerPages.lastIndex)),
-    )
+        initialPage = 0,
+    ) { items.size.coerceAtLeast(1) }
+    val webtoonState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // 首次进入（含恢复进度）：滚动到初始页所在单元
+    LaunchedEffect(pageInitialized, items) {
+        if (!pageInitialized) return@LaunchedEffect
+        if (isWebtoon) {
+            val target = items.indexOfFirst { it.pages.contains(page) }.coerceAtLeast(0)
+            if (target > 0) webtoonState.scrollToItem(target)
+        } else {
+            val target = items.indexOfFirst { it.pages.contains(page) }
+            if (target > 0) pagerState.scrollToPage(target)
+        }
+    }
 
     // Pager → 页码（分页/纵向模式）
     LaunchedEffect(pagerState, items) {
@@ -208,57 +268,73 @@ fun ReaderScreen(
         }
     }
     // 条漫滚动 → 页码
-    LaunchedEffect(webtoonState, isWebtoon) {
+    LaunchedEffect(webtoonState, isWebtoon, items) {
         if (!isWebtoon) return@LaunchedEffect
         snapshotFlow { webtoonState.firstVisibleItemIndex }.collect { index ->
-            if (index + 1 != page) page = index + 1
+            items.getOrNull(index)?.pages?.firstOrNull()?.let { if (it != page) page = it }
         }
     }
-    // 页码（滑杆/跳页/目录/缩略图）→ 视图
+    // 页码（滑杆/跳页/缩略图）→ 视图
     LaunchedEffect(page, items, isWebtoon) {
+        if (!pageInitialized) return@LaunchedEffect
         if (isWebtoon) {
-            val target = (page - 1).coerceIn(0, max(0, readerPages.lastIndex))
-            if (target != webtoonState.firstVisibleItemIndex) webtoonState.scrollToItem(target)
+            val target = items.indexOfFirst { it.pages.contains(page) }
+            if (target >= 0 && target != webtoonState.firstVisibleItemIndex) webtoonState.scrollToItem(target)
             return@LaunchedEffect
         }
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0 && target != pagerState.currentPage) pagerState.scrollToPage(target)
     }
-    // 切换双页/拆分宽页/方向后落到当前页所在单元
-    LaunchedEffect(effectiveDualPage, splitWideMode, direction) {
-        if (!isPaged) return@LaunchedEffect
+    // 切换布局/拆分宽页/方向后落到当前页所在单元（对齐 regenerateViewStatePreservingCurrentPosition）
+    LaunchedEffect(allowDualPairs, forceDualPairs, splitWideNow, directionNow, soloPages, noCover) {
+        if (!pageInitialized || isWebtoon) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0) pagerState.scrollToPage(target)
+        spreadPan = 0f
     }
-    // 预加载窗口 + 进度上报（分页/纵向）
-    LaunchedEffect(pagerState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile) {
-        snapshotFlow { pagerState.settledPage }.collect { index ->
-            if (uiState.bookDtoId == null) return@collect
-            val item = items.getOrNull(index) ?: return@collect
-            viewModel.reportProgress(item.pages.max())
-            val profile = settings.preloadProfile
-            for (i in (index - profile.before)..(index + profile.after)) {
-                items.getOrNull(i)?.pages?.forEach { number ->
-                    viewModel.pageUrl(number)?.let { url ->
-                        imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+
+    // 预加载窗口（对齐 ReaderPageLoadScheduler：0.3s 节流 + preloadProfile 窗口 + 仅 Wi-Fi 门控）
+    LaunchedEffect(pagerState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
+        snapshotFlow { pagerState.settledPage }
+            .debounce(300)
+            .collect { index ->
+                if (uiState.bookDtoId == null) return@collect
+                if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val profile = settings.preloadProfile
+                for (i in (index - profile.before)..(index + profile.after)) {
+                    items.getOrNull(i)?.pages?.forEach { number ->
+                        viewModel.pageUrl(number)?.let { url ->
+                            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                        }
                     }
                 }
             }
+    }
+    // 进度上报（分页/纵向）
+    LaunchedEffect(pagerState, items, uiState.bookDtoId) {
+        snapshotFlow { pagerState.settledPage }.collect { index ->
+            if (uiState.bookDtoId == null) return@collect
+            items.getOrNull(index)?.let { viewModel.reportProgress(it.pages.max()) }
         }
     }
-    // 条漫进度上报
-    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon) {
+    // 条漫：预加载 + 进度上报
+    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
         if (!isWebtoon) return@LaunchedEffect
-        snapshotFlow { webtoonState.firstVisibleItemIndex }.collect { index ->
-            if (uiState.bookDtoId != null) viewModel.reportProgress(index + 1)
-        }
-    }
-
-    val targetStep = if (isWebtoon) {
-        // 条漫：点按滚动高度百分比（对齐 webtoonTapScrollPercentage）
-        1
-    } else {
-        1
+        snapshotFlow { webtoonState.firstVisibleItemIndex }
+            .debounce(300)
+            .collect { index ->
+                if (uiState.bookDtoId == null) return@collect
+                items.getOrNull(index)?.let { viewModel.reportProgress(it.pages.max()) }
+                if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val profile = settings.preloadProfile
+                for (i in (index - profile.before)..(index + profile.after)) {
+                    items.getOrNull(i)?.pages?.forEach { n ->
+                        viewModel.pageUrl(n)?.let { url ->
+                            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                        }
+                    }
+                }
+            }
     }
 
     // 单点/双击/长按/捏合手势（在同一个 pointerInput 内并行，避免与 Pager 拖动互抢）
@@ -269,6 +345,30 @@ fun ReaderScreen(
             else pagerState.scrollToPage(clamped)
         }
     }
+    // 整幅跨页两阶段点按（对齐原作 requestPagedStep 的 wholeSpread 行为：
+    // 未到离开缘先平移到离开缘，再点按才翻页）
+    fun tapNext() {
+        val item = items.getOrNull(pagerState.currentPage)
+        if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
+            val departureEdge = if (directionNow == ReadingDirection.Rtl) 0f else 1f
+            if (spreadPan != departureEdge) {
+                spreadPan = departureEdge
+                return
+            }
+        }
+        stepPage(pagerState.currentPage + 1)
+    }
+    fun tapPrevious() {
+        val item = items.getOrNull(pagerState.currentPage)
+        if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
+            val arrivalEdge = if (directionNow == ReadingDirection.Rtl) 1f else 0f
+            if (spreadPan != arrivalEdge) {
+                spreadPan = arrivalEdge
+                return
+            }
+        }
+        stepPage(pagerState.currentPage - 1)
+    }
     val gestureModifier = Modifier.pointerInput(
         settings.tapZoneMode,
         settings.tapZoneInversion,
@@ -277,7 +377,8 @@ fun ReaderScreen(
         settings.longPressAction,
         settings.animateTapTurns,
         isWebtoon,
-        direction,
+        directionNow,
+        splitWideNow,
         items.size,
     ) {
         val viewSize = size
@@ -290,25 +391,21 @@ fun ReaderScreen(
                         normalizedY = offset.y / viewSize.height,
                         mode = settings.tapZoneMode,
                         inversion = settings.tapZoneInversion,
-                        isRtl = direction == ReadingDirection.Rtl,
+                        isRtl = directionNow == ReadingDirection.Rtl,
                     )
                     when (action) {
                         TapZoneAction.Previous -> scope.launch {
                             if (isWebtoon) {
                                 webtoonState.animateScrollBy(-viewSize.height * settings.webtoonTapScrollPercentage / 100f)
-                            } else if (isVertical) {
-                                stepPage(pagerState.currentPage - 1)
                             } else {
-                                stepPage(pagerState.currentPage - targetStep)
+                                tapPrevious()
                             }
                         }
                         TapZoneAction.Next -> scope.launch {
                             if (isWebtoon) {
                                 webtoonState.animateScrollBy(viewSize.height * settings.webtoonTapScrollPercentage / 100f)
-                            } else if (isVertical) {
-                                stepPage(pagerState.currentPage + 1)
                             } else {
-                                stepPage(pagerState.currentPage + targetStep)
+                                tapNext()
                             }
                         }
                         TapZoneAction.ToggleControls -> chromeVisible = !chromeVisible
@@ -328,9 +425,8 @@ fun ReaderScreen(
                 onLongPress = { offset ->
                     if (settings.longPressAction == LongPressAction.ContextMenu) {
                         val item = items.getOrNull(pagerState.currentPage)
-                        contextMenuPage = item?.pages?.firstOrNull()?.let { number ->
-                            readerPages.firstOrNull { it.number == number }
-                        }
+                        val number = if (isWebtoon) page else item?.pages?.firstOrNull()
+                        contextMenuPage = number?.let { n -> readerPages.firstOrNull { it.number == n } }
                     }
                 },
             )
@@ -363,14 +459,31 @@ fun ReaderScreen(
         }
     }
 
-
-
     val animatedZoom by animateFloatAsState(if (zoomed) zoom else 1f, label = "readerZoom")
     val zoomModifier = Modifier.graphicsLayer {
         scaleX = animatedZoom
         scaleY = animatedZoom
         translationX = pan.x
         translationY = pan.y
+    }
+
+    // 当前页独显动作（对齐原作 ReaderPageSoloActions：双页展示中可独显竖版页，已独显可取消）
+    val currentReaderPage = readerPages.firstOrNull { it.number == page }
+    val currentItem = items.getOrNull(pagerState.currentPage.coerceIn(0, max(0, items.lastIndex)))
+    val soloAction: SoloMenuAction? = if (currentReaderPage != null) {
+        val isSolo = currentReaderPage.number in soloPages
+        val canSolo = allowDualPairs && !currentReaderPage.isLandscape && currentItem is ReaderViewItem.Dual
+        if (isSolo || canSolo) {
+            SoloMenuAction(
+                isSolo = isSolo,
+                displayPage = currentReaderPage.number,
+                onToggle = { viewModel.toggleSoloPage(currentReaderPage.number) },
+            )
+        } else {
+            null
+        }
+    } else {
+        null
     }
 
     Box(modifier = Modifier.fillMaxSize().background(readerBackground)) {
@@ -402,7 +515,7 @@ fun ReaderScreen(
             ReaderPagesStatus.Ready -> {
                 when {
                     isWebtoon -> WebtoonReader(
-                        pages = readerPages,
+                        items = items,
                         pageWidthPercentage = settings.webtoonPageWidthPercentage,
                         imageLoader = imageLoader,
                         settings = settings,
@@ -432,12 +545,13 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
                         userScrollEnabled = !zoomed,
-                        reverseLayout = direction == ReadingDirection.Rtl,
+                        reverseLayout = directionNow == ReadingDirection.Rtl,
                         contentPadding = PaddingValues(horizontal = 4.dp),
                         pageSpacing = if (settings.pageTransition == PageTransitionStyle.Cover) 0.dp else 8.dp,
                     ) { index ->
                         // 覆盖式翻页：后续页固定居中，当前页从上方滑走（对齐 Cover 过渡）
                         val cover = settings.pageTransition == PageTransitionStyle.Cover
+                        val item = items[index]
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -449,14 +563,27 @@ fun ReaderScreen(
                                     }
                                 },
                         ) {
-                            ViewerPage(
-                                item = items[index],
-                                imageLoader = imageLoader,
-                                settings = settings,
-                                rotationDegrees = rotationDegrees,
-                                contentColor = pageContentColor,
-                                pageUrl = viewModel::pageUrl,
-                            )
+                            if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
+                                WholeSpreadPage(
+                                    page = item.page,
+                                    url = viewModel.pageUrl(item.page.number),
+                                    imageLoader = imageLoader,
+                                    settings = settings,
+                                    rotationDegrees = rotationDegrees,
+                                    contentColor = pageContentColor,
+                                    panFraction = if (index == pagerState.currentPage) spreadPan else 0f,
+                                    isRtl = directionNow == ReadingDirection.Rtl,
+                                )
+                            } else {
+                                ViewerPage(
+                                    item = item,
+                                    imageLoader = imageLoader,
+                                    settings = settings,
+                                    rotationDegrees = rotationDegrees,
+                                    contentColor = pageContentColor,
+                                    pageUrl = viewModel::pageUrl,
+                                )
+                            }
                             if (cover) {
                                 // 页面间的阴影让覆盖效果有层次
                                 Box(
@@ -474,7 +601,7 @@ fun ReaderScreen(
                 if (settings.showTapZoneHints && chromeVisible && !settings.tapZoneMode.isDisabled) {
                     TapZoneHints(
                         mode = settings.tapZoneMode,
-                        isRtl = direction == ReadingDirection.Rtl,
+                        isRtl = directionNow == ReadingDirection.Rtl,
                         inversion = settings.tapZoneInversion,
                     )
                 }
@@ -567,20 +694,19 @@ fun ReaderScreen(
                     }
                     ReaderOptionsMenu(
                         expanded = menuOpen,
-                        direction = direction,
-                        dualPage = dualPage,
-                        splitWideMode = splitWideMode,
+                        direction = directionNow,
+                        pageLayout = pageLayoutNow,
+                        splitWideMode = splitWideNow,
                         rotationDegrees = rotationDegrees,
-                        onDirectionChange = {
-                            directionTouched = true
-                            direction = it
-                            settingsViewModel.setDefaultDirection(it)
-                        },
-                        onDualPageChange = { dualPage = it },
+                        soloAction = soloAction,
+                        onDirectionChange = { direction = it },
+                        onPageLayoutChange = { pageLayout = it },
                         onSplitWideModeChange = { splitWideMode = it },
                         onRotationChange = { rotationDegrees = it },
                         onOpenSettings = { showSettings = true },
-                        onOpenToc = { showToc = true },
+                        onSharePage = {
+                            viewModel.pageUrl(page)?.let { url -> sharePageUrl(context, url) }
+                        },
                         onOpenPageJump = { showPageJump = true },
                         onDismiss = { menuOpen = false },
                     )
@@ -657,9 +783,10 @@ fun ReaderScreen(
                     }
                 }
                 Slider(
-                    value = page.toFloat(),
+                    value = page.toFloat().coerceIn(1f, pageCount.coerceAtLeast(1).toFloat()),
                     onValueChange = { page = it.roundToInt().coerceIn(1, pageCount) },
-                    valueRange = 1f..pageCount.coerceAtLeast(1).toFloat(),
+                    valueRange = 1f..pageCount.coerceAtLeast(2).toFloat(),
+                    enabled = pageCount > 1,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
@@ -684,19 +811,9 @@ fun ReaderScreen(
     if (showSettings) {
         ReaderSettingsSheet(
             settings = settings,
-            direction = direction,
+            direction = directionNow,
             onUpdate = settingsViewModel::update,
             onDismiss = { showSettings = false },
-        )
-    }
-    if (showToc) {
-        ReaderTocSheet(
-            currentPage = page,
-            onJump = {
-                page = it.coerceIn(1, pageCount)
-                showToc = false
-            },
-            onDismiss = { showToc = false },
         )
     }
     if (showPageJump) {
@@ -711,39 +828,67 @@ fun ReaderScreen(
         )
     }
     contextMenuPage?.let { current ->
+        val isSolo = current.number in soloPages
+        val canSolo = allowDualPairs && !current.isLandscape && !isSolo
         ReaderPageMenuSheet(
             page = current,
             pageUrl = viewModel.pageUrl(current.number),
-            onOpenInfo = {
-                contextMenuPage = null
-                infoPage = current
+            soloAction = if (isSolo || canSolo) {
+                SoloMenuAction(
+                    isSolo = isSolo,
+                    displayPage = current.number,
+                    onToggle = { viewModel.toggleSoloPage(current.number) },
+                )
+            } else {
+                null
             },
             onDismiss = { contextMenuPage = null },
         )
     }
-    infoPage?.let { current ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { infoPage = null },
-            confirmButton = {
-                TextButton(onClick = { infoPage = null }) { Text("关闭") }
-            },
-            title = { Text("第 ${current.number} 页") },
-            text = {
-                Text(
-                    "尺寸 ${current.width} × ${current.height}\n" +
-                        if (current.width == 0 || current.height == 0) "服务器未提供页面尺寸" else "宽高比 %.2f".format(
-                            current.width.toFloat() / current.height.toFloat(),
-                        ),
-                )
-            },
-        )
+}
+
+/** 解析会话方向（对齐原作 loadBook 的方向解析：强制默认 → 系列方向 → 全局默认）。 */
+private fun resolveReadingDirection(
+    seriesDirection: String?,
+    forceDefault: Boolean,
+    defaultDirection: ReadingDirection,
+): ReadingDirection {
+    if (forceDefault) return defaultDirection
+    val series = seriesDirection?.uppercase()?.let {
+        when (it) {
+            "LEFT_TO_RIGHT" -> ReadingDirection.Ltr
+            "RIGHT_TO_LEFT" -> ReadingDirection.Rtl
+            "VERTICAL" -> ReadingDirection.Vertical
+            "WEBTOON" -> ReadingDirection.Webtoon
+            else -> null
+        }
     }
+    return series ?: defaultDirection
+}
+
+/** 是否 Wi-Fi（或以太网）网络：用于「仅 Wi-Fi 预加载」门控（对齐原作 wifiOnlyPreload）。 */
+private fun isWifiConnected(context: android.content.Context): Boolean {
+    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+        as? android.net.ConnectivityManager ?: return true
+    val network = cm.activeNetwork ?: return false
+    val caps = cm.getNetworkCapabilities(network) ?: return false
+    return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+}
+
+/** 分享当前页链接（对齐原作菜单的分享动作）。 */
+private fun sharePageUrl(context: android.content.Context, url: String) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, url)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "分享页面"))
 }
 
 /** 条漫：连续纵向滚动，无吸附；页宽与点按滚动高度来自设置。 */
 @Composable
 private fun WebtoonReader(
-    pages: List<ReaderPage>,
+    items: List<ReaderViewItem>,
     pageWidthPercentage: Float,
     imageLoader: ImageLoader,
     settings: DivinaSettings,
@@ -758,27 +903,97 @@ private fun WebtoonReader(
         modifier = modifier,
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
-        items(pages.size) { index ->
-            val page = pages[index]
+        items(items.size) { index ->
+            val item = items[index]
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 1.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                PageImage(
-                    page = page,
-                    url = pageUrl(page.number),
+                WebtoonItem(
+                    item = item,
                     imageLoader = imageLoader,
                     settings = settings,
                     rotationDegrees = rotationDegrees,
                     contentColor = settings.background.contentColor(
                         androidx.compose.foundation.isSystemInDarkTheme(),
                     ),
+                    pageUrl = pageUrl,
                     modifier = Modifier.fillMaxWidth(widthFraction),
                 )
             }
         }
+    }
+}
+
+/** 条漫单元（与分页 ViewerPage 同构，但高度由内容驱动）。 */
+@Composable
+private fun WebtoonItem(
+    item: ReaderViewItem,
+    imageLoader: ImageLoader,
+    settings: DivinaSettings,
+    rotationDegrees: Int,
+    contentColor: Color,
+    pageUrl: (Int) -> String?,
+    modifier: Modifier = Modifier,
+) {
+    when (item) {
+        is ReaderViewItem.Single -> PageImage(
+            page = item.page,
+            url = pageUrl(item.page.number),
+            imageLoader = imageLoader,
+            settings = settings,
+            rotationDegrees = rotationDegrees,
+            contentColor = contentColor,
+            modifier = modifier,
+        )
+
+        is ReaderViewItem.Dual -> Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            PageImage(
+                page = item.first,
+                url = pageUrl(item.first.number),
+                imageLoader = imageLoader,
+                settings = settings,
+                rotationDegrees = rotationDegrees,
+                contentColor = contentColor,
+                modifier = Modifier.weight(1f),
+            )
+            PageImage(
+                page = item.second,
+                url = pageUrl(item.second.number),
+                imageLoader = imageLoader,
+                settings = settings,
+                rotationDegrees = rotationDegrees,
+                contentColor = contentColor,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        is ReaderViewItem.Spread -> PageImage(
+            page = item.page,
+            url = pageUrl(item.page.number),
+            imageLoader = imageLoader,
+            settings = settings,
+            rotationDegrees = rotationDegrees,
+            contentColor = contentColor,
+            modifier = modifier,
+            wide = true,
+        )
+
+        is ReaderViewItem.Half -> PageImage(
+            page = item.page,
+            url = pageUrl(item.page.number),
+            imageLoader = imageLoader,
+            settings = settings,
+            rotationDegrees = rotationDegrees,
+            contentColor = contentColor,
+            modifier = modifier,
+            half = if (item.secondHalf) 1 else 0,
+        )
     }
 }
 
@@ -855,6 +1070,98 @@ private fun ViewerPage(
 }
 
 /**
+ * 整幅跨页（scroll 拆分模式）：高度充满、宽度溢出，在「首缘→尾缘」两个停靠点间平移
+ * （对齐原作 keepsSplitSpreadsWhole 的 wholeSpread：两个停靠点，点按先平移再翻页）。
+ * panFraction：0f=首缘（ltr 左/rtl 右），1f=尾缘。
+ */
+@Composable
+private fun WholeSpreadPage(
+    page: ReaderPage,
+    url: String?,
+    imageLoader: ImageLoader,
+    settings: DivinaSettings,
+    rotationDegrees: Int,
+    contentColor: Color,
+    panFraction: Float,
+    isRtl: Boolean,
+) {
+    val rawRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 1.4f
+    val fullRatio = if (rawRatio.isFinite() && rawRatio > 0f) rawRatio else 1.4f
+    val context = LocalContext.current
+    val crop = settings.borderCrop
+    // 对齐原作 ReaderBackground.appliesImageMultiplyBlend：sepia 背景对页面图片做正片叠底
+    val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
+        ColorFilter.tint(ReaderBackground.SepiaPaper, BlendMode.Multiply)
+    } else {
+        null
+    }
+    val request = remember(context, url, crop) {
+        url?.let {
+            ImageRequest.Builder(context).data(it).apply {
+                if (crop != BorderCropMode.Disabled) {
+                    transformations(BorderCropTransformation(crop))
+                }
+            }.build()
+        }
+    }
+    val animatedPan by animateFloatAsState(panFraction, label = "spreadPan")
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(2.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (request == null) {
+            PagePlaceholder(
+                label = "第 ${page.number} 页",
+                ratio = fullRatio,
+                wide = true,
+                contentColor = contentColor,
+            )
+            return@Box
+        }
+        BoxWithConstraintsCompat {
+            val containerW = maxWidth
+            val containerH = maxHeight
+            // 图片按高度充满，宽度 = 高度 * 宽高比（通常 > 容器宽，左右溢出）
+            val overflowPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+                (containerH.toPx() * fullRatio - containerW.toPx()).coerceAtLeast(0f)
+            }
+            SubcomposeAsyncImage(
+                model = request,
+                contentDescription = "第 ${page.number} 页（跨页）",
+                imageLoader = imageLoader,
+                contentScale = ContentScale.FillHeight,
+                colorFilter = blendFilter,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(fullRatio)
+                    .graphicsLayer {
+                        // 图片居中时两侧各溢出 overflow/2；ltr：0=左缘(+overflow/2) 1=右缘(-overflow/2)；rtl 相反
+                        translationX = if (isRtl) {
+                            (animatedPan - 0.5f) * overflowPx
+                        } else {
+                            (0.5f - animatedPan) * overflowPx
+                        }
+                        if (rotationDegrees != 0) rotationZ = rotationDegrees.toFloat()
+                    },
+            ) {
+                PageImageStates(pageNumber = page.number, contentColor = contentColor)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxWithConstraintsCompat(content: @Composable androidx.compose.foundation.layout.BoxWithConstraintsScope.() -> Unit) {
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+/**
  * 页面图片：ContentScale.Fit；背景/阴影/旋转/裁边来自设置。
  * 加载中显示页码占位，失败可重试。
  */
@@ -892,6 +1199,12 @@ private fun PageImage(
     }
     val context = LocalContext.current
     val crop = settings.borderCrop
+    // 对齐原作 ReaderBackground.appliesImageMultiplyBlend：sepia 背景对页面图片做正片叠底
+    val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
+        ColorFilter.tint(ReaderBackground.SepiaPaper, BlendMode.Multiply)
+    } else {
+        null
+    }
     val request = remember(context, url, crop) {
         url?.let {
             ImageRequest.Builder(context).data(it).apply {
@@ -928,6 +1241,7 @@ private fun PageImage(
                 contentDescription = "第 ${page.number} 页",
                 imageLoader = imageLoader,
                 contentScale = ContentScale.Fit,
+                colorFilter = blendFilter,
                 modifier = Modifier
                     .fillMaxHeight()
                     .aspectRatio(fullRatio)
@@ -953,6 +1267,7 @@ private fun PageImage(
             contentDescription = "第 ${page.number} 页",
             imageLoader = imageLoader,
             contentScale = ContentScale.Fit,
+            colorFilter = blendFilter,
             modifier = Modifier.fillMaxSize().then(rotationModifier),
         ) {
             PageImageStates(pageNumber = page.number, contentColor = contentColor)
@@ -1067,13 +1382,13 @@ private fun TapZoneHints(mode: TapZoneMode, isRtl: Boolean, inversion: TapZoneIn
     }
 }
 
-/** 长按图片菜单：分享页面 / 查看图片信息（对齐原作 Image Context Menu 的入口）。 */
+/** 长按图片菜单（对齐原作 Image Context Menu：分享 + 双页展示中的单页独显/取消独显）。 */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderPageMenuSheet(
     page: ReaderPage,
     pageUrl: String?,
-    onOpenInfo: () -> Unit,
+    soloAction: SoloMenuAction?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1102,14 +1417,22 @@ private fun ReaderPageMenuSheet(
             ) {
                 Text("分享页面", style = MaterialTheme.typography.bodyLarge)
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenInfo() }
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("图片信息", style = MaterialTheme.typography.bodyLarge)
+            if (soloAction != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            soloAction.onToggle()
+                            onDismiss()
+                        }
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (soloAction.isSolo) "取消独显" else "独显第 ${soloAction.displayPage} 页",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
         }
     }

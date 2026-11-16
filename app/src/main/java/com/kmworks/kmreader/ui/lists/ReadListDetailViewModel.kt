@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.network.SessionManager
@@ -26,7 +27,11 @@ data class ReadListDetailUiState(
     val name: String? = null,
     val summary: String? = null,
     val ordered: Boolean? = null,
+    val createdDate: String? = null,
+    val lastModifiedDate: String? = null,
     val books: List<Book>? = null,
+    val loadingMore: Boolean = false,
+    val hasMore: Boolean = false,
     /** 阅读列表封面（服务端缩略图端点）。 */
     val heroThumbnail: String? = null,
 )
@@ -38,6 +43,7 @@ class ReadListDetailViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
+    private val downloadRepository: DownloadRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReadListDetailUiState())
@@ -47,6 +53,8 @@ class ReadListDetailViewModel @Inject constructor(
     val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
 
     private var loadedId: Int? = null
+    private var currentDtoId: String? = null
+    private var nextPage = 0
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return
@@ -57,7 +65,9 @@ class ReadListDetailViewModel @Inject constructor(
             _uiState.update { it.copy(hasSession = clients != null, loading = false) }
             return
         }
-        _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
+        currentDtoId = dtoId
+        nextPage = 0
+        _uiState.update { it.copy(hasSession = true, loading = true, error = null, books = null, hasMore = false) }
         viewModelScope.launch {
             try {
                 val readList = detailRepository.readListDetail(dtoId)
@@ -65,19 +75,47 @@ class ReadListDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(loading = false) }
                     return@launch
                 }
-                val bookDtos = detailRepository.readListBooks(dtoId)
+                val page = detailRepository.readListBooks(dtoId, page = 0, size = PAGE_SIZE)
+                nextPage = 1
                 _uiState.update {
                     it.copy(
                         loading = false,
                         name = readList.name,
                         summary = readList.summary,
                         ordered = readList.ordered,
-                        books = bookDtos.map { dto -> dto.toUiBook() },
+                        createdDate = readList.createdDate,
+                        lastModifiedDate = readList.lastModifiedDate,
+                        books = page.items.map { dto -> dto.toUiBook() },
+                        hasMore = page.hasMore,
                         heroThumbnail = detailRepository.readListThumbnailUrl(dtoId),
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
+            }
+        }
+    }
+
+    fun loadMore() {
+        val state = _uiState.value
+        val dtoId = currentDtoId ?: return
+        if (state.loading || state.loadingMore || !state.hasMore) return
+        _uiState.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            try {
+                val page = detailRepository.readListBooks(dtoId, page = nextPage, size = PAGE_SIZE)
+                nextPage += 1
+                _uiState.update { state ->
+                    val seen = state.books.orEmpty().map { it.id }.toMutableSet()
+                    val appended = page.items.map { dto -> dto.toUiBook() }.filter { seen.add(it.id) }
+                    state.copy(
+                        loadingMore = false,
+                        books = state.books.orEmpty() + appended,
+                        hasMore = page.hasMore && appended.isNotEmpty(),
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(loadingMore = false, error = e.message ?: "加载失败") }
             }
         }
     }
@@ -117,6 +155,41 @@ class ReadListDetailViewModel @Inject constructor(
         return true
     }
 
+    /** 批量下载所选书籍；返回 false 表示任何一本都无法映射到服务端 DTO。 */
+    fun downloadBooks(stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
+        val books = _uiState.value.books.orEmpty().filter { it.id in stableIds }
+        if (books.size != stableIds.size) return onDone(false)
+        viewModelScope.launch {
+            val ok = books.all { book ->
+                val dtoId = detailRepository.bookDtoId(book.id)
+                if (dtoId == null) {
+                    false
+                } else {
+                    downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+                    true
+                }
+            }
+            onDone(ok)
+        }
+    }
+
+    /** 批量加入另一个阅读列表。 */
+    fun addBooksToReadList(entry: ListEntry, stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
+        val readListDtoId = detailRepository.readListDtoId(entry.id)
+        val bookDtoIds = stableIds.mapNotNull { detailRepository.bookDtoId(it) }
+        if (readListDtoId == null || bookDtoIds.size != stableIds.size) return onDone(false)
+        viewModelScope.launch {
+            onDone(actionRepository.addBooksToReadList(readListDtoId, bookDtoIds))
+        }
+    }
+
+    /** 反查书籍所属系列 stableId，用于 iOS BooksListView 的“打开所属系列”。 */
+    fun seriesStableIdForBook(bookStableId: Int, onResult: (Int?) -> Unit) {
+        viewModelScope.launch {
+            onResult(detailRepository.seriesStableIdForBook(bookStableId))
+        }
+    }
+
     /** 按需加载阅读列表（「加入阅读列表」选择器用）。 */
     fun ensureReadListsLoaded() {
         if (_readLists.value != null) return
@@ -141,5 +214,9 @@ class ReadListDetailViewModel @Inject constructor(
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
         return true
+    }
+
+    private companion object {
+        const val PAGE_SIZE = 50
     }
 }

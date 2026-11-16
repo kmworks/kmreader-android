@@ -360,9 +360,9 @@ class BrowseViewModel @Inject constructor(
     )
 
     private companion object {
-        /** 搜索结果每页数量：系列/书籍 30（与原作搜索一致），列表类 20。 */
-        const val SERIES_PAGE_SIZE = 30
-        const val BOOKS_PAGE_SIZE = 30
-        const val LISTS_PAGE_SIZE = 20
+        /** 统一 50 条/页，对齐各列表无限滚动策略。 */
+        const val SERIES_PAGE_SIZE = 50
+        const val BOOKS_PAGE_SIZE = 50
+        const val LISTS_PAGE_SIZE = 50
     }
 }

@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.ui.dashboard
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,8 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -25,18 +26,29 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.data.DashboardSectionSetting
 import com.kmworks.kmreader.data.label
+import kotlin.math.roundToInt
 
 /**
  * 仪表盘自定义（对齐 iOS SettingsDashboardView）：
- * 选项开关 + 分区顺序（上移/下移）+ 分区显示开关，全部持久化到 AppSettingsStore。
+ * 选项开关 + 分区拖拽排序（对应 iOS List .onMove）+ 分区显示开关，全部持久化到 AppSettingsStore。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +59,19 @@ fun SettingsDashboardScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val visibleSections = state.visibleSections
     val hiddenSections = state.hiddenSections
+
+    // 拖拽排序的本地顺序：非拖拽时跟随持久化状态，拖拽期间由手势驱动，松手时一次性提交
+    val sectionsById = remember(visibleSections) { visibleSections.associateBy { it.id } }
+    var dragOrder by remember { mutableStateOf<List<String>?>(null) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragStartIndex by remember { mutableIntStateOf(0) }
+    var dragAccumPx by remember { mutableFloatStateOf(0f) }
+    var rowHeightPx by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(visibleSections) {
+        if (draggingId == null) dragOrder = null
+    }
+    val orderedIds = dragOrder ?: visibleSections.map { it.id }
+    val orderedSettings = orderedIds.mapNotNull { sectionsById[it] }
 
     Scaffold(
         topBar = {
@@ -94,13 +119,65 @@ fun SettingsDashboardScreen(
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
             item { GroupHeader("分区") }
-            items(visibleSections.size, key = { index -> visibleSections[index].id }) { index ->
-                val setting = visibleSections[index]
+            item {
+                Text(
+                    text = "长按右侧手柄拖动调整顺序；开关控制是否在仪表盘显示。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            items(orderedSettings.size, key = { index -> orderedSettings[index].id }) { index ->
+                val setting = orderedSettings[index]
+                val isDragging = draggingId == setting.id
+                val currentIndex = orderedIds.indexOf(setting.id)
+                val dragTranslation = if (isDragging && rowHeightPx > 0f) {
+                    dragAccumPx - (currentIndex - dragStartIndex) * rowHeightPx
+                } else {
+                    0f
+                }
                 SectionSettingRow(
                     setting = setting,
-                    isFirst = index == 0,
-                    isLast = index == visibleSections.lastIndex,
-                    onMove = { delta -> viewModel.move(setting.id, delta) },
+                    dragging = isDragging,
+                    modifier = Modifier
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .onGloballyPositioned { coordinates ->
+                            if (rowHeightPx == 0f) rowHeightPx = coordinates.size.height.toFloat()
+                        }
+                        .graphicsLayer {
+                            translationY = dragTranslation
+                            shadowElevation = if (isDragging) 6.dp.toPx() else 0f
+                        }
+                        .background(
+                            if (isDragging) {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                        ),
+                    onDragStart = {
+                        draggingId = setting.id
+                        dragStartIndex = currentIndex
+                        dragAccumPx = 0f
+                    },
+                    onDrag = { dy ->
+                        if (rowHeightPx > 0f) {
+                            dragAccumPx += dy
+                            val list = (dragOrder ?: visibleSections.map { it.id }).toMutableList()
+                            val from = list.indexOf(setting.id)
+                            val target = (dragStartIndex + (dragAccumPx / rowHeightPx).roundToInt())
+                                .coerceIn(0, list.lastIndex)
+                            if (from >= 0 && target != from) {
+                                list.add(target, list.removeAt(from))
+                                dragOrder = list
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        dragOrder?.let(viewModel::setOrder)
+                        draggingId = null
+                        dragAccumPx = 0f
+                    },
                     onToggle = { viewModel.setVisible(setting.id, false) },
                 )
             }
@@ -132,17 +209,19 @@ fun SettingsDashboardScreen(
     }
 }
 
-/** 可见分区一行：名称 + 默认卡片形态 + 上移/下移 + 显示开关。 */
+/** 可见分区一行：名称 + 默认卡片形态 + 显示开关 + 拖拽手柄（长按拖动）。 */
 @Composable
 private fun SectionSettingRow(
     setting: DashboardSectionSetting,
-    isFirst: Boolean,
-    isLast: Boolean,
-    onMove: (Int) -> Unit,
+    dragging: Boolean,
+    modifier: Modifier = Modifier,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
     onToggle: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -159,13 +238,25 @@ private fun SectionSettingRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = { onMove(-1) }, enabled = !isFirst) {
-            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "上移")
-        }
-        IconButton(onClick = { onMove(1) }, enabled = !isLast) {
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "下移")
-        }
         Switch(checked = true, onCheckedChange = { onToggle() })
+        Icon(
+            imageVector = Icons.Filled.DragHandle,
+            contentDescription = if (dragging) "拖动中" else "长按拖动排序",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .pointerInput(setting.id) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { onDragStart() },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            onDrag(dragAmount.y)
+                        },
+                        onDragEnd = { onDragEnd() },
+                        onDragCancel = { onDragEnd() },
+                    )
+                },
+        )
     }
 }
 

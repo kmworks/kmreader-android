@@ -29,9 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +43,13 @@ private val ThemeOptions = listOf(
     "dark" to "深色",
 )
 
+/** 应用图标选项（存储值 ↔ 显示标签；对齐 iOS AppIconOption）。 */
+private val AppIconOptions = listOf(
+    "primary" to "默认",
+    "classic" to "经典",
+    "legacy" to "旧版",
+)
+
 /** Appearance settings (mirrors SettingsAppearanceView + AppIconOption). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,10 +57,10 @@ fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
 ) {
-    // 主题/纯黑走 AppSettingsStore 持久化（自动获得 client-settings 云同步）
+    // 主题/纯黑/应用图标走 AppSettingsStore 持久化（主题与纯黑自动获得 client-settings 云同步）
     val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
     val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
-    var iconOption by remember { mutableStateOf("默认") }
+    val appIcon by prefsViewModel.appIcon.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -113,11 +117,11 @@ fun AppearanceSettingsScreen(
                 AppearanceSectionTitle("应用图标")
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     // Mirrors AppIconOption: primary / classic / legacy
-                    listOf("默认", "经典", "旧版").forEach { option ->
+                    AppIconOptions.forEach { (value, label) ->
                         AppIconCell(
-                            label = option,
-                            selected = iconOption == option,
-                            onClick = { iconOption = option },
+                            label = label,
+                            selected = appIcon == value,
+                            onClick = { prefsViewModel.setAppIcon(value) },
                         )
                     }
                 }

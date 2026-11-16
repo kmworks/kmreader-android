@@ -57,12 +57,21 @@ data class TrackerLinkGroupDto(
     val links: List<TrackerLinkDto> = emptyList(),
 )
 
+/** 绑定计数（对齐 TrackerLinkCounts）。 */
+@Serializable
+data class TrackerLinkCountsDto(
+    val series: Int = 0,
+    val providers: Map<String, Int> = emptyMap(),
+)
+
 /** 绑定分页（对齐 TrackerLinkPage，只保留使用字段）。 */
 @Serializable
 data class TrackerLinkPageDto(
     val content: List<TrackerLinkGroupDto> = emptyList(),
     val totalElements: Int = 0,
     val totalPages: Int = 0,
+    val last: Boolean = false,
+    val counts: TrackerLinkCountsDto = TrackerLinkCountsDto(),
 )
 
 /** 远端搜索结果（对齐 TrackerSearchItem）。 */

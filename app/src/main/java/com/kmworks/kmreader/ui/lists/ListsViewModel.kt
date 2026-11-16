@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SmartListRepository
 import com.kmworks.kmreader.core.data.toListEntry
@@ -213,8 +214,73 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    fun saveCollection(entry: ListEntry, name: String, ordered: Boolean, onDone: (Boolean) -> Unit) {
+        val dtoId = DetailIdRegistry.collectionDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.updateCollection(dtoId, name, ordered)
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
+    fun deleteCollection(entry: ListEntry, onDone: (Boolean) -> Unit) {
+        val dtoId = DetailIdRegistry.collectionDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.deleteCollection(dtoId)
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
+    fun saveReadList(entry: ListEntry, name: String, summary: String, ordered: Boolean, onDone: (Boolean) -> Unit) {
+        val dtoId = DetailIdRegistry.readListDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.updateReadList(dtoId, name, summary, ordered)
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
+    fun deleteReadList(entry: ListEntry, onDone: (Boolean) -> Unit) {
+        val dtoId = DetailIdRegistry.readListDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.deleteReadList(dtoId)
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
+    fun saveSmartList(
+        entry: ListEntry,
+        name: String,
+        matchAll: Boolean,
+        rules: List<SmartListRule>,
+        onDone: (Boolean) -> Unit,
+    ) {
+        val dtoId = DetailIdRegistry.smartListDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = smartListRepository.updateSmartList(
+                dtoId = dtoId,
+                name = name,
+                summary = entry.summary.orEmpty(),
+                search = buildSmartListSearchDocument(matchAll, rules),
+            )
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
+    fun deleteSmartList(entry: ListEntry, onDone: (Boolean) -> Unit) {
+        val dtoId = DetailIdRegistry.smartListDtoId(entry.id) ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = smartListRepository.deleteSmartList(dtoId)
+            if (ok) load()
+            onDone(ok)
+        }
+    }
+
     private companion object {
-        /** 收藏/阅读列表每页 20 条（原作 ListsBrowseView 的 pageSize）。 */
-        const val PAGE_SIZE = 20
+        /** 收藏/阅读列表每页 50 条（全站列表统一）。 */
+        const val PAGE_SIZE = 50
     }
 }

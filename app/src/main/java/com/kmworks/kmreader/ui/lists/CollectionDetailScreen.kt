@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,11 +30,14 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -42,7 +46,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +63,7 @@ import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.SeriesGridCard
+import kotlinx.coroutines.launch
 
 private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
@@ -76,6 +83,7 @@ fun CollectionDetailScreen(
 ) {
     // 真实数据：反查收藏 DTO 并拉其系列；无会话/未注册回退假数据
     val state by viewModel.uiState.collectAsState()
+    val readLists by viewModel.readLists.collectAsState()
     LaunchedEffect(collection.id) { viewModel.load(collection.id) }
     val displayCollection = collection.copy(
         name = state.name ?: collection.name,
@@ -90,6 +98,38 @@ fun CollectionDetailScreen(
     var removedIds by remember { mutableStateOf(setOf<Int>()) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
+    var addToReadListOpen by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val notifyFailure: suspend (String) -> Unit = { action ->
+        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+    }
+    val onSelectedMarkRead: (Boolean) -> Unit = { read ->
+        viewModel.markSeriesRead(selected, read) { ok ->
+            if (ok) {
+                selected = emptySet()
+                selecting = false
+            } else {
+                scope.launch { notifyFailure(if (read) "标记已读" else "标记未读") }
+            }
+        }
+    }
+    val onSelectedDownload: () -> Unit = {
+        viewModel.downloadSeries(selected) { ok ->
+            if (ok) {
+                selected = emptySet()
+                selecting = false
+            } else {
+                scope.launch { notifyFailure("加入下载队列") }
+            }
+        }
+    }
+    val onSelectedAddToReadList: () -> Unit = {
+        viewModel.ensureReadListsLoaded()
+        addToReadListOpen = true
+    }
+    val wideListScrollState = rememberScrollState()
+    val narrowListScrollState = rememberScrollState()
 
     val visible = sourceSeries.filter { it.id !in removedIds }
     val series = sortCollectionSeries(visible, options)
@@ -98,6 +138,7 @@ fun CollectionDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {},
@@ -177,13 +218,15 @@ fun CollectionDetailScreen(
                             centered = false,
                             coverHue = heroHue,
                             stableId = collection.id,
+                            createdDate = state.createdDate,
+                            lastModifiedDate = state.lastModifiedDate,
                         )
                     }
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(wideListScrollState)
                             .padding(vertical = 8.dp),
                     ) {
                         SeriesToolbar(
@@ -200,10 +243,16 @@ fun CollectionDetailScreen(
                                 selected = if (selected.size == series.size) emptySet()
                                 else series.map { it.id }.toSet()
                             },
+                            onMarkRead = { onSelectedMarkRead(true) },
+                            onMarkUnread = { onSelectedMarkRead(false) },
+                            onDownload = onSelectedDownload,
+                            onAddToReadList = onSelectedAddToReadList,
                             onDeleteSelected = {
-                                removedIds = removedIds + selected
-                                selected = emptySet()
-                                selecting = false
+                                viewModel.removeSeries(selected) { ok ->
+                                    if (!ok) removedIds = removedIds + selected
+                                    selected = emptySet()
+                                    selecting = false
+                                }
                             },
                             onDoneSelecting = {
                                 selecting = false
@@ -220,13 +269,21 @@ fun CollectionDetailScreen(
                                 selected = if (id in selected) selected - id else selected + id
                             },
                         )
+                        if (state.loadingMore) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            }
+                        }
                     }
                 }
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(narrowListScrollState)
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -236,6 +293,8 @@ fun CollectionDetailScreen(
                             centered = true,
                             coverHue = heroHue,
                             stableId = collection.id,
+                            createdDate = state.createdDate,
+                            lastModifiedDate = state.lastModifiedDate,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -253,10 +312,16 @@ fun CollectionDetailScreen(
                             selected = if (selected.size == series.size) emptySet()
                             else series.map { it.id }.toSet()
                         },
+                        onMarkRead = { onSelectedMarkRead(true) },
+                        onMarkUnread = { onSelectedMarkRead(false) },
+                        onDownload = onSelectedDownload,
+                        onAddToReadList = onSelectedAddToReadList,
                         onDeleteSelected = {
-                            removedIds = removedIds + selected
-                            selected = emptySet()
-                            selecting = false
+                            viewModel.removeSeries(selected) { ok ->
+                                if (!ok) removedIds = removedIds + selected
+                                selected = emptySet()
+                                selecting = false
+                            }
                         },
                         onDoneSelecting = {
                             selecting = false
@@ -273,8 +338,22 @@ fun CollectionDetailScreen(
                             selected = if (id in selected) selected - id else selected + id
                         },
                     )
+                    if (state.loadingMore) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    }
                 }
             }
+            AutoLoadMore(
+                scrollState = if (maxWidth >= WideLayoutBreakpoint) wideListScrollState else narrowListScrollState,
+                hasMore = state.hasMore,
+                loadingMore = state.loadingMore,
+                onLoadMore = viewModel::loadMore,
+            )
         }
     }
 
@@ -283,6 +362,25 @@ fun CollectionDetailScreen(
             options = options,
             onOptionsChange = { options = it },
             onDismiss = { optionsOpen = false },
+        )
+    }
+    if (addToReadListOpen) {
+        val ids = selected
+        AddToListSheet(
+            collections = emptyList(),
+            readLists = readLists ?: emptyList(),
+            onSelect = { entry ->
+                viewModel.addSeriesToReadList(entry, ids) { ok ->
+                    if (ok) {
+                        selected = emptySet()
+                        selecting = false
+                    } else {
+                        scope.launch { notifyFailure("加入阅读列表") }
+                    }
+                }
+                addToReadListOpen = false
+            },
+            onDismiss = { addToReadListOpen = false },
         )
     }
     if (deleteConfirm) {
@@ -295,6 +393,24 @@ fun CollectionDetailScreen(
     }
 }
 
+@Composable
+private fun AutoLoadMore(
+    scrollState: ScrollState,
+    hasMore: Boolean,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(scrollState, hasMore, loadingMore) {
+        snapshotFlow {
+            Triple(scrollState.value, scrollState.maxValue, scrollState.viewportSize)
+        }.collect { (value, maxValue, viewportSize) ->
+            if (hasMore && !loadingMore && maxValue > 0 && maxValue - value <= viewportSize) {
+                onLoadMore()
+            }
+        }
+    }
+}
+
 /** Hero：封面拼贴占位 + 名称 + 系列计数 + 简介（对齐 CollectionDetailContentView）。 */
 @Composable
 private fun CollectionHero(
@@ -303,6 +419,8 @@ private fun CollectionHero(
     centered: Boolean,
     coverHue: Float,
     stableId: Int? = null,
+    createdDate: String? = null,
+    lastModifiedDate: String? = null,
 ) {
     Column(
         modifier = Modifier
@@ -357,12 +475,17 @@ private fun CollectionHero(
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        Text(
-            text = "创建于 2024-06-12 · 更新于 2 小时前",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
-        )
+        if (createdDate != null || lastModifiedDate != null) {
+            Text(
+                text = listOfNotNull(
+                    createdDate?.takeIf { it.isNotBlank() }?.let { "创建于 ${it.take(10)}" },
+                    lastModifiedDate?.takeIf { it.isNotBlank() }?.let { "更新于 ${it.take(10)}" },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 
@@ -379,6 +502,10 @@ private fun SeriesToolbar(
     onApplyPreset: (com.kmworks.kmreader.data.SavedFilter) -> Unit,
     onStartSelecting: () -> Unit,
     onSelectAll: () -> Unit,
+    onMarkRead: () -> Unit,
+    onMarkUnread: () -> Unit,
+    onDownload: () -> Unit,
+    onAddToReadList: () -> Unit,
     onDeleteSelected: () -> Unit,
     onDoneSelecting: () -> Unit,
 ) {
@@ -387,10 +514,10 @@ private fun SeriesToolbar(
             selectedCount = selectedCount,
             totalCount = totalCount,
             onSelectAll = onSelectAll,
-            onMarkRead = {},
-            onMarkUnread = {},
-            onDownload = {},
-            onAddToReadList = {},
+            onMarkRead = onMarkRead,
+            onMarkUnread = onMarkUnread,
+            onDownload = onDownload,
+            onAddToReadList = onAddToReadList,
             onDelete = onDeleteSelected,
             onDone = onDoneSelecting,
         )

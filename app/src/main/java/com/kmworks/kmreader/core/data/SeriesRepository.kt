@@ -19,21 +19,30 @@ class SeriesRepository @Inject constructor(
         sessionManager.clients.value?.seriesThumbnailUrl(seriesId)
 
     /** Recently added or updated series (GET api/v1/series/latest). */
-    suspend fun latest(size: Int = 12): List<SeriesDto> {
+    suspend fun latest(size: Int = 12, libraryIds: List<String>? = null): List<SeriesDto> {
         val api = api ?: return emptyList()
-        return api.getSeriesLatest(size = size).awaitBody()?.content.orEmpty()
+        return api.getSeriesLatest(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            size = size,
+        ).awaitBody()?.content.orEmpty()
     }
 
     /** Newly added series (GET api/v1/series/new). */
-    suspend fun newlyAdded(size: Int = 12): List<SeriesDto> {
+    suspend fun newlyAdded(size: Int = 12, libraryIds: List<String>? = null): List<SeriesDto> {
         val api = api ?: return emptyList()
-        return api.getSeriesNew(size = size).awaitBody()?.content.orEmpty()
+        return api.getSeriesNew(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            size = size,
+        ).awaitBody()?.content.orEmpty()
     }
 
     /** Recently updated (not newly added) series (GET api/v1/series/updated). */
-    suspend fun recentlyUpdated(size: Int = 12): List<SeriesDto> {
+    suspend fun recentlyUpdated(size: Int = 12, libraryIds: List<String>? = null): List<SeriesDto> {
         val api = api ?: return emptyList()
-        return api.getSeriesUpdated(size = size).awaitBody()?.content.orEmpty()
+        return api.getSeriesUpdated(
+            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
+            size = size,
+        ).awaitBody()?.content.orEmpty()
     }
 
     /** Paged series list for the library grid (POST api/v1/series/list). */

@@ -10,6 +10,7 @@ import com.kmworks.kmreader.core.api.ReferentialMetadataApi
 import com.kmworks.kmreader.core.api.SeriesApi
 import com.kmworks.kmreader.core.api.UserSessionApi
 import com.kmworks.kmreader.core.data.SmartListsApi
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.server.ServerApi
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
@@ -30,7 +31,7 @@ import retrofit2.converter.scalars.ScalarsConverterFactory
  * 认证：apiKey 走 `X-API-Key` 头；否则每次请求带 Basic Auth（Komga 同时支持，
  * 会话 cookie 非必需）。
  */
-class ApiClients(config: ServerConfig) {
+class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS) {
 
     /** 规范化 base URL（缩略图等直连地址拼接用）。 */
     val baseUrl: String = config.normalizedBaseUrl
@@ -42,6 +43,9 @@ class ApiClients(config: ServerConfig) {
     }
 
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(timeoutSeconds.toLong(), TimeUnit.SECONDS)
+        .readTimeout(timeoutSeconds.toLong(), TimeUnit.SECONDS)
+        .writeTimeout(timeoutSeconds.toLong(), TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val request = chain.request().newBuilder().apply {
                 if (config.useApiKey) {
@@ -50,7 +54,17 @@ class ApiClients(config: ServerConfig) {
                     header("Authorization", Credentials.basic(config.username, config.password))
                 }
             }.build()
-            chain.proceed(request)
+            // 网络层失败埋点：IO 异常与非 2xx 响应进 AppLog（日志页/分享可取证）。
+            val response = try {
+                chain.proceed(request)
+            } catch (e: Exception) {
+                AppLog.e("HTTP", "${request.method} ${request.url} 网络异常", e)
+                throw e
+            }
+            if (!response.isSuccessful) {
+                AppLog.w("HTTP", "HTTP ${response.code} ${request.method} ${request.url}")
+            }
+            response
         }
         .addInterceptor(
             HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC },
@@ -88,4 +102,9 @@ class ApiClients(config: ServerConfig) {
 
     /** server/info 能力探测 + logout（手写接口）。 */
     val serverApi: ServerApi by lazy { retrofit.create(ServerApi::class.java) }
+
+    companion object {
+        /** 默认网络超时（秒），设置页可调（AppSettingsStore.networkTimeoutSeconds）。 */
+        const val DEFAULT_TIMEOUT_SECONDS = 30
+    }
 }

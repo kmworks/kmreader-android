@@ -27,14 +27,24 @@ class DivinaSettingsViewModel @Inject constructor(
     private val _settings = MutableStateFlow(DivinaSettings())
     val settings: StateFlow<DivinaSettings> = _settings.asStateFlow()
 
-    /** 设置里保存的默认阅读方向（菜单里改方向会同步保存）。 */
+    /** 设置里保存的默认阅读方向（设置-阅读器默认值里持久化的 divinaDefaultDirection）。 */
     val defaultDirection: StateFlow<ReadingDirection> = appSettings.divinaDefaultDirection
         .map { raw -> ReadingDirection.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: ReadingDirection.Ltr }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReadingDirection.Ltr)
 
+    /** 「仅 Wi-Fi 预加载」开关（AppSettingsStore 只读消费，对齐原作 wifiOnlyPreload）。 */
+    val wifiOnlyPreload: StateFlow<Boolean> = appSettings.wifiOnlyPreload
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     init {
         viewModelScope.launch {
             store.settings.collect { _settings.value = it }
+        }
+        viewModelScope.launch {
+            store.epubSettings.collect { _epubSettings.value = it }
+        }
+        viewModelScope.launch {
+            store.pdfSettings.collect { _pdfSettings.value = it }
         }
     }
 
@@ -42,6 +52,24 @@ class DivinaSettingsViewModel @Inject constructor(
     fun update(transform: (DivinaSettings) -> DivinaSettings) {
         _settings.value = transform(_settings.value)
         viewModelScope.launch { store.update(transform) }
+    }
+
+    // ---- EPUB / PDF 阅读器偏好（全局持久化，对齐原作 @AppStorage 语义）----
+
+    private val _epubSettings = MutableStateFlow(EpubReaderSettings())
+    val epubSettings: StateFlow<EpubReaderSettings> = _epubSettings.asStateFlow()
+
+    private val _pdfSettings = MutableStateFlow(PdfReaderSettings())
+    val pdfSettings: StateFlow<PdfReaderSettings> = _pdfSettings.asStateFlow()
+
+    fun updateEpub(transform: (EpubReaderSettings) -> EpubReaderSettings) {
+        _epubSettings.value = transform(_epubSettings.value)
+        viewModelScope.launch { store.updateEpubSettings(transform) }
+    }
+
+    fun updatePdf(transform: (PdfReaderSettings) -> PdfReaderSettings) {
+        _pdfSettings.value = transform(_pdfSettings.value)
+        viewModelScope.launch { store.updatePdfSettings(transform) }
     }
 
     /** 阅读方向沿用「设置-阅读器默认值」里的默认方向（与原作同一 AppStorage 语义）。 */

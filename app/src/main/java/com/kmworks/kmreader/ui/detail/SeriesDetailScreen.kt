@@ -70,12 +70,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -91,12 +93,14 @@ import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.tracker.TrackerSection
 import com.kmworks.kmreader.ui.tracker.TrackerSeriesSheet
+import kotlinx.coroutines.launch
 
 // 对齐 LayoutConfig.detailWideLayoutMinimumWidth = 960（宽版详情启用阈值）
 private val WideLayoutBreakpoint = 960.dp
@@ -125,6 +129,8 @@ fun SeriesDetailScreen(
     // 演示数据（无会话）下的「标记为已读」本地即时反馈
     var demoMarkedRead by remember(series.id) { mutableStateOf(false) }
     val collections by viewModel.collections.collectAsState()
+    val readLists by viewModel.readLists.collectAsState()
+    val scope = rememberCoroutineScope()
     val displaySeries = (state.series ?: series).let {
         if (demoMarkedRead && state.series == null) it.copy(progress = 1f, unreadCount = 0) else it
     }
@@ -146,6 +152,8 @@ fun SeriesDetailScreen(
     var showTrackerSheet by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
+    var addSelectedToReadListOpen by remember { mutableStateOf(false) }
+    var deleteSelectedOpen by remember { mutableStateOf(false) }
     // 下载状态：真实文件扫描结果（stableId -> 完整）+ 演示本地反馈
     val downloadedMap by viewModel.downloaded.collectAsState()
     var demoDownloaded by remember { mutableStateOf(false) }
@@ -161,14 +169,49 @@ fun SeriesDetailScreen(
         }
     }
 
+    // 页内 snackbar（komf 任务与多选失败通知共用）
+    val snackbarHostState = remember { SnackbarHostState() }
+
     // 多选未开启时长按书籍 = 带该书进入多选（对齐原作长按手势）
     val toggleSelect: (Book) -> Unit = { book ->
         selectedIds = selectedIds?.let { if (book.id in it) it - book.id else it + book.id }
             ?: setOf(book.id)
     }
 
+    val selectionFailure: suspend (String) -> Unit = { action ->
+        snackbarHostState.showSnackbar("${action}失败：没有可写入的真实书籍数据")
+    }
+    val onSelectedMarkRead: (Boolean) -> Unit = { read ->
+        val ids = selectedIds.orEmpty()
+        if (ids.isNotEmpty()) {
+            if (viewModel.markBooksRead(ids, read)) {
+                selectedIds = null
+            } else {
+                scope.launch { selectionFailure(if (read) "标记已读" else "标记未读") }
+            }
+        }
+    }
+    val onSelectedDownload: () -> Unit = {
+        val ids = selectedIds.orEmpty()
+        if (ids.isNotEmpty()) {
+            if (viewModel.downloadBooks(ids)) {
+                selectedIds = null
+            } else {
+                scope.launch { selectionFailure("下载") }
+            }
+        }
+    }
+    val onSelectedAddToReadList: () -> Unit = {
+        if (!selectedIds.isNullOrEmpty()) {
+            viewModel.ensureReadListsLoaded()
+            addSelectedToReadListOpen = true
+        }
+    }
+    val onSelectedDelete: () -> Unit = {
+        if (!selectedIds.isNullOrEmpty()) deleteSelectedOpen = true
+    }
+
     // komf 任务一次性通知（页内 snackbar，对齐 ErrorManager 通知）
-    val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.komfEvents.collect { snackbarHostState.showSnackbar(it) }
     }
@@ -313,6 +356,11 @@ fun SeriesDetailScreen(
                                     selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
                                 },
                                 onDoneSelection = { selectedIds = null },
+                                onMarkRead = { onSelectedMarkRead(true) },
+                                onMarkUnread = { onSelectedMarkRead(false) },
+                                onDownload = onSelectedDownload,
+                                onAddToReadList = onSelectedAddToReadList,
+                                onDelete = onSelectedDelete,
                             )
                         }
                         item(key = "books") {
@@ -376,6 +424,11 @@ fun SeriesDetailScreen(
                             selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
                         },
                         onDoneSelection = { selectedIds = null },
+                        onMarkRead = { onSelectedMarkRead(true) },
+                        onMarkUnread = { onSelectedMarkRead(false) },
+                        onDownload = onSelectedDownload,
+                        onAddToReadList = onSelectedAddToReadList,
+                        onDelete = onSelectedDelete,
                     )
                     BooksSection(
                         books = books,
@@ -402,7 +455,7 @@ fun SeriesDetailScreen(
     if (showEditSheet) {
         var editSaving by remember { mutableStateOf(false) }
         SeriesEditSheet(
-            series = series,
+            series = displaySeries,
             values = state.editable,
             saving = editSaving,
             onSave = { dto ->
@@ -425,7 +478,8 @@ fun SeriesDetailScreen(
     if (showTrackerSheet) {
         // TrackerSeriesSheet 内部经 Hilt 自接真实数据（TrackerSeriesViewModel）
         TrackerSeriesSheet(
-            series = series,
+            series = displaySeries,
+            alternateTitles = state.editable?.alternateTitles.orEmpty().map { it.second },
             onDismiss = {
                 showTrackerSheet = false
                 viewModel.refreshTrackerLinks()
@@ -442,6 +496,39 @@ fun SeriesDetailScreen(
                 addToCollectionOpen = false
             },
             onDismiss = { addToCollectionOpen = false },
+        )
+    }
+    if (addSelectedToReadListOpen) {
+        val ids = selectedIds.orEmpty()
+        AddToListSheet(
+            collections = emptyList(),
+            readLists = readLists ?: emptyList(),
+            onSelect = { entry ->
+                if (viewModel.addBooksToReadList(entry, ids)) {
+                    selectedIds = null
+                } else {
+                    scope.launch { selectionFailure("加入阅读列表") }
+                }
+                addSelectedToReadListOpen = false
+            },
+            onDismiss = { addSelectedToReadListOpen = false },
+        )
+    }
+    if (deleteSelectedOpen) {
+        val ids = selectedIds.orEmpty()
+        ConfirmDeleteDialog(
+            title = "删除所选书籍",
+            message = "将删除 ${ids.size} 本书籍的文件。此操作不可撤销。",
+            onConfirm = {
+                viewModel.deleteBooks(ids) { ok ->
+                    if (ok) {
+                        selectedIds = null
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("删除失败，请稍后重试") }
+                    }
+                }
+            },
+            onDismiss = { deleteSelectedOpen = false },
         )
     }
 }
@@ -660,6 +747,7 @@ private fun DetailChips(
     if (series.notableEntities.isEmpty() && series.genres.isEmpty() &&
         series.tags.isEmpty() && series.links.isEmpty()
     ) return
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier = Modifier.padding(top = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -696,8 +784,12 @@ private fun DetailChips(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                series.links.forEach { (label, _) ->
-                    MetaChip(text = label, icon = Icons.Outlined.Link, onClick = { })
+                series.links.forEach { (label, url) ->
+                    MetaChip(
+                        text = label,
+                        icon = Icons.Outlined.Link,
+                        onClick = { uriHandler.openUri(url) },
+                    )
                 }
             }
         }
@@ -901,17 +993,22 @@ private fun BooksToolbar(
     onEnterSelection: () -> Unit,
     onToggleSelectAll: () -> Unit,
     onDoneSelection: () -> Unit,
+    onMarkRead: () -> Unit,
+    onMarkUnread: () -> Unit,
+    onDownload: () -> Unit,
+    onAddToReadList: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     if (selection != null) {
         SelectionToolbar(
             selectedCount = selection.size,
             totalCount = totalCount,
             onSelectAll = onToggleSelectAll,
-            onMarkRead = { },
-            onMarkUnread = { },
-            onDownload = { },
-            onAddToReadList = { },
-            onDelete = { },
+            onMarkRead = onMarkRead,
+            onMarkUnread = onMarkUnread,
+            onDownload = onDownload,
+            onAddToReadList = onAddToReadList,
+            onDelete = onDelete,
             onDone = onDoneSelection,
         )
         return

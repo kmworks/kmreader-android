@@ -43,23 +43,41 @@ class SmartListRepository @Inject constructor(
     }
 
     /** 命中书籍（body 直接透传服务端存的 search 文档，缺省空文档）。 */
-    suspend fun smartListBooks(dtoId: String, search: JsonObject?): List<BookDto> {
-        val api = sessionManager.clients.value?.smartLists ?: return emptyList()
-        return api.getSmartListBooks(
+    suspend fun smartListBooks(
+        dtoId: String,
+        search: JsonObject?,
+        page: Int = 0,
+        size: Int = 50,
+    ): Paged<BookDto> {
+        val api = sessionManager.clients.value?.smartLists ?: return Paged(emptyList(), hasMore = false)
+        val body = api.getSmartListBooks(
             id = dtoId,
             search = search ?: JsonObject(emptyMap()),
+            page = page,
+            size = size,
             sort = listOf("metadata.numberSort,asc"),
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody()
+        val items = body?.content.orEmpty()
+        return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
     /** 命中系列。 */
-    suspend fun smartListSeries(dtoId: String, search: JsonObject?): List<SeriesDto> {
-        val api = sessionManager.clients.value?.smartLists ?: return emptyList()
-        return api.getSmartListSeries(
+    suspend fun smartListSeries(
+        dtoId: String,
+        search: JsonObject?,
+        page: Int = 0,
+        size: Int = 50,
+    ): Paged<SeriesDto> {
+        val api = sessionManager.clients.value?.smartLists ?: return Paged(emptyList(), hasMore = false)
+        val body = api.getSmartListSeries(
             id = dtoId,
             search = search ?: JsonObject(emptyMap()),
+            page = page,
+            size = size,
             sort = listOf("metadata.titleSort,asc"),
-        ).awaitBody()?.content.orEmpty()
+        ).awaitBody()
+        val items = body?.content.orEmpty()
+        return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
     /** 新建（target: BOOK | SERIES）。 */

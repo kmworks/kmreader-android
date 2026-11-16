@@ -36,6 +36,10 @@ fun SelectionToolbar(
     onDelete: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    showMarkActions: Boolean = true,
+    showDownload: Boolean = true,
+    showAddToReadList: Boolean = true,
+    showDelete: Boolean = true,
 ) {
     val actionsEnabled = selectedCount > 0
     Row(
@@ -57,24 +61,32 @@ fun SelectionToolbar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onMarkRead, enabled = actionsEnabled) {
-            Icon(Icons.Outlined.CheckCircle, contentDescription = "标记为已读")
+        if (showMarkActions) {
+            IconButton(onClick = onMarkRead, enabled = actionsEnabled) {
+                Icon(Icons.Outlined.CheckCircle, contentDescription = "标记为已读")
+            }
+            IconButton(onClick = onMarkUnread, enabled = actionsEnabled) {
+                Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = "标记为未读")
+            }
         }
-        IconButton(onClick = onMarkUnread, enabled = actionsEnabled) {
-            Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = "标记为未读")
+        if (showDownload) {
+            IconButton(onClick = onDownload, enabled = actionsEnabled) {
+                Icon(Icons.Outlined.Download, contentDescription = "下载")
+            }
         }
-        IconButton(onClick = onDownload, enabled = actionsEnabled) {
-            Icon(Icons.Outlined.Download, contentDescription = "下载")
+        if (showAddToReadList) {
+            IconButton(onClick = onAddToReadList, enabled = actionsEnabled) {
+                Icon(Icons.Outlined.PlaylistAdd, contentDescription = "加入阅读列表")
+            }
         }
-        IconButton(onClick = onAddToReadList, enabled = actionsEnabled) {
-            Icon(Icons.Outlined.PlaylistAdd, contentDescription = "加入阅读列表")
-        }
-        IconButton(onClick = onDelete, enabled = actionsEnabled) {
-            Icon(
-                Icons.Outlined.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.error,
-            )
+        if (showDelete) {
+            IconButton(onClick = onDelete, enabled = actionsEnabled) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
         TextButton(onClick = onDone) { Text("完成") }
     }

@@ -32,9 +32,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
+import com.kmworks.kmreader.ui.RootViewModel
 import com.kmworks.kmreader.ui.tracker.TrackerSettingsScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -75,8 +77,13 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit = {},
     onOpenLicenses: () -> Unit = {},
     viewModel: SettingsEntryViewModel = hiltViewModel(),
+    prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
+    rootViewModel: RootViewModel = hiltViewModel(),
 ) {
-    var trueBlack by remember { mutableStateOf(true) }
+    // 真黑快捷开关与外观页读写同一个 AppSettingsStore.trueBlackDark，两处实时同步
+    val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
+    val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
+    val serverConfig by rootViewModel.config.collectAsStateWithLifecycle()
     var showTrackerSettings by remember { mutableStateOf(false) }
     // kmrs 能力门控：无 ReadingStats/Trackers 特性时对应入口副标题提示
     val statsSupported by viewModel.readingStatsSupported.collectAsState()
@@ -106,13 +113,13 @@ fun SettingsScreen(
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
             item { SettingsGroupHeader("外观") }
-            item { SettingsValueRow("主题", "跟随系统") }
+            item { SettingsValueRow("主题", themeModeLabel(themeMode)) }
             item {
                 SettingsSwitchRow(
                     title = "真黑背景",
                     subtitle = "OLED 下阅读器与仪表盘使用纯黑背景",
                     checked = trueBlack,
-                    onCheckedChange = { trueBlack = it },
+                    onCheckedChange = prefsViewModel::setTrueBlackDark,
                 )
             }
             item {
@@ -221,8 +228,17 @@ fun SettingsScreen(
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
             item { SettingsGroupHeader("账户") }
-            item { SettingsValueRow("当前实例", "https://komga.example.com") }
-            item { SettingsValueRow("账户", "demo@example.com") }
+            item { SettingsValueRow("当前实例", serverConfig?.normalizedBaseUrl ?: "未连接") }
+            item {
+                SettingsValueRow(
+                    "账户",
+                    when {
+                        serverConfig == null -> "—"
+                        serverConfig?.useApiKey == true -> "API Key"
+                        else -> serverConfig?.username.orEmpty()
+                    },
+                )
+            }
             item {
                 SettingsNavRow(
                     title = "服务器账户",
@@ -249,6 +265,13 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/** 主题存储值 → 显示标签（与外观页 ThemeOptions 一致）。 */
+private fun themeModeLabel(mode: String): String = when (mode) {
+    "light" -> "浅色"
+    "dark" -> "深色"
+    else -> "跟随系统"
 }
 
 @Composable

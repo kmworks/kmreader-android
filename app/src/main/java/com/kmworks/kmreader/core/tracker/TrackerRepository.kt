@@ -45,6 +45,13 @@ class TrackerRepository @Inject constructor(
     suspend fun logoutProvider(provider: String): Boolean =
         api?.logout(provider)?.executeOrFalse() == true
 
+    /** 全局绑定列表（设置页绑定管理；可按 provider 过滤并分页）。 */
+    suspend fun links(
+        page: Int = 0,
+        size: Int = 50,
+        provider: String? = null,
+    ): TrackerLinkPageDto? = api?.getLinks(page, size, provider)?.fetchOrNull()
+
     /** 某系列的绑定列表（无会话/无能力/失败 → 空）。 */
     suspend fun links(seriesDtoId: String): List<TrackerLinkDto> =
         api?.getSeriesLinks(seriesDtoId)?.fetchOrNull().orEmpty()
@@ -71,13 +78,22 @@ class TrackerRepository @Inject constructor(
         api?.deleteLink(seriesDtoId, provider)?.executeOrFalse() == true
 
     /** 远端搜索（对齐 search：name/nsfw/language 参数）。 */
-    suspend fun search(provider: String, query: String): List<TrackerSearchItemDto> =
-        api?.search(
+    suspend fun search(provider: String, query: String): List<TrackerSearchItemDto> {
+        val trackerApi = api
+        if (trackerApi == null) {
+            AppLog.w("TrackerRepository", "search skipped: api unavailable provider=$provider query=$query")
+            return emptyList()
+        }
+        AppLog.d("TrackerRepository", "search request provider=$provider query=$query")
+        val result = trackerApi.search(
             provider = provider,
             name = query,
             nsfw = true,
             language = Locale.getDefault().language,
-        )?.fetchOrNull().orEmpty()
+        ).fetchOrNull().orEmpty()
+        AppLog.d("TrackerRepository", "search result provider=$provider query=$query count=${result.size}")
+        return result
+    }
 
     suspend fun remoteState(provider: String, trackId: String): TrackerRemoteStateDto? =
         api?.getState(provider, trackId)?.fetchOrNull()

@@ -79,6 +79,11 @@ class SettingsDashboardViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setDashboardSectionOrder(ids) }
     }
 
+    /** 拖拽排序结束后整体提交可见分区顺序（对齐 iOS .onMove 的持久化时机）。 */
+    fun setOrder(ids: List<String>) {
+        viewModelScope.launch { appSettings.setDashboardSectionOrder(ids) }
+    }
+
     fun setVisible(sectionId: String, visible: Boolean) {
         val current = state.value
         val visibleIds = current.visibleSections.map { it.id }.toMutableList()

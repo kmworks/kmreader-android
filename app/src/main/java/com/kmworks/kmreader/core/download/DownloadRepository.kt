@@ -10,13 +10,16 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -31,10 +34,22 @@ import javax.inject.Singleton
 class DownloadRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @Suppress("unused") private val sessionManager: SessionManager,
+    appSettings: AppSettingsStore,
+    appScope: CoroutineScope,
 ) {
 
     private val workManager get() = WorkManager.getInstance(context)
     private val downloadsDir get() = File(context.filesDir, "downloads")
+
+    // 页级并发数：网络设置页持久化到 AppSettingsStore，入队时透传给 Worker
+    @Volatile
+    private var pageConcurrency = AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY
+
+    init {
+        appScope.launch {
+            appSettings.downloadConcurrency.collect { pageConcurrency = it }
+        }
+    }
 
     // 入队元数据（WorkInfo 不带 inputData，标题/页数存这里供队列行展示）
     private val enqueueMeta
@@ -57,8 +72,8 @@ class DownloadRepository @Inject constructor(
     private val _autoDownloadUnread = MutableStateFlow(settingsPrefs.getBoolean(KEY_AUTO_UNREAD, false))
 
     /**
-     * 自动下载未读内容：当前仅持久化该偏好，下载触发器（SSE/续读监听）
-     * 尚未实现，后续版本接入后 worker 才会消费。
+     * 自动下载未读内容：开关持久化于此；触发器 = AutoDownloadUnreadTrigger（SSE 书籍/系列事件）
+     * 与系列详情页的 autoDownloadUnreadIfEnabled（打开详情时补下该系列未读）。
      */
     val autoDownloadUnread: Flow<Boolean> = _autoDownloadUnread
 
@@ -70,11 +85,14 @@ class DownloadRepository @Inject constructor(
     // 暂停/恢复/入队等本地动作通过 tick 驱动 downloads flow 重新合成
     private val tick = MutableStateFlow(0)
 
-    /** 入队整本下载；同名任务 REPLACE 重跑（重试语义）。 */
-    fun enqueueBook(bookDtoId: String, title: String, pageCount: Int) {
+    /** 入队整本下载；同名任务 REPLACE 重跑（重试语义）。libraryId 用于离线页库范围过滤，缺省保留旧值。 */
+    fun enqueueBook(bookDtoId: String, title: String, pageCount: Int, libraryId: String? = null) {
         enqueueMeta.edit()
             .putString(bookDtoId, title)
             .putInt("$bookDtoId#pages", pageCount)
+            .apply {
+                if (libraryId != null) putString("$bookDtoId#library", libraryId)
+            }
             .apply()
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(
@@ -86,6 +104,7 @@ class DownloadRepository @Inject constructor(
                 DownloadWorker.KEY_BOOK_ID to bookDtoId,
                 DownloadWorker.KEY_TITLE to title,
                 DownloadWorker.KEY_PAGE_COUNT to pageCount,
+                DownloadWorker.KEY_CONCURRENCY to pageConcurrency,
             ))
             .setConstraints(constraints)
             .addTag(DownloadWorker.TAG)
@@ -100,6 +119,7 @@ class DownloadRepository @Inject constructor(
     suspend fun pauseBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         enqueueMeta.edit().putBoolean("$bookDtoId#paused", true).apply()
         workManager.cancelUniqueWork(workName(bookDtoId))
+        AppLog.i("Download", "暂停：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         tick.value += 1
     }
 
@@ -109,6 +129,7 @@ class DownloadRepository @Inject constructor(
         val pageCount = enqueueMeta.getInt("$bookDtoId#pages", 0)
         if (pageCount <= 0) return@withContext
         enqueueMeta.edit().putBoolean("$bookDtoId#paused", false).apply()
+        AppLog.i("Download", "恢复：$title")
         enqueueBook(bookDtoId, title, pageCount)
     }
 
@@ -194,6 +215,7 @@ class DownloadRepository @Inject constructor(
                 title = props["title"] ?: dir.name,
                 pageCount = pageCount,
                 sizeBytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
+                libraryId = enqueueMeta.getString("${dir.name}#library", null),
             )
         }?.sortedBy { it.title } ?: emptyList()
     }
@@ -213,10 +235,12 @@ class DownloadRepository @Inject constructor(
     /** 取消任务并删除已落盘的页文件。 */
     suspend fun cancelBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
+        AppLog.i("Download", "取消：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         enqueueMeta.edit()
             .remove(bookDtoId)
             .remove("$bookDtoId#pages")
             .remove("$bookDtoId#paused")
+            .remove("$bookDtoId#library")
             .apply()
         File(downloadsDir, bookDtoId).deleteRecursively()
         tick.value += 1
@@ -225,10 +249,12 @@ class DownloadRepository @Inject constructor(
     /** 删除已完成的书籍文件。 */
     suspend fun deleteBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
+        AppLog.i("Download", "删除：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         enqueueMeta.edit()
             .remove(bookDtoId)
             .remove("$bookDtoId#pages")
             .remove("$bookDtoId#paused")
+            .remove("$bookDtoId#library")
             .apply()
         File(downloadsDir, bookDtoId).deleteRecursively()
         tick.value += 1
@@ -244,6 +270,10 @@ class DownloadRepository @Inject constructor(
         val stat = StatFs(context.filesDir.absolutePath)
         stat.blockSizeLong * stat.blockCountLong
     }
+
+    /** 入队时记录的所属库 id（供离线页库范围过滤队列任务）。 */
+    fun libraryIdOf(bookDtoId: String): String? =
+        enqueueMeta.getString("$bookDtoId#library", null)
 
     private fun workName(bookDtoId: String) = "download_$bookDtoId"
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -84,6 +87,8 @@ fun SmartListDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var editOpen by remember { mutableStateOf(false) }
+    val wideListScrollState = rememberScrollState()
+    val narrowListScrollState = rememberScrollState()
     // 「刷新封面」的缓存键版本：自增后重新请求服务端封面
     var coverVersion by remember { mutableStateOf(0) }
 
@@ -190,7 +195,7 @@ fun SmartListDetailScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(wideListScrollState)
                             .padding(vertical = 8.dp),
                     ) {
                         SmartListToolbar(
@@ -208,13 +213,21 @@ fun SmartListDetailScreen(
                             onOpenBook = onOpenBook,
                             onOpenSeries = onOpenSeries,
                         )
+                        if (state.loadingMore) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            }
+                        }
                     }
                 }
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(narrowListScrollState)
                         .padding(vertical = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -243,8 +256,22 @@ fun SmartListDetailScreen(
                         onOpenBook = onOpenBook,
                         onOpenSeries = onOpenSeries,
                     )
+                    if (state.loadingMore) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    }
                 }
             }
+            AutoLoadMore(
+                scrollState = if (maxWidth >= WideLayoutBreakpoint) wideListScrollState else narrowListScrollState,
+                hasMore = state.hasMore,
+                loadingMore = state.loadingMore,
+                onLoadMore = viewModel::loadMore,
+            )
         }
     }
 
@@ -292,6 +319,24 @@ fun SmartListDetailScreen(
                 null
             },
         )
+    }
+}
+
+@Composable
+private fun AutoLoadMore(
+    scrollState: ScrollState,
+    hasMore: Boolean,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(scrollState, hasMore, loadingMore) {
+        snapshotFlow {
+            Triple(scrollState.value, scrollState.maxValue, scrollState.viewportSize)
+        }.collect { (value, maxValue, viewportSize) ->
+            if (hasMore && !loadingMore && maxValue > 0 && maxValue - value <= viewportSize) {
+                onLoadMore()
+            }
+        }
     }
 }
 

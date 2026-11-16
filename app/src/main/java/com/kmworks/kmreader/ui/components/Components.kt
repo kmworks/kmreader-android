@@ -44,6 +44,7 @@ import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.EntryPointAccessors
+import java.net.URI
 
 private val CoverShape = RoundedCornerShape(8.dp)
 
@@ -88,22 +89,43 @@ fun CoverArt(
         val clients by session.clients.collectAsState()
         val sessionLoader by session.imageLoader.collectAsState()
         val externalLoader = remember(context) { SingletonImageLoader.get(context) }
-        val resolvedUrl = remember(stableId, imageUrl, clients, coverVersion) {
-            val base = stableId?.let { CoverUrlRegistry.url(it, clients) } ?: imageUrl
-            if (base != null && coverVersion > 0) {
-                // 「刷新封面」：附加版本参数换缓存键，强制重新拉取服务端封面
-                val separator = if (base.contains('?')) "&" else "?"
-                "$base${separator}v=$coverVersion"
+        val serverBaseUrl = clients?.baseUrl
+        val resolvedUrl = remember(stableId, imageUrl, serverBaseUrl, coverVersion) {
+            val base = if (stableId != null) {
+                CoverUrlRegistry.url(stableId, clients)
             } else {
-                base
+                imageUrl
+            }
+            val absolute = base?.let { normalizeCoverUrl(it, serverBaseUrl) }
+            if (absolute != null && coverVersion > 0) {
+                // 「刷新封面」：附加版本参数换缓存键，强制重新拉取服务端封面
+                val separator = if (absolute.contains('?')) "&" else "?"
+                "$absolute${separator}v=$coverVersion"
+            } else {
+                absolute
             }
         }
-        // Komga 封面必须等带认证的会话 loader；外部地址用无认证的单例 loader。
-        val loader = if (stableId != null) sessionLoader else externalLoader
+        val serverOwnedImage = resolvedUrl != null && serverBaseUrl != null &&
+            sameOrigin(resolvedUrl, serverBaseUrl)
+        // Komga/同域封面必须走带认证的会话 loader；真正的第三方地址才用无认证单例 loader。
+        val loader = if (stableId != null || serverOwnedImage) sessionLoader else externalLoader
 
-        LaunchedEffect(stableId, clients) {
+        LaunchedEffect(stableId, imageUrl, clients, resolvedUrl) {
             if (stableId != null && clients != null && resolvedUrl == null) {
-                AppLog.w("CoverArt", "cover url missing: stableId=$stableId title=$title")
+                if (!CoverUrlRegistry.contains(stableId)) {
+                    AppLog.w(
+                        "CoverArt",
+                        "cover registry miss: stableId=$stableId title=$title",
+                    )
+                } else {
+                    AppLog.w(
+                        "CoverArt",
+                        "cover url missing: stableId=$stableId ref=${CoverUrlRegistry.debugRef(stableId)} title=$title",
+                    )
+                }
+            }
+            if (stableId == null && !imageUrl.isNullOrBlank() && imageUrl != resolvedUrl) {
+                AppLog.d("CoverArt", "normalized cover url: $imageUrl -> $resolvedUrl title=$title")
             }
         }
 
@@ -266,6 +288,31 @@ fun BookGridCard(
         }
     }
 }
+
+private fun normalizeCoverUrl(url: String, serverBaseUrl: String?): String {
+    if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+        return url
+    }
+    val base = serverBaseUrl?.trimEnd('/') ?: return url
+    return when {
+        url.startsWith("//") -> {
+            val scheme = runCatching { URI(base).scheme }.getOrNull() ?: "https"
+            "$scheme:$url"
+        }
+        url.startsWith("/") -> base + url
+        else -> "$base/$url"
+    }
+}
+
+private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatching {
+    val image = URI(url)
+    val server = URI(serverBaseUrl)
+    val urlPort = image.port.takeIf { it >= 0 } ?: if (image.scheme == "https") 443 else 80
+    val serverPort = server.port.takeIf { it >= 0 } ?: if (server.scheme == "https") 443 else 80
+    image.scheme.equals(server.scheme, ignoreCase = true) &&
+        image.host?.equals(server.host, ignoreCase = true) == true &&
+        urlPort == serverPort
+}.getOrDefault(false)
 
 /** 卡片封面宽高比：保持原始比例时用漫画封面比，否则方形裁切。 */
 private fun seriesAspect(display: CardDisplayOptions): Float =

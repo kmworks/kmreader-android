@@ -353,7 +353,6 @@ internal fun BookDetailBody(
                     ) {
                         meta?.let {
                             BookSecondaryContent(
-                                displayed,
                                 it,
                                 onBrowseFilter = onBrowseFilter,
                             )
@@ -404,7 +403,6 @@ internal fun BookDetailBody(
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         meta?.let {
                             BookSecondaryContent(
-                                displayed,
                                 it,
                                 onBrowseFilter = onBrowseFilter,
                             )
@@ -465,6 +463,7 @@ internal fun BookDetailBody(
 }
 
 /** Hero：封面、所属系列入口、标题、作者 chips、元信息行（对齐 DetailHeroView 书籍形态）。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BookHero(
     book: Book,
@@ -526,10 +525,10 @@ internal fun BookHero(
         )
         val authors = meta?.authors.orEmpty()
         if (authors.isNotEmpty()) {
-            // 作者 chips：作者名（角色中文），按角色排序，点击跳浏览按作者筛选
+            // 对齐 iOS BookDetailContentView.authorItems：角色只决定图标和排序，文案只显示姓名。
             val ordered = authors.sortedBy { it.role.ordinal }.map { creator ->
                 ChipItem(
-                    text = "${creator.name} (${creator.roleLabel})",
+                    text = creator.name,
                     icon = creator.role.icon(),
                     value = creator.name,
                 )
@@ -541,14 +540,33 @@ internal fun BookHero(
                 onClick = { item -> onBrowseFilter("作者 · ${item.value}") },
             )
         }
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        val heroMeta = buildList {
             if (meta != null) {
-                MetaRow(icon = Icons.Filled.DateRange, text = "发布于 ${meta.releaseDate}")
+                add(Icons.Filled.DateRange to "发布于 ${meta.releaseDate}")
             }
-            MetaRow(icon = Icons.AutoMirrored.Filled.MenuBook, text = book.pageLabel)
+            add(Icons.AutoMirrored.Filled.MenuBook to book.pageLabel)
             if (meta != null) {
-                MetaRow(icon = Icons.Outlined.Storage, text = meta.sizeLabel)
-                MetaRow(icon = Icons.Outlined.Description, text = meta.format)
+                add(Icons.Outlined.Storage to meta.sizeLabel)
+                add(Icons.Outlined.Description to meta.format)
+            }
+        }
+        if (centered) {
+            // 对齐 DetailHeroMetadataGroup / 系列详情：居中态横向换行，避免每项各占一整行。
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                heroMeta.forEach { (icon, text) -> MetaRow(icon = icon, text = text) }
+            }
+        } else {
+            Column(
+                modifier = Modifier.padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                heroMeta.forEach { (icon, text) -> MetaRow(icon = icon, text = text) }
             }
         }
     }
@@ -742,7 +760,6 @@ private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
 /** 右栏/下部内容：简介、标签 chips、媒体信息（对齐 ExpandableSummaryView + BookMediaInfoSection）。 */
 @Composable
 internal fun BookSecondaryContent(
-    book: Book,
     meta: BookDetailMeta,
     onBrowseFilter: (String) -> Unit = {},
 ) {
@@ -776,7 +793,6 @@ internal fun BookSecondaryContent(
     Column(modifier = Modifier.padding(top = 8.dp)) {
         MetaRow(icon = Icons.Outlined.Description, text = meta.format)
         MetaRow(icon = Icons.Outlined.Storage, text = meta.sizeLabel)
-        MetaRow(icon = Icons.AutoMirrored.Filled.MenuBook, text = book.pageLabel)
         MetaRow(icon = Icons.Outlined.Folder, text = meta.filePath)
     }
 }

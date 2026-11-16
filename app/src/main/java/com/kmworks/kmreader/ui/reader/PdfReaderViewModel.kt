@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 data class PdfReaderUiState(
     val hasSession: Boolean = false,
@@ -50,6 +51,12 @@ constructor(
     private var lastBook: Book? = null
     private var document: PdfDocument? = null
     private var lastReportedPage = 0
+
+    // 进度上报门控（对齐原作 PdfReaderViewModel 的 ReaderProgressRecordingGate）：
+    // 未读过的书不移动 3 页以上不上报；在读过的书移动 1 页即上报；完成/已记录总放行。
+    private var sessionStartPage: Int? = null
+    private var wasInProgress: Boolean = false
+    private var hasRecorded: Boolean = false
 
     /** 隐私阅读（incognito）：跳过进度上报。 */
     var incognito: Boolean = false
@@ -84,6 +91,9 @@ constructor(
             }
             document = doc
             val progress = detailRepository.bookDetail(dtoId)?.readProgress
+            wasInProgress = progress != null && !progress.completed
+            sessionStartPage = null
+            hasRecorded = false
             val initialPage =
                 when {
                     progress == null || progress.completed -> 1
@@ -116,9 +126,26 @@ constructor(
         if (incognito) return
         val dtoId = _uiState.value.bookDtoId ?: return
         if (page == lastReportedPage) return
+        val pageCount = _uiState.value.pageCount
+        if (pageCount <= 0) return
+        if (sessionStartPage == null) sessionStartPage = page
+        val completed = page >= pageCount
+        if (!admitsRecording(page, completed, pageCount)) return
         lastReportedPage = page
-        val completed = page >= _uiState.value.pageCount
-        viewModelScope.launch { actionRepository.updateBookReadProgress(dtoId, page, completed) }
+        viewModelScope.launch {
+            val ok = actionRepository.updateBookReadProgress(dtoId, page, completed)
+            if (ok) hasRecorded = true
+        }
+    }
+
+    /** 对齐原作 ReaderProgressRecordingGate：threshold=3，clamp 到 pageCount-1，在读过的书 req=1。 */
+    private fun admitsRecording(page: Int, completed: Boolean, pageCount: Int): Boolean {
+        if (completed || hasRecorded) return true
+        val start = sessionStartPage ?: return false
+        val threshold = minOf(ReaderProgressRecordingGate.THRESHOLD, pageCount - 1)
+        val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
+        if (requiredDistance <= 0) return true
+        return abs(page - start) >= requiredDistance
     }
 
     fun retry() {

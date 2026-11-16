@@ -11,12 +11,11 @@ import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.SmartListTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /** Smart list detail state; books/series == null keeps the sample demo UI. */
 data class SmartListDetailUiState(
@@ -32,6 +31,8 @@ data class SmartListDetailUiState(
     val createdLabel: String? = null,
     val books: List<Book>? = null,
     val series: List<Series>? = null,
+    val loadingMore: Boolean = false,
+    val hasMore: Boolean = false,
     /** Hero thumbnail (smart-list cover endpoint). */
     val heroThumbnail: String? = null,
 )
@@ -47,6 +48,10 @@ class SmartListDetailViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     private var loadedId: Int? = null
+    private var currentDtoId: String? = null
+    private var currentSearch: JsonObject? = null
+    private var currentTarget: SmartListTarget? = null
+    private var nextPage = 0
 
     /** Load once per stable id; no session or unknown id keeps the demo fallback. */
     fun load(stableId: Int) {
@@ -61,31 +66,41 @@ class SmartListDetailViewModel @Inject constructor(
             _state.update { it.copy(hasSession = true, loading = false) }
             return
         }
+        currentDtoId = dtoId
+        currentSearch = null
+        currentTarget = null
+        nextPage = 0
         viewModelScope.launch {
-            _state.update { it.copy(hasSession = true, loading = true, error = null, hasRealSmartList = true) }
+            _state.update {
+                it.copy(
+                    hasSession = true,
+                    loading = true,
+                    error = null,
+                    hasRealSmartList = true,
+                    books = null,
+                    series = null,
+                    hasMore = false,
+                )
+            }
             try {
                 val detail = smartListRepository.smartListDetail(dtoId) ?: run {
                     _state.update { it.copy(loading = false) }
                     return@launch
                 }
                 val target = if (detail.target == "SERIES") SmartListTarget.Series else SmartListTarget.Book
-                val (books, series) = coroutineScope {
-                    val b = async {
-                        if (target == SmartListTarget.Book) {
-                            smartListRepository.smartListBooks(dtoId, detail.search).map { it.toUiBook() }
-                        } else {
-                            emptyList()
-                        }
-                    }
-                    val s = async {
-                        if (target == SmartListTarget.Series) {
-                            smartListRepository.smartListSeries(dtoId, detail.search).map { it.toUiSeries() }
-                        } else {
-                            emptyList()
-                        }
-                    }
-                    b.await() to s.await()
+                currentSearch = detail.search
+                currentTarget = target
+                val booksPage = if (target == SmartListTarget.Book) {
+                    smartListRepository.smartListBooks(dtoId, detail.search, page = 0, size = PAGE_SIZE)
+                } else {
+                    null
                 }
+                val seriesPage = if (target == SmartListTarget.Series) {
+                    smartListRepository.smartListSeries(dtoId, detail.search, page = 0, size = PAGE_SIZE)
+                } else {
+                    null
+                }
+                nextPage = 1
                 _state.update {
                     it.copy(
                         loading = false,
@@ -94,13 +109,53 @@ class SmartListDetailViewModel @Inject constructor(
                         target = target,
                         modifiedLabel = "更新于 ${detail.lastModifiedDate.take(10)}",
                         createdLabel = detail.createdDate.takeIf { it.isNotBlank() }?.let { "创建于 ${it.take(10)}" },
-                        books = books,
-                        series = series,
+                        books = booksPage?.items.orEmpty().map { dto -> dto.toUiBook() },
+                        series = seriesPage?.items.orEmpty().map { dto -> dto.toUiSeries() },
+                        hasMore = booksPage?.hasMore ?: seriesPage?.hasMore ?: false,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),
                     )
                 }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = e.message ?: "加载失败") }
+            }
+        }
+    }
+
+    fun loadMore() {
+        val state = _state.value
+        val dtoId = currentDtoId ?: return
+        val target = currentTarget ?: return
+        if (state.loading || state.loadingMore || !state.hasMore) return
+        _state.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            try {
+                if (target == SmartListTarget.Book) {
+                    val page = smartListRepository.smartListBooks(dtoId, currentSearch, page = nextPage, size = PAGE_SIZE)
+                    nextPage += 1
+                    _state.update { state ->
+                        val seen = state.books.orEmpty().map { it.id }.toMutableSet()
+                        val appended = page.items.map { dto -> dto.toUiBook() }.filter { seen.add(it.id) }
+                        state.copy(
+                            loadingMore = false,
+                            books = state.books.orEmpty() + appended,
+                            hasMore = page.hasMore && appended.isNotEmpty(),
+                        )
+                    }
+                } else {
+                    val page = smartListRepository.smartListSeries(dtoId, currentSearch, page = nextPage, size = PAGE_SIZE)
+                    nextPage += 1
+                    _state.update { state ->
+                        val seen = state.series.orEmpty().map { it.id }.toMutableSet()
+                        val appended = page.items.map { dto -> dto.toUiSeries() }.filter { seen.add(it.id) }
+                        state.copy(
+                            loadingMore = false,
+                            series = state.series.orEmpty() + appended,
+                            hasMore = page.hasMore && appended.isNotEmpty(),
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载失败") }
             }
         }
     }
@@ -125,5 +180,9 @@ class SmartListDetailViewModel @Inject constructor(
         viewModelScope.launch {
             if (smartListRepository.deleteSmartList(dtoId)) onDeleted()
         }
+    }
+
+    private companion object {
+        const val PAGE_SIZE = 50
     }
 }

@@ -6,4 +6,6 @@ data class DownloadedBookUi(
     val title: String,
     val pageCount: Int,
     val sizeBytes: Long,
+    /** 所属库 id（入队时记录；无记录的历史下载为 null，仅在「全部书库」范围显示）。 */
+    val libraryId: String? = null,
 )

@@ -275,6 +275,18 @@ fun AppRoot(
                     readListDetailId = null
                     bookDetail = it
                 },
+                onOpenSeries = { seriesStableId ->
+                    readListDetailId = null
+                    detail = Series(
+                        id = seriesStableId,
+                        title = "",
+                        author = "",
+                        hue = 0f,
+                        bookCount = 0,
+                        unreadCount = 0,
+                        progress = null,
+                    )
+                },
             )
         }
 

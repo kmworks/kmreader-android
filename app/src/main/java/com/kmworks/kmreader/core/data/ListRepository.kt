@@ -1,7 +1,9 @@
 package com.kmworks.kmreader.core.data
 
 import com.kmworks.kmreader.core.api.model.CollectionDto
+import com.kmworks.kmreader.core.api.model.CollectionUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadListDto
+import com.kmworks.kmreader.core.api.model.ReadListUpdateDto
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,5 +58,28 @@ class ListRepository @Inject constructor(
             CoverUrlRegistry.registerReadList(it.id.stableId(), it.id)
         }
         return Paged(items, hasMore = items.size >= size && body.last != true)
+    }
+
+    suspend fun updateCollection(dtoId: String, name: String, ordered: Boolean): Boolean {
+        val api = sessionManager.clients.value?.collections ?: return false
+        return api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered)).awaitBody() != null
+    }
+
+    suspend fun deleteCollection(dtoId: String): Boolean {
+        val api = sessionManager.clients.value?.collections ?: return false
+        return api.deleteCollectionById(dtoId).awaitBody() != null
+    }
+
+    suspend fun updateReadList(dtoId: String, name: String, summary: String, ordered: Boolean): Boolean {
+        val api = sessionManager.clients.value?.readlists ?: return false
+        return api.updateReadListById(
+            dtoId,
+            ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
+        ).awaitBody() != null
+    }
+
+    suspend fun deleteReadList(dtoId: String): Boolean {
+        val api = sessionManager.clients.value?.readlists ?: return false
+        return api.deleteReadListById(dtoId).awaitBody() != null
     }
 }

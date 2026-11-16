@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.settings
 
 import com.kmworks.kmreader.core.data.LocalApiFactory
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.ApiClients
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
@@ -46,12 +47,18 @@ class ClientSettingsSync @Inject constructor(
         }
     }
 
-    /** 下行：只应用映射表内的已知键，未知键忽略；失败静默（下次登录再拉）。 */
+    /** 下行：只应用映射表内的已知键，未知键忽略；失败记日志（下次登录再拉）。 */
     private suspend fun pull(clients: ApiClients) = withContext(Dispatchers.IO) {
         val remote = try {
             val response = api(clients).getUserSettings().execute()
-            if (response.isSuccessful) response.body().orEmpty() else return@withContext
-        } catch (_: Exception) {
+            if (response.isSuccessful) {
+                response.body().orEmpty()
+            } else {
+                AppLog.w("SettingsSync", "下行失败：HTTP ${response.code()}")
+                return@withContext
+            }
+        } catch (e: Exception) {
+            AppLog.w("SettingsSync", "下行失败：${e.message}")
             return@withContext
         }
         remote[ClientSettingKeys.SSE_ENABLED]?.value
@@ -62,12 +69,16 @@ class ClientSettingsSync @Inject constructor(
             ?.let { appSettings.writeTrueBlackDark(it == "true") }
         remote[ClientSettingKeys.DIVINA_DIRECTION]?.value
             ?.let { if (it in DIRECTION_VALUES) appSettings.writeDivinaDefaultDirection(it) }
+        AppLog.d("SettingsSync", "下行完成：远端 ${remote.size} 键")
     }
 
     /** 上行：一次 PATCH 携带全部待写键；无会话丢弃，网络失败等下轮变更再试。 */
     private suspend fun flush() {
         val clients = sessionManager.clients.value ?: run {
-            synchronized(pendingLock) { pending.clear() }
+            val dropped = synchronized(pendingLock) {
+                pending.size.also { pending.clear() }
+            }
+            if (dropped > 0) AppLog.d("SettingsSync", "无会话，丢弃 $dropped 个待上行键")
             return
         }
         val body = synchronized(pendingLock) {
@@ -76,11 +87,17 @@ class ClientSettingsSync @Inject constructor(
         if (body.isEmpty()) return
         withContext(Dispatchers.IO) {
             try {
-                api(clients)
+                val response = api(clients)
                     .saveUserSettings(body.mapValues { ClientSettingWriteDto(it.value) })
                     .execute()
-            } catch (_: Exception) {
+                if (response.isSuccessful) {
+                    AppLog.d("SettingsSync", "上行完成：${body.size} 键")
+                } else {
+                    AppLog.w("SettingsSync", "上行失败：HTTP ${response.code()}（${body.size} 键）")
+                }
+            } catch (e: Exception) {
                 // best effort；键值仍在本地 DataStore，下次变更会重新携带
+                AppLog.w("SettingsSync", "上行失败：${e.message}（${body.size} 键）")
             }
         }
     }

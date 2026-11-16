@@ -97,6 +97,9 @@ class SeriesDetailViewModel @Inject constructor(
     private val _collections = MutableStateFlow<List<ListEntry>?>(null)
     val collections: StateFlow<List<ListEntry>?> = _collections.asStateFlow()
 
+    private val _readLists = MutableStateFlow<List<ListEntry>?>(null)
+    val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
+
     private val _downloaded = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
 
     /** 各书籍（stableId）是否已整本下载到本地。 */
@@ -221,6 +224,101 @@ class SeriesDetailViewModel @Inject constructor(
             actionRepository.addSeriesToCollection(collectionDtoId, seriesDtoId)
         }
         return true
+    }
+
+    /** 按需加载阅读列表（「加入阅读列表」选择器用）。 */
+    fun ensureReadListsLoaded() {
+        if (_readLists.value != null) return
+        viewModelScope.launch {
+            _readLists.value = listRepository.readLists().map { dto ->
+                ListEntry(
+                    id = dto.id.hashCode(),
+                    title = dto.name,
+                    count = dto.bookIds.size,
+                    hue = hueFor(dto.id),
+                    pinned = false,
+                )
+            }
+        }
+    }
+
+    /** 批量标记选中书籍已读/未读；返回 false 表示缺少真实 DTO 映射。 */
+    fun markBooksRead(stableIds: Set<Int>, read: Boolean): Boolean {
+        val books = _uiState.value.books.orEmpty().filter { it.id in stableIds }
+        val pairs = books.mapNotNull { book ->
+            detailRepository.bookDtoId(book.id)?.let { book to it }
+        }
+        if (pairs.isEmpty()) return false
+        viewModelScope.launch {
+            var ok = true
+            pairs.forEach { (_, dtoId) ->
+                val success = if (read) {
+                    actionRepository.markBookRead(dtoId)
+                } else {
+                    actionRepository.markBookUnread(dtoId)
+                }
+                ok = ok && success
+            }
+            if (ok) {
+                val readIds = pairs.map { it.first.id }.toSet()
+                _uiState.update { state ->
+                    state.copy(
+                        books = state.books?.map { book ->
+                            if (book.id in readIds) book.copy(progress = if (read) 1f else 0f) else book
+                        },
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    /** 批量下载选中书籍；返回 false 表示没有可下载的真实书籍。 */
+    fun downloadBooks(stableIds: Set<Int>): Boolean {
+        if (sessionManager.clients.value == null) return false
+        val books = _uiState.value.books.orEmpty().filter { it.id in stableIds }
+        var enqueued = false
+        books.forEach { book ->
+            val dtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
+            downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+            enqueued = true
+        }
+        if (enqueued) refreshDownloaded()
+        return enqueued
+    }
+
+    /** 批量加入阅读列表；返回 false 表示选择器条目或书籍缺少真实 DTO 映射。 */
+    fun addBooksToReadList(entry: ListEntry, stableIds: Set<Int>): Boolean {
+        val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return false
+        val bookDtoIds = stableIds.mapNotNull { detailRepository.bookDtoId(it) }
+        if (bookDtoIds.isEmpty()) return false
+        viewModelScope.launch {
+            actionRepository.addBooksToReadList(readListDtoId, bookDtoIds)
+        }
+        return true
+    }
+
+    /** 删除选中书籍文件；成功后从详情本地列表移除并刷新下载状态。 */
+    fun deleteBooks(stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
+        val pairs = _uiState.value.books.orEmpty()
+            .filter { it.id in stableIds }
+            .mapNotNull { book -> detailRepository.bookDtoId(book.id)?.let { book to it } }
+        if (pairs.isEmpty()) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            var ok = true
+            pairs.forEach { (_, dtoId) -> ok = actionRepository.deleteBook(dtoId) && ok }
+            if (ok) {
+                val removedIds = pairs.map { it.first.id }.toSet()
+                _uiState.update { state ->
+                    state.copy(books = state.books?.filterNot { it.id in removedIds })
+                }
+                refreshDownloaded()
+            }
+            onDone(ok)
+        }
     }
 
     /** 下载本系列全部书籍；返回 false 表示无会话/无 DTO 映射（演示数据）。 */

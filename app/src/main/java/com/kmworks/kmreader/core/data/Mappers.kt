@@ -9,6 +9,7 @@ import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Creator
 import com.kmworks.kmreader.data.SampleData
+import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.data.Series
 import kotlin.math.absoluteValue
 
@@ -112,6 +113,8 @@ fun ReadListDto.toListEntry(): SampleData.ListEntry {
         count = bookIds.size,
         hue = hueFor(id),
         pinned = false,
+        summary = summary,
+        ordered = ordered,
     )
 }
 
@@ -126,6 +129,8 @@ fun CollectionDto.toListEntry(): SampleData.ListEntry {
         count = seriesIds.size,
         hue = hueFor(id),
         pinned = false,
+        // Komga CollectionDto 没有 summary 字段（与 ReadListDto 不同），不传避免覆盖。
+        ordered = ordered,
     )
 }
 
@@ -140,5 +145,7 @@ fun SmartListDto.toListEntry(count: Int = 0): SampleData.ListEntry {
         count = count,
         hue = hueFor(id),
         pinned = false,
+        summary = summary,
+        smartListTarget = if (target == "SERIES") SmartListTarget.Series else SmartListTarget.Book,
     )
 }

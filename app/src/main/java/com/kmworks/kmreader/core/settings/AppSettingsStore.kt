@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -215,6 +216,49 @@ class AppSettingsStore @Inject constructor(
 
     suspend fun setWifiOnlyPreload(enabled: Boolean) = writeBoolean(Keys.WIFI_ONLY_PRELOAD, enabled)
 
+    /** SSE 事件驱动仪表盘自动刷新（对齐 iOS enableSSEAutoRefresh，默认开；随 SSE 总开关联动禁用）。 */
+    val sseAutoRefresh: Flow<Boolean> = booleanPref(Keys.SSE_AUTO_REFRESH, true)
+
+    suspend fun setSseAutoRefresh(enabled: Boolean) = writeBoolean(Keys.SSE_AUTO_REFRESH, enabled)
+
+    /** SSE 连接/任务完成通知（对齐 iOS enableSSENotify，默认关；通知基础设施接入前仅持久化）。 */
+    val sseNotify: Flow<Boolean> = booleanPref(Keys.SSE_NOTIFY, false)
+
+    suspend fun setSseNotify(enabled: Boolean) = writeBoolean(Keys.SSE_NOTIFY, enabled)
+
+    /** 网络请求超时（秒；设计稿默认 30，范围 5–120；对齐 iOS requestTimeout 语义）。 */
+    val networkTimeoutSeconds: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.NETWORK_TIMEOUT_SECONDS] ?: DEFAULT_NETWORK_TIMEOUT_SECONDS
+    }
+
+    suspend fun setNetworkTimeoutSeconds(seconds: Int) {
+        store.edit { prefs ->
+            prefs[Keys.NETWORK_TIMEOUT_SECONDS] = seconds.coerceIn(5, 120)
+        }
+    }
+
+    /** 整本下载的页级并发数（设计稿默认 2，范围 1–8；DownloadWorker 消费）。 */
+    val downloadConcurrency: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.DOWNLOAD_CONCURRENCY] ?: DEFAULT_DOWNLOAD_CONCURRENCY
+    }
+
+    suspend fun setDownloadConcurrency(value: Int) {
+        store.edit { prefs ->
+            prefs[Keys.DOWNLOAD_CONCURRENCY] = value.coerceIn(1, 8)
+        }
+    }
+
+    /** 图片磁盘缓存上限（MB，设计稿默认 2048；SessionManager ImageLoader 消费）。 */
+    val imageCacheLimitMb: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.IMAGE_CACHE_LIMIT_MB] ?: DEFAULT_IMAGE_CACHE_LIMIT_MB
+    }
+
+    suspend fun setImageCacheLimitMb(value: Int) {
+        store.edit { prefs ->
+            prefs[Keys.IMAGE_CACHE_LIMIT_MB] = value.coerceIn(128, 20480)
+        }
+    }
+
     /** 应用图标变体：primary / classic / legacy（对齐 iOS AppIconOption）。 */
     val appIcon: Flow<String> = store.data.map { prefs -> prefs[Keys.APP_ICON] ?: APP_ICON_PRIMARY }
 
@@ -256,6 +300,9 @@ class AppSettingsStore @Inject constructor(
         const val SCOPE_PINNED = "pinned"
         const val SCOPE_ALL = "all"
         const val APP_ICON_PRIMARY = "primary"
+        const val DEFAULT_NETWORK_TIMEOUT_SECONDS = 30
+        const val DEFAULT_DOWNLOAD_CONCURRENCY = 2
+        const val DEFAULT_IMAGE_CACHE_LIMIT_MB = 2048
         fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
     }
 
@@ -280,6 +327,11 @@ class AppSettingsStore @Inject constructor(
         val THUMBNAIL_SHOW_PROGRESS_BAR = booleanPreferencesKey("thumbnail_show_progress_bar")
         val THUMBNAIL_BLUR_UNREAD_COVERS = booleanPreferencesKey("thumbnail_blur_unread_covers")
         val WIFI_ONLY_PRELOAD = booleanPreferencesKey("wifi_only_preload")
+        val SSE_AUTO_REFRESH = booleanPreferencesKey("sse_auto_refresh")
+        val SSE_NOTIFY = booleanPreferencesKey("sse_notify")
+        val NETWORK_TIMEOUT_SECONDS = intPreferencesKey("network_timeout_seconds")
+        val DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")
+        val IMAGE_CACHE_LIMIT_MB = intPreferencesKey("image_cache_limit_mb")
         val APP_ICON = stringPreferencesKey("app_icon")
     }
 }

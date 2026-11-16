@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,15 +57,46 @@ fun OfflineScreen(
     val storage by viewModel.storage.collectAsState()
     val autoDownloadUnread by viewModel.autoDownloadUnread.collectAsState()
     val wifiOnly by viewModel.wifiOnly.collectAsState()
+    val libraries by viewModel.libraries.collectAsState()
+    val libraryScope by viewModel.libraryScope.collectAsState()
+    var scopeMenuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("下载") },
                 actions = {
-                    // Library scope (mirrors LibraryScopeMenu)
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Outlined.Checklist, contentDescription = "库范围")
+                    // Library scope (mirrors LibraryScopeMenu)：真实库列表，过滤队列与已下载
+                    Box {
+                        IconButton(onClick = { scopeMenuOpen = true }) {
+                            Icon(Icons.Outlined.Checklist, contentDescription = "库范围")
+                        }
+                        DropdownMenu(
+                            expanded = scopeMenuOpen,
+                            onDismissRequest = { scopeMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("全部书库") },
+                                onClick = {
+                                    viewModel.setLibraryScope(null)
+                                    scopeMenuOpen = false
+                                },
+                            )
+                            libraries.forEach { library ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (library.id == libraryScope) "✓ ${library.name}"
+                                            else library.name,
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.setLibraryScope(library.id)
+                                        scopeMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )
@@ -136,7 +170,7 @@ fun OfflineScreen(
                 // 策略开关（对齐 ReadListOfflinePolicyMenuItems）
                 PolicySwitchRow(
                     title = "自动下载未读内容",
-                    subtitle = "将在后续版本自动下载（当前仅保存偏好）",
+                    subtitle = "新内容（SSE）或打开系列详情时自动下载未读书籍",
                     checked = autoDownloadUnread,
                     onCheckedChange = { viewModel.setAutoDownloadUnread(it) },
                 )
