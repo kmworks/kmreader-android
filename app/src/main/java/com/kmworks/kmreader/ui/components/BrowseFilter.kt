@@ -88,7 +88,9 @@ fun rememberPersistentBrowseLayout(
         ).appSettingsStore()
     }
     val scope = rememberCoroutineScope()
-    val stored by appSettings.browseLayout(page).collectAsState(initial = null)
+    // flow 工厂必须 remember，否则每次重组都会重建 flow 并重启收集。
+    val layoutFlow = remember(page) { appSettings.browseLayout(page) }
+    val stored by layoutFlow.collectAsState(initial = null)
     // 用户本轮的即时覆盖（持久化写入回流前的即时反馈）
     var local by remember(page) { mutableStateOf<BrowseLayout?>(null) }
     val value = local

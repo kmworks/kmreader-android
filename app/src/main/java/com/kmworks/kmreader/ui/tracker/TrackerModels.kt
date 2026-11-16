@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.ui.tracker
 
+import androidx.annotation.DrawableRes
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.tracker.TrackerLinkDto
 import com.kmworks.kmreader.core.tracker.TrackerRemoteStateDto
 
@@ -9,11 +11,13 @@ enum class TrackerProvider(
     val entryUrlPattern: String,
     /** API 路径/DTO 使用的原始值。 */
     val apiName: String,
+    /** provider 品牌 logo 资源（保持原色，与 iOS Assets.xcassets 一致）。 */
+    @DrawableRes val logoRes: Int,
 ) {
-    AniList("AniList", "https://anilist.co/manga/{id}", "anilist"),
-    MyAnimeList("MyAnimeList", "https://myanimelist.net/manga/{id}", "mal"),
-    Bangumi("Bangumi", "https://bgm.tv/subject/{id}", "bangumi"),
-    MangaBaka("MangaBaka", "https://mangabaka.org/{id}", "mangabaka"),
+    AniList("AniList", "https://anilist.co/manga/{id}", "anilist", R.drawable.tracker_anilist),
+    MyAnimeList("MyAnimeList", "https://myanimelist.net/manga/{id}", "mal", R.drawable.tracker_mal),
+    Bangumi("Bangumi", "https://bgm.tv/subject/{id}", "bangumi", R.drawable.tracker_bangumi),
+    MangaBaka("MangaBaka", "https://mangabaka.org/{id}", "mangabaka", R.drawable.tracker_mangabaka),
     ;
 
     fun entryUrl(trackId: String): String = entryUrlPattern.replace("{id}", trackId)

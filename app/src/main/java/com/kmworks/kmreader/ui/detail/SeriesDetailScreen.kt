@@ -642,8 +642,11 @@ private fun DetailActionCard(
                 text = series.bookCountLine,
                 style = MaterialTheme.typography.titleSmall,
             )
+            // 对齐 iOS SeriesBookCountView 的状态行；部分已读分支按用户要求
+            // 用已读数表述（iOS 原文为 "N unread"），不出现「未读」字样。
             val statusLabel = when {
-                series.unreadCount > 0 && series.unreadCount < series.bookCount -> "${series.unreadCount} 册未读"
+                series.unreadCount > 0 && series.unreadCount < series.bookCount ->
+                    "已读 ${series.bookCount - series.unreadCount} 册"
                 series.progress != null && series.progress < 1f -> "阅读中"
                 series.unreadCount == 0 && series.bookCount > 0 -> "全部已读"
                 else -> "未读"

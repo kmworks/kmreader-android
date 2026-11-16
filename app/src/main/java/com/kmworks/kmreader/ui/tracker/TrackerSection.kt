@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.tracker
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,19 +60,29 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** provider 徽标（真实实现 = provider logo 资源，设计稿用首字母圆块）。 */
+/** provider 徽标：真实品牌 logo（保持原色，与 iOS 一致）；无资源时回退首字母圆块。 */
 @Composable
 fun ProviderLogo(provider: TrackerProvider, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(22.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            provider.displayName.take(1),
-            style = MaterialTheme.typography.labelSmall,
+    if (provider.logoRes != 0) {
+        Image(
+            painter = painterResource(provider.logoRes),
+            contentDescription = provider.displayName,
+            modifier = modifier
+                .size(22.dp)
+                .clip(CircleShape),
         )
+    } else {
+        Box(
+            modifier = modifier
+                .size(22.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                provider.displayName.take(1),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }
 

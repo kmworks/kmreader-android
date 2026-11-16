@@ -59,8 +59,18 @@ data class Series(
     val links: List<Pair<String, String>> = emptyList(),
     val summary: String? = null,
 ) {
+    /**
+     * 卡片副标题，对齐 iOS SeriesCardView.statusContent：
+     * 部分已读 → 「共 N 册 · 已读 xx%」；全部读完 → 「共 N 册 · 已读完」；未开始 → 「共 N 册」。
+     * 任何状态都不出现「未读」字样。
+     */
     val subtitle: String
-        get() = if (unreadCount > 0) "共 $bookCount 册 · $unreadCount 册未读" else "共 $bookCount 册 · 已读完"
+        get() = when {
+            progress != null && progress > 0f && progress < 1f ->
+                "共 $bookCount 册 · 已读 ${(progress * 100).toInt()}%"
+            progress == 1f || (unreadCount == 0 && bookCount > 0) -> "共 $bookCount 册 · 已读完"
+            else -> "共 $bookCount 册"
+        }
 
     /** 详情页操作卡的册数行，对齐 SeriesBookCountView。 */
     val bookCountLine: String

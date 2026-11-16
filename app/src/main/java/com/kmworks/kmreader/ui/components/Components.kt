@@ -9,13 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,8 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -135,6 +140,9 @@ fun CoverArt(
                 contentDescription = null,
                 imageLoader = loader,
                 contentScale = contentScale,
+                // 服务端缩略图常被放大显示（大网格 152dp@3x≈456px vs 300px 源），
+                // 默认 Low 采样发糊；对齐 iOS ImageDecodeHelper 的高质量重采样。
+                filterQuality = FilterQuality.High,
                 modifier = Modifier.matchParentSize(),
                 onError = { state ->
                     AppLog.w(
@@ -194,7 +202,10 @@ fun SeriesGridCard(
                 contentScale = coverScale(display),
             )
             if (display.showUnreadIndicator && series.unreadCount > 0) {
-                UnreadBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+                UnreadCountBadge(
+                    count = series.unreadCount,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
             }
             if (display.textOverlay) {
                 CardTextOverlay(
@@ -252,8 +263,8 @@ fun BookGridCard(
                 stableId = book.id,
                 contentScale = coverScale(display),
             )
-            if (display.showUnreadIndicator && book.progress == null) {
-                UnreadBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+            if (book.progress == 1f) {
+                CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
             }
             if (display.textOverlay) {
                 CardTextOverlay(
@@ -327,14 +338,49 @@ private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolea
         .then(if (display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
         .then(if (display.blurUnreadCovers && unread) Modifier.blur(6.dp) else Modifier)
 
-/** 未读角标。 */
+/** 角标底板：对齐 iOS CornerBadgeSlab——深色半透明 slab，形状贴合封面右上角
+ *  （topTrailing 圆角 = 封面圆角 8，bottomLeading 圆角 ≈ 8，其余直角）。 */
+private val BadgeSlabShape = RoundedCornerShape(topEnd = 8.dp, bottomStart = 8.dp)
+private val BadgeSlabColor = Color(0xD91F1F1F) // Color(white: 0.12).opacity(0.85)
+
+/** 未读数字角标（对齐 iOS UnreadCountBadge）：白色等宽数字 semibold，底板贴合封面右上角。 */
 @Composable
-private fun UnreadBadge(modifier: Modifier = Modifier) {
+private fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .size(8.dp)
-            .background(MaterialTheme.colorScheme.primary, CircleShape),
-    )
+            .defaultMinSize(minWidth = 24.dp)
+            .background(BadgeSlabColor, BadgeSlabShape)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFeatureSettings = "tnum",
+            ),
+            color = Color.White,
+        )
+    }
+}
+
+/** 已读完角标（对齐 iOS CompletedIndicator）：与数字角标同底板，白色 checkmark。 */
+@Composable
+private fun CompletedIndicatorBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 24.dp)
+            .background(BadgeSlabColor, BadgeSlabShape)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Check,
+            contentDescription = "已读完",
+            tint = Color.White,
+            modifier = Modifier.size(11.dp),
+        )
+    }
 }
 
 /** 文字叠加在封面底部（对齐 cardTextOverlayMode）。 */
