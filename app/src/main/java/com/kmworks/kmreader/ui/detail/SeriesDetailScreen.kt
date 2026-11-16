@@ -71,7 +71,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +91,7 @@ import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
@@ -141,7 +141,7 @@ fun SeriesDetailScreen(
         ?: books.firstOrNull { it.progress == null }
         ?: books.firstOrNull()
     // 对齐 seriesDetailLayout：列表/中网格/大网格三档，默认列表，逐页持久化
-    var booksLayout by rememberSaveable { mutableStateOf(BrowseLayout.List) }
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("seriesDetail", BrowseLayout.List)
     // 筛选状态（对齐 BookBrowseOptions；真实实现逐页 AppStorage 持久化）
     var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
     // 多选状态：null = 未进入多选；进入后书籍点击切换选中（对齐 BooksListViewForSeries 选择模式）
@@ -348,7 +348,7 @@ fun SeriesDetailScreen(
                                 layout = booksLayout,
                                 onOptionsChange = { browseOptions = it },
                                 onOpenOptions = { showOptionsSheet = true },
-                                onCycleLayout = { booksLayout = booksLayout.next },
+                                onCycleLayout = { setBooksLayout(booksLayout.next) },
                                 selection = selectedIds,
                                 totalCount = books.size,
                                 onEnterSelection = { selectedIds = emptySet() },
@@ -416,7 +416,7 @@ fun SeriesDetailScreen(
                         layout = booksLayout,
                         onOptionsChange = { browseOptions = it },
                         onOpenOptions = { showOptionsSheet = true },
-                        onCycleLayout = { booksLayout = booksLayout.next },
+                        onCycleLayout = { setBooksLayout(booksLayout.next) },
                         selection = selectedIds,
                         totalCount = books.size,
                         onEnterSelection = { selectedIds = emptySet() },

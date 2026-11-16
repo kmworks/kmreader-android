@@ -43,6 +43,9 @@ data class LibraryUiState(
     val books: List<Book>? = null,
     val seriesHasMore: Boolean = false,
     val booksHasMore: Boolean = false,
+    /** 服务端总量（对齐 iOS 书库标题计数）；null = 尚无会话分页数据。 */
+    val seriesTotal: Long? = null,
+    val booksTotal: Long? = null,
     val hasMore: Boolean = false,
     val libraries: List<LibraryDto> = emptyList(),
     val libraryCount: Int = 0,
@@ -217,6 +220,8 @@ class LibraryViewModel @Inject constructor(
                     books = bookPageResult.items,
                     seriesHasMore = seriesPageResult.hasMore,
                     booksHasMore = bookPageResult.hasMore,
+                    seriesTotal = seriesPageResult.totalElements,
+                    booksTotal = bookPageResult.totalElements,
                     hasMore = seriesPageResult.hasMore,
                     libraries = libraries,
                     libraryCount = libraries.size,
@@ -269,6 +274,7 @@ class LibraryViewModel @Inject constructor(
                     st.copy(
                         series = st.series.orEmpty() + appended,
                         seriesHasMore = result.hasMore,
+                        seriesTotal = result.totalElements ?: st.seriesTotal,
                         loadingMore = false,
                     )
                 }
@@ -312,6 +318,7 @@ class LibraryViewModel @Inject constructor(
                     st.copy(
                         books = st.books.orEmpty() + appended,
                         booksHasMore = result.hasMore,
+                        booksTotal = result.totalElements ?: st.booksTotal,
                         loadingMore = false,
                     )
                 }

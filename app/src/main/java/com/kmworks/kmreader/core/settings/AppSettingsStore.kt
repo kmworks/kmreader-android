@@ -163,6 +163,27 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
+    /** 各浏览页布局覆盖（"page=Layout" 逗号分隔；对齐 iOS 逐页布局记忆，BrowseLayout.name 值）。 */
+    val browseLayoutOverrides: Flow<Map<String, String>> = store.data.map { prefs ->
+        prefs[Keys.BROWSE_LAYOUT_OVERRIDES].toCsvList()
+            .mapNotNull { entry ->
+                val parts = entry.split('=', limit = 2)
+                if (parts.size == 2 && parts[0].isNotBlank()) parts[0] to parts[1] else null
+            }
+            .toMap()
+    }
+
+    /** 单个浏览页的布局（无记录时为 null → 调用方用页面默认）。 */
+    fun browseLayout(page: String): Flow<String?> = browseLayoutOverrides.map { it[page] }
+
+    suspend fun setBrowseLayout(page: String, layout: String) {
+        store.edit { prefs ->
+            val current = prefs[Keys.BROWSE_LAYOUT_OVERRIDES].toCsvList()
+                .filter { it.substringBefore('=') != page }
+            prefs[Keys.BROWSE_LAYOUT_OVERRIDES] = (current + "$page=$layout").joinToString(",")
+        }
+    }
+
     /** 仅封面卡片（隐藏标题/副标题；对齐 iOS coverOnlyCards）。 */
     val cardCoverOnly: Flow<Boolean> = booleanPref(Keys.CARD_COVER_ONLY, false)
 
@@ -318,6 +339,7 @@ class AppSettingsStore @Inject constructor(
         val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")
         val DASHBOARD_CONTINUATION = booleanPreferencesKey("dashboard_continuation_enabled")
         val DASHBOARD_KIND_OVERRIDES = stringPreferencesKey("dashboard_kind_overrides")
+        val BROWSE_LAYOUT_OVERRIDES = stringPreferencesKey("browse_layout_overrides")
         val CARD_COVER_ONLY = booleanPreferencesKey("card_cover_only")
         val CARD_TEXT_OVERLAY = booleanPreferencesKey("card_text_overlay")
         val CARD_SHOW_BOOK_SERIES_TITLE = booleanPreferencesKey("card_show_book_series_title")

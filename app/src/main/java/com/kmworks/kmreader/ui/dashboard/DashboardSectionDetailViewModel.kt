@@ -6,6 +6,7 @@ import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.Paged
 import com.kmworks.kmreader.core.data.SearchRepository
+import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.Series
@@ -38,6 +39,7 @@ data class DashboardSectionDetailUiState(
 class DashboardSectionDetailViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val libraryRepository: LibraryRepository,
+    private val serverProfileStore: ServerProfileStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardSectionDetailUiState())
@@ -132,11 +134,16 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private suspend fun fetch(sectionId: String, page: Int, size: Int): Paged<Any>? {
         val libraryIds = _state.value.libraryScope?.let { listOf(it) }
         return when (sectionId) {
-            "keepReading" -> searchRepository.keepReadingPage(page, size, libraryIds).eraseType()
+            "keepReading" -> searchRepository.keepReadingPage(
+                page, size, libraryIds,
+                readDateAfter = serverProfileStore.recentReadingCutoff(),
+            ).eraseType()
             "onDeck" -> searchRepository.onDeckPage(page, size, libraryIds).eraseType()
+            "recentlyReleasedBooks" -> searchRepository.recentlyReleasedBooksPage(page, size, libraryIds).eraseType()
             "recentlyAddedBooks" -> searchRepository.latestBooksPage(page, size, libraryIds).eraseType()
             "recentlyAddedSeries" -> searchRepository.latestSeriesPage(page, size, libraryIds).eraseType()
             "recentlyUpdatedSeries" -> searchRepository.recentlyUpdatedSeriesPage(page, size, libraryIds).eraseType()
+            "recentlyReadBooks" -> searchRepository.recentlyReadBooksPage(page, size, libraryIds).eraseType()
             else -> null
         }
     }

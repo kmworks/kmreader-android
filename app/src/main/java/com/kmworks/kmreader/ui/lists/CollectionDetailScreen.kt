@@ -58,6 +58,7 @@ import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -90,7 +91,7 @@ fun CollectionDetailScreen(
         ordered = state.ordered ?: collection.ordered,
     )
     val sourceSeries = state.series ?: emptyList()
-    var layout by remember { mutableStateOf(BrowseLayout.Grid) }
+    val (layout, setLayout) = rememberPersistentBrowseLayout("collectionDetail", BrowseLayout.Grid)
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -235,7 +236,7 @@ fun CollectionDetailScreen(
                             totalCount = series.size,
                             options = options,
                             layout = layout,
-                            onLayoutChange = { layout = it },
+                            onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
                             onStartSelecting = { selecting = true },
@@ -304,7 +305,7 @@ fun CollectionDetailScreen(
                         totalCount = series.size,
                         options = options,
                         layout = layout,
-                        onLayoutChange = { layout = it },
+                        onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
                         onStartSelecting = { selecting = true },

@@ -38,13 +38,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.ActiveFilter
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.BookSortFields
@@ -52,6 +56,8 @@ import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SampleSavedFilters
 import com.kmworks.kmreader.data.TriState
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.launch
 
 /** 布局模式（对齐 BrowseLayoutMode：list/grid/largeGrid），循环切换。 */
 enum class BrowseLayout(val label: String) {
@@ -63,6 +69,35 @@ enum class BrowseLayout(val label: String) {
             Grid -> LargeGrid
             LargeGrid -> List
         }
+}
+
+/**
+ * 逐页持久化的布局状态（对齐 iOS 逐页布局记忆；存 AppSettingsStore.browseLayoutOverrides）。
+ * 返回当前布局与切换器；写入前先本地生效，持久化回流后保持一致。
+ */
+@Composable
+fun rememberPersistentBrowseLayout(
+    page: String,
+    default: BrowseLayout,
+): Pair<BrowseLayout, (BrowseLayout) -> Unit> {
+    val context = LocalContext.current
+    val appSettings = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            ImageLoaderEntryPoint::class.java,
+        ).appSettingsStore()
+    }
+    val scope = rememberCoroutineScope()
+    val stored by appSettings.browseLayout(page).collectAsState(initial = null)
+    // 用户本轮的即时覆盖（持久化写入回流前的即时反馈）
+    var local by remember(page) { mutableStateOf<BrowseLayout?>(null) }
+    val value = local
+        ?: stored?.let { name -> BrowseLayout.entries.firstOrNull { it.name == name } }
+        ?: default
+    return value to { next ->
+        local = next
+        scope.launch { appSettings.setBrowseLayout(page, next.name) }
+    }
 }
 
 /**

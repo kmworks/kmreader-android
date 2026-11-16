@@ -222,7 +222,12 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ContentType.entries.forEach { type ->
-                    val count = if (type == ContentType.Series) series.size else allBooks.size
+                    // 对齐 iOS 书库标题：显示服务端总量，无分页数据时回退已加载数
+                    val count = if (type == ContentType.Series) {
+                        state.seriesTotal ?: series.size.toLong()
+                    } else {
+                        state.booksTotal ?: allBooks.size.toLong()
+                    }
                     FilterChip(
                         selected = contentType == type,
                         onClick = { contentType = type },

@@ -50,6 +50,15 @@ internal fun flagLeafCondition(key: String, operator: String): JsonObject =
         }
     }
 
+/** 日期叶子：{"<key>":{"operator":op,"dateTime":iso8601}}（对齐 iOS releaseDate/readDate 分支）。 */
+internal fun dateLeafCondition(key: String, operator: String, isoDateTime: String): JsonObject =
+    buildJsonObject {
+        putJsonObject(key) {
+            put("operator", operator)
+            put("dateTime", isoDateTime)
+        }
+    }
+
 /** 作者条件：{"author":{"is":{"name":name}}}（对齐 iOS BookSearch.buildCondition）。 */
 internal fun authorCondition(name: String): JsonObject =
     objectLeafCondition(

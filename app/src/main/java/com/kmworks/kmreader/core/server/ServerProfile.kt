@@ -31,18 +31,38 @@ data class ServerInfoDto(
     val features: List<String> = emptyList(),
 )
 
+/** kmrs 设置响应（GET /api/v1/settings；stock Komga 该端点 404，字段均可缺省）。 */
+@Serializable
+data class ServerSettingsDto(
+    val skipReadOnNext: Boolean? = null,
+    val recentReadingDays: Int? = null,
+)
+
 /** 探测结果；无 profile 表示尚未探测（按 stock Komga 处理）。 */
 data class ServerProfile(
     val isKmrs: Boolean,
     val features: Set<ServerFeature>,
     val version: String?,
-)
+    /** kmrs「下一本跳过已读」设置（对齐 iOS ServerProfile.skipReadOnNext）。 */
+    val skipReadOnNext: Boolean = false,
+    /** kmrs 最近阅读窗口（天），0 = 关闭（对齐 iOS ServerProfile.recentReadingDays）。 */
+    val recentReadingDays: Int = 0,
+) {
+    /** Keep Reading / On Deck 保留的最早阅读时间；窗口关闭时为 null（对齐 iOS recentReadingCutoff）。 */
+    fun recentReadingCutoff(now: java.time.Instant = java.time.Instant.now()): java.time.Instant? {
+        if (recentReadingDays <= 0) return null
+        return now.minus(java.time.Duration.ofDays(recentReadingDays.toLong()))
+    }
+}
 
-/** server/info + logout 手写接口（openapi spec 未覆盖 server/info）。 */
+/** server/info + settings + logout 手写接口（openapi spec 未覆盖）。 */
 interface ServerApi {
 
     @GET("api/v1/server/info")
     fun getServerInfo(): Call<ServerInfoDto>
+
+    @GET("api/v1/settings")
+    fun getServerSettings(): Call<ServerSettingsDto>
 
     @POST("api/logout")
     fun logout(): Call<ResponseBody>

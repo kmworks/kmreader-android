@@ -58,6 +58,7 @@ import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -81,7 +82,7 @@ fun SmartListDetailScreen(
     val state by viewModel.state.collectAsState()
     LaunchedEffect(smartList.id) { viewModel.load(smartList.id) }
 
-    var layout by remember { mutableStateOf(BrowseLayout.Grid) }
+    val (layout, setLayout) = rememberPersistentBrowseLayout("smartListDetail", BrowseLayout.Grid)
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -201,7 +202,7 @@ fun SmartListDetailScreen(
                         SmartListToolbar(
                             options = options,
                             layout = layout,
-                            onLayoutChange = { layout = it },
+                            onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
                         )
@@ -244,7 +245,7 @@ fun SmartListDetailScreen(
                     SmartListToolbar(
                         options = options,
                         layout = layout,
-                        onLayoutChange = { layout = it },
+                        onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
                     )

@@ -22,19 +22,66 @@ class BookRepository @Inject constructor(
         sessionManager.clients.value?.bookThumbnailUrl(bookId)
 
     /** Books currently in progress, most recently read first
-     *  (POST api/v1/books/list, condition readStatus is IN_PROGRESS). */
-    suspend fun keepReading(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
+     *  (POST api/v1/books/list, condition readStatus is IN_PROGRESS, aligned with iOS
+     *  DashboardSection.keepReading: sort readProgress.readDate,desc; kmrs servers may add
+     *  a readDateAfter cutoff). */
+    suspend fun keepReading(
+        size: Int = 12,
+        libraryIds: List<String>? = null,
+        readDateAfter: java.time.Instant? = null,
+    ): List<BookDto> {
         val api = listSearchApi() ?: return emptyList()
         val condition = combinedCondition(
             listOfNotNull(
                 leafCondition("readStatus", "is", "IN_PROGRESS"),
+                readDateAfter?.let { dateLeafCondition("readDate", "after", it.toString()) },
                 libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
             ),
         )
         return api.books(
             search = searchBody(condition = condition),
             size = size,
-            sort = listOf("readProgress.lastModified,desc"),
+            sort = listOf("readProgress.readDate,desc"),
+        ).awaitBody()?.content.orEmpty()
+    }
+
+    /** Books marked as read, most recently read first
+     *  (POST api/v1/books/list, condition readStatus is READ; aligned with iOS
+     *  DashboardSection.recentlyReadBooks). */
+    suspend fun recentlyRead(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
+        val api = listSearchApi() ?: return emptyList()
+        val condition = combinedCondition(
+            listOfNotNull(
+                leafCondition("readStatus", "is", "READ"),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
+        return api.books(
+            search = searchBody(condition = condition),
+            size = size,
+            sort = listOf("readProgress.readDate,desc"),
+        ).awaitBody()?.content.orEmpty()
+    }
+
+    /** Books released within the last month
+     *  (POST api/v1/books/list, condition releaseDate after(now-1 month);
+     *  aligned with iOS DashboardSection.recentlyReleasedBooks). */
+    suspend fun recentlyReleased(size: Int = 12, libraryIds: List<String>? = null): List<BookDto> {
+        val api = listSearchApi() ?: return emptyList()
+        val after = java.time.ZonedDateTime.now().minusMonths(1)
+        val condition = combinedCondition(
+            listOfNotNull(
+                dateLeafCondition(
+                    "releaseDate", "after",
+                    after.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                ),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
+        return api.books(
+            search = searchBody(condition = condition),
+            size = size,
+            sort = listOf("metadata.releaseDate,desc"),
         ).awaitBody()?.content.orEmpty()
     }
 

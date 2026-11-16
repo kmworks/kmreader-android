@@ -41,6 +41,9 @@ class ServerProfileStore @Inject constructor(
     fun hasFeature(feature: ServerFeature): Boolean =
         _profile.value?.features?.contains(feature) == true
 
+    /** kmrs 最近阅读窗口的截止时间；stock Komga / 窗口关闭时为 null。 */
+    fun recentReadingCutoff(): java.time.Instant? = _profile.value?.recentReadingCutoff()
+
     /** 重新探测一次（对齐 iOS ServerProfileService.refresh()；komf 409 等能力变化场景调用）。 */
     suspend fun refresh() {
         sessionManager.clients.value?.let { probe(it) }
@@ -51,12 +54,21 @@ class ServerProfileStore @Inject constructor(
             val response = clients.serverApi.getServerInfo().execute()
             if (response.isSuccessful) {
                 val info = response.body()
+                // kmrs 设置（skipReadOnNext / recentReadingDays）：失败保留上次值
+                // （对齐 iOS ServerProfileService.fetchSettings 的降级语义）。
+                val previous = _profile.value
+                val settings = runCatching {
+                    clients.serverApi.getServerSettings().execute().takeIf { it.isSuccessful }?.body()
+                }.getOrNull()
                 ServerProfile(
                     isKmrs = true,
                     features = info?.features.orEmpty()
                         .mapNotNull(ServerFeature::fromRaw)
                         .toSet(),
                     version = info?.version,
+                    skipReadOnNext = settings?.skipReadOnNext ?: previous?.skipReadOnNext ?: false,
+                    recentReadingDays = (settings?.recentReadingDays ?: previous?.recentReadingDays ?: 0)
+                        .coerceAtLeast(0),
                 )
             } else {
                 stockProfile()

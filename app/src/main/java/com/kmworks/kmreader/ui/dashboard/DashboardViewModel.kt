@@ -13,6 +13,7 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
@@ -63,7 +64,7 @@ private data class DashboardLayout(
     val overrides: Map<String, DashboardCardKind> = emptyMap(),
 )
 
-/** Real dashboard data for the five sections (books + series feeds). */
+/** Real dashboard data for the eight sections (books + series feeds, aligned with iOS DashboardSection). */
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val bookRepository: BookRepository,
@@ -74,6 +75,7 @@ class DashboardViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val sseService: SseService,
     private val appSettings: AppSettingsStore,
+    private val serverProfileStore: ServerProfileStore,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -177,30 +179,42 @@ class DashboardViewModel @Inject constructor(
         val libraryIds = _state.value.libraryScope?.let { listOf(it) }
         try {
             val fetched = coroutineScope {
-                val keepReading = async { bookRepository.keepReading(libraryIds = libraryIds) }
+                val readDateAfter = serverProfileStore.recentReadingCutoff()
+                val keepReading = async {
+                    bookRepository.keepReading(libraryIds = libraryIds, readDateAfter = readDateAfter)
+                }
                 val onDeck = async { bookRepository.onDeck(libraryIds = libraryIds) }
-                val latestBooks = async { bookRepository.latest(libraryIds = libraryIds) }
-                val latestSeries = async { seriesRepository.latest(libraryIds = libraryIds) }
+                val releasedBooks = async { bookRepository.recentlyReleased(libraryIds = libraryIds) }
+                val addedBooks = async { bookRepository.latest(libraryIds = libraryIds) }
+                val addedSeries = async { seriesRepository.newlyAdded(libraryIds = libraryIds) }
                 val updatedSeries = async { seriesRepository.recentlyUpdated(libraryIds = libraryIds) }
+                val readBooks = async { bookRepository.recentlyRead(libraryIds = libraryIds) }
                 DashboardFeeds(
                     keepReading.await(),
                     onDeck.await(),
-                    latestBooks.await(),
-                    latestSeries.await(),
+                    releasedBooks.await(),
+                    addedBooks.await(),
+                    addedSeries.await(),
                     updatedSeries.await(),
+                    readBooks.await(),
                 )
             }
             val keepReading = fetched.keepReading.map { it.toUiBook() }
             val onDeck = fetched.onDeck.map { it.toUiBook() }
-            val latestBooks = fetched.latestBooks.map { it.toUiBook() }
-            val latestSeries = fetched.latestSeries.map { it.toUiSeries() }
+            val releasedBooks = fetched.releasedBooks.map { it.toUiBook() }
+            val addedBooks = fetched.addedBooks.map { it.toUiBook() }
+            val addedSeries = fetched.addedSeries.map { it.toUiSeries() }
             val updatedSeries = fetched.updatedSeries.map { it.toUiSeries() }
+            val readBooks = fetched.readBooks.map { it.toUiBook() }
+            // 分区顺序/标题/默认卡片形态对齐 iOS DashboardSection.allCases 与 defaultCardKind
             val sections = listOfNotNull(
-                if (keepReading.isNotEmpty()) DashboardSection("keepReading", "继续阅读", DashboardCardKind.Large, keepReading) else null,
-                if (onDeck.isNotEmpty()) DashboardSection("onDeck", "待读", DashboardCardKind.Large, onDeck) else null,
-                if (latestBooks.isNotEmpty()) DashboardSection("recentlyAddedBooks", "最近更新书籍", DashboardCardKind.Large, latestBooks) else null,
-                if (latestSeries.isNotEmpty()) DashboardSection("recentlyAddedSeries", "最近更新系列", DashboardCardKind.Large, latestSeries) else null,
-                if (updatedSeries.isNotEmpty()) DashboardSection("recentlyUpdatedSeries", "最近更新系列（内容）", DashboardCardKind.Large, updatedSeries) else null,
+                if (keepReading.isNotEmpty()) DashboardSection("keepReading", "继续阅读", DashboardCardKind.Horizontal, keepReading) else null,
+                if (onDeck.isNotEmpty()) DashboardSection("onDeck", "待阅读", DashboardCardKind.Large, onDeck) else null,
+                if (releasedBooks.isNotEmpty()) DashboardSection("recentlyReleasedBooks", "最近发布的书籍", DashboardCardKind.Large, releasedBooks) else null,
+                if (addedBooks.isNotEmpty()) DashboardSection("recentlyAddedBooks", "最近新增的书籍", DashboardCardKind.Large, addedBooks) else null,
+                if (addedSeries.isNotEmpty()) DashboardSection("recentlyAddedSeries", "最近新增的系列", DashboardCardKind.Small, addedSeries) else null,
+                if (updatedSeries.isNotEmpty()) DashboardSection("recentlyUpdatedSeries", "最近更新的系列", DashboardCardKind.Large, updatedSeries) else null,
+                if (readBooks.isNotEmpty()) DashboardSection("recentlyReadBooks", "最近阅读的书籍", DashboardCardKind.Small, readBooks) else null,
             )
             val collectionDtos = listRepository.collections()
             val readListDtos = listRepository.readLists()
@@ -236,11 +250,14 @@ class DashboardViewModel @Inject constructor(
                     }
                 }.mapNotNull { it.await() }
             }
+            // readListsInProgress 在 iOS allCases 顺序中排最前（opt-in 由设置开关控制）
             val allSections = if (continuations.isNotEmpty()) {
-                sections + DashboardSection(
-                    ReadListsInProgressSectionId, "进行中的阅读列表",
-                    DashboardCardKind.Horizontal, emptyList<Any>(),
-                )
+                listOf(
+                    DashboardSection(
+                        ReadListsInProgressSectionId, "进行中的阅读列表",
+                        DashboardCardKind.Horizontal, emptyList<Any>(),
+                    ),
+                ) + sections
             } else {
                 sections
             }
@@ -325,7 +342,9 @@ class DashboardViewModel @Inject constructor(
 private data class DashboardFeeds(
     val keepReading: List<com.kmworks.kmreader.core.api.model.BookDto>,
     val onDeck: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val latestBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val latestSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
+    val releasedBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
+    val addedBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
+    val addedSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
     val updatedSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
+    val readBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
 )

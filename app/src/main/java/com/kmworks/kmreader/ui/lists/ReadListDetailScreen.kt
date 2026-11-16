@@ -66,6 +66,7 @@ import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.TriState
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
@@ -105,7 +106,7 @@ fun ReadListDetailScreen(
         ordered = state.ordered ?: readList.ordered,
     )
     val sourceBooks = state.books ?: emptyList()
-    var layout by remember { mutableStateOf(BrowseLayout.List) }
+    val (layout, setLayout) = rememberPersistentBrowseLayout("readListDetail", BrowseLayout.List)
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -238,7 +239,7 @@ fun ReadListDetailScreen(
                             totalCount = books.size,
                             options = options,
                             layout = layout,
-                            onLayoutChange = { layout = it },
+                            onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
                             onStartSelecting = { selecting = true },
@@ -336,7 +337,7 @@ fun ReadListDetailScreen(
                         totalCount = books.size,
                         options = options,
                         layout = layout,
-                        onLayoutChange = { layout = it },
+                        onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
                         onStartSelecting = { selecting = true },

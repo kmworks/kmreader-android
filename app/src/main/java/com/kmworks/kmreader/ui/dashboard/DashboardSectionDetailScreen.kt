@@ -43,7 +43,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +57,7 @@ import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SeriesGridCard
@@ -76,7 +76,7 @@ fun DashboardSectionDetailScreen(
     onOpenBook: (Book) -> Unit = {},
     viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
-    var layout by rememberSaveable { mutableStateOf(BrowseLayout.Grid) }
+    val (layout, setLayout) = rememberPersistentBrowseLayout("dashboardSection", BrowseLayout.Grid)
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
@@ -118,7 +118,7 @@ fun DashboardSectionDetailScreen(
                 },
                 actions = {
                     // three-way layout cycle (list/grid/largeGrid)
-                    IconButton(onClick = { layout = layout.next }) {
+                    IconButton(onClick = { setLayout(layout.next) }) {
                         Icon(Icons.Filled.GridView, contentDescription = "布局：${layout.label}")
                     }
                     // library scope menu (aligned with LibraryScopeMenu)

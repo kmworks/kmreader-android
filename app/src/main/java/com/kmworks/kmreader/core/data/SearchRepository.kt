@@ -110,16 +110,18 @@ class SearchRepository @Inject constructor(
 
     // ---- 仪表盘分区「更多」页：同一数据源的分页（原作 DashboardSectionDetailView pageSize 50）----
 
-    /** 继续阅读（进行中书籍）分页。 */
+    /** 继续阅读（进行中书籍）分页；kmrs 服务器可带 recentReadingCutoff（对齐 iOS keepReading）。 */
     suspend fun keepReadingPage(
         page: Int = 0,
         size: Int = 50,
         libraryIds: List<String>? = null,
+        readDateAfter: java.time.Instant? = null,
     ): Paged<Book> {
         val api = listSearchApi() ?: return Paged(emptyList(), false)
         val condition = combinedCondition(
             listOfNotNull(
                 leafCondition("readStatus", "is", "IN_PROGRESS"),
+                readDateAfter?.let { dateLeafCondition("readDate", "after", it.toString()) },
                 libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
             ),
         )
@@ -127,7 +129,55 @@ class SearchRepository @Inject constructor(
             searchBody(condition = condition),
             page = page,
             size = size,
-            sort = listOf("readProgress.lastModified,desc"),
+            sort = listOf("readProgress.readDate,desc"),
+        ).awaitBody() ?: return Paged(emptyList(), false)
+        return result.toBookPage(size)
+    }
+
+    /** 最近阅读的书籍分页（readStatus READ，sort readProgress.readDate,desc；对齐 iOS recentlyReadBooks）。 */
+    suspend fun recentlyReadBooksPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Book> {
+        val api = listSearchApi() ?: return Paged(emptyList(), false)
+        val condition = combinedCondition(
+            listOfNotNull(
+                leafCondition("readStatus", "is", "READ"),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
+        val result = api.books(
+            searchBody(condition = condition),
+            page = page,
+            size = size,
+            sort = listOf("readProgress.readDate,desc"),
+        ).awaitBody() ?: return Paged(emptyList(), false)
+        return result.toBookPage(size)
+    }
+
+    /** 最近发布的书籍分页（releaseDate after(now-1月)，sort metadata.releaseDate,desc；对齐 iOS recentlyReleasedBooks）。 */
+    suspend fun recentlyReleasedBooksPage(
+        page: Int = 0,
+        size: Int = 50,
+        libraryIds: List<String>? = null,
+    ): Paged<Book> {
+        val api = listSearchApi() ?: return Paged(emptyList(), false)
+        val after = java.time.ZonedDateTime.now().minusMonths(1)
+        val condition = combinedCondition(
+            listOfNotNull(
+                dateLeafCondition(
+                    "releaseDate", "after",
+                    after.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                ),
+                libraryIds?.takeIf { it.isNotEmpty() }?.let(::libraryCondition),
+            ),
+        )
+        val result = api.books(
+            searchBody(condition = condition),
+            page = page,
+            size = size,
+            sort = listOf("metadata.releaseDate,desc"),
         ).awaitBody() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
@@ -147,7 +197,7 @@ class SearchRepository @Inject constructor(
         return result.toBookPage(size)
     }
 
-    /** 最近更新书籍分页（有库范围时与 iOS 一样改走 POST books/list + createdDate desc）。 */
+    /** 最近新增书籍分页（有库范围时与 iOS 一样改走 POST books/list + createdDate desc）。 */
     suspend fun latestBooksPage(
         page: Int = 0,
         size: Int = 50,
@@ -169,14 +219,14 @@ class SearchRepository @Inject constructor(
         return result.toBookPage(size)
     }
 
-    /** 最近更新系列分页。 */
+    /** 最近新增系列分页（GET /series/new；对齐 iOS recentlyAddedSeries，不是 latest）。 */
     suspend fun latestSeriesPage(
         page: Int = 0,
         size: Int = 50,
         libraryIds: List<String>? = null,
     ): Paged<Series> {
         val api = sessionManager.clients.value?.series ?: return Paged(emptyList(), false)
-        val result = api.getSeriesLatest(
+        val result = api.getSeriesNew(
             libraryId = libraryIds?.takeIf { it.isNotEmpty() },
             page = page,
             size = size,
@@ -184,7 +234,7 @@ class SearchRepository @Inject constructor(
         return result.toSeriesPage(size)
     }
 
-    /** 最近更新系列（内容）分页。 */
+    /** 最近更新系列分页（GET /series/updated）。 */
     suspend fun recentlyUpdatedSeriesPage(
         page: Int = 0,
         size: Int = 50,
@@ -333,11 +383,19 @@ class SearchRepository @Inject constructor(
 
     private fun PageSeriesDto.toSeriesPage(size: Int): Paged<Series> {
         val items = content.orEmpty()
-        return Paged(items.map { it.toUiSeries() }, hasMore = items.size >= size && last != true)
+        return Paged(
+            items.map { it.toUiSeries() },
+            hasMore = items.size >= size && last != true,
+            totalElements = totalElements,
+        )
     }
 
     private fun PageBookDto.toBookPage(size: Int): Paged<Book> {
         val items = content.orEmpty()
-        return Paged(items.map { it.toUiBook() }, hasMore = items.size >= size && last != true)
+        return Paged(
+            items.map { it.toUiBook() },
+            hasMore = items.size >= size && last != true,
+            totalElements = totalElements,
+        )
     }
 }
