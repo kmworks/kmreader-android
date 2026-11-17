@@ -116,8 +116,8 @@ Tracker, komf, and reading-stats screens are capability-gated the same way as in
 
 - **JDK 17**
 - **Android SDK 37** (`compileSdk = 37`, `minSdk = 28`, `targetSdk = 36`)
-- **Gradle 9.7+** — the wrapper is not committed yet, so use the Gradle installed on your machine
-  or open the project in Android Studio.
+- **Gradle 9.7.1** — pinned by the committed wrapper, so `./gradlew` downloads it; no separate
+  Gradle installation is needed (Android Studio works too).
 
 `local.properties` must point at your SDK:
 
@@ -128,10 +128,12 @@ sdk.dir=/path/to/Android/Sdk
 ## Build and run
 
 ```bash
-gradle :app:assembleDebug        # APK at app/build/outputs/apk/debug/
-gradle :app:installDebug         # install on a connected device
-gradle :core:api:openApiGenerate # regenerate the API client from api/openapi.json
+./gradlew :app:assembleDebug        # APK at app/build/outputs/apk/debug/
+./gradlew :app:installDebug         # install on a connected device
+./gradlew :core:api:openApiGenerate # regenerate the API client from api/openapi.json
 ```
+
+On Windows run `gradlew.bat` instead, for example `gradlew.bat :app:assembleDebug`.
 
 Or open the repository root in Android Studio and run the `app` configuration.
 

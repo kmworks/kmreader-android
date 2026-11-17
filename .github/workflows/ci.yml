@@ -26,11 +26,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # no wrapper is committed, so pin the same Gradle the project is built with
+      # caches the wrapper distribution and build cache between runs
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: 9.7.1
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -41,4 +39,4 @@ jobs:
         run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --console=plain
+        run: ./gradlew :app:assembleDebug --console=plain
