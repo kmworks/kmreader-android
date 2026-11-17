@@ -1,7 +1,0 @@
-> Task :core:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :core:api:openApiGenerate UP-TO-DATE
-> Task :core:api:patchGeneratedSources
-> Task :core:api:compileKotlin
-
-BUILD SUCCESSFUL in 10s
-3 actionable tasks: 2 executed, 1 up-to-date

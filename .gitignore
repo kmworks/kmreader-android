@@ -1,13 +1,21 @@
 # Gradle / Android
 .gradle/
-build/
-*/build/
+**/build/
+.kotlin/
+.cxx/
+captures/
 local.properties
 *.iml
 .idea/
-.cxx/
-.kotlin/
-captures/
 
-build-*.log
+# Build and tooling logs
+*.log
 build-out.txt
+*.hprof
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Local agent tooling scratch
+.dsh-acl-recovery/
