@@ -8,7 +8,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** kmrs 私有 komf 代理端点（管理员专用，stock Komga 404）。 */
+/** kmrs private komf proxy endpoints (admin-only, 404 on stock Komga). */
 internal interface KomfApi {
 
     @GET("api/v1/komf/search")
@@ -27,7 +27,7 @@ internal interface KomfApi {
         @Path("seriesId") seriesId: String,
     ): Call<KomfMetadataJobResponseDto>
 
-    /** reset 返回空响应（非任务），对齐原作 resetSeries。 */
+    /** reset returns an empty response (not a job), mirroring the original resetSeries. */
     @POST("api/v1/komf/reset/library/{libraryId}/series/{seriesId}")
     fun reset(
         @Path("libraryId") libraryId: String,

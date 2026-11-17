@@ -7,7 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// KMReader 原作强调色：浅色纯黑 / 深色纯白（单色方案），无品牌彩色、无渐变。
+// KMReader accent colors from the original: pure black in light mode / pure white in dark mode (monochrome scheme), with no brand color and no gradients.
 private val LightColors = lightColorScheme(
     primary = Color(0xFF111111),
     onPrimary = Color(0xFFFFFFFF),
@@ -21,6 +21,7 @@ private val LightColors = lightColorScheme(
     onSurface = Color(0xFF1A1A1C),
     surfaceVariant = Color(0xFFECECEF),
     onSurfaceVariant = Color(0xFF5B5B60),
+    surfaceContainerLow = Color(0xFFF5F5F6),
     surfaceContainer = Color(0xFFFFFFFF),
     surfaceContainerHigh = Color(0xFFF0F0F2),
     outline = Color(0xFFD6D6DA),
@@ -39,12 +40,13 @@ private val DarkColors = darkColorScheme(
     onSurface = Color(0xFFE8E8EA),
     surfaceVariant = Color(0xFF232326),
     onSurfaceVariant = Color(0xFFA5A5AA),
+    surfaceContainerLow = Color(0xFF0E0E10),
     surfaceContainer = Color(0xFF141416),
     surfaceContainerHigh = Color(0xFF1C1C1F),
     outline = Color(0xFF2E2E33),
 )
 
-// 非纯黑深色（纯黑开关关闭时）：背景/容器上移为深灰，其余与纯黑方案一致。
+// Non-pure-black dark mode (when the pure-black switch is off): background/containers move up to dark gray, everything else matches the pure-black scheme.
 private val DarkSoftColors = darkColorScheme(
     primary = Color(0xFFFFFFFF),
     onPrimary = Color(0xFF111111),
@@ -58,6 +60,7 @@ private val DarkSoftColors = darkColorScheme(
     onSurface = Color(0xFFE8E8EA),
     surfaceVariant = Color(0xFF2A2A2E),
     onSurfaceVariant = Color(0xFFA5A5AA),
+    surfaceContainerLow = Color(0xFF161618),
     surfaceContainer = Color(0xFF1C1C1F),
     surfaceContainerHigh = Color(0xFF242428),
     outline = Color(0xFF34343A),

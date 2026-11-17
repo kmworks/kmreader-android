@@ -2,6 +2,8 @@ package com.kmworks.kmreader.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,8 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -48,18 +53,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.logging.AppLogLevel
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.ui.RootViewModel
+import com.kmworks.kmreader.core.pdf.PdfRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -72,10 +81,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 图片缓存用量：Coil3 磁盘缓存真实字节数 + 清空。 */
+/** Image cache usage: real byte count of the Coil3 disk cache + clear action. */
 @HiltViewModel
 class CacheSettingsViewModel @Inject constructor(
     private val sessionManager: SessionManager,
+    private val pdfRepository: PdfRepository,
 ) : ViewModel() {
 
     private val _cacheBytes = MutableStateFlow(0L)
@@ -87,13 +97,14 @@ class CacheSettingsViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
-            _cacheBytes.value = runCatching {
+            val imageBytes = runCatching {
                 sessionManager.imageLoader.value?.diskCache?.size ?: 0L
             }.getOrDefault(0L)
+            _cacheBytes.value = imageBytes + pdfRepository.cacheBytes()
         }
     }
 
-    /** 清空内存 + 磁盘图片缓存（对齐 iOS SettingsCacheView 的 Clear）。 */
+    /** Clears the memory + disk image cache and the PDF cache (mirrors Clear in iOS SettingsCacheView). */
     fun clear() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
@@ -105,12 +116,15 @@ class CacheSettingsViewModel @Inject constructor(
             }.onFailure {
                 AppLog.e("Cache", "clear image cache failed", it)
             }
+            runCatching { pdfRepository.clearAll() }
+                .onSuccess { AppLog.i("Cache", "pdf cache cleared") }
+                .onFailure { AppLog.e("Cache", "clear pdf cache failed", it) }
             refresh()
         }
     }
 }
 
-/** Cache settings (mirrors SettingsCacheView)：真实占用 + 上限持久化 + 清空确认。 */
+/** Cache settings (mirrors SettingsCacheView): real usage + persisted limit + clear confirmation. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CacheSettingsScreen(
@@ -121,10 +135,10 @@ fun CacheSettingsScreen(
     val cacheBytes by viewModel.cacheBytes.collectAsStateWithLifecycle()
     val limitMb by prefsViewModel.imageCacheLimitMb.collectAsStateWithLifecycle()
     var showClearConfirm by remember { mutableStateOf(false) }
-    // 上限滑杆的本地拖动态，拖动结束才落盘
+    // Local drag state of the limit slider; only persisted when the drag ends
     var limitDraft by rememberSaveable(limitMb) { mutableFloatStateOf(limitMb.toFloat()) }
 
-    SystemScaffold(title = "缓存", onBack = onBack) { padding ->
+    SystemScaffold(title = stringResource(R.string.settings_cache), onBack = onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -138,7 +152,7 @@ fun CacheSettingsScreen(
                         .padding(top = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("图片缓存", style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.settings_cache_image), style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))
                         val limitBytes = limitDraft.toLong() * 1024L * 1024L
                         LinearProgressIndicator(
@@ -155,7 +169,11 @@ fun CacheSettingsScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "已用 ${formatCacheBytes(cacheBytes)} / 上限 ${formatCacheMb(limitDraft.roundToInt())}",
+                            stringResource(
+                                R.string.settings_cache_used_format,
+                                formatCacheBytes(cacheBytes),
+                                formatCacheMb(limitDraft.roundToInt()),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -163,7 +181,7 @@ fun CacheSettingsScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 SystemSliderRow(
-                    label = "缓存上限",
+                    label = stringResource(R.string.settings_cache_limit),
                     value = limitDraft,
                     valueRange = 512f..8192f,
                     display = formatCacheMb(limitDraft.roundToInt()),
@@ -177,7 +195,7 @@ fun CacheSettingsScreen(
                     onClick = { showClearConfirm = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("清理缓存")
+                    Text(stringResource(R.string.settings_cache_clear))
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -187,8 +205,8 @@ fun CacheSettingsScreen(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("清理缓存") },
-            text = { Text("将清空全部图片缓存（内存与磁盘），封面会重新从服务器加载。") },
+            title = { Text(stringResource(R.string.settings_cache_clear)) },
+            text = { Text(stringResource(R.string.settings_cache_clear_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -196,12 +214,12 @@ fun CacheSettingsScreen(
                         viewModel.clear()
                     },
                 ) {
-                    Text("清理")
+                    Text(stringResource(R.string.settings_cache_clear_action))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
         )
@@ -218,7 +236,7 @@ private fun formatCacheBytes(bytes: Long): String = when {
 private fun formatCacheMb(mb: Int): String =
     if (mb >= 1024) "%.1f GB".format(mb / 1024f) else "$mb MB"
 
-/** Network settings (mirrors SettingsNetworkView)：超时/并发/仅 Wi-Fi 预加载全部持久化。 */
+/** Network settings (mirrors SettingsNetworkView): timeout / concurrency / Wi-Fi-only preload are all persisted. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkSettingsScreen(
@@ -228,11 +246,11 @@ fun NetworkSettingsScreen(
     val timeoutSeconds by prefsViewModel.networkTimeoutSeconds.collectAsStateWithLifecycle()
     val concurrency by prefsViewModel.downloadConcurrency.collectAsStateWithLifecycle()
     val wifiOnlyPreload by prefsViewModel.wifiOnlyPreload.collectAsStateWithLifecycle()
-    // 滑杆本地拖动态，拖动结束才落盘
+    // Local drag states of the sliders; only persisted when the drag ends
     var timeoutDraft by rememberSaveable(timeoutSeconds) { mutableFloatStateOf(timeoutSeconds.toFloat()) }
     var concurrencyDraft by rememberSaveable(concurrency) { mutableFloatStateOf(concurrency.toFloat()) }
 
-    SystemScaffold(title = "网络", onBack = onBack) { padding ->
+    SystemScaffold(title = stringResource(R.string.settings_network), onBack = onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -240,30 +258,30 @@ fun NetworkSettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                SystemSectionTitle("请求")
+                SystemSectionTitle(stringResource(R.string.settings_network_requests))
                 SystemSliderRow(
-                    label = "请求超时",
+                    label = stringResource(R.string.settings_network_timeout),
                     value = timeoutDraft,
                     valueRange = 5f..120f,
-                    display = "${timeoutDraft.roundToInt()} 秒",
+                    display = stringResource(R.string.settings_network_timeout_value, timeoutDraft.roundToInt()),
                     onValueChange = { timeoutDraft = it.roundToInt().toFloat() },
                     onValueChangeFinished = {
                         prefsViewModel.setNetworkTimeoutSeconds(timeoutDraft.roundToInt())
                     },
                 )
                 SystemSliderRow(
-                    label = "下载并发数",
+                    label = stringResource(R.string.settings_network_concurrency),
                     value = concurrencyDraft,
                     valueRange = 1f..8f,
-                    display = "${concurrencyDraft.roundToInt()} 个",
+                    display = stringResource(R.string.settings_network_concurrency_value, concurrencyDraft.roundToInt()),
                     onValueChange = { concurrencyDraft = it.roundToInt().toFloat() },
                     onValueChangeFinished = {
                         prefsViewModel.setDownloadConcurrency(concurrencyDraft.roundToInt())
                     },
                 )
                 SystemSwitchRow(
-                    title = "仅 Wi-Fi 预加载",
-                    subtitle = "阅读器预加载下一章时仅使用 Wi-Fi",
+                    title = stringResource(R.string.settings_network_wifi_only_title),
+                    subtitle = stringResource(R.string.settings_network_wifi_only_subtitle),
                     checked = wifiOnlyPreload,
                     onCheckedChange = prefsViewModel::setWifiOnlyPreload,
                 )
@@ -273,7 +291,7 @@ fun NetworkSettingsScreen(
     }
 }
 
-/** SSE connection settings (mirrors SettingsSSEView)：状态 + 总开关 + 自动刷新/通知联动开关。 */
+/** SSE connection settings (mirrors SettingsSSEView): status + master switch + linked auto-refresh/notification switches. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SseSettingsScreen(
@@ -289,14 +307,14 @@ fun SseSettingsScreen(
 
     val connected = connectionState is SseConnectionState.Connected
     val statusText = when (val state = connectionState) {
-        is SseConnectionState.Connected -> "已连接"
-        is SseConnectionState.Connecting -> "连接中…"
-        is SseConnectionState.Retrying -> "重连中（${state.retryInSeconds} 秒后）"
-        is SseConnectionState.Disconnected -> "未连接"
+        is SseConnectionState.Connected -> stringResource(R.string.settings_sse_connected)
+        is SseConnectionState.Connecting -> stringResource(R.string.settings_sse_connecting)
+        is SseConnectionState.Retrying -> stringResource(R.string.settings_sse_retrying, state.retryInSeconds)
+        is SseConnectionState.Disconnected -> stringResource(R.string.settings_sse_disconnected)
     }
-    val lastEventText = lastEventAt?.let(::formatSseTime) ?: "暂无"
+    val lastEventText = lastEventAt?.let(::formatSseTime) ?: stringResource(R.string.common_none)
 
-    SystemScaffold(title = "SSE 连接", onBack = onBack) { padding ->
+    SystemScaffold(title = stringResource(R.string.settings_sse), onBack = onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -304,7 +322,7 @@ fun SseSettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                SystemSectionTitle("状态")
+                SystemSectionTitle(stringResource(R.string.settings_sse_status))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -323,7 +341,7 @@ fun SseSettingsScreen(
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            "最近事件：$lastEventText",
+                            stringResource(R.string.settings_sse_last_event, lastEventText),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -336,26 +354,26 @@ fun SseSettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("SSE 实时更新", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.settings_sse_updates_title), style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "接收服务端实时事件，关闭后断开长连",
+                            stringResource(R.string.settings_sse_updates_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(checked = sseEnabled, onCheckedChange = rootViewModel::setSseEnabled)
                 }
-                // 对齐 SettingsSSEView：总开关关闭时子开关禁用
+                // Mirrors SettingsSSEView: the sub-switches are disabled while the master switch is off
                 SystemSwitchRow(
-                    title = "自动刷新",
-                    subtitle = "收到内容事件时自动刷新仪表盘",
+                    title = stringResource(R.string.settings_sse_auto_refresh_title),
+                    subtitle = stringResource(R.string.settings_sse_auto_refresh_subtitle),
                     checked = autoRefresh,
                     onCheckedChange = prefsViewModel::setSseAutoRefresh,
                     enabled = sseEnabled,
                 )
                 SystemSwitchRow(
-                    title = "连接通知",
-                    subtitle = "连接状态变化与任务完成时通知",
+                    title = stringResource(R.string.settings_sse_notify_title),
+                    subtitle = stringResource(R.string.settings_sse_notify_subtitle),
                     checked = notify,
                     onCheckedChange = prefsViewModel::setSseNotify,
                     enabled = sseEnabled,
@@ -366,13 +384,13 @@ fun SseSettingsScreen(
     }
 }
 
-/** HH:mm:ss 事件时间。 */
+/** HH:mm:ss event time. */
 private fun formatSseTime(millis: Long): String =
     Instant.ofEpochMilli(millis)
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
-/** Log viewer (mirrors SettingsLogsView)：真实日志行 + 级别过滤 + FileProvider 分享。 */
+/** Log viewer (mirrors SettingsLogsView): real log lines + level filter + FileProvider sharing. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LogsScreen(onBack: () -> Unit) {
@@ -386,15 +404,15 @@ fun LogsScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("日志") },
+                title = { Text(stringResource(R.string.settings_logs)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { shareLogs(context) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "分享日志")
+                        Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.settings_logs_share))
                     }
                 },
             )
@@ -412,7 +430,7 @@ fun LogsScreen(onBack: () -> Unit) {
                 FilterChip(
                     selected = levelFilter == null,
                     onClick = { levelFilter = null },
-                    label = { Text("全部") },
+                    label = { Text(stringResource(R.string.common_all)) },
                 )
                 AppLogLevel.entries.forEach { level ->
                     FilterChip(
@@ -430,7 +448,7 @@ fun LogsScreen(onBack: () -> Unit) {
                 if (filtered.isEmpty()) {
                     item {
                         Text(
-                            "暂无日志",
+                            stringResource(R.string.settings_logs_empty),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 16.dp),
@@ -438,22 +456,62 @@ fun LogsScreen(onBack: () -> Unit) {
                     }
                 }
                 items(filtered) { entry ->
-                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                        Text(
-                            "${entry.timeLabel}  ${entry.level.label}  [${entry.tag}]",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when (entry.level) {
-                                AppLogLevel.ERROR -> MaterialTheme.colorScheme.error
-                                AppLogLevel.WARN -> MaterialTheme.colorScheme.onSurface
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        Text(
-                            entry.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
+                    // The whole entry is selectable for copying (needed for crash stack triage)
+                    SelectionContainer {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Level badge: errors get a solid red tint, the rest stay muted outlines
+                                val levelColor = when (entry.level) {
+                                    AppLogLevel.ERROR -> MaterialTheme.colorScheme.error
+                                    AppLogLevel.WARN -> MaterialTheme.colorScheme.onSurface
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            levelColor.copy(
+                                                alpha = if (entry.level == AppLogLevel.ERROR) 0.14f else 0.08f,
+                                            ),
+                                            RoundedCornerShape(4.dp),
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                                ) {
+                                    Text(
+                                        entry.level.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = levelColor,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    entry.timeLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    entry.tag,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                entry.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (entry.level == AppLogLevel.ERROR) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                        }
                     }
                     HorizontalDivider()
                 }
@@ -462,7 +520,7 @@ fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-/** 导出 app.log 为 txt 并调起系统分享。 */
+/** Exports app.log as a txt and opens the system share sheet. */
 private fun shareLogs(context: Context) {
     val file = AppLog.shareableFile() ?: return
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -471,91 +529,7 @@ private fun shareLogs(context: Context) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "分享日志"))
-}
-
-/** Current server account (mirrors SettingsAccountView: instance info + sign out). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AccountSettingsScreen(
-    onBack: () -> Unit,
-    rootViewModel: RootViewModel = hiltViewModel(),
-) {
-    val config by rootViewModel.config.collectAsStateWithLifecycle()
-    var showLogoutConfirm by remember { mutableStateOf(false) }
-
-    SystemScaffold(title = "服务器账户", onBack = onBack) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-        ) {
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "当前服务器",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "已连接",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            config?.normalizedBaseUrl.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        Text(
-                            when {
-                                config == null -> ""
-                                config?.useApiKey == true -> "认证方式：API Key"
-                                else -> "账户：${config?.username.orEmpty()}"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                OutlinedButton(
-                    onClick = { showLogoutConfirm = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("退出登录")
-                }
-            }
-        }
-    }
-
-    if (showLogoutConfirm) {
-        AlertDialog(
-            onDismissRequest = { showLogoutConfirm = false },
-            title = { Text("退出登录") },
-            text = { Text("将清除本机保存的服务器与凭据，需要重新连接。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showLogoutConfirm = false
-                        rootViewModel.logout()
-                    },
-                ) {
-                    Text("退出登录")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutConfirm = false }) {
-                    Text("取消")
-                }
-            },
-        )
-    }
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_logs_share)))
 }
 
 /** About page (mirrors SettingsAboutView). */
@@ -568,7 +542,7 @@ fun AboutScreen(onBack: () -> Unit) {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull().orEmpty().ifBlank { "0.1.0" }
     }
-    SystemScaffold(title = "关于", onBack = onBack) { padding ->
+    SystemScaffold(title = stringResource(R.string.settings_about), onBack = onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -579,14 +553,14 @@ fun AboutScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 Text("KMReader", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "版本 $versionName",
+                    stringResource(R.string.settings_about_version_format, versionName),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(20.dp))
-                AboutLinkRow(title = "KMReader 原作", value = "github.com/kmworks/kmreader")
-                AboutLinkRow(title = "Komga 服务器", value = "komga.org")
-                AboutLinkRow(title = "问题反馈", value = "github.com/kmworks/kmreader/issues")
+                AboutLinkRow(title = stringResource(R.string.settings_about_original), value = "github.com/kmworks/kmreader")
+                AboutLinkRow(title = stringResource(R.string.settings_about_komga), value = "komga.org")
+                AboutLinkRow(title = stringResource(R.string.settings_about_feedback), value = "github.com/kmworks/kmreader/issues")
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -602,10 +576,10 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
         "Jetpack Compose" to "Apache-2.0",
         "Material Icons Extended" to "Apache-2.0",
         "Kotlin Coroutines" to "Apache-2.0",
-        "Readium（EPUB 引擎参考）" to "BSD-3-Clause",
-        "PDFium（PDF 引擎参考）" to "Apache-2.0",
+        stringResource(R.string.settings_license_readium) to "BSD-3-Clause",
+        stringResource(R.string.settings_license_pdfium) to "Apache-2.0",
     )
-    SystemScaffold(title = "开源许可", onBack = onBack) { padding ->
+    SystemScaffold(title = stringResource(R.string.settings_licenses), onBack = onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -635,7 +609,7 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SystemScaffold(
+internal fun SystemScaffold(
     title: String,
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
@@ -646,7 +620,7 @@ private fun SystemScaffold(
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )

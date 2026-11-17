@@ -9,9 +9,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 裁边（对齐原作 ReaderPageBorderCropMode 的保守/激进两档）：
- * 以四角像素均值作为页面底色，从四边向内收缩到「整行/整列都与底色接近」的位置。
- * 只裁到 [BorderCropMode.maxFraction] 的边，且成品面积不得小于原图的一半，避免误裁画面内容。
+ * Border crop (mirrors the conservative/aggressive tiers of the original ReaderPageBorderCropMode):
+ * takes the average of the four corner pixels as the page background color, then shrinks inward from the
+ * four edges while whole rows/columns stay close to that color.
+ * Crops at most [BorderCropMode.maxFraction] of each edge and never below half the original area, so
+ * actual artwork is not cut away.
  */
 class BorderCropTransformation(private val mode: BorderCropMode) : Transformation() {
 
@@ -57,7 +59,7 @@ class BorderCropTransformation(private val mode: BorderCropMode) : Transformatio
         var right = 0
         while (right < maxCropX && columnMatches(width - 1 - right)) right++
 
-        // 单边保守收 1px，避免把底色边缘留在画面上
+        // Conservatively pull back 1px per edge so no sliver of background color stays on the page
         top = max(0, top - 1)
         bottom = max(0, bottom - 1)
         left = max(0, left - 1)

@@ -23,14 +23,18 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,21 +50,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.ContextMenuItem
+import com.kmworks.kmreader.ui.components.ContextMenuSheet
+import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SeriesGridCard
+import com.kmworks.kmreader.ui.components.subtitleText
 
 /**
  * Section detail page ("More" destination): adaptive grid/list with three-way layout
@@ -74,12 +86,15 @@ fun DashboardSectionDetailScreen(
     onBack: () -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
+    onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
     viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
     val (layout, setLayout) = rememberPersistentBrowseLayout("dashboardSection", BrowseLayout.Grid)
     var scopeMenuOpen by remember { mutableStateOf(false) }
+    var showPinSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(BookBrowseOptions()) }
+    var menuBook by remember { mutableStateOf<Book?>(null) }
 
     val detail by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(section.id) { viewModel.start(section) }
@@ -113,53 +128,92 @@ fun DashboardSectionDetailScreen(
                 title = { Text(section.title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
                     }
                 },
                 actions = {
                     // three-way layout cycle (list/grid/largeGrid)
                     IconButton(onClick = { setLayout(layout.next) }) {
-                        Icon(Icons.Filled.GridView, contentDescription = "布局：${layout.label}")
+                        Icon(
+                            Icons.Filled.GridView,
+                            contentDescription = stringResource(
+                                R.string.dashboard_layout,
+                                stringResource(layout.labelRes),
+                            ),
+                        )
                     }
                     // library scope menu (aligned with LibraryScopeMenu)
                     Box {
                         IconButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(Icons.Outlined.Checklist, contentDescription = "库范围")
+                            Icon(
+                                Icons.Outlined.Checklist,
+                                contentDescription = stringResource(R.string.dashboard_library_scope),
+                            )
                         }
                         DropdownMenu(
                             expanded = scopeMenuOpen,
                             onDismissRequest = { scopeMenuOpen = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("全部") },
-                                onClick = {
-                                    viewModel.setLibraryScope(null)
-                                    scopeMenuOpen = false
-                                },
-                                trailingIcon = {
-                                    if (detail.libraryScope == null) {
-                                        Icon(Icons.Filled.Check, contentDescription = null)
-                                    }
-                                },
-                            )
-                            detail.libraries.forEach { library ->
+                            // Aligned with iOS LibraryScopeMenu: Pinned (when any pinned) / All Libraries / single library / pin editing
+                            if (detail.pinnedIds.isNotEmpty()) {
                                 DropdownMenuItem(
-                                    text = { Text(library.name) },
+                                    text = { Text(stringResource(R.string.dashboard_scope_pinned)) },
                                     onClick = {
-                                        viewModel.setLibraryScope(library.id)
+                                        viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
                                         scopeMenuOpen = false
                                     },
                                     trailingIcon = {
-                                        if (library.id == detail.libraryScope) {
+                                        if (detail.libraryScope == AppSettingsStore.SCOPE_PINNED) {
                                             Icon(Icons.Filled.Check, contentDescription = null)
                                         }
                                     },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.common_all_libraries)) },
+                                onClick = {
+                                    viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                                    scopeMenuOpen = false
+                                },
+                                trailingIcon = {
+                                    if (detail.libraryScope == AppSettingsStore.SCOPE_ALL) {
+                                        Icon(Icons.Filled.Check, contentDescription = null)
+                                    }
+                                },
+                            )
+                            detail.libraries.forEach { library ->
+                                val libraryScope = AppSettingsStore.scopeForLibrary(library.id)
+                                DropdownMenuItem(
+                                    text = { Text(library.name) },
+                                    onClick = {
+                                        viewModel.setScope(libraryScope)
+                                        scopeMenuOpen = false
+                                    },
+                                    trailingIcon = {
+                                        if (detail.libraryScope == libraryScope) {
+                                            Icon(Icons.Filled.Check, contentDescription = null)
+                                        }
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.dashboard_pin_libraries)) },
+                                onClick = {
+                                    scopeMenuOpen = false
+                                    showPinSheet = true
+                                },
+                            )
                         }
                     }
                     IconButton(onClick = { showOptions = true }) {
-                        Icon(Icons.Filled.FilterList, contentDescription = "筛选")
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = stringResource(R.string.dashboard_filter),
+                        )
                     }
                 },
             )
@@ -176,7 +230,11 @@ fun DashboardSectionDetailScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
             ) {
                 items(books, key = { it.id }) { book ->
-                    BookListRow(book = book, onClick = { onOpenBook(book) })
+                    BookListRow(
+                        book = book,
+                        onClick = { onReadBook(book, false) },
+                        onLongClick = { menuBook = book },
+                    )
                 }
                 items(seriesItems, key = { it.id }) { series ->
                     SeriesListRow(series = series, onClick = { onOpenSeries(series) })
@@ -201,7 +259,8 @@ fun DashboardSectionDetailScreen(
                 items(books, key = { it.id }) { book ->
                     BookGridCard(
                         book = book,
-                        onClick = { onOpenBook(book) },
+                        onClick = { onReadBook(book, false) },
+                        onLongClick = { menuBook = book },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -241,11 +300,47 @@ fun DashboardSectionDetailScreen(
             options = options,
             onOptionsChange = { options = it },
             onDismiss = { showOptions = false },
+            suggestionLibraryIds = resolveLibraryScopeIds(detail.libraryScope, detail.pinnedIds),
+        )
+    }
+    // Book long-press menu (aligned with the read group of iOS BookContextMenu: Read / Read Incognito / View Details)
+    menuBook?.let { book ->
+        ContextMenuSheet(
+            items = listOf(
+                ContextMenuItem(
+                    stringResource(R.string.dashboard_action_read),
+                    Icons.AutoMirrored.Outlined.MenuBook,
+                    onClick = { onReadBook(book, false) },
+                ),
+                ContextMenuItem(
+                    stringResource(R.string.dashboard_action_read_incognito),
+                    Icons.Outlined.Visibility,
+                    onClick = { onReadBook(book, true) },
+                ),
+                ContextMenuItem(
+                    stringResource(R.string.dashboard_action_view_details),
+                    Icons.Outlined.Info,
+                    onClick = { onOpenBook(book) },
+                ),
+            ),
+            onDismiss = { menuBook = null },
+        )
+    }
+    // Pin-editing sheet (aligned with iOS LibraryPickerSheet)
+    if (showPinSheet) {
+        LibraryPinSheet(
+            libraries = detail.libraries,
+            pinnedIds = detail.pinnedIds,
+            onSave = { ids ->
+                viewModel.setPinnedLibraries(ids)
+                showPinSheet = false
+            },
+            onDismiss = { showPinSheet = false },
         )
     }
 }
 
-/** 底部加载行：还有下一页时显示，触底会自动请求。 */
+/** Bottom loading row: shown while there is a next page, which is requested automatically on reaching it. */
 @Composable
 private fun LoadMoreRow() {
     Box(
@@ -285,7 +380,7 @@ private fun SeriesListRow(series: Series, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = series.subtitle,
+                text = series.subtitleText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

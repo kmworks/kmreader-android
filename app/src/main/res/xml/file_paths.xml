@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider 路径：与 AppLog.shareableFile()（filesDir/logs/app.log）匹配，供日志分享导出。 -->
+<!-- FileProvider paths: matches AppLog.shareableFile() (filesDir/logs/app.log), used for log share/export. -->
 <paths>
     <files-path name="logs" path="logs/" />
 </paths>

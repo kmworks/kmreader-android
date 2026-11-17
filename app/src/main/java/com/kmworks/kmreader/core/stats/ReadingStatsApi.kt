@@ -6,8 +6,9 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 
 /**
- * kmrs 私有阅读统计端点（stock Komga 404；对齐 iOS ReadingStatsService）。
- * DTO 全可选，服务端字段缺失时容错为 null。
+ * kmrs private reading-stats endpoints (404 on stock Komga; mirrors iOS ReadingStatsService).
+ * DTO fields are all optional; missing server-side fields degrade to null.
+ * Note: field names map one-to-one to the serde camelCase output of kmrs crates/komga-server/src/dto/stats.rs.
  */
 internal interface ReadingStatsApi {
 
@@ -24,23 +25,23 @@ internal interface ReadingStatsApi {
     fun tops(@Query("libraryId") libraryId: String? = null): Call<ReadingStatsTopsResponse>
 }
 
+/**
+ * GET /api/v1/stats/reading/summary — flat structure (no wrapper object).
+ * Streaks are computed server-side from historical events (reading_stats::streaks).
+ */
 @Serializable
 data class ReadingStatsSummaryResponse(
-    val summary: ReadingStatsSummaryDto? = null,
-    val statusDistribution: List<ReadingStatsItemDto>? = null,
-    val generatedAt: String? = null,
-)
-
-@Serializable
-data class ReadingStatsSummaryDto(
     val totalBooks: Int? = null,
-    val booksStartedReading: Int? = null,
-    val booksCompletedReading: Int? = null,
-    val totalPagesRead: Int? = null,
+    val booksStarted: Int? = null,
+    val booksCompleted: Int? = null,
+    val pagesRead: Int? = null,
     val averagePagesPerBook: Int? = null,
     val readingDays: Int? = null,
-    val estimatedReadingHours: Double? = null,
     val lastReadAt: String? = null,
+    val currentStreakDays: Int? = null,
+    val longestStreakDays: Int? = null,
+    val statusDistribution: List<ReadingStatsItemDto>? = null,
+    val generatedAt: String? = null,
 )
 
 @Serializable
@@ -49,18 +50,24 @@ data class ReadingStatsItemDto(
     val value: Double? = null,
 )
 
+/**
+ * GET /api/v1/stats/reading/activity。
+ * weekdayDistribution has exactly 7 slots with index 0 = Sunday; hourlyDistribution has exactly 24 slots.
+ */
 @Serializable
 data class ReadingStatsActivityResponse(
     val weekdayDistribution: List<Int>? = null,
     val hourlyDistribution: List<Int>? = null,
     val readingTimeSeries: List<ReadingStatsTimePointDto>? = null,
+    val generatedAt: String? = null,
 )
 
 @Serializable
 data class ReadingStatsTimePointDto(
-    val name: String? = null,
-    val value: Double? = null,
-    val dateString: String? = null,
+    /** yyyy-MM-dd (UTC, date of the read-progress event). */
+    val date: String? = null,
+    val pagesRead: Double? = null,
+    val booksCompleted: Double? = null,
 )
 
 @Serializable
@@ -70,4 +77,5 @@ data class ReadingStatsTopsResponse(
     val topTags: List<ReadingStatsItemDto>? = null,
     val genreDistribution: List<ReadingStatsItemDto>? = null,
     val tagDistribution: List<ReadingStatsItemDto>? = null,
+    val generatedAt: String? = null,
 )

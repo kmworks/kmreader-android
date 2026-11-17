@@ -29,12 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.ui.RootViewModel
@@ -46,7 +48,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/** 阅读统计/Tracker 入口的 kmrs 能力门控（SettingsScreen 副标题提示用）。 */
+/** kmrs capability gate for the Reading Stats / Tracker entries (used for SettingsScreen subtitles). */
 @HiltViewModel
 class SettingsEntryViewModel @Inject constructor(
     serverProfileStore: ServerProfileStore,
@@ -81,12 +83,12 @@ fun SettingsScreen(
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
     rootViewModel: RootViewModel = hiltViewModel(),
 ) {
-    // 真黑快捷开关与外观页读写同一个 AppSettingsStore.trueBlackDark，两处实时同步
+    // The true-black quick toggle and the appearance screen read/write the same AppSettingsStore.trueBlackDark, so both stay in sync
     val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
     val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
     val serverConfig by rootViewModel.config.collectAsStateWithLifecycle()
     var showTrackerSettings by remember { mutableStateOf(false) }
-    // kmrs 能力门控：无 ReadingStats/Trackers 特性时对应入口副标题提示
+    // kmrs capability gate: entry subtitles hint when the ReadingStats/Trackers features are missing
     val statsSupported by viewModel.readingStatsSupported.collectAsState()
     val trackersSupported by viewModel.trackersSupported.collectAsState()
 
@@ -98,10 +100,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -113,72 +115,76 @@ fun SettingsScreen(
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            item { SettingsGroupHeader("外观") }
-            item { SettingsValueRow("主题", themeModeLabel(themeMode)) }
+            item { SettingsGroupHeader(stringResource(R.string.appearance_title)) }
+            item { SettingsValueRow(stringResource(R.string.appearance_theme), themeModeLabel(themeMode)) }
             item {
                 SettingsSwitchRow(
-                    title = "真黑背景",
-                    subtitle = "OLED 下阅读器与仪表盘使用纯黑背景",
+                    title = stringResource(R.string.settings_true_black_title),
+                    subtitle = stringResource(R.string.settings_true_black_subtitle),
                     checked = trueBlack,
                     onCheckedChange = prefsViewModel::setTrueBlackDark,
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "外观设置",
-                    subtitle = "主题、纯黑、应用图标",
+                    title = stringResource(R.string.settings_appearance_entry_title),
+                    subtitle = stringResource(R.string.settings_appearance_entry_subtitle),
                     onClick = onOpenAppearance,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("浏览") }
+            item { SettingsGroupHeader(stringResource(R.string.browse_settings_title)) }
             item {
                 SettingsNavRow(
-                    title = "浏览设置",
-                    subtitle = "卡片样式与网格显示项",
+                    title = stringResource(R.string.settings_browse_entry_title),
+                    subtitle = stringResource(R.string.settings_browse_entry_subtitle),
                     onClick = onOpenBrowse,
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "仪表盘",
-                    subtitle = "分区显示、排序与卡片形态",
+                    title = stringResource(R.string.settings_dashboard_title),
+                    subtitle = stringResource(R.string.settings_dashboard_subtitle),
                     onClick = onOpenDashboard,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("阅读器") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_section_reader)) }
             item {
                 SettingsNavRow(
-                    title = "阅读器默认",
-                    subtitle = "Divina / EPUB / PDF 默认偏好",
+                    title = stringResource(R.string.reader_defaults_title),
+                    subtitle = stringResource(R.string.settings_reader_defaults_subtitle),
                     onClick = onOpenReaderDefaults,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("阅读进度追踪") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_section_tracking)) }
             item {
                 SettingsNavRow(
-                    title = "Tracker 账号",
-                    subtitle = if (trackersSupported) {
-                        "AniList / MyAnimeList / Bangumi / MangaBaka"
-                    } else {
-                        "AniList / MyAnimeList / Bangumi / MangaBaka（需要 kmrs 服务器）"
-                    },
+                    title = stringResource(R.string.settings_trackers_title),
+                    subtitle = stringResource(
+                        if (trackersSupported) {
+                            R.string.settings_trackers_subtitle
+                        } else {
+                            R.string.settings_trackers_subtitle_requires_kmrs
+                        },
+                    ),
                     onClick = { showTrackerSettings = true },
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "阅读统计",
-                    subtitle = if (statsSupported) {
-                        "阅读历史、连续天数与热力图"
-                    } else {
-                        "阅读历史、连续天数与热力图（需要 kmrs 服务器）"
-                    },
+                    title = stringResource(R.string.settings_stats_title),
+                    subtitle = stringResource(
+                        if (statsSupported) {
+                            R.string.settings_stats_subtitle
+                        } else {
+                            R.string.settings_stats_subtitle_requires_kmrs
+                        },
+                    ),
                     onClick = onOpenStats,
                 )
             }
@@ -187,52 +193,57 @@ fun SettingsScreen(
             item { SettingsGroupHeader("EPUB") }
             item {
                 SettingsNavRow(
-                    title = "自定义字体",
-                    subtitle = "导入并管理 EPUB 字体",
+                    title = stringResource(R.string.settings_custom_fonts_title),
+                    subtitle = stringResource(R.string.settings_custom_fonts_subtitle),
                     onClick = onOpenCustomFonts,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("缓存") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_cache)) }
             item {
                 SettingsNavRow(
-                    title = "缓存",
-                    subtitle = "图片缓存占用与清理",
+                    title = stringResource(R.string.settings_cache),
+                    subtitle = stringResource(R.string.settings_cache_subtitle),
                     onClick = onOpenCache,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("系统") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_section_system)) }
             item {
                 SettingsNavRow(
-                    title = "网络",
-                    subtitle = "超时与并发设置",
+                    title = stringResource(R.string.settings_network),
+                    subtitle = stringResource(R.string.settings_network_subtitle),
                     onClick = onOpenNetwork,
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "SSE 连接",
-                    subtitle = "实时同步连接状态",
+                    title = stringResource(R.string.settings_sse),
+                    subtitle = stringResource(R.string.settings_sse_subtitle),
                     onClick = onOpenSse,
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "日志",
-                    subtitle = "查看与分享运行日志",
+                    title = stringResource(R.string.settings_logs),
+                    subtitle = stringResource(R.string.settings_logs_subtitle),
                     onClick = onOpenLogs,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("账户") }
-            item { SettingsValueRow("当前实例", serverConfig?.normalizedBaseUrl ?: "未连接") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_account)) }
             item {
                 SettingsValueRow(
-                    "账户",
+                    stringResource(R.string.settings_current_instance),
+                    serverConfig?.normalizedBaseUrl ?: stringResource(R.string.settings_not_connected),
+                )
+            }
+            item {
+                SettingsValueRow(
+                    stringResource(R.string.settings_account),
                     when {
                         serverConfig == null -> "—"
                         serverConfig?.useApiKey == true -> "API Key"
@@ -242,25 +253,25 @@ fun SettingsScreen(
             }
             item {
                 SettingsNavRow(
-                    title = "服务器账户",
-                    subtitle = "多服务器切换与管理",
+                    title = stringResource(R.string.server_list_title),
+                    subtitle = stringResource(R.string.settings_server_accounts_subtitle),
                     onClick = onOpenAccount,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { SettingsGroupHeader("关于") }
+            item { SettingsGroupHeader(stringResource(R.string.settings_about)) }
             item {
                 SettingsNavRow(
-                    title = "关于 KMReader",
-                    subtitle = "版本与项目链接",
+                    title = stringResource(R.string.settings_about_title),
+                    subtitle = stringResource(R.string.settings_about_subtitle),
                     onClick = onOpenAbout,
                 )
             }
             item {
                 SettingsNavRow(
-                    title = "开源许可",
-                    subtitle = "第三方组件许可列表",
+                    title = stringResource(R.string.settings_licenses),
+                    subtitle = stringResource(R.string.settings_licenses_subtitle),
                     onClick = onOpenLicenses,
                 )
             }
@@ -268,11 +279,12 @@ fun SettingsScreen(
     }
 }
 
-/** 主题存储值 → 显示标签（与外观页 ThemeOptions 一致）。 */
+/** Theme stored value to display label (consistent with the appearance screen's ThemeOptions). */
+@Composable
 private fun themeModeLabel(mode: String): String = when (mode) {
-    "light" -> "浅色"
-    "dark" -> "深色"
-    else -> "跟随系统"
+    "light" -> stringResource(R.string.appearance_theme_light)
+    "dark" -> stringResource(R.string.appearance_theme_dark)
+    else -> stringResource(R.string.appearance_theme_system)
 }
 
 @Composable

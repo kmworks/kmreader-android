@@ -19,16 +19,23 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.SampleData.ListEntry
 
-/** 「加入收藏/阅读列表」picker（对齐 CollectionPickerSheet/ReadListPickerSheet，点选即完成）。 */
+/** "Add to collection/read list" picker (mirrors CollectionPickerSheet/ReadListPickerSheet; tap = done). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddToListSheet(
@@ -37,9 +44,46 @@ fun AddToListSheet(
     onSelect: (ListEntry) -> Unit,
     onDismiss: () -> Unit,
     alreadyInIds: Set<Int> = emptySet(),
-    onCreateNew: () -> Unit = {},
+    /** Create a read list: on success the new entry is reported back (and immediately selected).
+     *  When null, the "New Read List" button is hidden. */
+    onCreateReadList: ((name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) -> Unit)? = null,
+    /** Create a collection: on success the new entry is reported back.
+     *  When null, the "New Collection" button is hidden. */
+    onCreateCollection: ((name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) -> Unit)? = null,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // Create sub-flow: "readlist" / "collection" / null
+    var createMode by remember { mutableStateOf<String?>(null) }
+    if (createMode == "readlist") {
+        ReadListEditSheet(
+            onSave = { name, summary, ordered ->
+                onCreateReadList?.invoke(name, summary, ordered) { entry ->
+                    createMode = null
+                    if (entry != null) {
+                        onSelect(entry)
+                        onDismiss()
+                    }
+                }
+            },
+            onDismiss = { createMode = null },
+        )
+        return
+    }
+    if (createMode == "collection") {
+        CollectionEditSheet(
+            onSave = { name, ordered ->
+                onCreateCollection?.invoke(name, ordered) { entry ->
+                    createMode = null
+                    if (entry != null) {
+                        onSelect(entry)
+                        onDismiss()
+                    }
+                }
+            },
+            onDismiss = { createMode = null },
+        )
+        return
+    }
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -51,17 +95,17 @@ fun AddToListSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "加入列表",
+                    text = stringResource(R.string.lists_add_to_list_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
             if (collections.isNotEmpty()) {
-                GroupLabel("收藏")
+                GroupLabel(stringResource(R.string.lists_group_collections))
                 collections.forEach { entry ->
                     ListTargetRow(
                         entry = entry,
@@ -72,7 +116,11 @@ fun AddToListSheet(
                                 tint = tint,
                             )
                         },
-                        countLabel = "${entry.count} 部系列",
+                        countLabel = pluralStringResource(
+                            R.plurals.lists_series_count,
+                            entry.count,
+                            entry.count,
+                        ),
                         alreadyIn = entry.id in alreadyInIds,
                         onClick = {
                             onSelect(entry)
@@ -82,7 +130,7 @@ fun AddToListSheet(
                 }
             }
             if (readLists.isNotEmpty()) {
-                GroupLabel("阅读列表")
+                GroupLabel(stringResource(R.string.lists_group_readlists))
                 readLists.forEach { entry ->
                     ListTargetRow(
                         entry = entry,
@@ -93,7 +141,11 @@ fun AddToListSheet(
                                 tint = tint,
                             )
                         },
-                        countLabel = "${entry.count} 本",
+                        countLabel = pluralStringResource(
+                            R.plurals.book_count,
+                            entry.count,
+                            entry.count,
+                        ),
                         alreadyIn = entry.id in alreadyInIds,
                         onClick = {
                             onSelect(entry)
@@ -103,15 +155,29 @@ fun AddToListSheet(
                 }
             }
 
-            OutlinedButton(
-                onClick = onCreateNew,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp),
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("新建列表…")
+            if (onCreateCollection != null) {
+                OutlinedButton(
+                    onClick = { createMode = "collection" },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.collection_new_action))
+                }
+            }
+            if (onCreateReadList != null) {
+                OutlinedButton(
+                    onClick = { createMode = "readlist" },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (onCreateCollection != null) 8.dp else 16.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.readlist_new_action))
+                }
             }
         }
     }
@@ -127,7 +193,8 @@ private fun GroupLabel(text: String) {
     )
 }
 
-/** 可选目标行：图标 + 名称/计数；已在其中时禁用并打勾（对齐 EntityPickerSheet 行）。 */
+/** Selectable target row: icon + name/count; disabled with a check when already a member
+ *  (mirrors the EntityPickerSheet row). */
 @Composable
 private fun ListTargetRow(
     entry: ListEntry,
@@ -165,7 +232,7 @@ private fun ListTargetRow(
         if (alreadyIn) {
             Icon(
                 Icons.Filled.Check,
-                contentDescription = "已在列表中",
+                contentDescription = stringResource(R.string.lists_already_in_list),
                 tint = MaterialTheme.colorScheme.primary,
             )
         }

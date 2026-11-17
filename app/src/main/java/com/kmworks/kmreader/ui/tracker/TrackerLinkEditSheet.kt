@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -28,7 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -43,7 +45,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.tracker.TrackerRemoteStateDto
 import com.kmworks.kmreader.core.tracker.TrackerRepository
@@ -67,11 +72,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 绑定编辑（对齐 TrackerLinkEditSheet）：
- * 未选中 = 搜索（预填系列标题）+ 多标题胶囊 + 来自系列链接的建议 + 搜索结果；
- * 已选中 = Tracker Entry（结果行 + #id + Open/Change）→ Progress Mapping（模式 + 章节偏移）→
- * Remote Progress（状态/评分/章节/卷/起止日期，只提交变更非空字段）；
- * controls = Unlink（已链接时）+ Save（未选中禁用）。
+ * Link editor (aligned with TrackerLinkEditSheet):
+ * unselected = search (prefilled with the series title) + multi-title capsules + suggestions from series links + search results;
+ * selected = Tracker Entry (result row + #id + Open/Change) → Progress Mapping (mode + chapter offset) →
+ * Remote Progress (status/score/chapter/volume/start-finish dates; only changed, nonempty fields are submitted);
+ * controls = Unlink (when already linked) + Save (disabled until an entry is selected).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -89,7 +94,7 @@ fun TrackerLinkEditSheet(
     var selectedId by remember { mutableStateOf(existing?.trackId) }
     var mode by remember { mutableStateOf(existing?.mode ?: TrackerMode.Auto) }
     var chapterOffset by remember { mutableIntStateOf(existing?.chapterOffset ?: 0) }
-    var remoteStatus by remember { mutableStateOf<TrackerStatus?>(null) } // null = 保持不变
+    var remoteStatus by remember { mutableStateOf<TrackerStatus?>(null) } // null = keep unchanged
     val searchResults by viewModel.results.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
     val searched by viewModel.searched.collectAsStateWithLifecycle()
@@ -102,7 +107,7 @@ fun TrackerLinkEditSheet(
         viewModel.bind(series, provider)
         if (selectedId == null) viewModel.search(query)
     }
-    // 已绑定条目打开时也拉一次远端进度
+    // Also fetch remote progress when opening an already-linked entry
     LaunchedEffect(selectedId) {
         selectedId?.let { viewModel.select(it) }
     }
@@ -111,7 +116,7 @@ fun TrackerLinkEditSheet(
         (listOf(series.title) + alternateTitles).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
     }
     val results: List<TrackerSearchItemDto> = searchResults.orEmpty()
-    // 来自系列链接的建议：先用 metadata links 反解 provider URL，再按 iOS 行为用该 URL 查真实条目。
+    // Suggestion from series links: first resolve the provider URL from metadata links, then query the real entry with that URL, matching iOS behavior.
     val linkSuggestion = remember(series, provider) {
         series.links.firstNotNullOfOrNull { (_, url) ->
             provider.trackIdFromUrl(url)?.let { trackId -> trackId to url }
@@ -121,9 +126,12 @@ fun TrackerLinkEditSheet(
         if (existing == null) linkSuggestion?.second?.let { viewModel.loadSuggestion(it) }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
@@ -137,21 +145,30 @@ fun TrackerLinkEditSheet(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
-            TrackerSectionTitle("Tracker 条目")
+            TrackerSectionTitle(stringResource(R.string.tracker_entry))
             if (selectedId != null) {
-                // 选中态：结果行 + #id monospaced + Open 外链 + Change
+                // Selected state: result row + #id monospaced + Open external link + Change
+                // No cover: aligned with the cover-less form of iOS TrackerSearchResultRow (book icon + gray background);
+                // kmrs links do not store remote covers, and the local series cover is not shown either.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CoverArt(
-                        title = selectedTitle ?: series.title,
-                        hue = series.hue,
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .width(40.dp)
                             .height(60.dp),
-                    )
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -177,12 +194,15 @@ fun TrackerLinkEditSheet(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "在 ${provider.displayName} 打开",
+                            contentDescription = stringResource(
+                                R.string.tracker_open_in_provider,
+                                provider.displayName,
+                            ),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                    TextButton(onClick = { selectedId = null }) { Text("更换") }
+                    TextButton(onClick = { selectedId = null }) { Text(stringResource(R.string.tracker_change)) }
                 }
             } else {
                 OutlinedTextField(
@@ -191,12 +211,12 @@ fun TrackerLinkEditSheet(
                         query = it
                         viewModel.search(it)
                     },
-                    label = { Text("搜索 ${provider.displayName}") },
+                    label = { Text(stringResource(R.string.tracker_search_provider, provider.displayName)) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // 多标题胶囊 chips（别称/译名）
+                // Multi-title capsule chips (aliases/translations)
                 FlowRow(
                     modifier = Modifier.padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -212,7 +232,7 @@ fun TrackerLinkEditSheet(
                         )
                     }
                 }
-                // 来自系列链接的建议：只在建议 URL 查询到真实条目时展示，对齐 iOS。
+                // Suggestion from series links: shown only when the suggested URL resolves to a real entry, aligned with iOS.
                 suggestion?.let { item ->
                     Surface(
                         onClick = {
@@ -238,7 +258,7 @@ fun TrackerLinkEditSheet(
                             Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "来自系列链接",
+                                    stringResource(R.string.tracker_from_series_links),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -258,10 +278,10 @@ fun TrackerLinkEditSheet(
                         }
                     }
                 }
-                TrackerSectionTitle("搜索结果")
+                TrackerSectionTitle(stringResource(R.string.tracker_search_results))
                 if (!supported) {
                     Text(
-                        "当前服务器未启用 Tracker 集成，无法搜索。",
+                        stringResource(R.string.tracker_search_not_enabled),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -276,16 +296,21 @@ fun TrackerLinkEditSheet(
                 }
                 if (supported && !searching && searched && results.isEmpty()) {
                     Text(
-                        "没有匹配的条目。",
+                        stringResource(R.string.tracker_no_results),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 results.forEach { item ->
-                    Surface(onClick = {
-                        selectedId = item.id
-                        selectedTitle = item.title
-                    }, modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        onClick = {
+                            selectedId = item.id
+                            selectedTitle = item.title
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        // Transparent: the default surface color is one step darker than the sheet background and would render as a black row
+                        color = Color.Transparent,
+                    ) {
                         Row(
                             modifier = Modifier.padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -314,14 +339,14 @@ fun TrackerLinkEditSheet(
             }
 
             if (selectedId != null) {
-                // Progress Mapping：模式 + 章节偏移
-                TrackerSectionTitle("进度映射")
+                // Progress Mapping: mode + chapter offset
+                TrackerSectionTitle(stringResource(R.string.tracker_progress_mapping))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TrackerMode.entries.forEach { entry ->
                         FilterChip(
                             selected = mode == entry,
                             onClick = { mode = entry },
-                            label = { Text(entry.label) },
+                            label = { Text(stringResource(entry.labelRes)) },
                         )
                     }
                 }
@@ -332,12 +357,12 @@ fun TrackerLinkEditSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "章节偏移",
+                        stringResource(R.string.tracker_chapter_offset),
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = { chapterOffset = (chapterOffset - 1).coerceAtLeast(-10000) }) {
-                        Icon(Icons.Filled.Remove, contentDescription = "减")
+                        Icon(Icons.Filled.Remove, contentDescription = stringResource(R.string.tracker_decrease))
                     }
                     Text(
                         "$chapterOffset",
@@ -346,23 +371,39 @@ fun TrackerLinkEditSheet(
                         modifier = Modifier.width(48.dp),
                     )
                     IconButton(onClick = { chapterOffset = (chapterOffset + 1).coerceAtMost(10000) }) {
-                        Icon(Icons.Filled.Add, contentDescription = "加")
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.tracker_increase))
                     }
                 }
 
-                // Remote Progress：状态/评分/章节/卷/起止日期（只提交变更非空字段）
-                TrackerSectionTitle("远端进度")
+                // Remote Progress: status/score/chapter/volume/start-finish dates (only changed, nonempty fields are submitted)
+                TrackerSectionTitle(stringResource(R.string.tracker_remote_progress))
                 remoteState?.let { state ->
+                    val statusLabel = state.status?.let { stringResource(trackerStatusFromApi(it).labelRes) }
+                    val chapterText = state.lastReadChapter?.let { ch ->
+                        state.totalChapters?.let { total ->
+                            stringResource(R.string.tracker_chapter_of_total, ch.toInt(), total)
+                        } ?: stringResource(R.string.tracker_chapter_label, ch.toInt())
+                    }
+                    val volumeText = state.lastReadVolume?.let {
+                        stringResource(R.string.tracker_volume_label, it)
+                    }
+                    val scoreText = state.score?.let { stringResource(R.string.tracker_score_label, it) }
                     Text(
                         buildString {
-                            append("当前远端：")
-                            state.status?.let { append(trackerStatusFromApi(it).label) }
-                            state.lastReadChapter?.let { ch ->
-                                append(" · 第 ${ch.toInt()} 话")
-                                state.totalChapters?.let { append(" / $it") }
+                            append(stringResource(R.string.tracker_current_remote))
+                            statusLabel?.let { append(it) }
+                            chapterText?.let {
+                                append(" · ")
+                                append(it)
                             }
-                            state.lastReadVolume?.let { append(" · 第 $it 卷") }
-                            state.score?.let { append(" · 评分 $it") }
+                            volumeText?.let {
+                                append(" · ")
+                                append(it)
+                            }
+                            scoreText?.let {
+                                append(" · ")
+                                append(it)
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -373,18 +414,18 @@ fun TrackerLinkEditSheet(
                     FilterChip(
                         selected = remoteStatus == null,
                         onClick = { remoteStatus = null },
-                        label = { Text("保持不变") },
+                        label = { Text(stringResource(R.string.tracker_unchanged)) },
                     )
                     TrackerStatus.entries.forEach { status ->
                         FilterChip(
                             selected = remoteStatus == status,
                             onClick = { remoteStatus = status },
-                            label = { Text(status.label) },
+                            label = { Text(stringResource(status.labelRes)) },
                         )
                     }
                 }
                 Text(
-                    "只提交变更的非空字段；自动同步跟随已读完的书籍。",
+                    stringResource(R.string.tracker_remote_progress_footer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
@@ -403,7 +444,7 @@ fun TrackerLinkEditSheet(
                         },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("解除链接", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.tracker_unlink_button), color = MaterialTheme.colorScheme.error)
                     }
                 }
                 Button(
@@ -421,7 +462,7 @@ fun TrackerLinkEditSheet(
                     enabled = selectedId != null,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
         }
@@ -438,7 +479,7 @@ private fun TrackerSectionTitle(title: String) {
     )
 }
 
-/** 绑定编辑数据；supported=false 时 UI 直接提示，不再回退演示数据。 */
+/** Link editor data; when supported=false the UI shows a notice directly and no longer falls back to demo data. */
 @HiltViewModel
 class TrackerLinkEditViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
@@ -474,7 +515,7 @@ class TrackerLinkEditViewModel @Inject constructor(
         _suggestion.value = null
     }
 
-    /** 按系列链接建议 URL 拉取真实 tracker 条目；失败/无结果时不显示假建议。 */
+    /** Fetches the real tracker entry for the series-link suggestion URL; on failure/no result no fake suggestion is shown. */
     fun loadSuggestion(url: String) {
         if (!trackerRepository.supported) return
         viewModelScope.launch {
@@ -482,7 +523,7 @@ class TrackerLinkEditViewModel @Inject constructor(
         }
     }
 
-    /** 300ms 防抖远端搜索；空关键词清空结果，无能力时保持空。 */
+    /** 300ms debounced remote search; a blank query clears results, and results stay empty without capability. */
     fun search(query: String) {
         searchJob?.cancel()
         if (!trackerRepository.supported) {
@@ -505,7 +546,7 @@ class TrackerLinkEditViewModel @Inject constructor(
         }
     }
 
-    /** 选中条目后拉取远端进度。 */
+    /** Fetches remote progress after an entry is selected. */
     fun select(trackId: String) {
         if (!trackerRepository.supported) return
         viewModelScope.launch {
@@ -513,7 +554,7 @@ class TrackerLinkEditViewModel @Inject constructor(
         }
     }
 
-    /** 保存绑定；选了新状态时随后推送 update（只提交变更字段）。 */
+    /** Saves the link; when a new status was chosen, pushes an update afterwards (only changed fields are submitted). */
     fun save(
         trackId: String,
         title: String?,

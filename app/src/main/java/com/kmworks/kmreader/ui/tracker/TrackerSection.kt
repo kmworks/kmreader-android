@@ -15,18 +15,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Series
@@ -60,7 +66,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** provider 徽标：真实品牌 logo（保持原色，与 iOS 一致）；无资源时回退首字母圆块。 */
+/** Provider badge: real brand logo (kept in original colors, matching iOS); falls back to a first-letter disc when no asset exists. */
 @Composable
 fun ProviderLogo(provider: TrackerProvider, modifier: Modifier = Modifier) {
     if (provider.logoRes != 0) {
@@ -87,8 +93,8 @@ fun ProviderLogo(provider: TrackerProvider, modifier: Modifier = Modifier) {
 }
 
 /**
- * 详情页 Tracker 区（对齐 TrackerSeriesSection）：
- * 已链接 tracker chips（logo + 状态 + 进度）+ Add Tracker（链接数 < provider 数时显示）。
+ * Detail page tracker section (aligned with TrackerSeriesSection):
+ * linked tracker chips (logo + status + progress) + Add Tracker (shown while link count < provider count).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -98,7 +104,7 @@ fun TrackerSection(
 ) {
     Column(modifier = Modifier.padding(top = 16.dp)) {
         Text(
-            "阅读进度追踪",
+            stringResource(R.string.tracker_trackers_title),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 8.dp),
@@ -124,12 +130,18 @@ fun TrackerSection(
                                 link.provider.displayName,
                                 style = MaterialTheme.typography.labelMedium,
                             )
+                            val statusLabel = stringResource(link.remoteStatus.labelRes)
+                            val progressText = link.lastReadChapter?.let { ch ->
+                                link.totalChapters?.let { total ->
+                                    stringResource(R.string.tracker_chapter_of_total, ch.toInt(), total)
+                                } ?: stringResource(R.string.tracker_chapter_label, ch.toInt())
+                            }
                             Text(
                                 buildString {
-                                    append(link.remoteStatus.label)
-                                    link.lastReadChapter?.let { ch ->
-                                        append(" · 第 ${ch.toInt()} 话")
-                                        link.totalChapters?.let { append(" / $it") }
+                                    append(statusLabel)
+                                    progressText?.let {
+                                        append(" · ")
+                                        append(it)
                                     }
                                 },
                                 style = MaterialTheme.typography.labelSmall,
@@ -157,7 +169,7 @@ fun TrackerSection(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "添加 Tracker",
+                            stringResource(R.string.tracker_add_tracker),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -169,10 +181,10 @@ fun TrackerSection(
 }
 
 /**
- * Tracker 管理（对齐 TrackerSeriesSheet）：
- * 已链接列表（点开进入绑定编辑）+ 可添加的 provider 列表；
- * footer 提示：读完书籍推进 tracker，标记未读不会回退。
- * 有会话且服务器支持 Trackers 时走真实绑定；否则回退演示数据。
+ * Tracker management (aligned with TrackerSeriesSheet):
+ * linked list (tap to open the link editor) + addable provider list;
+ * footer note: completing books advances tracker progress, marking unread never moves it backward.
+ * With a session and server-side Trackers support this uses real links; otherwise it falls back to demo data.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,94 +199,115 @@ fun TrackerSeriesSheet(
     val supported by viewModel.supported.collectAsStateWithLifecycle()
     var editingProvider by remember { mutableStateOf<TrackerProvider?>(null) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.padding(bottom = 28.dp)) {
+            // Fixed header (aligned with the iOS SheetView navigation bar title)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 20.dp, end = 8.dp),
+            ) {
                 Text(
-                    "阅读进度追踪",
+                    stringResource(R.string.tracker_trackers_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
-            Text(
-                "已链接",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
-            if (!supported) {
-                Text(
-                    "当前服务器未启用 Tracker 集成。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            } else if (links.isEmpty()) {
-                Text(
-                    "尚未链接任何 tracker",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            }
-            links.forEach { link ->
-                TrackerLinkRow(
-                    link = link,
-                    onClick = { editingProvider = link.provider },
-                )
-            }
-
-            val unlinked = TrackerProvider.entries.filter { p -> links.none { it.provider == p } }
-            if (unlinked.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                Text(
-                    "添加",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-                unlinked.forEach { provider ->
-                    Surface(
-                        onClick = { editingProvider = provider },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            ProviderLogo(provider)
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                provider.displayName,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Icon(
-                                Icons.Filled.Add,
-                                contentDescription = "链接 ${provider.displayName}",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 20.dp),
+            ) {
+                item { TrackerSheetSectionTitle(stringResource(R.string.tracker_linked_trackers)) }
+                item {
+                    TrackerGroupCard {
+                        when {
+                            !supported -> TrackerSheetInfoRow(stringResource(R.string.tracker_not_enabled))
+                            links == null -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
+                            }
+                            links.orEmpty().isEmpty() -> TrackerSheetInfoRow(stringResource(R.string.tracker_no_linked))
+                            else -> links.orEmpty().forEachIndexed { index, link ->
+                                TrackerLinkRow(
+                                    link = link,
+                                    onClick = { editingProvider = link.provider },
+                                )
+                                if (index < links.orEmpty().lastIndex) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                            .copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            Text(
-                "读完书籍会自动推进 tracker 进度；标记为未读不会回退。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 16.dp),
-            )
+                val unlinked = TrackerProvider.entries.filter { p ->
+                    links.orEmpty().none { it.provider == p }
+                }
+                if (supported && links != null && unlinked.isNotEmpty()) {
+                    item { TrackerSheetSectionTitle(stringResource(R.string.common_add)) }
+                    item {
+                        TrackerGroupCard {
+                            unlinked.forEachIndexed { index, provider ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { editingProvider = provider }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ProviderLogo(provider)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        provider.displayName,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = stringResource(
+                                            R.string.tracker_link_provider,
+                                            provider.displayName,
+                                        ),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                if (index < unlinked.lastIndex) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                            .copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        stringResource(R.string.tracker_series_sheet_footer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
+            }
         }
     }
 
@@ -283,11 +316,11 @@ fun TrackerSeriesSheet(
             series = series,
             alternateTitles = alternateTitles,
             provider = provider,
-            existing = links.firstOrNull { it.provider == provider },
+            existing = links.orEmpty().firstOrNull { it.provider == provider },
             onUnlink = { viewModel.unlink(provider) },
             onDismiss = {
                 editingProvider = null
-                // 编辑（保存/解绑）后刷新真实绑定
+                // Refresh real links after an edit (save/unlink)
                 if (supported) viewModel.refresh()
             },
         )
@@ -296,53 +329,93 @@ fun TrackerSeriesSheet(
 
 @Composable
 private fun TrackerLinkRow(link: TrackerLink, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProviderLogo(link.provider)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    link.provider.displayName,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    buildString {
-                        append(link.title)
-                        append(" · #")
-                        append(link.trackId)
-                        link.lastReadChapter?.let { ch ->
-                            append(" · 第 ${ch.toInt()} 话")
-                            link.totalChapters?.let { append("/$it") }
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ProviderLogo(link.provider)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                link.provider.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            val progressText = link.lastReadChapter?.let { ch ->
+                link.totalChapters?.let { total ->
+                    stringResource(R.string.tracker_chapter_of_total, ch.toInt(), total)
+                } ?: stringResource(R.string.tracker_chapter_label, ch.toInt())
             }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                buildString {
+                    append(link.title)
+                    append(" · #")
+                    append(link.trackId)
+                    progressText?.let {
+                        append(" · ")
+                        append(it)
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-/** 系列 Tracker 绑定数据；服务器不支持时 supported=false（UI 显示提示，无演示回退）。 */
+/** Grouped card inside the sheet (aligned with iOS inset-grouped); colored one step above the sheet background or it would be invisible. */
+@Composable
+private fun TrackerGroupCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun TrackerSheetSectionTitle(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun TrackerSheetInfoRow(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 12.dp),
+    )
+}
+
+/** Series tracker link data; supported=false when the server lacks support (UI shows a notice, no demo fallback). */
 @HiltViewModel
 class TrackerSeriesViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val trackerRepository: TrackerRepository,
 ) : ViewModel() {
 
-    private val _links = MutableStateFlow<List<TrackerLink>>(emptyList())
-    val links: StateFlow<List<TrackerLink>> = _links.asStateFlow()
+    private val _links = MutableStateFlow<List<TrackerLink>?>(null)
+    val links: StateFlow<List<TrackerLink>?> = _links.asStateFlow()
 
     private val _supported = MutableStateFlow(true)
     val supported: StateFlow<Boolean> = _supported.asStateFlow()
@@ -353,10 +426,11 @@ class TrackerSeriesViewModel @Inject constructor(
         seriesDtoId = detailRepository.seriesDtoId(series.id)
         _supported.value = trackerRepository.supported
         if (seriesDtoId == null || !trackerRepository.supported) return
+        _links.value = null
         refresh()
     }
 
-    /** 重新拉取绑定并合并各 provider 的远端进度。 */
+    /** Re-fetches links and merges each provider's remote progress. */
     fun refresh() {
         val dtoId = seriesDtoId ?: return
         if (!trackerRepository.supported) return

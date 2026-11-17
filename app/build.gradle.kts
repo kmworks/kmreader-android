@@ -72,7 +72,7 @@ dependencies {
     implementation(libs.okhttp.sse)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    // PDF 文本层（选择/复制/搜索）：Jetpack 官方 PdfView + 沙箱文档加载
+    // PDF text layer (select/copy/search): official Jetpack PdfView + sandboxed document loading
     implementation("androidx.pdf:pdf-viewer:1.0.0-beta01")
     implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
     testImplementation(libs.junit)

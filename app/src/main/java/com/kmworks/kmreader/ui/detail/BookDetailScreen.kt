@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -79,15 +80,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
+import com.kmworks.kmreader.data.NotableEntityKnownKinds
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.ErrorOutline
+import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 private val WideLayoutBreakpoint = 960.dp
@@ -95,16 +107,24 @@ private val HeroCoverWidth = 168.dp
 private val ActionCardMaxWidth = 480.dp
 private val ActionCardShape = RoundedCornerShape(16.dp)
 
-/** 详情页「更多」菜单动作（对齐 BookDetailView toolbar Menu 的条目）。 */
+/** Wire tokens of the metadata-filter route parsed by LibraryScreen (internal routing values,
+ *  display labels are localized at render time). */
+private const val FILTER_KIND_AUTHOR = "author"
+private const val FILTER_KIND_TAG = "tag"
+private const val FILTER_KIND_NOTABLE = "notable"
+
+/** Actions of the detail page "More" menu (mirrors the entries of the BookDetailView toolbar
+ *  Menu). */
 enum class BookMenuAction {
     Share, Edit, Analyze, Refresh, Delete
 }
 
-/** 书籍详情页（对齐 BookDetailView.swift）：封面 hero、元信息行、操作卡、简介与更多菜单。 */
+/** Book detail page (mirrors BookDetailView.swift): cover hero, metadata rows, action card,
+ *  summary and the more menu. */
 @Composable
 fun BookDetailScreen(
     book: Book,
-    seriesTitle: String,
+    seriesTitle: String?,
     onBack: () -> Unit,
     onRead: (Book) -> Unit,
     modifier: Modifier = Modifier,
@@ -134,7 +154,8 @@ fun BookDetailScreen(
     )
 }
 
-/** 书籍/单发详情共用骨架（对齐 BookDetailContentView；seriesTitle 为空即为单发形态）。 */
+/** Shared skeleton of the book/one-shot detail pages (mirrors BookDetailContentView; a null
+ *  seriesTitle means the one-shot form). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookDetailBody(
@@ -166,7 +187,8 @@ internal fun BookDetailBody(
     val baseBook = state.book ?: book
     // design mock: mark-read / download toggle locally for instant feedback
     var progressToggled by remember(book.id) { mutableStateOf(false) }
-    // 下载态：真实文件状态优先（VM 文件扫描），无会话时本地演示开关
+    // Download state: the real file state wins (VM file scan); without a session a local demo
+    // toggle is used
     val vmDownloaded by viewModel.downloaded.collectAsState()
     var localDownloaded by remember(book.id) { mutableStateOf(false) }
     val downloaded = vmDownloaded ?: localDownloaded
@@ -185,20 +207,26 @@ internal fun BookDetailBody(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
                     }
                 },
                 actions = {
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.common_more),
+                            )
                         }
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("分享") },
+                                text = { Text(stringResource(R.string.common_share)) },
                                 leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -208,7 +236,10 @@ internal fun BookDetailBody(
                                             putExtra(Intent.EXTRA_TEXT, url)
                                         }
                                         context.startActivity(
-                                            Intent.createChooser(send, "分享书籍链接"),
+                                            Intent.createChooser(
+                                                send,
+                                                context.getString(R.string.book_share_chooser),
+                                            ),
                                         )
                                     }
                                     onMenuAction(BookMenuAction.Share)
@@ -216,7 +247,7 @@ internal fun BookDetailBody(
                             )
                             if (state.isAdmin) {
                                 DropdownMenuItem(
-                                    text = { Text("编辑元数据") },
+                                    text = { Text(stringResource(R.string.book_edit_metadata)) },
                                     leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
@@ -225,7 +256,7 @@ internal fun BookDetailBody(
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("分析") },
+                                    text = { Text(stringResource(R.string.book_analyze)) },
                                     leadingIcon = { Icon(Icons.Outlined.Analytics, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
@@ -234,7 +265,7 @@ internal fun BookDetailBody(
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("刷新元数据") },
+                                    text = { Text(stringResource(R.string.book_refresh_metadata)) },
                                     leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
@@ -244,7 +275,7 @@ internal fun BookDetailBody(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("加入阅读列表") },
+                                text = { Text(stringResource(R.string.book_add_to_readlist)) },
                                 leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -257,7 +288,7 @@ internal fun BookDetailBody(
                             val hasStarted = displayed.progress != null
                             if (!completed) {
                                 DropdownMenuItem(
-                                    text = { Text("标记为已读") },
+                                    text = { Text(stringResource(R.string.book_mark_read)) },
                                     leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
@@ -270,7 +301,7 @@ internal fun BookDetailBody(
                             }
                             if (hasStarted) {
                                 DropdownMenuItem(
-                                    text = { Text("标记为未读") },
+                                    text = { Text(stringResource(R.string.book_mark_unread)) },
                                     leadingIcon = {
                                         Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = null)
                                     },
@@ -285,7 +316,12 @@ internal fun BookDetailBody(
                             }
                             if (state.isAdmin) {
                                 DropdownMenuItem(
-                                    text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                                    text = {
+                                        Text(
+                                            stringResource(R.string.common_delete),
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Outlined.Delete,
@@ -312,7 +348,8 @@ internal fun BookDetailBody(
                 .fillMaxSize(),
         ) {
             if (maxWidth >= WideLayoutBreakpoint) {
-                // 宽版黄金分割：信息栏 maxOf(maxWidth*0.382f, 340.dp)，两栏独立滚动
+                // Wide golden split: info column maxOf(maxWidth*0.382f, 340.dp), both columns
+                // scroll independently
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
@@ -335,7 +372,7 @@ internal fun BookDetailBody(
                             showNumber = seriesTitle != null,
                             onRead = onRead,
                             onDownloadToggle = {
-                                // 真实数据入队下载；演示数据本地翻转
+                                // Real data enqueues a download; demo data toggles locally
                                 if (!viewModel.downloadBook()) {
                                     localDownloaded = !localDownloaded
                                 }
@@ -366,7 +403,8 @@ internal fun BookDetailBody(
                     }
                 }
             } else {
-                // 窄版：hero + 操作卡放进居中列（对齐 SeriesDetailScreen 的 narrow 分支）
+                // Narrow: hero + action card in a centered column (mirrors the narrow branch of
+                // SeriesDetailScreen)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -391,7 +429,7 @@ internal fun BookDetailBody(
                             showNumber = seriesTitle != null,
                             onRead = onRead,
                             onDownloadToggle = {
-                                // 真实数据入队下载；演示数据本地翻转
+                                // Real data enqueues a download; demo data toggles locally
                                 if (!viewModel.downloadBook()) {
                                     localDownloaded = !localDownloaded
                                 }
@@ -420,11 +458,14 @@ internal fun BookDetailBody(
         }
     }
 
-    // 「加入阅读列表」选择器：真实列表数据，选择后调 API（无会话时为空）
+    // "Add to Read List" picker: real list data, selection calls the API (empty without
+    // a session)
     if (addToReadListOpen) {
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addToReadList(entry)
                 addToReadListOpen = false
@@ -434,25 +475,45 @@ internal fun BookDetailBody(
     }
 
     if (editOpen) {
-        BookEditSheet(
-            book = displayed,
-            meta = meta,
-            saving = saving,
-            onSave = { draft ->
-                saving = true
-                viewModel.saveMetadata(draft) { ok ->
-                    saving = false
-                    if (ok) editOpen = false
-                }
-            },
-            onDismiss = { if (!saving) editOpen = false },
-        )
+        if (displayed.oneshot) {
+            // oneshot: combined series+book editing (mirrors iOS OneShotDetailView →
+            // OneshotEditSheet)
+            OneshotEditSheet(
+                book = displayed,
+                meta = meta,
+                seriesValues = state.oneshotEditable,
+                seriesTitleFallback = seriesTitle ?: displayed.seriesTitle,
+                saving = saving,
+                onSave = { draft, seriesUpdate ->
+                    saving = true
+                    viewModel.saveOneshotMetadata(draft, seriesUpdate) { ok ->
+                        saving = false
+                        if (ok) editOpen = false
+                    }
+                },
+                onDismiss = { if (!saving) editOpen = false },
+            )
+        } else {
+            BookEditSheet(
+                book = displayed,
+                meta = meta,
+                saving = saving,
+                onSave = { draft ->
+                    saving = true
+                    viewModel.saveMetadata(draft) { ok ->
+                        saving = false
+                        if (ok) editOpen = false
+                    }
+                },
+                onDismiss = { if (!saving) editOpen = false },
+            )
+        }
     }
 
     if (deleteOpen) {
         ConfirmDeleteDialog(
-            title = "删除书籍？",
-            message = "「${displayed.title}」的文件将从服务器删除，此操作不可撤销。",
+            title = stringResource(R.string.book_delete_title),
+            message = stringResource(R.string.book_delete_message, displayed.title),
             onConfirm = {
                 deleteOpen = false
                 viewModel.deleteBook { ok -> if (ok) onBack() }
@@ -462,7 +523,8 @@ internal fun BookDetailBody(
     }
 }
 
-/** Hero：封面、所属系列入口、标题、作者 chips、元信息行（对齐 DetailHeroView 书籍形态）。 */
+/** Hero: cover, owning-series entry, title, author chips, metadata rows (mirrors the book form of
+ *  DetailHeroView). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BookHero(
@@ -525,7 +587,8 @@ internal fun BookHero(
         )
         val authors = meta?.authors.orEmpty()
         if (authors.isNotEmpty()) {
-            // 对齐 iOS BookDetailContentView.authorItems：角色只决定图标和排序，文案只显示姓名。
+            // Mirrors iOS BookDetailContentView.authorItems: the role only decides the icon and
+            // ordering, the label shows the name only.
             val ordered = authors.sortedBy { it.role.ordinal }.map { creator ->
                 ChipItem(
                     text = creator.name,
@@ -537,21 +600,55 @@ internal fun BookHero(
                 items = ordered,
                 limit = 4,
                 centered = centered,
-                onClick = { item -> onBrowseFilter("作者 · ${item.value}") },
+                onClick = { item -> onBrowseFilter("$FILTER_KIND_AUTHOR · ${item.value}") },
+            )
+        }
+        val notableEntities = meta?.notableEntities.orEmpty()
+        if (notableEntities.isNotEmpty()) {
+            // Notable-entity chips (mirrors NotableEntityChipFlows): grouped by kind (known kinds
+            // first, custom ones alphabetically), icons person/person.2/mappin/tag; a tap routes
+            // the three-part "notable · kind · name" to the browse filter
+            val entityChips = notableEntities
+                .sortedWith(
+                    compareBy(
+                        { NotableEntityKnownKinds.indexOf(it.kind).let { i -> if (i < 0) Int.MAX_VALUE else i } },
+                        { it.kind },
+                        { it.name },
+                    ),
+                )
+                .map { entity ->
+                    ChipItem(
+                        text = entity.name,
+                        icon = notableEntityIcon(entity.kind),
+                        value = "${entity.kind} · ${entity.name}",
+                    )
+                }
+            CollapsibleChipFlow(
+                items = entityChips,
+                limit = 6,
+                centered = centered,
+                onClick = { item -> onBrowseFilter("$FILTER_KIND_NOTABLE · ${item.value}") },
             )
         }
         val heroMeta = buildList {
             if (meta != null) {
-                add(Icons.Filled.DateRange to "发布于 ${meta.releaseDate}")
+                add(
+                    Icons.Filled.DateRange to
+                        stringResource(R.string.book_release_date, meta.releaseDate),
+                )
             }
-            add(Icons.AutoMirrored.Filled.MenuBook to book.pageLabel)
+            add(
+                Icons.AutoMirrored.Filled.MenuBook to
+                    pluralStringResource(R.plurals.book_pages, book.pageCount, book.pageCount),
+            )
             if (meta != null) {
                 add(Icons.Outlined.Storage to meta.sizeLabel)
                 add(Icons.Outlined.Description to meta.format)
             }
         }
         if (centered) {
-            // 对齐 DetailHeroMetadataGroup / 系列详情：居中态横向换行，避免每项各占一整行。
+            // Mirrors DetailHeroMetadataGroup / the series detail: the centered form wraps
+            // horizontally instead of giving each item a full row.
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -572,8 +669,10 @@ internal fun BookHero(
     }
 }
 
-/** 操作卡：编号/页数/阅读状态/下载态 + 主按钮与副操作（对齐 DetailActionCard + BookActionsSection）。
- *  iOS 的 BookActionsSection 只有「主阅读按钮 + 隐私阅读 + 下载」三个动作，其余动作都在工具栏菜单里。 */
+/** Action card: number/page count/read state/download state + the primary button and secondary
+ *  actions (mirrors DetailActionCard + BookActionsSection).
+ *  The iOS BookActionsSection has only three actions (primary read button + peek + download);
+ *  every other action lives in the toolbar menu. */
 @Composable
 internal fun BookActionCard(
     book: Book,
@@ -597,29 +696,72 @@ internal fun BookActionCard(
                 .padding(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showNumber) {
-                    Text(
-                        text = "#${book.number}",
-                        style = MaterialTheme.typography.titleSmall,
+                // Mirrors iOS BookDetailContentView: on a media error the status row replaces the
+                // number/page count (tinted with detailColor)
+                val mediaStatus = mediaStatusDetailLabel(book.mediaStatus)
+                if (mediaStatus != null) {
+                    Icon(
+                        imageVector = when (book.mediaStatus) {
+                            "ERROR" -> Icons.Outlined.ErrorOutline
+                            "OUTDATED" -> Icons.Outlined.Schedule
+                            else -> Icons.Outlined.HelpOutline
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = mediaStatus.second,
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = mediaStatus.first,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = mediaStatus.second,
+                    )
+                } else {
+                    if (showNumber) {
+                        Text(
+                            text = "#${book.number}",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.book_pages,
+                            book.pageCount,
+                            book.pageCount,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Text(
-                    text = book.pageLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Mirrors iOS: marked deleted on the server → red "Unavailable"
+                if (book.deleted) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.book_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (downloaded) {
                     Spacer(Modifier.weight(1f))
                     Icon(
                         Icons.Outlined.Download,
-                        contentDescription = "已下载",
+                        contentDescription = stringResource(R.string.book_downloaded),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "已下载",
+                        text = stringResource(R.string.book_downloaded),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -639,7 +781,7 @@ internal fun BookActionCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "已读完",
+                            text = stringResource(R.string.common_completed),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -655,7 +797,11 @@ internal fun BookActionCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "读到第 $currentPage 页 / 共 ${book.pageCount} 页",
+                            text = stringResource(
+                                R.string.book_progress_pages,
+                                currentPage,
+                                book.pageCount,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -670,7 +816,7 @@ internal fun BookActionCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "未读",
+                            text = stringResource(R.string.common_unread),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -681,40 +827,57 @@ internal fun BookActionCard(
             ReadingActionButton(book = book, onRead = { onRead(book) })
             Spacer(Modifier.height(8.dp))
             // secondary row: peek (incognito read) + download toggle (mirrors BookActionsSection)
+            // Mirrors iOS optimizedControlSize(.mini): mini capsule (height 28, 13pt text,
+            // small icons)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onReadIncognito,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(28.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(
                         Icons.Outlined.Visibility,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(12.dp),
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Text("隐私阅读")
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.book_peek), fontSize = 13.sp, maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = onDownloadToggle,
                     enabled = !downloaded,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(28.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(
                         if (downloaded) Icons.Outlined.CheckCircle else Icons.Outlined.Download,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(12.dp),
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (downloaded) "已下载" else "下载")
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(
+                            if (downloaded) R.string.book_downloaded else R.string.common_download,
+                        ),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // 副操作：隐私阅读 + 下载切换（对齐 BookActionsSection，胶囊描边）
+            // Secondary actions: peek + download toggle (mirrors BookActionsSection, outlined
+            // capsules)
         }
     }
 }
 
-/** 主按钮：胶囊主色，继续阅读带页码与百分比（对齐 ReadingActionButton）。 */
+/** Primary button: primary-colored capsule, action line 15sp semibold on top, detail line
+ *  12sp/0.85 below (mirrors ReadingActionButton: label="Resume/Start Reading",
+ *  detail="Page N · %"/"N pages"; the book title is not repeated). */
 @Composable
 private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
     val started = book.progress != null && book.progress != 1f
@@ -729,26 +892,35 @@ private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
         shape = CircleShape,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.MenuBook,
                 contentDescription = null,
+                modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onPrimary,
             )
-            Spacer(Modifier.width(12.dp))
-            Column {
+            Spacer(Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
-                    text = if (started) "继续阅读 · 第 $currentPage 页 · $percent%"
-                    else "开始阅读 · ${book.pageCount} 页",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                    text = stringResource(
+                        if (started) R.string.book_resume_reading else R.string.book_start_reading,
+                    ),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    text = if (started) {
+                        stringResource(R.string.book_page_progress, currentPage, percent)
+                    } else {
+                        pluralStringResource(R.plurals.book_pages, book.pageCount, book.pageCount)
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -757,14 +929,15 @@ private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
     }
 }
 
-/** 右栏/下部内容：简介、标签 chips、媒体信息（对齐 ExpandableSummaryView + BookMediaInfoSection）。 */
+/** Right/bottom content: summary, tag chips, media info (mirrors ExpandableSummaryView +
+ *  BookMediaInfoSection). */
 @Composable
 internal fun BookSecondaryContent(
     meta: BookDetailMeta,
     onBrowseFilter: (String) -> Unit = {},
 ) {
     Text(
-        text = "简介",
+        text = stringResource(R.string.book_summary),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 20.dp),
@@ -776,16 +949,17 @@ internal fun BookSecondaryContent(
         modifier = Modifier.padding(top = 8.dp),
     )
     if (meta.tags.isNotEmpty()) {
-        // 标签 chips：点击跳浏览按标签筛选（对齐 DetailChipFlow(tagItems)）
+        // Tag chips: a tap jumps to the tag-filtered browse view (mirrors
+        // DetailChipFlow(tagItems))
         CollapsibleChipFlow(
             items = meta.tags.map { tag -> ChipItem(text = tag, icon = Icons.Outlined.Sell, value = tag) },
             limit = 6,
             centered = false,
-            onClick = { item -> onBrowseFilter("标签 · ${item.value}") },
+            onClick = { item -> onBrowseFilter("$FILTER_KIND_TAG · ${item.value}") },
         )
     }
     Text(
-        text = "媒体信息",
+        text = stringResource(R.string.book_media_info),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 20.dp),
@@ -797,10 +971,11 @@ internal fun BookSecondaryContent(
     }
 }
 
-/** 可点击 chip 的数据：文案、图标、以及回传给浏览筛选的取值。 */
+/** Data of a tappable chip: label, icon, and the value reported to the browse filter. */
 private data class ChipItem(val text: String, val icon: ImageVector?, val value: String)
 
-/** 可折叠 chip 流：默认展示前 limit 项，超出部分以「+N」就地展开（对齐 DetailChipFlow）。 */
+/** Collapsible chip flow: shows the first [limit] items by default, the rest expands in place via
+ *  a "+N" chip (mirrors DetailChipFlow). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollapsibleChipFlow(
@@ -830,7 +1005,8 @@ private fun CollapsibleChipFlow(
     }
 }
 
-/** 元信息 chip：图标 + 文案，可选点击（与 SeriesDetailScreen 的 MetaChip 同款）。 */
+/** Metadata chip: icon + label, optionally tappable (same as the MetaChip of
+ *  SeriesDetailScreen). */
 @Composable
 private fun MetaChip(text: String, icon: ImageVector? = null, onClick: (() -> Unit)? = null) {
     Surface(
@@ -860,7 +1036,7 @@ private fun MetaChip(text: String, icon: ImageVector? = null, onClick: (() -> Un
     }
 }
 
-/** 归属阅读列表 chips，对应 BookDetailReadListsView。 */
+/** Owning read list chips, mirrors BookDetailReadListsView. */
 @Composable
 private fun BookMembershipChips(
     entries: List<ListEntry>,
@@ -872,7 +1048,7 @@ private fun BookMembershipChips(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "阅读列表",
+            text = stringResource(R.string.browse_scope_readlists),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -912,7 +1088,7 @@ private fun BookMembershipChips(
     }
 }
 
-/** 作者角色图标，对齐 SeriesDetailScreen 的 AuthorRole.icon。 */
+/** Author role icons, mirrors the AuthorRole.icon of SeriesDetailScreen. */
 private fun AuthorRole.icon(): ImageVector = when (this) {
     AuthorRole.Writer -> Icons.Outlined.Create
     AuthorRole.Penciller -> Icons.Outlined.Brush
@@ -925,7 +1101,7 @@ private fun AuthorRole.icon(): ImageVector = when (this) {
     AuthorRole.Custom -> Icons.Outlined.Person
 }
 
-/** 元信息行：图标 + 一行文案（与 SeriesDetailScreen 的 MetaRow 同款）。 */
+/** Metadata row: icon + one line of text (same as the MetaRow of SeriesDetailScreen). */
 @Composable
 private fun MetaRow(
     icon: ImageVector?,

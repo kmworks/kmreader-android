@@ -17,27 +17,27 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** 下载页状态：WorkManager 队列 + 文件扫描的已完成列表与存储统计。 */
+/** Download screen state: WorkManager queue + file-scanned completed list and storage stats. */
 @HiltViewModel
 class DownloadViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val libraryRepository: LibraryRepository,
 ) : ViewModel() {
 
-    /** 库范围（对齐 LibraryScopeMenu）：null = 全部书库；过滤队列与已下载列表。 */
+    /** Library scope (aligned with LibraryScopeMenu): null = all libraries; filters the queue and the downloaded list. */
     private val _libraryScope = MutableStateFlow<String?>(null)
     val libraryScope: StateFlow<String?> = _libraryScope.asStateFlow()
 
     private val _libraries = MutableStateFlow<List<LibraryDto>>(emptyList())
 
-    /** 服务器真实库列表（库范围菜单数据源；无会话/拉取失败为空）。 */
+    /** Real server library list (data source for the library scope menu; empty without a session or when the fetch fails). */
     val libraries: StateFlow<List<LibraryDto>> = _libraries.asStateFlow()
 
     fun setLibraryScope(libraryId: String?) {
         _libraryScope.value = libraryId
     }
 
-    /** 下载中队列（进行中/失败），按库范围过滤。 */
+    /** In-progress queue (active/failed), filtered by library scope. */
     val tasks: StateFlow<List<DownloadTaskUi>> =
         combine(downloadRepository.downloads, libraryScope) { tasks, scope ->
             if (scope == null) tasks
@@ -46,7 +46,7 @@ class DownloadViewModel @Inject constructor(
 
     private val _downloaded = MutableStateFlow<List<DownloadedBookUi>>(emptyList())
 
-    /** 已完成书籍（文件扫描结果），按库范围过滤。 */
+    /** Completed books (file scan result), filtered by library scope. */
     val downloaded: StateFlow<List<DownloadedBookUi>> =
         combine(_downloaded, libraryScope) { books, scope ->
             if (scope == null) books else books.filter { it.libraryId == scope }
@@ -54,14 +54,14 @@ class DownloadViewModel @Inject constructor(
 
     private val _storage = MutableStateFlow(0L to 0L)
 
-    /** 已用/总存储字节数。 */
+    /** Used/total storage bytes. */
     val storage: StateFlow<Pair<Long, Long>> = _storage
 
-    /** 仅 Wi-Fi 下载（真实约束 UNMETERED）。 */
+    /** Wi-Fi only downloads (real constraint UNMETERED). */
     val wifiOnly: StateFlow<Boolean> = downloadRepository.wifiOnly
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** 自动下载未读（SSE 触发器 + 系列详情补下共用此开关）。 */
+    /** Auto-download unread (shared by the SSE trigger and the series-detail supplemental download). */
     val autoDownloadUnread: StateFlow<Boolean> = downloadRepository.autoDownloadUnread
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -71,18 +71,18 @@ class DownloadViewModel @Inject constructor(
 
     init {
         refreshLocal()
-        // 库范围菜单数据：服务器真实库列表
+        // Library scope menu data: real server library list
         viewModelScope.launch {
             _libraries.value = runCatching { libraryRepository.libraries() }
                 .getOrDefault(emptyList())
         }
-        // 队列状态变化后重扫文件（完成/取消/失败都会改变落盘状态）
+        // Rescan files after queue state changes (complete/cancel/fail all change what lands on disk)
         viewModelScope.launch {
             tasks.collect { refreshLocal() }
         }
     }
 
-    /** 重扫已下载文件与存储统计。 */
+    /** Rescan downloaded files and storage stats. */
     fun refreshLocal() {
         viewModelScope.launch {
             _downloaded.value = downloadRepository.downloadedBooks()
@@ -90,27 +90,27 @@ class DownloadViewModel @Inject constructor(
         }
     }
 
-    /** 取消下载任务并清理部分文件。 */
+    /** Cancel the download task and clean up partial files. */
     fun cancel(task: DownloadTaskUi) {
         viewModelScope.launch { downloadRepository.cancelBook(task.bookDtoId) }
     }
 
-    /** 重试失败任务（重新入队，已落盘的页会跳过）。 */
+    /** Retry a failed task (re-enqueue; pages already on disk are skipped). */
     fun retry(task: DownloadTaskUi) {
         downloadRepository.enqueueBook(task.bookDtoId, task.title, task.pageTotal)
     }
 
-    /** 真暂停：取消任务但保留已落盘的页（恢复时跳过续传）。 */
+    /** Real pause: cancel the task but keep pages already on disk (resume skips what is there). */
     fun pause(task: DownloadTaskUi) {
         viewModelScope.launch { downloadRepository.pauseBook(task.bookDtoId) }
     }
 
-    /** 恢复已暂停任务（重新入队，已存在的页自动跳过）。 */
+    /** Resume a paused task (re-enqueue; pages that already exist are skipped automatically). */
     fun resume(task: DownloadTaskUi) {
         viewModelScope.launch { downloadRepository.resumeBook(task.bookDtoId) }
     }
 
-    /** 删除已完成书籍并释放空间。 */
+    /** Delete a completed book and free up space. */
     fun deleteBook(book: DownloadedBookUi) {
         viewModelScope.launch {
             downloadRepository.deleteBook(book.bookDtoId)

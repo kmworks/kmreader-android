@@ -3,13 +3,13 @@ package com.kmworks.kmreader.data
 /** Section id of the in-progress read lists strip (aligned with DashboardSection.readListsInProgress). */
 const val ReadListsInProgressSectionId = "readListsInProgress"
 
-/** Chinese label for the card kind picker (aligned with DashboardCardKind.title). */
+/** Label for the card kind picker (aligned with DashboardCardKind.title). */
 val DashboardCardKind.label: String
     get() = when (this) {
-        DashboardCardKind.Large -> "大"
-        DashboardCardKind.Medium -> "中"
-        DashboardCardKind.Small -> "小"
-        DashboardCardKind.Horizontal -> "横向"
+        DashboardCardKind.Large -> "Large"
+        DashboardCardKind.Medium -> "Medium"
+        DashboardCardKind.Small -> "Small"
+        DashboardCardKind.Horizontal -> "Horizontal"
     }
 
 /** Where a read list the user is reading continues (aligned with ReadListContinuation). */
@@ -28,12 +28,10 @@ data class ReadListContinuationUi(
     /** Progress line: book % while in progress, then list counts (aligned with ReadListContinuationProgressText). */
     val progressLabel: String
         get() {
-            val listLabel = "已读 $booksRead/$bookCount 本"
+            val listLabel = "$booksRead/$bookCount read"
             val percent = bookProgress?.let { "${(it * 100).toInt()}%" }
             return if (percent != null) "$percent • $listLabel" else listLabel
         }
-
-    val listProgress: Float get() = booksRead.toFloat() / bookCount.coerceAtLeast(1)
 }
 
 /** Per-section customization entry (aligned with DashboardConfiguration: order + visibility + cardKind override). */
@@ -43,8 +41,6 @@ data class DashboardSectionSetting(
     val defaultKind: DashboardCardKind,
     val seriesContent: Boolean = false,
     val enabled: Boolean = true,
-    /** null = follow the section default. */
-    val kindOverride: DashboardCardKind? = null,
 ) {
     /** Series sections have no horizontal card (aligned with DashboardSection.availableCardKinds). */
     val availableKinds: List<DashboardCardKind>
@@ -62,21 +58,21 @@ data class DashboardSectionSetting(
 
 object SampleDashboardData {
 
-    /** 仪表盘真实分区：与 DashboardViewModel 产出的 id / 标题 / 默认卡片形态一致
-     *  （对齐 iOS DashboardSection.allCases 顺序与 defaultCardKind）。 */
+    /** Real dashboard sections: ids / titles / default card kinds match what DashboardViewModel produces
+     *  (aligned with the iOS DashboardSection.allCases order and defaultCardKind). */
     val dashboardSections: List<DashboardSectionSetting> = listOf(
-        DashboardSectionSetting(ReadListsInProgressSectionId, "进行中的阅读列表", DashboardCardKind.Horizontal),
-        DashboardSectionSetting("keepReading", "继续阅读", DashboardCardKind.Horizontal),
-        DashboardSectionSetting("onDeck", "待阅读", DashboardCardKind.Large),
-        DashboardSectionSetting("recentlyReleasedBooks", "最近发布的书籍", DashboardCardKind.Large),
-        DashboardSectionSetting("recentlyAddedBooks", "最近新增的书籍", DashboardCardKind.Large),
+        DashboardSectionSetting(ReadListsInProgressSectionId, "Read Lists in Progress", DashboardCardKind.Horizontal),
+        DashboardSectionSetting("keepReading", "Keep Reading", DashboardCardKind.Horizontal),
+        DashboardSectionSetting("onDeck", "On Deck", DashboardCardKind.Large),
+        DashboardSectionSetting("recentlyReleasedBooks", "Recently Released Books", DashboardCardKind.Large),
+        DashboardSectionSetting("recentlyAddedBooks", "Recently Added Books", DashboardCardKind.Large),
         DashboardSectionSetting(
-            "recentlyAddedSeries", "最近新增的系列", DashboardCardKind.Small, seriesContent = true,
+            "recentlyAddedSeries", "Recently Added Series", DashboardCardKind.Small, seriesContent = true,
         ),
         DashboardSectionSetting(
-            "recentlyUpdatedSeries", "最近更新的系列", DashboardCardKind.Large, seriesContent = true,
+            "recentlyUpdatedSeries", "Recently Updated Series", DashboardCardKind.Large, seriesContent = true,
         ),
-        DashboardSectionSetting("recentlyReadBooks", "最近阅读的书籍", DashboardCardKind.Small),
+        DashboardSectionSetting("recentlyReadBooks", "Recently Read Books", DashboardCardKind.Small),
     )
 
     fun section(id: String): DashboardSectionSetting? = dashboardSections.firstOrNull { it.id == id }

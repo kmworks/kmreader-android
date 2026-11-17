@@ -1,13 +1,13 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "description": "Komga REST API.\n\n## Reference\n\nCheck the API reference:\n- on the [Komga website](https://komga.org/docs/openapi/komga-api)\n- on any running Komga instance at `/swagger-ui.html`\n- on [GitHub](https://raw.githubusercontent.com/gotson/komga/refs/heads/master/komga/docs/openapi.json)\n\n## Authentication\n\nMost endpoints require authentication. Authentication is done using either:\n- Basic Authentication\n- Passing an API Key in the `X-API-Key` header\n\n## Sessions\n\nUpon successful authentication, a session is created, and can be reused.\n\n- By default, a `KOMGA-SESSION` cookie is set via `Set-Cookie` response header. This works well for browsers and clients that can handle cookies.\n- If you specify a header `X-Auth-Token` during authentication, the session ID will be returned via this same header. You can then pass that header again for subsequent requests to reuse the session.\n\nIf you need to set the session cookie later on, you can call `/api/v1/login/set-cookie` with `X-Auth-Token`. The response will contain the `Set-Cookie` header.\n\n## Remember Me\n\nDuring authentication, if a request parameter `remember-me` is passed and set to `true`, the server will also return a `komga-remember-me` cookie. This cookie will be used to login automatically even if the session has expired.\n\n## Logout\n\nYou can explicitly logout an existing session by calling `/api/logout`. This would return a `204`.\n\n## Deprecation\n\nAPI endpoints marked as deprecated will be removed in the next major version.",
+    "description": "Komga REST API.\n\n## Reference\n\nCheck the API reference:\n- on the [Komga website](https://komga.org/docs/openapi/komga-api)\n- on any running Komga instance at `/swagger-ui.html`\n- on [GitHub](https://raw.githubusercontent.com/gotson/komga/refs/heads/master/komga/docs/openapi.json)\n\n## Authentication\n\nMost endpoints require authentication. Authentication is done using either:\n- Basic Authentication\n- Passing an API Key in the `X-API-Key` header\n\n## Sessions\n\nUpon successful authentication, a session is created, and can be reused.\n\n- By default, a `KOMGA-SESSION` cookie is set via `Set-Cookie` response header. This works well for browsers and clients that can handle cookies.\n- If you specify a header `X-Auth-Token` during authentication, the session ID will be returned via this same header. You can then pass that header again for subsequent requests to reuse the session.\n\nIf you need to set the session cookie later on, you can call `/api/v1/login/set-cookie` with `X-Auth-Token`. The response will contain the `Set-Cookie` header.\n\nSessions are not created when authenticating with an API Key.\n\n## Remember Me\n\nDuring authentication, if a request parameter `remember-me` is passed and set to `true`, the server will also return a `komga-remember-me` cookie. This cookie will be used to login automatically even if the session has expired.\n\n## Logout\n\nYou can explicitly logout an existing session by calling `/api/logout`. This would return a `204`.\n\n## Deprecation\n\nAPI endpoints marked as deprecated will be removed in the next major version.",
     "license": {
       "name": "MIT",
       "url": "https://github.com/gotson/komga/blob/master/LICENSE"
     },
     "title": "Komga API",
-    "version": "1.23.5"
+    "version": "1.30.0"
   },
   "externalDocs": {
     "description": "Komga documentation",
@@ -16,7 +16,20 @@
   "servers": [
     {
       "url": "https://demo.komga.org",
-      "description": "Generated server url"
+      "description": "Demo server"
+    },
+    {
+      "url": "http://localhost:{port}",
+      "description": "Local development server",
+      "variables": {
+        "port": {
+          "enum": [
+            "8080",
+            "25600"
+          ],
+          "default": "25600"
+        }
+      }
     }
   ],
   "security": [
@@ -130,7 +143,7 @@
       "name": "History"
     },
     {
-      "description": "List files from the host server's file system",
+      "description": "List files from the host server\u0027s file system",
       "name": "File system"
     },
     {
@@ -173,6 +186,9 @@
                   "Example": {
                     "value": "{\n  \"git\": {\n    \"branch\": \"master\",\n    \"commit\": {\n      \"id\": \"9be980d\",\n      \"time\": \"2025-03-12T03:40:38Z\"\n    }\n  },\n  \"build\": {\n    \"artifact\": \"komga\",\n    \"name\": \"komga\",\n    \"version\": \"1.21.2\",\n    \"group\": \"komga\"\n  },\n  \"java\": {\n    \"version\": \"23.0.2\",\n    \"vendor\": {\n      \"name\": \"Eclipse Adoptium\",\n      \"version\": \"Temurin-23.0.2+7\"\n    },\n    \"runtime\": {\n      \"name\": \"OpenJDK Runtime Environment\",\n      \"version\": \"23.0.2+7\"\n    },\n    \"jvm\": {\n      \"name\": \"OpenJDK 64-Bit Server VM\",\n      \"vendor\": \"Eclipse Adoptium\",\n      \"version\": \"23.0.2+7\"\n    }\n  },\n  \"os\": {\n    \"name\": \"Linux\",\n    \"version\": \"6.8.0-57-generic\",\n    \"arch\": \"amd64\"\n  }\n}"
                   }
+                },
+                "schema": {
+                  "additionalProperties": true
                 }
               }
             },
@@ -217,8 +233,9 @@
     },
     "/api/v1/age-ratings": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getAgeRatings",
+        "deprecated": true,
+        "description": "Use GET /v2/age-ratings instead. Deprecated since 1.26.0",
+        "operationId": "getAgeRatings_1",
         "parameters": [
           {
             "in": "query",
@@ -269,6 +286,7 @@
         },
         "summary": "List age ratings",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -416,7 +434,9 @@
     },
     "/api/v1/authors/names": {
       "get": {
-        "operationId": "getAuthorsNames",
+        "deprecated": true,
+        "description": "Use GET /v2/authors/names instead. Deprecated since 1.26.0",
+        "operationId": "getAuthorsNames_1",
         "parameters": [
           {
             "in": "query",
@@ -453,15 +473,18 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List authors' names",
+        "summary": "List authors\u0027 names",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
     },
     "/api/v1/authors/roles": {
       "get": {
-        "operationId": "getAuthorsRoles",
+        "deprecated": true,
+        "description": "Use GET /v2/authors/roles instead. Deprecated since 1.26.0",
+        "operationId": "getAuthorsRoles_1",
         "responses": {
           "200": {
             "content": {
@@ -487,8 +510,9 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List authors' roles",
+        "summary": "List authors\u0027 roles",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -879,7 +903,7 @@
     },
     "/api/v1/books/metadata": {
       "patch": {
-        "description": "Set a field to null to unset the metadata. You can omit fields you don't want to update.\n\nRequired role: **ADMIN**",
+        "description": "Set a field to null to unset the metadata. You can omit fields you don\u0027t want to update.\n\nRequired role: **ADMIN**",
         "operationId": "updateBookMetadataByBatch",
         "requestBody": {
           "content": {
@@ -889,7 +913,7 @@
                 "additionalProperties": {
                   "$ref": "#/components/schemas/BookMetadataUpdateDto"
                 },
-                "description": "A map of book IDs which values are the metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don't want to update."
+                "description": "A map of book IDs which values are the metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don\u0027t want to update."
               }
             }
           },
@@ -1260,7 +1284,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Get book's WebPub manifest",
+        "summary": "Get book\u0027s WebPub manifest",
         "tags": [
           "WebPub Manifest"
         ]
@@ -1306,7 +1330,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Get book's WebPub manifest (DiViNa)",
+        "summary": "Get book\u0027s WebPub manifest (DiViNa)",
         "tags": [
           "WebPub Manifest"
         ]
@@ -1352,7 +1376,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Get book's WebPub manifest (Epub)",
+        "summary": "Get book\u0027s WebPub manifest (Epub)",
         "tags": [
           "WebPub Manifest"
         ]
@@ -1398,7 +1422,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Get book's WebPub manifest (PDF)",
+        "summary": "Get book\u0027s WebPub manifest (PDF)",
         "tags": [
           "WebPub Manifest"
         ]
@@ -1406,7 +1430,7 @@
     },
     "/api/v1/books/{bookId}/metadata": {
       "patch": {
-        "description": "Set a field to null to unset the metadata. You can omit fields you don't want to update.\n\nRequired role: **ADMIN**",
+        "description": "Set a field to null to unset the metadata. You can omit fields you don\u0027t want to update.\n\nRequired role: **ADMIN**",
         "operationId": "updateBookMetadata",
         "parameters": [
           {
@@ -1615,7 +1639,7 @@
             }
           },
           {
-            "description": "Some very limited server driven content negotiation is handled. If a book is a PDF book, and the Accept header contains 'application/pdf' as a more specific type than other 'image/' types, a raw PDF page will be returned.",
+            "description": "Some very limited server driven content negotiation is handled. If a book is a PDF book, and the Accept header contains \u0027application/pdf\u0027 as a more specific type than other \u0027image/\u0027 types, a raw PDF page will be returned.",
             "in": "header",
             "name": "Accept",
             "required": false,
@@ -1822,7 +1846,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List book's positions",
+        "summary": "List book\u0027s positions",
         "tags": [
           "WebPub Manifest"
         ]
@@ -2031,7 +2055,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Mark book's read progress",
+        "summary": "Mark book\u0027s read progress",
         "tags": [
           "Books"
         ]
@@ -2075,7 +2099,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List book's readlists",
+        "summary": "List book\u0027s readlists",
         "tags": [
           "Books"
         ]
@@ -2181,7 +2205,7 @@
             "description": "default response"
           }
         },
-        "summary": "Get book's poster image",
+        "summary": "Get book\u0027s poster image",
         "tags": [
           "Book Poster"
         ]
@@ -2522,7 +2546,7 @@
     },
     "/api/v1/client-settings/global": {
       "delete": {
-        "description": "Setting key should be a valid lowercase namespace string like 'application.domain.key'\n\nRequired role: **ADMIN**",
+        "description": "Setting key should be a valid lowercase namespace string like \u0027application.domain.key\u0027\n\nRequired role: **ADMIN**",
         "operationId": "deleteGlobalSettings",
         "requestBody": {
           "content": {
@@ -2563,7 +2587,7 @@
         ]
       },
       "patch": {
-        "description": "Setting key should be a valid lowercase namespace string like 'application.domain.key'\n\nRequired role: **ADMIN**",
+        "description": "Setting key should be a valid lowercase namespace string like \u0027application.domain.key\u0027\n\nRequired role: **ADMIN**",
         "operationId": "saveGlobalSetting",
         "requestBody": {
           "content": {
@@ -2611,7 +2635,7 @@
     },
     "/api/v1/client-settings/global/list": {
       "get": {
-        "description": "For unauthenticated users, only settings with 'allowUnauthorized=true' will be returned.",
+        "description": "For unauthenticated users, only settings with \u0027allowUnauthorized\u003dtrue\u0027 will be returned.",
         "operationId": "getGlobalSettings",
         "responses": {
           "200": {
@@ -2647,7 +2671,7 @@
     },
     "/api/v1/client-settings/user": {
       "delete": {
-        "description": "Setting key should be a valid lowercase namespace string like 'application.domain.key'",
+        "description": "Setting key should be a valid lowercase namespace string like \u0027application.domain.key\u0027",
         "operationId": "deleteUserSettings",
         "requestBody": {
           "content": {
@@ -2688,7 +2712,7 @@
         ]
       },
       "patch": {
-        "description": "Setting key should be a valid lowercase namespace string like 'application.domain.key'",
+        "description": "Setting key should be a valid lowercase namespace string like \u0027application.domain.key\u0027",
         "operationId": "saveUserSetting",
         "requestBody": {
           "content": {
@@ -2811,6 +2835,17 @@
             "name": "size",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         ],
@@ -3195,7 +3230,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List collection's series",
+        "summary": "List collection\u0027s series",
         "tags": [
           "Collection Series"
         ]
@@ -3243,7 +3278,7 @@
             "description": "default response"
           }
         },
-        "summary": "Get collection's poster image",
+        "summary": "Get collection\u0027s poster image",
         "tags": [
           "Collection Poster"
         ]
@@ -3287,7 +3322,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List collection's posters",
+        "summary": "List collection\u0027s posters",
         "tags": [
           "Collection Poster"
         ]
@@ -3501,7 +3536,7 @@
     },
     "/api/v1/filesystem": {
       "post": {
-        "description": "List folders and files from the host server's file system. If no request body is passed then the root directories are returned.\n\nRequired role: **ADMIN**",
+        "description": "List folders and files from the host server\u0027s file system. If no request body is passed then the root directories are returned.\n\nRequired role: **ADMIN**",
         "operationId": "getDirectoryListing",
         "requestBody": {
           "content": {
@@ -3679,8 +3714,9 @@
     },
     "/api/v1/genres": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getGenres",
+        "deprecated": true,
+        "description": "Use GET /v2/genres instead. Deprecated since 1.26.0",
+        "operationId": "getGenres_1",
         "parameters": [
           {
             "in": "query",
@@ -3731,6 +3767,7 @@
         },
         "summary": "List genres",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -3798,8 +3835,9 @@
     },
     "/api/v1/languages": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getLanguages",
+        "deprecated": true,
+        "description": "Use GET /v2/languages instead. Deprecated since 1.26.0",
+        "operationId": "getLanguages_1",
         "parameters": [
           {
             "in": "query",
@@ -3850,13 +3888,14 @@
         },
         "summary": "List languages",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
     },
     "/api/v1/libraries": {
       "get": {
-        "description": "The libraries are filtered based on the current user's permissions",
+        "description": "The libraries are filtered based on the current user\u0027s permissions",
         "operationId": "getLibraries",
         "responses": {
           "200": {
@@ -4003,7 +4042,7 @@
         ]
       },
       "patch": {
-        "description": "You can omit fields you don't want to update\n\nRequired role: **ADMIN**",
+        "description": "You can omit fields you don\u0027t want to update\n\nRequired role: **ADMIN**",
         "operationId": "updateLibraryById",
         "parameters": [
           {
@@ -4728,8 +4767,9 @@
     },
     "/api/v1/publishers": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getPublishers",
+        "deprecated": true,
+        "description": "Use GET /v2/publishers instead. Deprecated since 1.26.0",
+        "operationId": "getPublishers_1",
         "parameters": [
           {
             "in": "query",
@@ -4780,6 +4820,7 @@
         },
         "summary": "List publishers",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -4829,6 +4870,17 @@
             "name": "size",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         ],
@@ -4906,7 +4958,7 @@
         "operationId": "matchComicRackList",
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -5201,7 +5253,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List readlist's books",
+        "summary": "List readlist\u0027s books",
         "tags": [
           "Readlist Books"
         ]
@@ -5479,7 +5531,7 @@
             "description": "default response"
           }
         },
-        "summary": "Get readlist's poster image",
+        "summary": "Get readlist\u0027s poster image",
         "tags": [
           "Readlist Poster"
         ]
@@ -5523,7 +5575,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List readlist's posters",
+        "summary": "List readlist\u0027s posters",
         "tags": [
           "Readlist Poster"
         ]
@@ -6541,7 +6593,8 @@
     },
     "/api/v1/series/release-dates": {
       "get": {
-        "description": "Can be filtered by various criteria",
+        "deprecated": true,
+        "description": "Use GET /v2/series/release-years instead. Deprecated since 1.26.0",
         "operationId": "getSeriesReleaseDates",
         "parameters": [
           {
@@ -6593,6 +6646,7 @@
         },
         "summary": "List series release dates",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -6894,7 +6948,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List series' books",
+        "summary": "List series\u0027 books",
         "tags": [
           "Series",
           "Deprecated"
@@ -6939,7 +6993,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "List series' collections",
+        "summary": "List series\u0027 collections",
         "tags": [
           "Series"
         ]
@@ -6947,7 +7001,7 @@
     },
     "/api/v1/series/{seriesId}/file": {
       "delete": {
-        "description": "Delete all of the series' books files on disk.\n\nRequired role: **ADMIN**",
+        "description": "Delete all of the series\u0027 books files on disk.\n\nRequired role: **ADMIN**",
         "operationId": "deleteSeriesFile",
         "parameters": [
           {
@@ -7215,7 +7269,7 @@
             "description": "default response"
           }
         },
-        "summary": "Get series' poster image",
+        "summary": "Get series\u0027 poster image",
         "tags": [
           "Series Poster"
         ]
@@ -7473,7 +7527,6 @@
     },
     "/api/v1/settings": {
       "get": {
-        "description": "Required role: **ADMIN**",
         "operationId": "getServerSettings",
         "responses": {
           "200": {
@@ -7503,7 +7556,7 @@
         ]
       },
       "patch": {
-        "description": "You can omit fields you don't want to update\n\nRequired role: **ADMIN**",
+        "description": "You can omit fields you don\u0027t want to update\n\nRequired role: **ADMIN**",
         "operationId": "updateServerSettings",
         "requestBody": {
           "content": {
@@ -7538,8 +7591,9 @@
     },
     "/api/v1/sharing-labels": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getSharingLabels",
+        "deprecated": true,
+        "description": "Use GET /v2/sharing-labels instead. Deprecated since 1.26.0",
+        "operationId": "getSharingLabels_1",
         "parameters": [
           {
             "in": "query",
@@ -7590,7 +7644,626 @@
         },
         "summary": "List sharing labels",
         "tags": [
+          "Deprecated",
           "Referential metadata"
+        ]
+      }
+    },
+    "/api/v1/smart-lists": {
+      "get": {
+        "description": "kmrs extension: lists visible to the current user (own, public, shared); admins see all lists and may narrow with the owner parameter",
+        "operationId": "getSmartLists",
+        "parameters": [
+          {
+            "description": "admin only: narrow to lists of one owner",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageSmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "List smart lists",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "post": {
+        "description": "kmrs extension: create a smart list owned by the current user; visibility and sharing are admin capabilities, a regular user\u0027s lists are always PRIVATE",
+        "operationId": "createSmartList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartListCreationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Create smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/share-targets": {
+      "get": {
+        "description": "kmrs extension: minimal user directory (id, email) for choosing share targets; admin only, like komga\u0027s /api/v2/users",
+        "operationId": "getSmartListShareTargets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "List share target users",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}": {
+      "get": {
+        "description": "kmrs extension: the list if owned by the current user, or any list for an admin",
+        "operationId": "getSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list by id",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "patch": {
+        "description": "kmrs extension: update a smart list owned by the current user (admin: any); visibility and sharing are admin capabilities",
+        "operationId": "updateSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartListUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Update smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "delete": {
+        "description": "kmrs extension: delete a smart list owned by the current user (admin: any)",
+        "operationId": "deleteSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Delete smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/books": {
+      "post": {
+        "description": "kmrs extension: live evaluation of a BOOK smart list for the requesting user (read status, content restrictions and library authorization applied). The optional body carries page-side filters that are ANDed with the stored filter; a fullTextSearch in the body replaces the stored one.",
+        "operationId": "getBooksBySmartListId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookSearch"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageBookDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get books of a smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/series": {
+      "post": {
+        "description": "kmrs extension: live evaluation of a SERIES smart list for the requesting user (read status, content restrictions and library authorization applied). The optional body carries page-side filters that are ANDed with the stored filter; a fullTextSearch in the body replaces the stored one.",
+        "operationId": "getSeriesBySmartListId",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeriesSearch"
+              }
+            }
+          },
+          "required": false
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageSeriesDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get series of a smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnail": {
+      "get": {
+        "description": "kmrs extension: generated mosaic cover of the books matched by a BOOK smart list; rebuilt when the matched set changes",
+        "operationId": "getSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails": {
+      "get": {
+        "description": "kmrs extension: generated mosaic plus uploaded covers of a smart list",
+        "operationId": "getSmartListThumbnails",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ThumbnailSmartListDto"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnails",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "post": {
+        "description": "kmrs extension: upload a cover for a smart list owned by the current user (multipart parts: file, selected)",
+        "operationId": "uploadSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "selected": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThumbnailSmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Upload smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails/{thumbnailId}": {
+      "get": {
+        "description": "kmrs extension: cover bytes",
+        "operationId": "getSmartListThumbnailById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnail by id",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "delete": {
+        "description": "kmrs extension: delete a cover of a smart list owned by the current user",
+        "operationId": "deleteSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "summary": "Delete smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails/{thumbnailId}/selected": {
+      "put": {
+        "description": "kmrs extension: select the cover of a smart list owned by the current user",
+        "operationId": "markSmartListThumbnailSelected",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "summary": "Mark smart list thumbnail as selected",
+        "tags": [
+          "Smart lists (kmrs extension)"
         ]
       }
     },
@@ -7634,8 +8307,9 @@
     },
     "/api/v1/tags": {
       "get": {
-        "description": "Can be filtered by various criteria",
-        "operationId": "getTags",
+        "deprecated": true,
+        "description": "Use GET /v2/tags instead. Deprecated since 1.26.0",
+        "operationId": "getTags_1",
         "parameters": [
           {
             "in": "query",
@@ -7686,13 +8360,15 @@
         },
         "summary": "List tags",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
     },
     "/api/v1/tags/book": {
       "get": {
-        "description": "Can be filtered by various criteria",
+        "deprecated": true,
+        "description": "Use GET /v2/tags instead. Deprecated since 1.26.0",
         "operationId": "getBookTags",
         "parameters": [
           {
@@ -7752,13 +8428,15 @@
         },
         "summary": "List book tags",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
     },
     "/api/v1/tags/series": {
       "get": {
-        "description": "Can be filtered by various criteria",
+        "deprecated": true,
+        "description": "Use GET /v2/tags instead. Deprecated since 1.26.0",
         "operationId": "getSeriesTags",
         "parameters": [
           {
@@ -7806,6 +8484,7 @@
         },
         "summary": "List series tags",
         "tags": [
+          "Deprecated",
           "Referential metadata"
         ]
       }
@@ -7988,6 +8667,88 @@
         ]
       }
     },
+    "/api/v2/age-ratings": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getAgeRatings",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageInteger"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List age ratings",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
     "/api/v2/authors": {
       "get": {
         "description": "Can be filtered by various criteria",
@@ -8026,7 +8787,11 @@
             "name": "collection_id",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
             }
           },
           {
@@ -8034,7 +8799,11 @@
             "name": "series_id",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
             }
           },
           {
@@ -8042,7 +8811,11 @@
             "name": "readlist_id",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
             }
           },
           {
@@ -8093,6 +8866,586 @@
           }
         },
         "summary": "List authors",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/authors/names": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getAuthorsNames",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List authors names",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/authors/roles": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getAuthorsRoles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List authors roles",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/genres": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getGenres",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List genres",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/languages": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getLanguages",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List languages",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/publishers": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getPublishers",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List publishers",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/series/release-years": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getSeriesReleaseYears",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List series release years",
         "tags": [
           "Referential metadata"
         ]
@@ -8180,6 +9533,223 @@
         "summary": "Update series read progress (Mihon)",
         "tags": [
           "Mihon"
+        ]
+      }
+    },
+    "/api/v2/sharing-labels": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getSharingLabels",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List sharing labels",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v2/tags": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getTags",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SERIES",
+                "BOOK",
+                "BOTH"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List tags",
+        "tags": [
+          "Referential metadata"
         ]
       }
     },
@@ -8575,7 +10145,7 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Update current user's password",
+        "summary": "Update current user\u0027s password",
         "tags": [
           "Current user"
         ]
@@ -8748,71 +10318,365 @@
             "description": "Bad Request"
           }
         },
-        "summary": "Update user's password",
+        "summary": "Update user\u0027s password",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/v3/notable-entities": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getNotableEntities",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponseNotableEntityDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List notable entities",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v3/notable-entities/kinds": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getNotableEntitiesKinds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponseString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List notable entities kinds",
+        "tags": [
+          "Referential metadata"
+        ]
+      }
+    },
+    "/api/v3/notable-entities/names": {
+      "get": {
+        "description": "Can be filtered by various criteria",
+        "operationId": "getNotableEntitiesNames",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "library_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "series_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "readlist_id",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponseString"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "List notable entities names",
+        "tags": [
+          "Referential metadata"
         ]
       }
     }
   },
   "components": {
     "schemas": {
-      "After": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "dateTime": {
-                "type": "string",
-                "format": "date-time"
-              }
-            }
-          }
-        ],
-        "required": [
-          "dateTime"
-        ]
-      },
-      "AgeRating": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "ageRating": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/GreaterThan"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotNullT"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNullT"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LessThan"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "ageRating"
-        ]
-      },
       "AgeRestrictionDto": {
         "type": "object",
         "properties": {
@@ -8854,155 +10718,6 @@
           "restriction"
         ]
       },
-      "AllOfBook": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "allOf": {
-                "type": "array",
-                "items": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/AllOfBook"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AnyOfBook"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Author"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Deleted"
-                    },
-                    {
-                      "$ref": "#/components/schemas/LibraryId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/MediaProfile"
-                    },
-                    {
-                      "$ref": "#/components/schemas/MediaStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/NumberSort"
-                    },
-                    {
-                      "$ref": "#/components/schemas/OneShot"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Poster"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadListId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReleaseDate"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SeriesId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Tag"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Title"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ],
-        "required": [
-          "allOf"
-        ]
-      },
-      "AllOfSeries": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "allOf": {
-                "type": "array",
-                "items": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/AgeRating"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AllOfSeries"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AnyOfSeries"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Author"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CollectionId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Complete"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Deleted"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Genre"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Language"
-                    },
-                    {
-                      "$ref": "#/components/schemas/LibraryId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/OneShot"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Publisher"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReleaseDate"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SeriesStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SharingLabel"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Tag"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Title"
-                    },
-                    {
-                      "$ref": "#/components/schemas/TitleSort"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ],
-        "required": [
-          "allOf"
-        ]
-      },
       "AlternateTitleDto": {
         "type": "object",
         "properties": {
@@ -9033,155 +10748,6 @@
         "required": [
           "label",
           "title"
-        ]
-      },
-      "AnyOfBook": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "anyOf": {
-                "type": "array",
-                "items": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/AllOfBook"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AnyOfBook"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Author"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Deleted"
-                    },
-                    {
-                      "$ref": "#/components/schemas/LibraryId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/MediaProfile"
-                    },
-                    {
-                      "$ref": "#/components/schemas/MediaStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/NumberSort"
-                    },
-                    {
-                      "$ref": "#/components/schemas/OneShot"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Poster"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadListId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReleaseDate"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SeriesId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Tag"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Title"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ],
-        "required": [
-          "anyOf"
-        ]
-      },
-      "AnyOfSeries": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "anyOf": {
-                "type": "array",
-                "items": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/AgeRating"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AllOfSeries"
-                    },
-                    {
-                      "$ref": "#/components/schemas/AnyOfSeries"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Author"
-                    },
-                    {
-                      "$ref": "#/components/schemas/CollectionId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Complete"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Deleted"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Genre"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Language"
-                    },
-                    {
-                      "$ref": "#/components/schemas/LibraryId"
-                    },
-                    {
-                      "$ref": "#/components/schemas/OneShot"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Publisher"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReadStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ReleaseDate"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SeriesStatus"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SharingLabel"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Tag"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Title"
-                    },
-                    {
-                      "$ref": "#/components/schemas/TitleSort"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ],
-        "required": [
-          "anyOf"
         ]
       },
       "ApiKeyDto": {
@@ -9269,34 +10835,6 @@
           "success"
         ]
       },
-      "Author": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "author": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "author"
-        ]
-      },
       "AuthorDto": {
         "type": "object",
         "properties": {
@@ -9329,44 +10867,6 @@
           "role"
         ]
       },
-      "Before": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "dateTime": {
-                "type": "string",
-                "format": "date-time"
-              }
-            }
-          }
-        ],
-        "required": [
-          "dateTime"
-        ]
-      },
-      "BeginsWith": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "Book": {},
       "BookDto": {
         "type": "object",
         "properties": {
@@ -9511,6 +11011,12 @@
             "type": "string",
             "format": "date-time"
           },
+          "notableEntities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotableEntityDto"
+            }
+          },
           "releaseDate": {
             "type": "string",
             "format": "date"
@@ -9533,6 +11039,7 @@
           "authors",
           "created",
           "lastModified",
+          "notableEntities",
           "summary",
           "summaryNumber",
           "tags"
@@ -9571,6 +11078,15 @@
             }
           },
           "linksLock": {
+            "type": "boolean"
+          },
+          "notableEntities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotableEntityDto"
+            }
+          },
+          "notableEntitiesLock": {
             "type": "boolean"
           },
           "number": {
@@ -9625,6 +11141,8 @@
           "lastModified",
           "links",
           "linksLock",
+          "notableEntities",
+          "notableEntitiesLock",
           "number",
           "numberLock",
           "numberSort",
@@ -9640,7 +11158,7 @@
       },
       "BookMetadataUpdateDto": {
         "type": "object",
-        "description": "Metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don't want to update.",
+        "description": "Metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don\u0027t want to update.",
         "properties": {
           "authors": {
             "type": "array",
@@ -9664,6 +11182,15 @@
             }
           },
           "linksLock": {
+            "type": "boolean"
+          },
+          "notableEntities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotableEntityUpdateDto"
+            }
+          },
+          "notableEntitiesLock": {
             "type": "boolean"
           },
           "number": {
@@ -9714,74 +11241,12 @@
         "type": "object",
         "properties": {
           "condition": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/AllOfBook"
-              },
-              {
-                "$ref": "#/components/schemas/AnyOfBook"
-              },
-              {
-                "$ref": "#/components/schemas/Author"
-              },
-              {
-                "$ref": "#/components/schemas/Deleted"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryId"
-              },
-              {
-                "$ref": "#/components/schemas/MediaProfile"
-              },
-              {
-                "$ref": "#/components/schemas/MediaStatus"
-              },
-              {
-                "$ref": "#/components/schemas/NumberSort"
-              },
-              {
-                "$ref": "#/components/schemas/OneShot"
-              },
-              {
-                "$ref": "#/components/schemas/Poster"
-              },
-              {
-                "$ref": "#/components/schemas/ReadListId"
-              },
-              {
-                "$ref": "#/components/schemas/ReadStatus"
-              },
-              {
-                "$ref": "#/components/schemas/ReleaseDate"
-              },
-              {
-                "$ref": "#/components/schemas/SeriesId"
-              },
-              {
-                "$ref": "#/components/schemas/Tag"
-              },
-              {
-                "$ref": "#/components/schemas/Title"
-              }
-            ]
+            "$ref": "#/components/schemas/SearchConditionBook"
           },
           "fullTextSearch": {
             "type": "string"
           }
         }
-      },
-      "Boolean": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
       },
       "ClaimStatus": {
         "type": "object",
@@ -9900,31 +11365,6 @@
           "seriesIds"
         ]
       },
-      "CollectionId": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "collectionId": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "collectionId"
-        ]
-      },
       "CollectionUpdateDto": {
         "type": "object",
         "properties": {
@@ -9941,90 +11381,6 @@
             }
           }
         }
-      },
-      "Complete": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "complete": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/IsFalse"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsTrue"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "complete"
-        ]
-      },
-      "Contains": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "Date": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "Deleted": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "deleted": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/IsFalse"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsTrue"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "deleted"
-        ]
       },
       "DirectoryListingDto": {
         "type": "object",
@@ -10063,219 +11419,6 @@
         "required": [
           "path",
           "showFiles"
-        ]
-      },
-      "DoesNotBeginWith": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "DoesNotContain": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "DoesNotEndWith": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "EndsWith": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "EqualityAuthorMatch": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityMediaProfile": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityNullableString": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityPosterMatch": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityReadStatus": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityStatus": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "EqualityString": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
-      "Genre": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "genre": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotNullT"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNullT"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "genre"
-        ]
-      },
-      "GreaterThan": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {}
-            }
-          },
-          {
-            "$ref": "#/components/schemas/NumericFloat"
-          }
-        ],
-        "required": [
-          "value"
         ]
       },
       "GroupCountDto": {
@@ -10327,210 +11470,74 @@
           "type"
         ]
       },
-      "Is": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
+      "ItemAuthorDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Author\u0027s name",
+            "example": "gotson"
           },
-          {
-            "type": "object",
-            "properties": {
-              "value": {}
-            }
-          },
-          {
-            "$ref": "#/components/schemas/EqualityAuthorMatch"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityString"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityNullableString"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityReadStatus"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityStatus"
-          },
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityMediaProfile"
-          },
-          {
-            "$ref": "#/components/schemas/NumericFloat"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityPosterMatch"
+          "url": {
+            "type": "string",
+            "description": "URL of a site owned by the author",
+            "example": "https://github.com/gotson"
           }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "IsFalse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Boolean"
-          }
-        ]
-      },
-      "IsInTheLast": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "duration": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "duration"
-        ]
-      },
-      "IsNot": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {}
-            }
-          },
-          {
-            "$ref": "#/components/schemas/EqualityAuthorMatch"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityString"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityNullableString"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityReadStatus"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityStatus"
-          },
-          {
-            "$ref": "#/components/schemas/StringOp"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityMediaProfile"
-          },
-          {
-            "$ref": "#/components/schemas/NumericFloat"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityPosterMatch"
-          }
-        ],
-        "required": [
-          "value"
-        ]
-      },
-      "IsNotInTheLast": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "duration": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "required": [
-          "duration"
-        ]
-      },
-      "IsNotNull": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          }
-        ]
-      },
-      "IsNotNullT": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityNullableString"
-          }
-        ]
-      },
-      "IsNull": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Date"
-          }
-        ]
-      },
-      "IsNullT": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
-          },
-          {
-            "$ref": "#/components/schemas/EqualityNullableString"
-          }
-        ]
-      },
-      "IsTrue": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Boolean"
-          }
-        ]
+        }
       },
       "ItemDto": {
         "type": "object",
         "properties": {
           "_komga": {
-            "$ref": "#/components/schemas/KomgaExtensionDto"
+            "$ref": "#/components/schemas/KomgaExtensionDto",
+            "description": "Additional fields for the item"
           },
           "author": {
-            "$ref": "#/components/schemas/AuthorDto"
+            "$ref": "#/components/schemas/ItemAuthorDto",
+            "description": "Author of the item"
           },
           "content_html": {
-            "type": "string"
+            "type": "string",
+            "description": "HTML of the item",
+            "example": "\u003cp\u003eA longer text…\u003c/p\u003e"
           },
           "date_modified": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Modification date in RFC 3339 format",
+            "example": "2023-12-15T00:00:00Z"
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique for that item for that feed over time",
+            "example": "https://komga.org/blog/ebook-drop2"
           },
           "summary": {
-            "type": "string"
+            "type": "string",
+            "description": "A plain text sentence or two describing the item",
+            "example": "Version 1.9.0 contains the second feature drop for Ebooks support."
           },
           "tags": {
             "type": "array",
+            "description": "Tags describing the item",
+            "examples": [
+              "upgrade",
+              "komga"
+            ],
             "items": {
               "type": "string"
             },
             "uniqueItems": true
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "Plain text title",
+            "example": "eBook drop 2"
           },
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "URL of the resource described by the item",
+            "example": "https://komga.org/blog/ebook-drop2"
           }
         },
         "required": [
@@ -10540,12 +11547,62 @@
       },
       "JsonFeedDto": {
         "type": "object",
+        "example": {
+          "version": "https://jsonfeed.org/version/1",
+          "title": "Announcements",
+          "home_page_url": "https://komga.org/blog",
+          "description": "Latest Komga announcements",
+          "items": [
+            {
+              "id": "https://komga.org/blog/ebook-drop2",
+              "url": "https://komga.org/blog/ebook-drop2",
+              "title": "eBook drop 2",
+              "summary": "Version 1.9.0 contains the second feature drop for Ebooks support.",
+              "content_html": "\u003cp\u003eA longer text…\u003c/p\u003e",
+              "date_modified": "2023-12-15T00:00:00Z",
+              "author": {
+                "name": "gotson",
+                "url": "https://github.com/gotson"
+              },
+              "tags": [
+                "upgrade",
+                "komga"
+              ],
+              "_komga": {
+                "read": false
+              }
+            },
+            {
+              "id": "https://komga.org/blog/ebook-support",
+              "url": "https://komga.org/blog/ebook-support",
+              "title": "eBook support",
+              "summary": "Version 1.8.0 is bringing a long awaited feature: proper eBook support!",
+              "content_html": "\u003cp\u003eA longer text…\u003c/p\u003e",
+              "date_modified": "2023-11-29T00:00:00Z",
+              "author": {
+                "name": "gotson",
+                "url": "https://github.com/gotson"
+              },
+              "tags": [
+                "upgrade",
+                "komga"
+              ],
+              "_komga": {
+                "read": true
+              }
+            }
+          ]
+        },
         "properties": {
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "Provides more detail on what the feed is about",
+            "example": "Latest Komga announcements"
           },
           "home_page_url": {
-            "type": "string"
+            "type": "string",
+            "description": "URL of the resource that the feed describes",
+            "example": "https://komga.org/blog"
           },
           "items": {
             "type": "array",
@@ -10554,10 +11611,14 @@
             }
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "Name of the feed",
+            "example": "Announcements"
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "URL of the version of the format the feed uses",
+            "example": "https://jsonfeed.org/version/1"
           }
         },
         "required": [
@@ -10570,55 +11631,13 @@
         "type": "object",
         "properties": {
           "read": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the current item has been marked read by the current user",
+            "example": false
           }
         },
         "required": [
           "read"
-        ]
-      },
-      "Language": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "language": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "language"
-        ]
-      },
-      "LessThan": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NumericNullableInteger"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {}
-            }
-          },
-          {
-            "$ref": "#/components/schemas/NumericFloat"
-          }
-        ],
-        "required": [
-          "value"
         ]
       },
       "LibraryCreationDto": {
@@ -10903,37 +11922,9 @@
           "unavailable"
         ]
       },
-      "LibraryId": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "libraryId": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "libraryId"
-        ]
-      },
       "LibraryUpdateDto": {
         "type": "object",
-        "description": "Fields to update. You can omit fields you don't want to update.",
+        "description": "Fields to update. You can omit fields you don\u0027t want to update.",
         "properties": {
           "analyzeDimensions": {
             "type": "boolean"
@@ -11101,56 +12092,6 @@
           "status"
         ]
       },
-      "MediaProfile": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "mediaProfile": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "mediaProfile"
-        ]
-      },
-      "MediaStatus": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "mediaStatus": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "mediaStatus"
-        ]
-      },
       "MediaType": {
         "type": "object",
         "properties": {
@@ -11187,61 +12128,36 @@
           }
         }
       },
-      "NumberSort": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
+      "NotableEntityDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
           },
-          {
-            "type": "object",
-            "properties": {
-              "numberSort": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/GreaterThan"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LessThan"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "numberSort"
-        ]
-      },
-      "NumericFloat": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
+          "name": {
             "type": "string"
           }
         },
         "required": [
-          "operator"
+          "kind",
+          "name"
         ]
       },
-      "NumericNullableInteger": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
+      "NotableEntityUpdateDto": {
+        "type": "object",
         "properties": {
-          "operator": {
-            "type": "string"
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [
-          "operator"
+          "kind",
+          "name"
         ]
       },
       "OAuth2ClientDto": {
@@ -11257,34 +12173,6 @@
         "required": [
           "name",
           "registrationId"
-        ]
-      },
-      "OneShot": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "oneShot": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/IsFalse"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsTrue"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "oneShot"
         ]
       },
       "PageAuthenticationActivityDto": {
@@ -11675,6 +12563,53 @@
           }
         }
       },
+      "PageInteger": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PagePageHashKnownDto": {
         "type": "object",
         "properties": {
@@ -11859,6 +12794,118 @@
           }
         }
       },
+      "PageResponseNotableEntityDto": {
+        "type": "object",
+        "description": "Paginated API response container",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items contained in the current page",
+            "items": {
+              "$ref": "#/components/schemas/NotableEntityDto"
+            }
+          },
+          "first": {
+            "type": "boolean",
+            "description": "Indicates if the current page is the first page",
+            "example": true
+          },
+          "last": {
+            "type": "boolean",
+            "description": "Indicates if the current page is the last page",
+            "example": false
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based page index (0..N)",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of items requested per page",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of elements across all pages",
+            "example": 105
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of calculated pages",
+            "example": 6
+          }
+        },
+        "required": [
+          "content",
+          "first",
+          "last",
+          "page",
+          "size",
+          "totalElements",
+          "totalPages"
+        ]
+      },
+      "PageResponseString": {
+        "type": "object",
+        "description": "Paginated API response container",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items contained in the current page",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first": {
+            "type": "boolean",
+            "description": "Indicates if the current page is the first page",
+            "example": true
+          },
+          "last": {
+            "type": "boolean",
+            "description": "Indicates if the current page is the last page",
+            "example": false
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based page index (0..N)",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of items requested per page",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of elements across all pages",
+            "example": 105
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total number of calculated pages",
+            "example": 6
+          }
+        },
+        "required": [
+          "content",
+          "first",
+          "last",
+          "page",
+          "size",
+          "totalElements",
+          "totalPages"
+        ]
+      },
       "PageSeriesDto": {
         "type": "object",
         "properties": {
@@ -11866,6 +12913,98 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SeriesDto"
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PageSmartListDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SmartListDto"
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PageString": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "empty": {
@@ -11960,56 +13099,6 @@
           "name",
           "path",
           "type"
-        ]
-      },
-      "Poster": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "poster": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "poster"
-        ]
-      },
-      "Publisher": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "publisher": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "publisher"
         ]
       },
       "R2Device": {
@@ -12163,31 +13252,6 @@
           "name",
           "ordered",
           "summary"
-        ]
-      },
-      "ReadListId": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "readListId": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "readListId"
         ]
       },
       "ReadListMatchDto": {
@@ -12392,74 +13456,6 @@
           }
         }
       },
-      "ReadStatus": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "readStatus": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "readStatus"
-        ]
-      },
-      "ReleaseDate": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "releaseDate": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/After"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Before"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsInTheLast"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotInTheLast"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotNull"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNull"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "releaseDate"
-        ]
-      },
       "ReleaseDto": {
         "type": "object",
         "properties": {
@@ -12503,7 +13499,996 @@
           "path"
         ]
       },
-      "Series": {},
+      "SearchConditionAgeRating": {
+        "properties": {
+          "ageRating": {
+            "$ref": "#/components/schemas/SearchOperatorNumericNullableInteger"
+          }
+        },
+        "required": [
+          "ageRating"
+        ]
+      },
+      "SearchConditionAllOfBook": {
+        "properties": {
+          "allOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchConditionBook"
+            }
+          }
+        },
+        "required": [
+          "allOf"
+        ]
+      },
+      "SearchConditionAllOfSeries": {
+        "properties": {
+          "allOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchConditionSeries"
+            }
+          }
+        },
+        "required": [
+          "allOf"
+        ]
+      },
+      "SearchConditionAnyOfBook": {
+        "properties": {
+          "anyOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchConditionBook"
+            }
+          }
+        },
+        "required": [
+          "anyOf"
+        ]
+      },
+      "SearchConditionAnyOfSeries": {
+        "properties": {
+          "anyOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchConditionSeries"
+            }
+          }
+        },
+        "required": [
+          "anyOf"
+        ]
+      },
+      "SearchConditionAuthor": {
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityAuthorMatch"
+          }
+        },
+        "required": [
+          "author"
+        ]
+      },
+      "SearchConditionBook": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchConditionAnyOfBook"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionAllOfBook"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionLibraryId"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionReadListId"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionSeriesId"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionDeleted"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionOneShot"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionTitle"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionReleaseDate"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionTag"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionNumberSort"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionReadStatus"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionMediaStatus"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionMediaProfile"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionAuthor"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionNotableEntity"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionPoster"
+          }
+        ]
+      },
+      "SearchConditionCollectionId": {
+        "properties": {
+          "collectionId": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "collectionId"
+        ]
+      },
+      "SearchConditionComplete": {
+        "properties": {
+          "complete": {
+            "$ref": "#/components/schemas/SearchOperatorBoolean"
+          }
+        },
+        "required": [
+          "complete"
+        ]
+      },
+      "SearchConditionDeleted": {
+        "properties": {
+          "deleted": {
+            "$ref": "#/components/schemas/SearchOperatorBoolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
+      "SearchConditionGenre": {
+        "properties": {
+          "genre": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNullableString"
+          }
+        },
+        "required": [
+          "genre"
+        ]
+      },
+      "SearchConditionLanguage": {
+        "properties": {
+          "language": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "language"
+        ]
+      },
+      "SearchConditionLibraryId": {
+        "properties": {
+          "libraryId": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "libraryId"
+        ]
+      },
+      "SearchConditionMediaProfile": {
+        "properties": {
+          "mediaProfile": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityMediaProfile"
+          }
+        },
+        "required": [
+          "mediaProfile"
+        ]
+      },
+      "SearchConditionMediaStatus": {
+        "properties": {
+          "mediaStatus": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityStatus"
+          }
+        },
+        "required": [
+          "mediaStatus"
+        ]
+      },
+      "SearchConditionNotableEntity": {
+        "properties": {
+          "notableEntity": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNotableEntityMatch"
+          }
+        },
+        "required": [
+          "notableEntity"
+        ]
+      },
+      "SearchConditionNumberSort": {
+        "properties": {
+          "numberSort": {
+            "$ref": "#/components/schemas/SearchOperatorNumericTFloat"
+          }
+        },
+        "required": [
+          "numberSort"
+        ]
+      },
+      "SearchConditionOneShot": {
+        "properties": {
+          "oneShot": {
+            "$ref": "#/components/schemas/SearchOperatorBoolean"
+          }
+        },
+        "required": [
+          "oneShot"
+        ]
+      },
+      "SearchConditionPoster": {
+        "properties": {
+          "poster": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityPosterMatch"
+          }
+        },
+        "required": [
+          "poster"
+        ]
+      },
+      "SearchConditionPublisher": {
+        "properties": {
+          "publisher": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "publisher"
+        ]
+      },
+      "SearchConditionReadListId": {
+        "properties": {
+          "readListId": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "readListId"
+        ]
+      },
+      "SearchConditionReadStatus": {
+        "properties": {
+          "readStatus": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityReadStatus"
+          }
+        },
+        "required": [
+          "readStatus"
+        ]
+      },
+      "SearchConditionReleaseDate": {
+        "properties": {
+          "releaseDate": {
+            "$ref": "#/components/schemas/SearchOperatorDate"
+          }
+        },
+        "required": [
+          "releaseDate"
+        ]
+      },
+      "SearchConditionSeries": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchConditionAnyOfSeries"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionAllOfSeries"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionLibraryId"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionCollectionId"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionDeleted"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionComplete"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionOneShot"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionTitle"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionTitleSort"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionReleaseDate"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionTag"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionSharingLabel"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionPublisher"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionLanguage"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionGenre"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionAgeRating"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionReadStatus"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionSeriesStatus"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionAuthor"
+          },
+          {
+            "$ref": "#/components/schemas/SearchConditionNotableEntity"
+          }
+        ]
+      },
+      "SearchConditionSeriesId": {
+        "properties": {
+          "seriesId": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityString"
+          }
+        },
+        "required": [
+          "seriesId"
+        ]
+      },
+      "SearchConditionSeriesStatus": {
+        "properties": {
+          "seriesStatus": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityStatus"
+          }
+        },
+        "required": [
+          "seriesStatus"
+        ]
+      },
+      "SearchConditionSharingLabel": {
+        "properties": {
+          "sharingLabel": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNullableString"
+          }
+        },
+        "required": [
+          "sharingLabel"
+        ]
+      },
+      "SearchConditionTag": {
+        "properties": {
+          "tag": {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNullableString"
+          }
+        },
+        "required": [
+          "tag"
+        ]
+      },
+      "SearchConditionTitle": {
+        "properties": {
+          "title": {
+            "$ref": "#/components/schemas/SearchOperatorString"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "SearchConditionTitleSort": {
+        "properties": {
+          "titleSort": {
+            "$ref": "#/components/schemas/SearchOperatorString"
+          }
+        },
+        "required": [
+          "titleSort"
+        ]
+      },
+      "SearchOperatorAfter": {
+        "properties": {
+          "dateTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "dateTime"
+        ]
+      },
+      "SearchOperatorBefore": {
+        "properties": {
+          "dateTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "dateTime"
+        ]
+      },
+      "SearchOperatorBeginsWith": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorBoolean": {
+        "discriminator": {
+          "mapping": {
+            "isFalse": "#/components/schemas/SearchOperatorIsFalse",
+            "isTrue": "#/components/schemas/SearchOperatorIsTrue"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsTrue"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsFalse"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorContains": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorDate": {
+        "discriminator": {
+          "mapping": {
+            "after": "#/components/schemas/SearchOperatorAfter",
+            "before": "#/components/schemas/SearchOperatorBefore",
+            "isInTheLast": "#/components/schemas/SearchOperatorIsInTheLast",
+            "isNotInTheLast": "#/components/schemas/SearchOperatorIsNotInTheLast",
+            "isNotNull": "#/components/schemas/SearchOperatorIsNotNull",
+            "isNull": "#/components/schemas/SearchOperatorIsNull"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorBefore"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorAfter"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsInTheLast"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNotInTheLast"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNull"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNotNull"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorDoesNotBeginWith": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorDoesNotContain": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorDoesNotEndWith": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorEndsWith": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorEqualityAuthorMatch": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityMediaProfile": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityNotableEntityMatch": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityNullableString": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot",
+            "isNotNull": "#/components/schemas/SearchOperatorIsNotNullT",
+            "isNull": "#/components/schemas/SearchOperatorIsNullT"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNullT"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNotNullT"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityPosterMatch": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityReadStatus": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityStatus": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorEqualityString": {
+        "discriminator": {
+          "mapping": {
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorGreaterThan": {
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorIs": {
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorIsFalse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorBoolean"
+          }
+        ]
+      },
+      "SearchOperatorIsInTheLast": {
+        "properties": {
+          "duration": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "duration"
+        ]
+      },
+      "SearchOperatorIsNot": {
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorIsNotInTheLast": {
+        "properties": {
+          "duration": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "duration"
+        ]
+      },
+      "SearchOperatorIsNotNull": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorDate"
+          }
+        ]
+      },
+      "SearchOperatorIsNotNullT": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorNumericNullableInteger"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNullableString"
+          }
+        ]
+      },
+      "SearchOperatorIsNull": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorDate"
+          }
+        ]
+      },
+      "SearchOperatorIsNullT": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorNumericNullableInteger"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorEqualityNullableString"
+          }
+        ]
+      },
+      "SearchOperatorIsTrue": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorBoolean"
+          }
+        ]
+      },
+      "SearchOperatorLessThan": {
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "SearchOperatorNumericNullableInteger": {
+        "discriminator": {
+          "mapping": {
+            "greaterThan": "#/components/schemas/SearchOperatorGreaterThan",
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot",
+            "isNotNull": "#/components/schemas/SearchOperatorIsNotNullT",
+            "isNull": "#/components/schemas/SearchOperatorIsNullT",
+            "lessThan": "#/components/schemas/SearchOperatorLessThan"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorGreaterThan"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorLessThan"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNullT"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNotNullT"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorNumericTFloat": {
+        "discriminator": {
+          "mapping": {
+            "greaterThan": "#/components/schemas/SearchOperatorGreaterThan",
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot",
+            "lessThan": "#/components/schemas/SearchOperatorLessThan"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorGreaterThan"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorLessThan"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
+      "SearchOperatorString": {
+        "discriminator": {
+          "mapping": {
+            "beginsWith": "#/components/schemas/SearchOperatorBeginsWith",
+            "contains": "#/components/schemas/SearchOperatorContains",
+            "doesNotBeginWith": "#/components/schemas/SearchOperatorDoesNotBeginWith",
+            "doesNotContain": "#/components/schemas/SearchOperatorDoesNotContain",
+            "doesNotEndWith": "#/components/schemas/SearchOperatorDoesNotEndWith",
+            "endsWith": "#/components/schemas/SearchOperatorEndsWith",
+            "is": "#/components/schemas/SearchOperatorIs",
+            "isNot": "#/components/schemas/SearchOperatorIsNot"
+          },
+          "propertyName": "operator"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SearchOperatorBeginsWith"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorDoesNotBeginWith"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorContains"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorDoesNotContain"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorEndsWith"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorDoesNotEndWith"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIs"
+          },
+          {
+            "$ref": "#/components/schemas/SearchOperatorIsNot"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ]
+      },
       "SeriesDto": {
         "type": "object",
         "properties": {
@@ -12576,31 +14561,6 @@
           "name",
           "oneshot",
           "url"
-        ]
-      },
-      "SeriesId": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Book"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "seriesId": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "seriesId"
         ]
       },
       "SeriesMetadataDto": {
@@ -12752,7 +14712,7 @@
       },
       "SeriesMetadataUpdateDto": {
         "type": "object",
-        "description": "Metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don't want to update.",
+        "description": "Metadata fields to update. Set a field to null to unset the metadata. You can omit fields you don\u0027t want to update.",
         "properties": {
           "ageRating": {
             "type": "integer",
@@ -12876,95 +14836,12 @@
         "type": "object",
         "properties": {
           "condition": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/AgeRating"
-              },
-              {
-                "$ref": "#/components/schemas/AllOfSeries"
-              },
-              {
-                "$ref": "#/components/schemas/AnyOfSeries"
-              },
-              {
-                "$ref": "#/components/schemas/Author"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionId"
-              },
-              {
-                "$ref": "#/components/schemas/Complete"
-              },
-              {
-                "$ref": "#/components/schemas/Deleted"
-              },
-              {
-                "$ref": "#/components/schemas/Genre"
-              },
-              {
-                "$ref": "#/components/schemas/Language"
-              },
-              {
-                "$ref": "#/components/schemas/LibraryId"
-              },
-              {
-                "$ref": "#/components/schemas/OneShot"
-              },
-              {
-                "$ref": "#/components/schemas/Publisher"
-              },
-              {
-                "$ref": "#/components/schemas/ReadStatus"
-              },
-              {
-                "$ref": "#/components/schemas/ReleaseDate"
-              },
-              {
-                "$ref": "#/components/schemas/SeriesStatus"
-              },
-              {
-                "$ref": "#/components/schemas/SharingLabel"
-              },
-              {
-                "$ref": "#/components/schemas/Tag"
-              },
-              {
-                "$ref": "#/components/schemas/Title"
-              },
-              {
-                "$ref": "#/components/schemas/TitleSort"
-              }
-            ]
+            "$ref": "#/components/schemas/SearchConditionSeries"
           },
           "fullTextSearch": {
             "type": "string"
           }
         }
-      },
-      "SeriesStatus": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "seriesStatus": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "seriesStatus"
-        ]
       },
       "SettingMultiSourceInteger": {
         "type": "object",
@@ -12981,12 +14858,7 @@
             "type": "integer",
             "format": "int32"
           }
-        },
-        "required": [
-          "configurationSource",
-          "databaseSource",
-          "effectiveValue"
-        ]
+        }
       },
       "SettingMultiSourceString": {
         "type": "object",
@@ -13000,12 +14872,7 @@
           "effectiveValue": {
             "type": "string"
           }
-        },
-        "required": [
-          "configurationSource",
-          "databaseSource",
-          "effectiveValue"
-        ]
+        }
       },
       "SettingsDto": {
         "type": "object",
@@ -13024,6 +14891,13 @@
             "format": "int32"
           },
           "koboProxy": {
+            "type": "boolean"
+          },
+          "maxUploadFileSizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nextUiAsDefault": {
             "type": "boolean"
           },
           "rememberMeDurationDays": {
@@ -13049,22 +14923,11 @@
               "XLARGE"
             ]
           }
-        },
-        "required": [
-          "deleteEmptyCollections",
-          "deleteEmptyReadLists",
-          "kepubifyPath",
-          "koboProxy",
-          "rememberMeDurationDays",
-          "serverContextPath",
-          "serverPort",
-          "taskPoolSize",
-          "thumbnailSize"
-        ]
+        }
       },
       "SettingsUpdateDto": {
         "type": "object",
-        "description": "Fields to update. You can omit fields you don't want to update.",
+        "description": "Fields to update. You can omit fields you don\u0027t want to update.",
         "properties": {
           "deleteEmptyCollections": {
             "type": "boolean"
@@ -13083,6 +14946,9 @@
             "maximum": 65535
           },
           "koboProxy": {
+            "type": "boolean"
+          },
+          "nextUiAsDefault": {
             "type": "boolean"
           },
           "rememberMeDurationDays": {
@@ -13135,36 +15001,141 @@
           "libraryIds"
         ]
       },
-      "SharingLabel": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
+      "SmartListCreationDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
           },
-          {
-            "type": "object",
-            "properties": {
-              "sharingLabel": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotNullT"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNullT"
-                  }
-                ]
-              }
+          "sharedWithUserIds": {
+            "description": "admin only; required and non-empty when visibility is SHARED",
+            "type": "array",
+            "items": {
+              "type": "string"
             }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "description": "admin only; absent means PRIVATE",
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ],
+            "default": "PRIVATE"
+          },
+          "search": {
+            "description": "BookSearch when target is BOOK, SeriesSearch when target is SERIES",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BookSearch"
+              },
+              {
+                "$ref": "#/components/schemas/SeriesSearch"
+              }
+            ]
           }
-        ],
+        },
         "required": [
-          "sharingLabel"
+          "name",
+          "search",
+          "target"
         ]
+      },
+      "SmartListDto": {
+        "type": "object",
+        "properties": {
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastModifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "sharedWithUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "search": {
+            "description": "BookSearch when target is BOOK, SeriesSearch when target is SERIES"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ]
+          }
+        }
+      },
+      "SmartListUpdateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sharedWithUserIds": {
+            "description": "admin only; replaces the scope when present",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "description": "admin only",
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ]
+          },
+          "search": {}
+        }
       },
       "SortObject": {
         "type": "object",
@@ -13181,19 +15152,6 @@
         }
       },
       "StreamingResponseBody": {},
-      "StringOp": {
-        "discriminator": {
-          "propertyName": "operator"
-        },
-        "properties": {
-          "operator": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "operator"
-        ]
-      },
       "TachiyomiReadProgressDto": {
         "type": "object",
         "properties": {
@@ -13285,40 +15243,6 @@
           "booksUnreadCount",
           "lastReadContinuousNumberSort",
           "maxNumberSort"
-        ]
-      },
-      "Tag": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "tag": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNotNullT"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNullT"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "$ref": "#/components/schemas/Book"
-          }
-        ],
-        "required": [
-          "tag"
         ]
       },
       "Text": {
@@ -13503,93 +15427,46 @@
           "width"
         ]
       },
-      "Title": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
+      "ThumbnailSmartListDto": {
+        "type": "object",
+        "properties": {
+          "fileSize": {
+            "type": "integer",
+            "format": "int64"
           },
-          {
-            "type": "object",
-            "properties": {
-              "title": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/BeginsWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Contains"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotBeginWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotContain"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotEndWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/EndsWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
+          "height": {
+            "type": "integer",
+            "format": "int32"
           },
-          {
-            "$ref": "#/components/schemas/Book"
+          "id": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "smartListId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
           }
-        ],
+        },
         "required": [
-          "title"
-        ]
-      },
-      "TitleSort": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Series"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "titleSort": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/BeginsWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Contains"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotBeginWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotContain"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DoesNotEndWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/EndsWith"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Is"
-                  },
-                  {
-                    "$ref": "#/components/schemas/IsNot"
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        "required": [
-          "titleSort"
+          "fileSize",
+          "height",
+          "id",
+          "mediaType",
+          "selected",
+          "smartListId",
+          "type",
+          "width"
         ]
       },
       "TransientBookDto": {

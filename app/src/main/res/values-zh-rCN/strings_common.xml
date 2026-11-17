@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 各功能域复用的共享字符串。功能专属字符串放在各自的 strings_<area>.xml。 -->
+<resources>
+    <string name="common_cancel">取消</string>
+    <string name="common_save">保存</string>
+    <string name="common_delete">删除</string>
+    <string name="common_edit">编辑</string>
+    <string name="common_done">完成</string>
+    <string name="common_back">返回</string>
+    <string name="common_close">关闭</string>
+    <string name="common_more">更多</string>
+    <string name="common_share">分享</string>
+    <string name="common_download">下载</string>
+    <string name="common_retry">重试</string>
+    <string name="common_all">全部</string>
+    <string name="common_search">搜索</string>
+    <string name="common_load_failed">加载失败</string>
+    <string name="common_refresh">刷新</string>
+    <string name="common_add">添加</string>
+    <string name="common_remove">移除</string>
+    <string name="common_copy">复制</string>
+    <string name="common_confirm">确定</string>
+    <string name="common_loading">加载中…</string>
+    <string name="common_open">打开</string>
+    <string name="common_reset">重置</string>
+    <string name="common_name">名称</string>
+    <string name="common_title">标题</string>
+    <string name="common_none">无</string>
+    <string name="common_off">关</string>
+    <string name="common_on">开</string>
+    <string name="common_load_more_failed">加载更多失败</string>
+    <string name="common_action_failed_retry">%1$s 失败，请稍后重试</string>
+
+    <string name="common_author">作者</string>
+    <string name="common_series">系列</string>
+    <string name="common_book">书籍</string>
+    <string name="common_collection">收藏</string>
+    <string name="common_readlist">阅读列表</string>
+    <string name="common_tag">标签</string>
+    <string name="common_all_libraries">全部书库</string>
+    <string name="common_refresh_cover">刷新封面</string>
+    <string name="common_unread">未读</string>
+    <string name="common_completed">已读完</string>
+    <string name="common_unknown">未知</string>
+    <string name="common_yes">是</string>
+    <string name="common_no">否</string>
+    <string name="common_page_number">第 %1$d 页</string>
+
+    <plurals name="book_pages">
+        <item quantity="other">%1$d 页</item>
+    </plurals>
+    <plurals name="book_count">
+        <item quantity="other">%1$d 册</item>
+    </plurals>
+</resources>

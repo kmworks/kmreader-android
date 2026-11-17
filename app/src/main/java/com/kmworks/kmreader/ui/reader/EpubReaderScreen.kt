@@ -1,5 +1,8 @@
 package com.kmworks.kmreader.ui.reader
 
+import android.app.Activity
+import android.content.Context
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -7,18 +10,24 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +37,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -35,7 +45,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -52,15 +62,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.epub.EpubChapter
 import com.kmworks.kmreader.core.epub.EpubJs
@@ -77,6 +95,7 @@ import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CustomFont
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,14 +119,16 @@ data class EpubUiState(
 )
 
 /**
- * EPUB reader state (mirrors EpubReaderView 的 WebPub manifest 路线)：
- * manifest→章节，positions→章节权重，progression GET 恢复 / PUT 节流上报。
+ * EPUB reader state (mirrors the WebPub manifest route of EpubReaderView):
+ * manifest → chapters, positions → chapter weights, progression GET restores / PUT reports throttled.
  */
 @HiltViewModel
 class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
     private val fontRepository: FontRepository,
+    private val appSettings: AppSettingsStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -115,7 +136,7 @@ class EpubReaderViewModel @Inject constructor(
     )
     val uiState: StateFlow<EpubUiState> = _uiState.asStateFlow()
 
-    /** 已下载到本地的字体家庭（设置 sheet 字体选择的数据源）。 */
+    /** Font families downloaded locally (data source for the font picker in the settings sheet). */
     private val _downloadedFamilies = MutableStateFlow<Set<String>>(emptySet())
     val downloadedFamilies: StateFlow<Set<String>> = _downloadedFamilies.asStateFlow()
 
@@ -126,20 +147,31 @@ class EpubReaderViewModel @Inject constructor(
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
 
-    // 进度上报门控（对齐原作 EpubReaderViewModel 的 ReaderProgressRecordingGate）：
-    // 未读过的书不移动 3 页以上不上报；在读过的书移动 1 页即上报；完成/已记录总放行。
+    // Progress reporting gate (mirrors ReaderProgressRecordingGate in the original
+    // EpubReaderViewModel): an unread book reports only after moving more than 3 pages, a book
+    // already in progress reports after 1 page; completion / already recorded always passes.
     private var sessionStartTotalProgression: Float? = null
     private var estimatedTotalPages: Int = 0
     private var wasInProgress: Boolean = false
     private var hasRecorded: Boolean = false
 
-    /** 隐私阅读（incognito）：跳过进度上报。 */
+    /** Threshold for "record progress only after turning N pages" (setting; mirrors the original AppConfig.progressRecordingThreshold). */
+    @Volatile
+    private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
+
+    init {
+        viewModelScope.launch {
+            appSettings.progressRecordingThreshold.collect { progressThreshold = it }
+        }
+    }
+
+    /** Incognito reading: skips progress reporting. */
     var incognito: Boolean = false
 
     private val deviceId: String = "kmreader-android"
     private val deviceName: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
 
-    /** 加载 manifest/positions/已存进度。 */
+    /** Loads the manifest, positions and the saved progression. */
     fun load(book: Book) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
@@ -148,7 +180,10 @@ class EpubReaderViewModel @Inject constructor(
         viewModelScope.launch {
             val dtoId = DetailIdRegistry.bookDtoId(book.id)
             if (dtoId == null) {
-                _uiState.value = _uiState.value.copy(loading = false, error = "无法定位书籍")
+                _uiState.value = _uiState.value.copy(
+                    loading = false,
+                    error = context.getString(R.string.epub_error_locate_book),
+                )
                 return@launch
             }
             bookDtoId = dtoId
@@ -157,14 +192,18 @@ class EpubReaderViewModel @Inject constructor(
             val order = manifest?.readingOrder.orEmpty()
                 .filter { !it.href.isNullOrBlank() }
             if (order.isEmpty()) {
-                _uiState.value = _uiState.value.copy(loading = false, error = "无法加载目录")
+                _uiState.value = _uiState.value.copy(
+                    loading = false,
+                    error = context.getString(R.string.epub_error_load_toc),
+                )
                 return@launch
             }
             val chapters = order.mapIndexed { index, link ->
                 EpubChapter(
                     index = index,
                     href = link.href.orEmpty(),
-                    title = link.title?.takeIf { it.isNotBlank() } ?: "第 ${index + 1} 章",
+                    title = link.title?.takeIf { it.isNotBlank() }
+                        ?: context.getString(R.string.epub_chapter_fallback, index + 1),
                 )
             }
             equalWeight = 1f / chapters.size
@@ -206,7 +245,7 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
-    /** JS 桥滚动量测回调：更新章节内比例与全书比例并节流上报（对齐原作 updateThrottleInterval=2s）。 */
+    /** Scroll-metrics callback from the JS bridge: updates the in-chapter and whole-book fractions, then reports throttled (mirrors the original updateThrottleInterval=2s). */
     fun onMetrics(chapterFraction: Float) {
         val state = _uiState.value
         if (state.chapters.isEmpty()) return
@@ -219,7 +258,7 @@ class EpubReaderViewModel @Inject constructor(
         scheduleReport()
     }
 
-    /** 章节跳转（目录）。 */
+    /** Jump to a chapter (table of contents). */
     fun goToChapter(index: Int) {
         val state = _uiState.value
         if (index !in state.chapters.indices) return
@@ -227,7 +266,7 @@ class EpubReaderViewModel @Inject constructor(
         selectChapter(index, null)
     }
 
-    /** 全书比例 seek（底栏滑杆）：按章节权重反解章节与章内比例。 */
+    /** Whole-book fraction seek (bottom-bar slider): derives the chapter and in-chapter fraction from the chapter weights. */
     fun seekTo(totalFraction: Float) {
         val state = _uiState.value
         if (state.chapters.isEmpty()) return
@@ -249,21 +288,21 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
-    /** 消费一次性的滚动恢复指令。 */
+    /** Consumes the one-shot scroll-restore command. */
     fun consumeScroll() {
         if (_uiState.value.scrollToFraction != null) {
             _uiState.value = _uiState.value.copy(scrollToFraction = null)
         }
     }
 
-    /** 立即上报当前进度（退出/切章前调用）。 */
+    /** Reports the current progress immediately (called before exiting or switching chapters). */
     fun flushReport() {
         reportJob?.cancel()
         reportJob = null
         doReport()
     }
 
-    /** 资源拦截转发（WebViewClient 线程同步调用）。 */
+    /** Forwards resource interception (called synchronously on the WebViewClient thread). */
     fun fetchResource(href: String): EpubResource? {
         val dtoId = bookDtoId ?: return null
         val base = epubRepository.baseUrl ?: return null
@@ -276,13 +315,13 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
-    /** 假域 fonts 路由的本地字体读取（WebViewClient 线程同步调用）。 */
+    /** Reads a local font for the fake-domain fonts route (called synchronously on the WebViewClient thread). */
     fun fetchLocalFont(path: String): EpubResource? = fontRepository.localFontResource(path)
 
-    /** 已下载字体家庭的 @font-face css（url 已重写为假域路由）。 */
+    /** @font-face css for the downloaded font families (urls already rewritten to the fake-domain route). */
     fun fontCssFor(family: String): String? = fontRepository.localCss(family)
 
-    /** 刷新已下载字体家庭集合。 */
+    /** Refreshes the set of downloaded font families. */
     fun refreshFonts() {
         _downloadedFamilies.value = fontRepository.downloadedFamilies()
     }
@@ -305,14 +344,15 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     private fun doReport() {
-        // 隐私阅读：跳过进度上报（恢复仍保留）
+        // Incognito: skip progress reporting (restoring is still kept)
         if (incognito) return
         val state = _uiState.value
         val dtoId = bookDtoId ?: return
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
         val fraction = currentChapterFraction
         val total = state.totalProgression
-        // 完成 = 最后一章且滚动到章末（对齐原作 reachedLastPage 的近似：Android 只有章内比例）
+        // Completed = last chapter scrolled to its end (approximates the original reachedLastPage:
+        // Android only knows the in-chapter fraction)
         val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
         if (!admitsRecording(total, completed)) return
         viewModelScope.launch {
@@ -328,13 +368,13 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
-    /** 对齐原作 ReaderProgressRecordingGate：threshold=3，clamp 到 pageCount-1，在读过的书 req=1。 */
+    /** Mirrors the original ReaderProgressRecordingGate: threshold from settings, clamped to pageCount-1; a book already in progress requires 1. */
     private fun admitsRecording(currentTotal: Float, completed: Boolean): Boolean {
         if (completed || hasRecorded) return true
         val start = sessionStartTotalProgression ?: return false
         val pageCount = estimatedTotalPages
         if (pageCount <= 0) return false
-        val threshold = minOf(ReaderProgressRecordingGate.THRESHOLD, pageCount - 1)
+        val threshold = minOf(progressThreshold, pageCount - 1)
         val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
         if (requiredDistance <= 0) return true
         val distance = abs(currentTotal - start) * pageCount
@@ -353,6 +393,7 @@ class EpubReaderViewModel @Inject constructor(
 }
 
 /** EPUB reader (mirrors EpubReaderView): WebView WebPub pipeline + DIVINA-style chrome. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EpubReaderScreen(
     book: Book,
@@ -360,6 +401,9 @@ fun EpubReaderScreen(
     incognito: Boolean = false,
     viewModel: EpubReaderViewModel = hiltViewModel(),
     settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
+    onVisitSeries: (Book) -> Unit = {},
+    onOpenReadList: (Int) -> Unit = {},
+    onBrowseFilter: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(book.id, incognito) {
@@ -374,9 +418,12 @@ fun EpubReaderScreen(
             settingsViewModel = settingsViewModel,
             onBack = onBack,
             incognito = incognito,
+            onVisitSeries = onVisitSeries,
+            onOpenReadList = onOpenReadList,
+            onBrowseFilter = onBrowseFilter,
         )
     } else {
-        // 无会话：无演示骨架，直接给出错误态出口
+        // No session: no demo skeleton, just an error-state exit
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -385,12 +432,12 @@ fun EpubReaderScreen(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "需要连接服务器才能阅读",
+                    stringResource(R.string.reader_connection_required),
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White.copy(alpha = 0.85f),
                 )
                 TextButton(onClick = onBack) {
-                    Text("返回", color = Color.White)
+                    Text(stringResource(R.string.reader_back), color = Color.White)
                 }
             }
         }
@@ -398,6 +445,7 @@ fun EpubReaderScreen(
 }
 
 /** Real WebView EPUB body. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RealEpubReader(
     book: Book,
@@ -406,8 +454,12 @@ private fun RealEpubReader(
     settingsViewModel: DivinaSettingsViewModel,
     onBack: () -> Unit,
     incognito: Boolean,
+    onVisitSeries: (Book) -> Unit = {},
+    onOpenReadList: (Int) -> Unit = {},
+    onBrowseFilter: (String) -> Unit = {},
 ) {
-    // EPUB 偏好全局持久化（对齐原作 epubPreferences 等 @AppStorage），阅读器与默认值页共享同一份
+    // EPUB preferences are persisted globally (mirrors the original @AppStorage epubPreferences), so
+    // the reader and the defaults page share the same copy
     val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
     val dark = isSystemInDarkTheme()
     val downloadedFamilies by viewModel.downloadedFamilies.collectAsStateWithLifecycle()
@@ -427,7 +479,9 @@ private fun RealEpubReader(
     var chromeVisible by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showDetailSheet by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
+    var showCustomFonts by remember { mutableStateOf(false) }
     var scrub by remember { mutableStateOf<Float?>(null) }
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -458,6 +512,22 @@ private fun RealEpubReader(
     }
     DisposableEffect(Unit) {
         onDispose { viewModel.flushReport() }
+    }
+
+    // Immersive mode: hide the system bars while the chrome is hidden and restore them when it is
+    // shown (mirrors iOS EpubReaderView .statusBarHidden)
+    val view = LocalView.current
+    DisposableEffect(view, chromeVisible) {
+        val window = (view.context as? Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (chromeVisible) {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
     DisposableEffect(webView) {
         onDispose { webView?.destroy() }
@@ -518,37 +588,48 @@ private fun RealEpubReader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // The whole row swallows stray taps so they do not reach the WebView below and
+                    // toggle the chrome
+                    .pointerInput(Unit) { detectTapGestures { } }
                     .background(Color.Black.copy(alpha = 0.78f))
-                    .statusBarsPadding()
+                    // ignoringVisibility: the layout must not jump when the system bars toggle
+                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.reader_back),
                         tint = Color.White,
                     )
                 }
-                // 隐私阅读指示（对齐原作顶栏标题前 eye.slash）
+                // Incognito indicator (mirrors the eye.slash before the top-bar title in the original)
                 if (incognito) {
                     Icon(
                         Icons.Filled.VisibilityOff,
-                        contentDescription = "隐私阅读",
+                        contentDescription = stringResource(R.string.reader_incognito),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.padding(start = 4.dp, end = 8.dp),
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        // Mirrors the iOS top-bar title button: tapping the title opens the book
+                        // detail sheet
+                        .clickable { showDetailSheet = true },
+                ) {
+                    // Mirrors iOS: oneshot shows the book title and hides "Vol. N"
                     Text(
-                        book.seriesTitle,
+                        if (book.oneshot) book.title else book.seriesTitle,
                         style = MaterialTheme.typography.titleSmall,
                         color = Color.White,
                         maxLines = 1,
                     )
                     Text(
                         state.chapters.getOrNull(state.currentChapterIndex)?.title
-                            ?: "第 ${book.number} 册 · EPUB",
+                            ?: if (book.oneshot) "EPUB" else stringResource(R.string.epub_volume, book.number),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f),
                         maxLines = 1,
@@ -558,18 +639,20 @@ private fun RealEpubReader(
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(
                             Icons.Filled.MoreVert,
-                            contentDescription = "更多",
+                            contentDescription = stringResource(R.string.common_more),
                             tint = Color.White,
                         )
                     }
                     EpubReaderOptionsMenu(
                         expanded = menuExpanded,
                         items = listOf(
-                            "阅读器设置" to {
+                            // The book-detail entry is the top-bar title (mirrors iOS), so it is not
+                            // repeated in the menu
+                            EpubMenuItem(stringResource(R.string.reader_settings_title)) {
                                 menuExpanded = false
                                 showSettings = true
                             },
-                            "目录" to {
+                            EpubMenuItem(stringResource(R.string.epub_toc)) {
                                 menuExpanded = false
                                 showToc = true
                             },
@@ -590,7 +673,10 @@ private fun RealEpubReader(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Swallow stray taps so they do not reach the WebView below
+                    .pointerInput(Unit) { detectTapGestures { } }
                     .background(Color.Black.copy(alpha = 0.78f))
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -610,8 +696,12 @@ private fun RealEpubReader(
                     ),
                 )
                 ChapterCapsule(
-                    text = "第 ${state.currentChapterIndex + 1}/${state.chapters.size} 章 · " +
-                        "${(progress * 100).toInt()}%",
+                    text = stringResource(
+                        R.string.epub_chapter_progress,
+                        state.currentChapterIndex + 1,
+                        state.chapters.size,
+                        (progress * 100).toInt(),
+                    ),
                     onClick = { showToc = true },
                 )
             }
@@ -619,6 +709,8 @@ private fun RealEpubReader(
     }
 
     if (showSettings) {
+        val serverFontLabel = stringResource(R.string.fonts_server)
+        val downloadedLabel = stringResource(R.string.fonts_downloaded)
         EpubSettingsSheet(
             settings = epubSettings,
             onSettingsChange = { new -> settingsViewModel.updateEpub { new } },
@@ -626,13 +718,25 @@ private fun RealEpubReader(
                 CustomFont(
                     id = family.hashCode(),
                     name = family,
-                    fileName = "服务器字体",
-                    sizeLabel = "已下载",
+                    fileName = serverFontLabel,
+                    sizeLabel = downloadedLabel,
                 )
             },
-            onOpenCustomFonts = { /* wiring point: open CustomFontsScreen */ },
+            onOpenCustomFonts = {
+                showSettings = false
+                showCustomFonts = true
+            },
             onDismiss = { showSettings = false },
         )
+    }
+    if (showCustomFonts) {
+        // Full-page overlay inside the reader (mirrors the AppRoot SettingsPage full-page route;
+        // there is no cross-screen navigation available and the reader stays on top of the stack)
+        CustomFontsScreen(onBack = {
+            showCustomFonts = false
+            viewModel.refreshFonts()
+            showSettings = true
+        })
     }
     if (showToc) {
         EpubChapterSheet(
@@ -646,18 +750,40 @@ private fun RealEpubReader(
             onDismiss = { showToc = false },
         )
     }
+    if (showDetailSheet) {
+        ReaderDetailSheet(
+            book = book,
+            onDismiss = { showDetailSheet = false },
+            onVisitSeries = onVisitSeries,
+            onOpenReadList = onOpenReadList,
+            onBrowseFilter = onBrowseFilter,
+        )
+    }
 }
+
+/** EPUB overflow menu item (icon optional). */
+private data class EpubMenuItem(
+    val label: String,
+    val icon: ImageVector? = null,
+    val onClick: () -> Unit,
+)
 
 /** Overflow menu for the EPUB chrome. */
 @Composable
 private fun EpubReaderOptionsMenu(
     expanded: Boolean,
-    items: List<Pair<String, () -> Unit>>,
+    items: List<EpubMenuItem>,
     onDismiss: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        items.forEach { (label, action) ->
-            DropdownMenuItem(text = { Text(label) }, onClick = action)
+        items.forEach { item ->
+            DropdownMenuItem(
+                text = { Text(item.label) },
+                leadingIcon = item.icon?.let { icon ->
+                    { Icon(icon, contentDescription = null) }
+                },
+                onClick = item.onClick,
+            )
         }
     }
 }
@@ -677,7 +803,7 @@ private fun ChapterCapsule(text: String, onClick: () -> Unit) {
     )
 }
 
-/** Flattened toc row（path 定位展开态，depth 决定缩进）。 */
+/** Flattened toc row (path identifies the expanded state, depth drives the indentation). */
 private data class TocRow(
     val link: EpubLinkDto,
     val path: String,
@@ -705,7 +831,7 @@ private fun flattenToc(
 private fun tocContainsHref(href: String, links: List<EpubLinkDto>): Boolean =
     links.any { it.href == href || tocContainsHref(href, it.children.orEmpty()) }
 
-/** 含当前项的容器链默认展开（对齐 EpubTocSheetView 的 DisclosureGroup 初始化）。 */
+/** Containers holding the current entry are expanded by default (mirrors the DisclosureGroup init in EpubTocSheetView). */
 private fun initialTocExpanded(
     links: List<EpubLinkDto>,
     currentHref: String?,
@@ -727,7 +853,7 @@ private fun initialTocExpanded(
 private fun firstDescendantHref(link: EpubLinkDto): String? =
     link.href ?: link.children.orEmpty().firstNotNullOfOrNull(::firstDescendantHref)
 
-/** Manifest toc sheet（mirrors EpubTocSheetView：层级缩进、容器可展开、当前项书签高亮）。 */
+/** Manifest toc sheet (mirrors EpubTocSheetView: hierarchical indentation, expandable containers, bookmark highlight on the current entry). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EpubChapterSheet(
@@ -749,15 +875,17 @@ private fun EpubChapterSheet(
         if (index >= 0) onJump(index)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Text(
-            "目录",
+            stringResource(R.string.epub_toc),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
-        LazyColumn {
+        // Toc sheet: fixed height with a stable anchor (a bare LazyColumn would fill the screen and
+        // run into the status bar area)
+        LazyColumn(modifier = Modifier.fillMaxHeight(0.9f)) {
             if (rows.isEmpty()) {
-                // toc 缺失回退 readingOrder 平铺
+                // Missing toc: fall back to a flat readingOrder list
                 items(chapters.size) { index ->
                     val chapter = chapters[index]
                     val current = index == currentIndex
@@ -831,7 +959,7 @@ private fun TocEntryRow(
         if (isCurrent) {
             Icon(
                 Icons.Filled.Bookmark,
-                contentDescription = "当前",
+                contentDescription = stringResource(R.string.epub_toc_current),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.width(18.dp),
             )
@@ -840,7 +968,11 @@ private fun TocEntryRow(
             IconButton(onClick = onToggle) {
                 Icon(
                     if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ChevronRight,
-                    contentDescription = if (expanded) "收起" else "展开",
+                    contentDescription = if (expanded) {
+                        stringResource(R.string.epub_collapse)
+                    } else {
+                        stringResource(R.string.epub_expand)
+                    },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -848,21 +980,21 @@ private fun TocEntryRow(
     }
 }
 
-/** EpubReaderSettings → WebView 注入配置（主题灰阶对齐全自定主题）。 */
+/** EpubReaderSettings → WebView injected config (theme greys align with the custom themes). */
 private fun mapEpubThemeConfig(
     settings: EpubReaderSettings,
     dark: Boolean,
     fontCss: String?,
 ): EpubThemeConfig {
-    val (background, foreground) = when (settings.theme) {
-        "安静" -> "#FAFAFA" to "#1E1E1E"
-        "米黄" -> "#F0F0F0" to "#2A2A2A"
-        "墨绿" -> "#ECECEC" to "#202020"
+    val (background, foreground) = when (normalizeEpubTheme(settings.theme)) {
+        EPUB_THEME_QUIET -> "#FAFAFA" to "#1E1E1E"
+        EPUB_THEME_SEPIA -> "#F0F0F0" to "#2A2A2A"
+        EPUB_THEME_INK_GREEN -> "#ECECEC" to "#202020"
         else -> if (dark) "#000000" to "#E0E0E0" else "#FFFFFF" to "#1A1A1A"
     }
-    val fontFamily = when (settings.typeface) {
-        "出版方默认" -> ""
-        "系统默认" -> "serif"
+    val fontFamily = when (normalizeEpubTypeface(settings.typeface)) {
+        EPUB_TYPEFACE_PUBLISHER -> ""
+        EPUB_TYPEFACE_SYSTEM -> "serif"
         else -> cssFontFamilyValue(settings.typeface)
     }
     return EpubThemeConfig(
@@ -877,7 +1009,7 @@ private fun mapEpubThemeConfig(
     )
 }
 
-/** CSS 字体族值（对齐原作 cssFontFamilyValue：含空格/引号时加双引号）。 */
+/** CSS font-family value (mirrors the original cssFontFamilyValue: quoted when it contains spaces or quotes). */
 private fun cssFontFamilyValue(name: String): String =
     if (name.any { it == ' ' || it == '"' }) {
         "\"${name.replace("\"", "\\\"")}\""

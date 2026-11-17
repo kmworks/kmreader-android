@@ -2,15 +2,20 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SmartListRepository
+import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -20,10 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Lists screen state; 无会话时各列表为 null（UI 显示空态）。 */
+/** Lists screen state; each list is null when there is no session (UI shows the empty state). */
 data class ListsUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
@@ -36,7 +42,7 @@ data class ListsUiState(
     val readListsHasMore: Boolean = true,
 )
 
-/** 触发整页刷新的 SSE 类别（对齐 DashboardViewModel 模式）。 */
+/** SSE kinds that trigger a full refresh (mirrors the DashboardViewModel pattern). */
 private val REFRESH_KINDS = setOf(
     SseEventKind.Book,
     SseEventKind.Series,
@@ -45,13 +51,16 @@ private val REFRESH_KINDS = setOf(
     SseEventKind.SmartList,
 )
 
-/** Real collections / read lists / smart lists（智能列表失败时整组隐藏，不报错）。 */
+/** Real collections / read lists / smart lists (a failing smart list hides its whole group, no error). */
 @HiltViewModel
 class ListsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val listRepository: ListRepository,
     private val smartListRepository: SmartListRepository,
     private val sseService: SseService,
-    sessionManager: SessionManager,
+    private val appSettingsStore: AppSettingsStore,
+    private val thumbnailCache: ThumbnailCache,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ListsUiState())
@@ -85,7 +94,7 @@ class ListsViewModel @Inject constructor(
                 }
             }
         }
-        // SSE 驱动的防抖刷新（对齐 DashboardViewModel）
+        // SSE-driven debounced refresh (mirrors DashboardViewModel)
         viewModelScope.launch {
             sseService.events
                 .filter { it.kind in REFRESH_KINDS }
@@ -107,18 +116,28 @@ class ListsViewModel @Inject constructor(
                 val s = async { smartListRepository.smartLists() }
                 Triple(c.await(), r.await(), s.await())
             }
+            val pinnedCollectionIds = appSettingsStore.pinnedCollectionIds.first()
+            val pinnedReadListIds = appSettingsStore.pinnedReadListIds.first()
             val collectionEntries = collectionPage.items.map { dto ->
                 dto.toListEntry()
-            }
+            }.applyPinned(pinnedCollectionIds, DetailIdRegistry::collectionDtoId)
             val readListEntries = readListPage.items.map { dto ->
                 dto.toListEntry().copy(
-                    modifiedLabel = "更新于 ${dto.lastModifiedDate.take(10)}",
+                    modifiedLabel = context.getString(
+                        R.string.lists_modified_at,
+                        dto.lastModifiedDate.take(10),
+                    ),
                 )
-            }
+            }.applyPinned(pinnedReadListIds, DetailIdRegistry::readListDtoId)
             val smartListEntries = smartLists.map { dto ->
                 dto.toListEntry().copy(
-                    targetLabel = if (dto.target == "SERIES") "系列" else "书籍",
-                    modifiedLabel = "更新于 ${dto.lastModifiedDate.take(10)}",
+                    targetLabel = context.getString(
+                        if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
+                    ),
+                    modifiedLabel = context.getString(
+                        R.string.lists_modified_at,
+                        dto.lastModifiedDate.take(10),
+                    ),
                 )
             }
             _state.update {
@@ -139,7 +158,7 @@ class ListsViewModel @Inject constructor(
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    error = e.message ?: "加载失败",
+                    error = e.message ?: context.getString(R.string.common_load_failed),
                     collections = null,
                     readLists = null,
                     smartLists = null,
@@ -148,7 +167,7 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    /** 收藏 strip 触底加载下一页。 */
+    /** Load the next page when the collections strip hits bottom. */
     fun loadMoreCollections() {
         val state = _state.value
         if (loadingMoreCollections || state.loading || !state.collectionsHasMore) return
@@ -159,27 +178,33 @@ class ListsViewModel @Inject constructor(
                 val nextPage = collectionsPage + 1
                 val result = listRepository.collectionsPage(page = nextPage, size = PAGE_SIZE)
                 collectionsPage = nextPage
+                val pinnedIds = appSettingsStore.pinnedCollectionIds.first()
                 _state.update { st ->
                     st.copy(
                         loadingMore = false,
-                        collections = st.collections.orEmpty() +
+                        collections = (st.collections.orEmpty() +
                             result.items.map { it.toListEntry() }.filterNot { entry ->
                                 st.collections.orEmpty().any { it.id == entry.id }
-                            },
+                            }).applyPinned(pinnedIds, DetailIdRegistry::collectionDtoId),
                         collectionsHasMore = result.hasMore,
                     )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+                _state.update {
+                    it.copy(
+                        loadingMore = false,
+                        error = e.message ?: context.getString(R.string.common_load_more_failed),
+                    )
+                }
             } finally {
                 loadingMoreCollections = false
             }
         }
     }
 
-    /** 阅读列表 strip 触底加载下一页。 */
+    /** Load the next page when the read lists strip hits bottom. */
     fun loadMoreReadLists() {
         val state = _state.value
         if (loadingMoreReadLists || state.loading || !state.readListsHasMore) return
@@ -190,24 +215,33 @@ class ListsViewModel @Inject constructor(
                 val nextPage = readListsPage + 1
                 val result = listRepository.readListsPage(page = nextPage, size = PAGE_SIZE)
                 readListsPage = nextPage
+                val pinnedIds = appSettingsStore.pinnedReadListIds.first()
                 _state.update { st ->
                     st.copy(
                         loadingMore = false,
-                        readLists = st.readLists.orEmpty() +
+                        readLists = (st.readLists.orEmpty() +
                             result.items.map {
                                 it.toListEntry().copy(
-                                    modifiedLabel = "更新于 ${it.lastModifiedDate.take(10)}",
+                                    modifiedLabel = context.getString(
+                                        R.string.lists_modified_at,
+                                        it.lastModifiedDate.take(10),
+                                    ),
                                 )
                             }.filterNot { entry ->
                                 st.readLists.orEmpty().any { it.id == entry.id }
-                            },
+                            }).applyPinned(pinnedIds, DetailIdRegistry::readListDtoId),
                         readListsHasMore = result.hasMore,
                     )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+                _state.update {
+                    it.copy(
+                        loadingMore = false,
+                        error = e.message ?: context.getString(R.string.common_load_more_failed),
+                    )
+                }
             } finally {
                 loadingMoreReadLists = false
             }
@@ -279,8 +313,52 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    /** Pin/unpin a collection (stores the dtoId set locally; pinned sorts first; mirrors iOS CollectionsViewModel). */
+    fun toggleCollectionPinned(entry: ListEntry) {
+        val dtoId = DetailIdRegistry.collectionDtoId(entry.id) ?: return
+        viewModelScope.launch {
+            val current = appSettingsStore.pinnedCollectionIds.first()
+            val next = if (dtoId in current) current - dtoId else current + dtoId
+            appSettingsStore.setPinnedCollectionIds(next)
+            _state.update { st ->
+                st.copy(collections = st.collections?.applyPinned(next, DetailIdRegistry::collectionDtoId))
+            }
+        }
+    }
+
+    /** Pin/unpin a read list. */
+    fun toggleReadListPinned(entry: ListEntry) {
+        val dtoId = DetailIdRegistry.readListDtoId(entry.id) ?: return
+        viewModelScope.launch {
+            val current = appSettingsStore.pinnedReadListIds.first()
+            val next = if (dtoId in current) current - dtoId else current + dtoId
+            appSettingsStore.setPinnedReadListIds(next)
+            _state.update { st ->
+                st.copy(readLists = st.readLists?.applyPinned(next, DetailIdRegistry::readListDtoId))
+            }
+        }
+    }
+
+    /** Refresh the cover cache (ThumbnailCache supports registered Book/Series/Collection/ReadList/SmartList stableIds). */
+    fun refreshCover(stableId: Int): Boolean = thumbnailCache.refresh(stableId)
+
+    /** Web share link for a read list ({baseUrl}/readlist/{dtoId}). */
+    fun readListWebUrl(stableId: Int): String? {
+        val dtoId = DetailIdRegistry.readListDtoId(stableId) ?: return null
+        val clients = sessionManager.clients.value ?: return null
+        return "${clients.baseUrl}/readlist/$dtoId"
+    }
+
+    /** Mirrors iOS pinnedIds + the rest: entries in the pinned set get pinned=true and are stably sorted first. */
+    private fun List<ListEntry>.applyPinned(
+        pinnedIds: Set<String>,
+        dtoIdOf: (Int) -> String?,
+    ): List<ListEntry> =
+        map { entry -> entry.copy(pinned = dtoIdOf(entry.id)?.let { it in pinnedIds } ?: false) }
+            .sortedByDescending { it.pinned }
+
     private companion object {
-        /** 收藏/阅读列表每页 50 条（全站列表统一）。 */
+        /** 50 items per page for collections/read lists (unified across list screens). */
         const val PAGE_SIZE = 50
     }
 }

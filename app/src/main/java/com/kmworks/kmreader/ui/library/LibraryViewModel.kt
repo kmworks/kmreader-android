@@ -1,17 +1,25 @@
 package com.kmworks.kmreader.ui.library
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.ui.lists.newCollectionEntry
+import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
+import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.data.ThumbnailCache
+import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
@@ -19,7 +27,11 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
+import com.kmworks.kmreader.ui.detail.BookMetadataDraft
+import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -43,13 +55,13 @@ data class LibraryUiState(
     val books: List<Book>? = null,
     val seriesHasMore: Boolean = false,
     val booksHasMore: Boolean = false,
-    /** 服务端总量（对齐 iOS 书库标题计数）；null = 尚无会话分页数据。 */
+    /** Server-side totals (mirroring the iOS library title counts); null = no paged session data yet. */
     val seriesTotal: Long? = null,
     val booksTotal: Long? = null,
     val hasMore: Boolean = false,
     val libraries: List<LibraryDto> = emptyList(),
     val libraryCount: Int = 0,
-    /** LibraryBrowseScope rawValue：pinned / all / library:{id}。 */
+    /** LibraryBrowseScope rawValue: pinned / all / library:{id}. */
     val scope: String = AppSettingsStore.SCOPE_PINNED,
     val pinnedIds: Set<String> = emptySet(),
     val browseOptions: BookBrowseOptions = BookBrowseOptions(),
@@ -60,6 +72,7 @@ data class LibraryUiState(
 /** Real library content (scope + filters drive paged POST list queries). */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val seriesRepository: SeriesRepository,
     private val bookRepository: BookRepository,
     private val libraryRepository: LibraryRepository,
@@ -70,6 +83,8 @@ class LibraryViewModel @Inject constructor(
     private val sseService: SseService,
     private val appSettings: AppSettingsStore,
     private val sessionManager: SessionManager,
+    private val downloadRepository: DownloadRepository,
+    private val thumbnailCache: ThumbnailCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -77,7 +92,8 @@ class LibraryViewModel @Inject constructor(
 
     private val browseOptionsFlow = MutableStateFlow(BookBrowseOptions())
 
-    /** 当前查询快照，翻页沿用同一条件；查询变化时自增 generation 丢弃迟到结果。 */
+    /** Snapshot of the current query; paging reuses the same conditions. A query change bumps
+     *  generation so late results are discarded. */
     private data class Query(
         val scope: String,
         val pinned: Set<String>,
@@ -92,7 +108,8 @@ class LibraryViewModel @Inject constructor(
     private var loadingMoreBooks = false
 
     init {
-        // 会话 × 范围 × 钉选 × 筛选 任一变化都重查（对齐原作 scope/filters 直接驱动查询）
+        // Re-query whenever session × scope × pins × filters change (mirrors the original where
+        // scope/filters drive the query directly)
         viewModelScope.launch {
             combine(
                 sessionManager.clients,
@@ -129,7 +146,7 @@ class LibraryViewModel @Inject constructor(
                     }
                 }
         }
-        // SSE 内容变化事件聚合 3s 后刷新
+        // Aggregate SSE content-change events for 3s before refreshing
         viewModelScope.launch {
             sseService.events
                 .filter { it.kind in REFRESH_KINDS }
@@ -138,7 +155,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 重新拉取列表内容（动作成功或 SSE 事件后的内容同步）。 */
+    /** Re-fetch the list content (content sync after a successful action or an SSE event). */
     fun refresh() {
         viewModelScope.launch {
             val current = query
@@ -146,34 +163,24 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 切换库范围（pinned/all/library:{id}，持久化后由 flow 触发重查）。 */
+    /** Switch the library scope (pinned/all/library:{id}); the flow re-queries after persistence. */
     fun setScope(scope: String) {
         viewModelScope.launch { appSettings.setLibraryBrowseScope(scope) }
     }
 
-    /** 覆盖钉选集合（钉选编辑 sheet 保存）。 */
+    /** Replace the pinned set (saved from the pin-editing sheet). */
     fun setPinnedLibraries(ids: Set<String>) {
         viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
     }
 
-    /** 切换单个书库的钉选状态。 */
-    fun togglePinnedLibrary(libraryId: String) {
-        val next = _state.value.pinnedIds.toMutableSet()
-        if (!next.remove(libraryId)) next += libraryId
-        setPinnedLibraries(next)
-    }
-
-    /** 更新筛选/排序选项（BrowseOptionsSheet 编辑结果真实作用于查询）。 */
+    /** Update filter/sort options (BrowseOptionsSheet edits apply to the real query). */
     fun setBrowseOptions(options: BookBrowseOptions) {
         browseOptionsFlow.value = options
     }
 
-    /** scope 解析为库 id 列表（对齐 iOS resolvedIds：all→不过滤，pinned 空→不过滤）。 */
-    private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? = when {
-        scope == AppSettingsStore.SCOPE_ALL -> null
-        scope.startsWith("library:") -> listOf(scope.removePrefix("library:"))
-        else -> pinned.toList().takeIf { it.isNotEmpty() }
-    }
+    /** Resolve the scope to library ids (mirrors iOS resolvedIds: all → no filter, empty pinned → no filter). */
+    private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? =
+        resolveLibraryScopeIds(scope, pinned)
 
     private suspend fun load(scope: String, pinned: Set<String>, options: BookBrowseOptions) {
         val nextQuery = Query(scope, pinned, options)
@@ -192,11 +199,11 @@ class LibraryViewModel @Inject constructor(
             val (seriesPageResult, bookPageResult) = coroutineScope {
                 val series = async {
                     searchRepository.browseSeriesPage(libraryIds, options, page = 0, size = PAGE_SIZE)
-                        ?: throw IllegalStateException("系列列表加载失败")
+                        ?: throw IllegalStateException(context.getString(R.string.library_series_load_failed))
                 }
                 val books = async {
                     searchRepository.browseBooksPage(libraryIds, options, page = 0, size = PAGE_SIZE)
-                        ?: throw IllegalStateException("书籍列表加载失败")
+                        ?: throw IllegalStateException(context.getString(R.string.library_books_load_failed))
                 }
                 series.await() to books.await()
             }
@@ -207,10 +214,10 @@ class LibraryViewModel @Inject constructor(
                 c.await() to r.await()
             }
             val collections = collectionDtos.map { dto ->
-                ListEntry(dto.id.hashCode(), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
+                ListEntry(StableIds.collection(dto.id), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
             }
             val readLists = readListDtos.map { dto ->
-                ListEntry(dto.id.hashCode(), dto.name, dto.bookIds.size, hueFor(dto.id), false)
+                ListEntry(StableIds.readList(dto.id), dto.name, dto.bookIds.size, hueFor(dto.id), false)
             }
             _state.update {
                 it.copy(
@@ -237,7 +244,7 @@ class LibraryViewModel @Inject constructor(
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    error = e.message ?: "加载失败",
+                    error = e.message ?: context.getString(R.string.common_load_failed),
                     series = null,
                     books = null,
                 )
@@ -245,7 +252,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 触底加载系列下一页（并发/无更多/加载中直接忽略）。 */
+    /** Load the next series page at the bottom (ignored while loading, concurrently, or when no more). */
     fun loadMoreSeries() {
         val current = query ?: return
         val snapshot = _state.value
@@ -282,14 +289,14 @@ class LibraryViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 if (currentGeneration != generation) return@launch
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+                _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
             } finally {
                 loadingMoreSeries = false
             }
         }
     }
 
-    /** 触底加载书籍下一页。 */
+    /** Load the next book page at the bottom. */
     fun loadMoreBooks() {
         val current = query ?: return
         val snapshot = _state.value
@@ -326,14 +333,15 @@ class LibraryViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 if (currentGeneration != generation) return@launch
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+                _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
             } finally {
                 loadingMoreBooks = false
             }
         }
     }
 
-    /** 标记系列已读/未读并即时更新本地状态；无 DTO 映射时静默忽略（演示数据）。 */
+    /** Mark a series read/unread and update local state immediately; silently ignored without a DTO
+     *  mapping (demo data). */
     fun markSeriesRead(series: Series, read: Boolean) {
         val dtoId = detailRepository.seriesDtoId(series.id) ?: return
         viewModelScope.launch {
@@ -356,7 +364,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 标记书籍已读/未读并即时更新本地状态；无 DTO 映射时静默忽略。 */
+    /** Mark a book read/unread and update local state immediately; silently ignored without a DTO mapping. */
     fun markBookRead(book: Book, read: Boolean) {
         val dtoId = detailRepository.bookDtoId(book.id) ?: return
         viewModelScope.launch {
@@ -372,7 +380,137 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 把系列加入收藏。 */
+    /** Download the whole book (silently ignored without a DTO mapping). */
+    fun downloadBook(stableId: Int, title: String, pageCount: Int) {
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return
+        downloadRepository.enqueueBook(dtoId, title, pageCount)
+    }
+
+    /** Download every book of the series (enqueued one by one). */
+    fun downloadSeries(stableId: Int) {
+        val dtoId = detailRepository.seriesDtoId(stableId) ?: return
+        viewModelScope.launch {
+            detailRepository.seriesBooks(dtoId).forEach { book ->
+                downloadRepository.enqueueBook(
+                    book.id,
+                    book.metadata.title.ifBlank { book.name },
+                    book.media.pagesCount,
+                    libraryId = book.libraryId,
+                )
+            }
+        }
+    }
+
+    /** Save the series metadata edit; dto == null means no change, an immediate success. */
+    fun saveSeriesMetadata(stableId: Int, dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {
+        if (dto == null) {
+            onDone(true)
+            return
+        }
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.updateSeriesMetadata(dtoId, dto)
+            if (ok) refresh()
+            onDone(ok)
+        }
+    }
+
+    /** Save the book metadata edit (only changed fields are submitted); an unchanged draft succeeds
+     *  immediately. */
+    fun saveBookMetadata(stableId: Int, baseTitle: String, draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {
+        val body = draft.toUpdateDto(baseTitle, null)
+        if (body == null) {
+            onDone(true)
+            return
+        }
+        val dtoId = detailRepository.bookDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.updateBookMetadata(dtoId, body)
+            if (ok) refresh()
+            onDone(ok)
+        }
+    }
+
+    /** Refresh the cover (clears the cache; the next display re-fetches). */
+    fun refreshCover(stableId: Int) {
+        thumbnailCache.refresh(stableId)
+    }
+
+    /** Re-analyze the book. */
+    fun analyzeBook(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch { onDone(actionRepository.analyzeBook(dtoId)) }
+    }
+
+    /** Refresh the book metadata; re-queries the current list on success. */
+    fun refreshBookMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.refreshBookMetadata(dtoId)
+            if (ok) refresh()
+            onDone(ok)
+        }
+    }
+
+    /** Delete the series files; re-queries the current list on success. */
+    fun deleteSeries(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.deleteSeries(dtoId)
+            if (ok) refresh()
+            onDone(ok)
+        }
+    }
+
+    /** Delete the book files; re-queries the current list on success. */
+    fun deleteBook(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch {
+            val ok = actionRepository.deleteBook(dtoId)
+            if (ok) refresh()
+            onDone(ok)
+        }
+    }
+
+    /** Komga web URL of the series (for sharing). */
+    fun seriesWebUrl(stableId: Int): String? {
+        val clients = sessionManager.clients.value ?: return null
+        val dtoId = detailRepository.seriesDtoId(stableId) ?: return null
+        return "${clients.baseUrl}/series/$dtoId"
+    }
+
+    /** Komga web URL of the book (for sharing). */
+    fun bookWebUrl(stableId: Int): String? {
+        val clients = sessionManager.clients.value ?: return null
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return null
+        return "${clients.baseUrl}/book/$dtoId"
+    }
+
+    /** Add the series to a collection. */
     fun addSeriesToCollection(entry: ListEntry, series: Series) {
         val seriesDtoId = detailRepository.seriesDtoId(series.id) ?: return
         val collectionDtoId = detailRepository.collectionDtoId(entry.id) ?: return
@@ -381,7 +519,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 把系列的全部书籍加入阅读列表（Komga 阅读列表只收书籍）。 */
+    /** Add every book of the series to a read list (Komga read lists accept books only). */
     fun addSeriesToReadList(entry: ListEntry, series: Series) {
         val seriesDtoId = detailRepository.seriesDtoId(series.id) ?: return
         val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return
@@ -392,7 +530,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 把书籍加入阅读列表。 */
+    /** Add the book to a read list. */
     fun addBookToReadList(entry: ListEntry, book: Book) {
         val bookDtoId = detailRepository.bookDtoId(book.id) ?: return
         val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return
@@ -401,7 +539,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** 查询快照（会话+范围+钉选+筛选）。 */
+    /** Query snapshot (session + scope + pins + filters). */
     private data class ScopeQuery(
         val hasSession: Boolean,
         val scope: String,
@@ -409,11 +547,23 @@ class LibraryViewModel @Inject constructor(
         val options: BookBrowseOptions,
     )
 
+    /** Create a read list (the "New…" flow of the "Add to List" picker); returns the new entry on
+     *  success. */
+    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
+    }
+
+    /** Create a collection (the "New…" flow of the "Add to Collection" picker); returns the new entry
+     *  on success. */
+    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    }
+
     private companion object {
-        /** 每页数量，对齐原作 SeriesViewModel/BookViewModel 的 pageSize = 50。 */
+        /** Page size, mirroring pageSize = 50 of the original SeriesViewModel/BookViewModel. */
         const val PAGE_SIZE = 50
 
-        /** 触发书库刷新的事件类别。 */
+        /** Event kinds that trigger a library refresh. */
         val REFRESH_KINDS = setOf(
             SseEventKind.Book,
             SseEventKind.Series,

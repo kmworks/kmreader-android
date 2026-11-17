@@ -6,6 +6,7 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ReaderRepository
 import com.kmworks.kmreader.core.logging.AppLog
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.settings.DivinaSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
@@ -19,29 +20,29 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** 页面列表三态（无假数据回退；失败走错误态重试）。 */
+/** Three-state page list (no fake-data fallback; failures go to the error state with retry). */
 enum class ReaderPagesStatus { Loading, Ready, Error }
 
 data class ReaderUiState(
     val status: ReaderPagesStatus = ReaderPagesStatus.Loading,
-    /** 真实页面（宽高来自 PageDto）。 */
+    /** Real pages (width/height from PageDto). */
     val pages: List<ReaderPage> = emptyList(),
-    /** 当前书的 Komga id（未映射时为 null，页面不可用）。 */
+    /** Komga id of the current book (null when unmapped; pages unavailable). */
     val bookDtoId: String? = null,
     /**
-     * 恢复阅读的服务器页号（对齐原作 DivinaReaderView.loadBook：
-     * incognito 或已完成 → null 从第 0 页起；否则 readProgress.page）。
+     * Server page number to resume from (mirrors the original DivinaReaderView.loadBook:
+     * incognito or completed → null to start from page 0; otherwise readProgress.page).
      */
     val initialPage: Int? = null,
-    /** 会话开始时该书处于「在读」状态（对齐原作 wasInProgress：gate 的最小步距放宽到 1）。 */
+    /** The book was in progress when the session started (mirrors the original wasInProgress: the gate's minimum distance relaxes to 1). */
     val wasInProgress: Boolean = false,
-    /** 系列元数据方向（raw：LEFT_TO_RIGHT/RIGHT_TO_LEFT/VERTICAL/WEBTOON，对齐 SeriesDto.metadata.readingDirection）。 */
+    /** Series metadata direction (raw: LEFT_TO_RIGHT/RIGHT_TO_LEFT/VERTICAL/WEBTOON, mirrors SeriesDto.metadata.readingDirection). */
     val seriesDirection: String? = null,
 )
 
 /**
- * DIVINA 阅读器：按 Book 拉取真实页列表、进度恢复语义、单页独显集合、
- * 进度上报（对齐原作 ReaderProgressRecordingGate 的门控语义）。
+ * DIVINA reader: fetches the real page list per Book, progress-resume semantics, solo-page set,
+ * and progress reporting (mirrors the gating semantics of the original ReaderProgressRecordingGate).
  */
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -49,24 +50,39 @@ class ReaderViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val detailRepository: DetailRepository,
     private val settingsStore: DivinaSettingsStore,
+    private val appSettings: AppSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
-    /** 单页独显集合（服务器页号，按书持久化；对齐原作 soloPagesByBookId）。 */
+    /** Solo-page set (server page numbers, persisted per book; mirrors the original soloPagesByBookId). */
     private val _soloPages = MutableStateFlow<Set<Int>>(emptySet())
     val soloPages: StateFlow<Set<Int>> = _soloPages.asStateFlow()
 
     private var loadedBookId: Int? = null
 
-    /** 隐私阅读（incognito）：跳过进度上报。 */
+    /** Incognito reading: skips progress reporting. */
     var incognito: Boolean = false
 
-    /** 加载页面列表 + 进度恢复 + 系列方向；重复调用同书幂等。 */
+    /** Page-turn threshold for recording progress (mirrors the original AppConfig.progressRecordingThreshold, takes effect immediately from the settings page). */
+    @Volatile
+    private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
+
+    init {
+        viewModelScope.launch {
+            appSettings.progressRecordingThreshold.collect { progressThreshold = it }
+        }
+    }
+
+    /** Loads the page list + progress resume + series direction; idempotent for repeated calls with the same book. */
     fun load(book: Book) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
+        // Reset progress-gate state on book change (mirrors the original rebuilding the gate on every loadBook)
+        sessionStartPage = null
+        hasRecordedProgress = false
+        lastReportedPage = 0
         val dtoId = readerRepository.bookDtoId(book.id)
         if (dtoId == null) {
             _uiState.value = ReaderUiState(status = ReaderPagesStatus.Error)
@@ -74,7 +90,7 @@ class ReaderViewModel @Inject constructor(
         }
         _uiState.value = ReaderUiState(status = ReaderPagesStatus.Loading, bookDtoId = dtoId)
         viewModelScope.launch {
-            // 独显集合（本地持久化，失败不阻塞）
+            // Solo-page set (persisted locally; failures do not block)
             runCatching { settingsStore.soloPages(dtoId).first() }
                 .onSuccess { _soloPages.value = it }
 
@@ -91,15 +107,17 @@ class ReaderViewModel @Inject constructor(
             _uiState.value = when {
                 dtos.isEmpty() -> ReaderUiState(status = ReaderPagesStatus.Error, bookDtoId = dtoId)
                 else -> {
-                    // 对齐原作 loadBook：incognito 或已完成 → 从第 0 页起
+                    // Mirrors the original loadBook: incognito or completed → start from page 0
                     val resumePage = if (incognito || progress?.completed == true) null else progress?.page
+                    // Gate anchor = resume page (otherwise the pager jumping from 0 to the resume page would count as "turned N pages" and record immediately)
+                    sessionStartPage = resumePage ?: dtos.firstOrNull()?.number
                     ReaderUiState(
                         status = ReaderPagesStatus.Ready,
                         pages = dtos.map { dto ->
                             ReaderPage(
                                 id = dto.number,
                                 number = dto.number,
-                                // PageDto 宽高可空：未知按竖版处理（不影响配对逻辑）
+                                // PageDto width/height are nullable: unknown treated as portrait (does not affect pairing logic)
                                 width = dto.width ?: 0,
                                 height = dto.height ?: 0,
                             )
@@ -119,7 +137,7 @@ class ReaderViewModel @Inject constructor(
         load(book)
     }
 
-    // ---- 单页独显（对齐原作 toggleSoloPage：仅竖版页可独显，按书持久化）----
+    // ---- Solo pages (mirrors the original toggleSoloPage: only portrait pages can be solo, persisted per book) ----
     fun toggleSoloPage(pageNumber: Int) {
         val dtoId = _uiState.value.bookDtoId ?: return
         val next = _soloPages.value.toMutableSet().apply {
@@ -132,21 +150,21 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /** 整页图片 URL（无真实会话时为 null，UI 显示占位）。 */
+    /** Full-page image URL (null without a real session; UI shows a placeholder). */
     fun pageUrl(pageNumber: Int): String? =
         _uiState.value.bookDtoId?.let { readerRepository.pageUrl(it, pageNumber) }
 
-    /** 页缩略图 URL（缩略图条用）。 */
+    /** Page thumbnail URL (for the thumbnail strip). */
     fun pageThumbnailUrl(pageNumber: Int): String? =
         _uiState.value.bookDtoId?.let { readerRepository.pageThumbnailUrl(it, pageNumber) }
 
-    // ---- 进度上报（对齐原作 ReaderProgressRecordingGate）----
-    /** 会话起始页（首个观察到的 settled 页）。 */
+    // ---- Progress reporting (mirrors the original ReaderProgressRecordingGate) ----
+    /** Session start page (first observed settled page). */
     private var sessionStartPage: Int? = null
     private var hasRecordedProgress = false
     private var lastReportedPage: Int = 0
 
-    /** 上报阅读进度（settled 单元最后一页）。incognito 跳过；过 gate 才去重上报。 */
+    /** Reports reading progress (last page of the settled unit). Skipped when incognito; de-duplicated reporting only after passing the gate. */
     fun reportProgress(page: Int) {
         if (incognito) return
         val state = _uiState.value
@@ -156,8 +174,8 @@ class ReaderViewModel @Inject constructor(
 
         val completed = pageCount > 0 && page >= pageCount
         if (!completed && !hasRecordedProgress) {
-            // 对齐原作 gate：requiredDistance = min(threshold, pageCount-1)，wasInProgress 时放宽到 1
-            val threshold = min(ReaderProgressRecordingGate.THRESHOLD, maxOf(pageCount - 1, 0))
+            // Mirrors the original gate: requiredDistance = min(threshold, pageCount-1), relaxed to 1 when wasInProgress
+            val threshold = min(progressThreshold, maxOf(pageCount - 1, 0))
             val requiredDistance = if (state.wasInProgress) min(threshold, 1) else threshold
             val distance = abs(page - (sessionStartPage ?: page))
             if (distance < requiredDistance) return
@@ -176,13 +194,13 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /** 退出时 flush（对齐原作 flushProgress()=enqueue(from:current,to:nil)，同样过 gate）。 */
+    /** Flush on exit (mirrors the original flushProgress()=enqueue(from:current,to:nil), also gated). */
     fun flushProgress(currentPage: Int) {
         reportProgress(currentPage)
     }
 }
 
-/** 进度门控常量（对齐原作 ReaderProgressRecordingGate + AppConfig.progressRecordingThreshold）。 */
+/** Progress-gate constants (mirrors the original ReaderProgressRecordingGate + AppConfig.progressRecordingThreshold). */
 object ReaderProgressRecordingGate {
     const val THRESHOLD = 3
 }

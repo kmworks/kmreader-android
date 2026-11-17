@@ -72,6 +72,9 @@ tasks.register("patchGeneratedSources") {
         // 0b. Condition variants re-declare `operator` from their parent
         //     interface without `override`. Add it for any file whose class
         //     has a supertype and whose operator val lacks the modifier.
+        // 0c. Same generator quirk for `value`: SearchOperatorIsNullT /
+        //     SearchOperatorIsNotNullT re-declare `value` from
+        //     SearchOperatorNumericNullableInteger without `override`.
         val supertypeRegex = Regex("""\)\s*:\s*[A-Z][A-Za-z0-9]*\s*\{""")
         modelDir.listFiles { f -> f.extension == "kt" }?.forEach { source ->
             val original = source.readText()
@@ -85,6 +88,10 @@ tasks.register("patchGeneratedSources") {
                         "    val `operator`: kotlin.String\n",
                         "    override val `operator`: kotlin.String\n",
                     )
+                    .replace(
+                        "    val `value`: ",
+                        "    override val `value`: ",
+                    )
                 if (patched != original) source.writeText(patched)
             }
         }
@@ -92,7 +99,8 @@ tasks.register("patchGeneratedSources") {
             val lines = source.readLines()
             var changed = false
             val patched = lines.map { line ->
-                if (line.trimStart().startsWith("val ") && line.contains("kotlin.Any")) {
+                val trimmed = line.trimStart()
+                if ((trimmed.startsWith("val ") || trimmed.startsWith("override val ")) && line.contains("kotlin.Any")) {
                     changed = true
                     line.replace("kotlin.Any", "kotlinx.serialization.json.JsonElement")
                 } else if (

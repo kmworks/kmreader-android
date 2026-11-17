@@ -14,9 +14,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * client-settings 云端同步（对齐 iOS ClientSettingsService 语义）。
- * 下行：会话建立后拉取远端键应用到 AppSettingsStore（走 write*，不触发上行回显）；
- * 上行：订阅 AppSettingsStore.changes，聚合同期变更后防抖 PATCH（一次 PATCH 携带全部待写键）。
+ * client-settings cloud sync (mirrors iOS ClientSettingsService semantics).
+ * Downlink: after a session is established, fetch remote keys and apply them to AppSettingsStore (via
+ * write*, so no uplink echo is triggered);
+ * uplink: subscribes to AppSettingsStore.changes, aggregates same-window changes and debounces a PATCH
+ * (one PATCH carries all pending keys).
  */
 @Singleton
 class ClientSettingsSync @Inject constructor(
@@ -47,18 +49,18 @@ class ClientSettingsSync @Inject constructor(
         }
     }
 
-    /** 下行：只应用映射表内的已知键，未知键忽略；失败记日志（下次登录再拉）。 */
+    /** Downlink: applies only known keys from the mapping table, unknown keys are ignored; failures are logged (fetched again at next login). */
     private suspend fun pull(clients: ApiClients) = withContext(Dispatchers.IO) {
         val remote = try {
             val response = api(clients).getUserSettings().execute()
             if (response.isSuccessful) {
                 response.body().orEmpty()
             } else {
-                AppLog.w("SettingsSync", "下行失败：HTTP ${response.code()}")
+                AppLog.w("SettingsSync", "downlink failed: HTTP ${response.code()}")
                 return@withContext
             }
         } catch (e: Exception) {
-            AppLog.w("SettingsSync", "下行失败：${e.message}")
+            AppLog.w("SettingsSync", "downlink failed: ${e.message}")
             return@withContext
         }
         remote[ClientSettingKeys.SSE_ENABLED]?.value
@@ -69,16 +71,16 @@ class ClientSettingsSync @Inject constructor(
             ?.let { appSettings.writeTrueBlackDark(it == "true") }
         remote[ClientSettingKeys.DIVINA_DIRECTION]?.value
             ?.let { if (it in DIRECTION_VALUES) appSettings.writeDivinaDefaultDirection(it) }
-        AppLog.d("SettingsSync", "下行完成：远端 ${remote.size} 键")
+        AppLog.d("SettingsSync", "downlink done: ${remote.size} remote keys")
     }
 
-    /** 上行：一次 PATCH 携带全部待写键；无会话丢弃，网络失败等下轮变更再试。 */
+    /** Uplink: one PATCH carries all pending keys; without a session they are dropped, network failures wait for the next change round. */
     private suspend fun flush() {
         val clients = sessionManager.clients.value ?: run {
             val dropped = synchronized(pendingLock) {
                 pending.size.also { pending.clear() }
             }
-            if (dropped > 0) AppLog.d("SettingsSync", "无会话，丢弃 $dropped 个待上行键")
+            if (dropped > 0) AppLog.d("SettingsSync", "no session, dropped $dropped pending uplink keys")
             return
         }
         val body = synchronized(pendingLock) {
@@ -91,13 +93,13 @@ class ClientSettingsSync @Inject constructor(
                     .saveUserSettings(body.mapValues { ClientSettingWriteDto(it.value) })
                     .execute()
                 if (response.isSuccessful) {
-                    AppLog.d("SettingsSync", "上行完成：${body.size} 键")
+                    AppLog.d("SettingsSync", "uplink done: ${body.size} keys")
                 } else {
-                    AppLog.w("SettingsSync", "上行失败：HTTP ${response.code()}（${body.size} 键）")
+                    AppLog.w("SettingsSync", "uplink failed: HTTP ${response.code()} (${body.size} keys)")
                 }
             } catch (e: Exception) {
-                // best effort；键值仍在本地 DataStore，下次变更会重新携带
-                AppLog.w("SettingsSync", "上行失败：${e.message}（${body.size} 键）")
+                // Best effort; the values stay in the local DataStore and are carried again by the next change
+                AppLog.w("SettingsSync", "uplink failed: ${e.message} (${body.size} keys)")
             }
         }
     }

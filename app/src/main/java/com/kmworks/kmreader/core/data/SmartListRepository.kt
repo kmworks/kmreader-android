@@ -8,9 +8,10 @@ import javax.inject.Singleton
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Smart list repository（kmrs 私有端点）。
- * 能力门控：stock Komga 无此端点会 404 —— 列表查询失败一律返回空（调用方隐藏该组，
- * 不报错）；单条/内容查询返回 null/空，UI 回退假数据。
+ * Smart list repository (kmrs private endpoint).
+ * Capability gating: stock Komga has no such endpoint and answers 404 — list queries always return empty on
+ * failure (the caller hides the section instead of erroring); single-item/content queries return null/empty
+ * and the UI falls back to fake data.
  */
 @Singleton
 class SmartListRepository @Inject constructor(
@@ -28,21 +29,21 @@ class SmartListRepository @Inject constructor(
     fun seriesThumbnailUrl(seriesId: String): String? =
         sessionManager.clients.value?.seriesThumbnailUrl(seriesId)
 
-    /** 全部智能列表（unpaged）；失败（404 等能力缺失）返回空列表。 */
+    /** All smart lists (unpaged); on failure (404 etc. — capability missing) returns an empty list. */
     suspend fun smartLists(): List<SmartListDto> {
         val api = sessionManager.clients.value?.smartLists ?: return emptyList()
         val list = api.getSmartLists(unpaged = true).awaitBody()?.content.orEmpty()
-        list.forEach { DetailIdRegistry.registerSmartList(it.id.hashCode(), it.id) }
+        list.forEach { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
         return list
     }
 
     suspend fun smartListDetail(dtoId: String): SmartListDto? {
         val api = sessionManager.clients.value?.smartLists ?: return null
         return api.getSmartList(dtoId).awaitBody()
-            ?.also { DetailIdRegistry.registerSmartList(it.id.hashCode(), it.id) }
+            ?.also { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
     }
 
-    /** 命中书籍（body 直接透传服务端存的 search 文档，缺省空文档）。 */
+    /** Matched books (body passes through the search document stored server-side; defaults to an empty document). */
     suspend fun smartListBooks(
         dtoId: String,
         search: JsonObject?,
@@ -61,7 +62,7 @@ class SmartListRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
-    /** 命中系列。 */
+    /** Matched series. */
     suspend fun smartListSeries(
         dtoId: String,
         search: JsonObject?,
@@ -80,7 +81,7 @@ class SmartListRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
-    /** 新建（target: BOOK | SERIES）。 */
+    /** Create (target: BOOK | SERIES). */
     suspend fun createSmartList(
         name: String,
         summary: String,
@@ -90,10 +91,10 @@ class SmartListRepository @Inject constructor(
         val api = sessionManager.clients.value?.smartLists ?: return null
         return api.createSmartList(
             SmartListCreateDto(name = name, summary = summary, target = target, search = search),
-        ).awaitBody()?.also { DetailIdRegistry.registerSmartList(it.id.hashCode(), it.id) }
+        ).awaitBody()?.also { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
     }
 
-    /** 更新名称/简介/条件；search 为 null 时省略该键以保护服务端现有条件。 */
+    /** Update name/summary/criteria; when search is null the key is omitted to protect the existing server-side criteria. */
     suspend fun updateSmartList(
         dtoId: String,
         name: String,

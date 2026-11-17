@@ -1,5 +1,8 @@
 package com.kmworks.kmreader.ui.reader
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,12 +35,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.CustomFont
@@ -49,7 +54,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Server font list state (mirrors Komga FontsApi 家庭管理)。 */
+/** Server font list state (mirrors Komga FontsApi family management). */
 @HiltViewModel
 class CustomFontsViewModel @Inject constructor(
     sessionManager: SessionManager,
@@ -94,38 +99,76 @@ class CustomFontsViewModel @Inject constructor(
         fontRepository.deleteFontFamily(family)
         refreshDownloaded()
     }
+
+    /** Imports a local font file (content uri returned by SAF); refreshes the downloaded set when done. */
+    fun importFont(uri: Uri) {
+        viewModelScope.launch {
+            fontRepository.importLocalFont(uri)
+            refreshDownloaded()
+        }
+    }
 }
 
-/** Custom font manager (mirrors CustomFontsSheet + Komga FontsApi 下载路线)，无会话回退演示列表。 */
+/** Custom font manager (mirrors CustomFontsSheet + Komga FontsApi download flow); falls back to the demo list without a session. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomFontsScreen(
     onBack: () -> Unit,
     viewModel: CustomFontsViewModel = hiltViewModel(),
 ) {
+    // SAF file picker: prefer font MIME types, fall back to wildcards (some vendors do not
+    // recognize font/* and would filter everything out)
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importFont) }
+    val launchImport: () -> Unit = {
+        importLauncher.launch(
+            arrayOf(
+                "font/*",
+                "application/x-font-ttf",
+                "application/x-font-otf",
+                "application/x-font-truetype",
+                "application/octet-stream",
+                "*/*",
+            ),
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("自定义字体") },
+                title = { Text(stringResource(R.string.fonts_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
         },
     ) { padding ->
         if (viewModel.hasSession) {
-            RealFontList(viewModel = viewModel, modifier = Modifier.padding(padding))
+            RealFontList(
+                viewModel = viewModel,
+                onImport = launchImport,
+                modifier = Modifier.padding(padding),
+            )
         } else {
-            DemoFontList(modifier = Modifier.padding(padding))
+            DemoFontList(
+                viewModel = viewModel,
+                onImport = launchImport,
+                modifier = Modifier.padding(padding),
+            )
         }
     }
 }
 
 /** Real server font families with download/delete actions. */
 @Composable
-private fun RealFontList(viewModel: CustomFontsViewModel, modifier: Modifier = Modifier) {
+private fun RealFontList(
+    viewModel: CustomFontsViewModel,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val families by viewModel.families.collectAsStateWithLifecycle()
     val downloaded by viewModel.downloaded.collectAsStateWithLifecycle()
     val downloading by viewModel.downloading.collectAsStateWithLifecycle()
@@ -136,8 +179,24 @@ private fun RealFontList(viewModel: CustomFontsViewModel, modifier: Modifier = M
             .padding(horizontal = 16.dp),
     ) {
         item {
+            OutlinedButton(
+                onClick = onImport,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(stringResource(R.string.fonts_import_button))
+            }
+        }
+        item {
             Text(
-                "已下载 ${downloaded.size} 款字体 · 服务端共 ${families?.size ?: "…"} 款",
+                stringResource(R.string.fonts_downloaded_summary, downloaded.size, families?.size?.toString() ?: "…"),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -155,7 +214,7 @@ private fun RealFontList(viewModel: CustomFontsViewModel, modifier: Modifier = M
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     Spacer(Modifier.size(10.dp))
                     Text(
-                        "正在获取字体列表…",
+                        stringResource(R.string.fonts_loading_list),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -199,9 +258,9 @@ private fun ServerFontRow(
             )
             Text(
                 when {
-                    downloading -> "下载中…"
-                    downloaded -> "已下载，可在 EPUB 阅读器中选择"
-                    else -> "未下载"
+                    downloading -> stringResource(R.string.fonts_downloading)
+                    downloaded -> stringResource(R.string.fonts_downloaded_ready)
+                    else -> stringResource(R.string.fonts_not_downloaded)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -212,14 +271,14 @@ private fun ServerFontRow(
             downloaded -> {
                 Icon(
                     Icons.Filled.CheckCircle,
-                    contentDescription = "已下载",
+                    contentDescription = stringResource(R.string.fonts_downloaded),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp),
                 )
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Filled.Delete,
-                        contentDescription = "删除",
+                        contentDescription = stringResource(R.string.common_delete),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -227,7 +286,7 @@ private fun ServerFontRow(
             else -> IconButton(onClick = onDownload) {
                 Icon(
                     Icons.Filled.Download,
-                    contentDescription = "下载",
+                    contentDescription = stringResource(R.string.common_download),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -235,10 +294,16 @@ private fun ServerFontRow(
     }
 }
 
-/** Demo fallback list (no session). */
+/** Demo fallback list (no session): sample fonts plus locally imported fonts. */
 @Composable
-private fun DemoFontList(modifier: Modifier = Modifier) {
+private fun DemoFontList(
+    viewModel: CustomFontsViewModel,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val fonts = remember { SampleSystemData.customFonts.toMutableStateList() }
+    // Imported local fonts persist in FontRepository (works without a session too)
+    val imported by viewModel.downloaded.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = modifier
@@ -247,7 +312,7 @@ private fun DemoFontList(modifier: Modifier = Modifier) {
     ) {
         item {
             OutlinedButton(
-                onClick = { /* wiring point: file picker for .ttf/.otf */ },
+                onClick = onImport,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(
@@ -256,19 +321,54 @@ private fun DemoFontList(modifier: Modifier = Modifier) {
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.size(6.dp))
-                Text("导入字体文件（.ttf / .otf）")
+                Text(stringResource(R.string.fonts_import_button))
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "已安装 ${fonts.size} 款自定义字体",
+                stringResource(R.string.fonts_installed_total, imported.size + fonts.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
         }
+        items(imported.sorted(), key = { "imported:$it" }) { family ->
+            ImportedFontRow(family = family, onDelete = { viewModel.delete(family) })
+            HorizontalDivider()
+        }
         items(fonts, key = { it.id }) { font ->
             DemoFontRow(font = font, onDelete = { fonts.remove(font) })
             HorizontalDivider()
+        }
+    }
+}
+
+/** Row for a locally imported font (deletable inside the demo list without a session). */
+@Composable
+private fun ImportedFontRow(family: String, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                family,
+                style = MaterialTheme.typography.bodyLarge,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                stringResource(R.string.fonts_imported_installed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.common_delete),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -296,7 +396,7 @@ private fun DemoFontRow(font: CustomFont, onDelete: () -> Unit) {
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Filled.Delete,
-                contentDescription = "删除",
+                contentDescription = stringResource(R.string.common_delete),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

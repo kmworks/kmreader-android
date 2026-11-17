@@ -1,6 +1,9 @@
 package com.kmworks.kmreader.core.download
 
-/** 下载队列行 UI 模型（WorkInfo 聚合）。 */
+import androidx.annotation.StringRes
+import com.kmworks.kmreader.R
+
+/** Download queue row UI model (aggregated from WorkInfo). */
 data class DownloadTaskUi(
     val bookDtoId: String,
     val title: String,
@@ -10,9 +13,9 @@ data class DownloadTaskUi(
 ) {
     val progress: Float get() = if (pageTotal > 0) pageDone / pageTotal.toFloat() else 0f
 
-    enum class Status(val label: String) {
-        Downloading("下载中"),
-        Paused("已暂停"),
-        Failed("失败"),
+    enum class Status(@StringRes val labelRes: Int) {
+        Downloading(R.string.download_status_downloading),
+        Paused(R.string.download_status_paused),
+        Failed(R.string.download_status_failed),
     }
 }

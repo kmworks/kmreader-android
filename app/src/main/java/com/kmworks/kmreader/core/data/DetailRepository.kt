@@ -31,7 +31,7 @@ object DetailIdRegistry {
     fun readListDtoId(stableId: Int): String? = readLists[stableId]
     fun smartListDtoId(stableId: Int): String? = smartLists[stableId]
 
-    /** 反向：由系列 DTO id 找已注册的 stableId（不存在返回 null）。 */
+    /** Reverse: find the registered stableId from a series DTO id (null when absent). */
     fun seriesStableId(dtoId: String): Int? =
         series.entries.firstOrNull { it.value == dtoId }?.key
 }
@@ -81,7 +81,7 @@ class DetailRepository @Inject constructor(
         return api.getBookById(dtoId).awaitBody()
     }
 
-    /** 真实阅读器路由格式：按服务器 mediaType 判定（EPUB/PDF/其余 DIVINA）。 */
+    /** Real reader route format, decided from the server mediaType (EPUB / PDF / everything else DIVINA). */
     suspend fun bookFormat(stableId: Int): String? {
         val dtoId = DetailIdRegistry.bookDtoId(stableId) ?: return null
         val mediaType = bookDetail(dtoId)?.media?.mediaType?.lowercase() ?: return null
@@ -93,15 +93,19 @@ class DetailRepository @Inject constructor(
     }
 
     /**
-     * 书籍 → 所属系列 stableId（「访问系列」导航用）。
-     * 注册表已有直接用；否则注册 seriesId.hashCode() 稳定 id（与 Mappers 一致）。
+     * Book → owning series stableId (used by the "Visit Series" navigation).
+     * Uses the registry when present; otherwise assigns a unique stable id via StableIds (consistent with Mappers).
      */
     suspend fun seriesStableIdForBook(bookStableId: Int): Int? {
         val bookDtoId = DetailIdRegistry.bookDtoId(bookStableId) ?: return null
         val seriesId = bookDetail(bookDtoId)?.seriesId ?: return null
         DetailIdRegistry.seriesStableId(seriesId)?.let { return it }
-        val stableId = seriesId.hashCode()
+        val stableId = StableIds.series(seriesId)
         DetailIdRegistry.registerSeries(stableId, seriesId)
+        // The cover registry must stay in sync with DetailIdRegistry: if this series was never loaded as a
+        // series object (e.g. continue-reading only carries books), CoverArt on the detail page cannot resolve
+        // a URL without registration and the first open shows a placeholder.
+        CoverUrlRegistry.registerSeries(stableId, seriesId)
         return stableId
     }
 
@@ -111,7 +115,7 @@ class DetailRepository @Inject constructor(
     }
 
     /** Collection members in server order (GET api/v1/collections/{id}/series).
-     *  ApiClients 未暴露 CollectionSeriesApi，经 LocalApiFactory 本地构建。 */
+     *  ApiClients does not expose CollectionSeriesApi, so it is built locally via LocalApiFactory. */
     suspend fun collectionSeries(dtoId: String, page: Int = 0, size: Int = 50): Paged<SeriesDto> {
         val clients = sessionManager.clients.value ?: return Paged(emptyList(), hasMore = false)
         val api = LocalApiFactory.create(clients, CollectionSeriesApi::class.java)
@@ -134,13 +138,13 @@ class DetailRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
-    /** 系列所属收藏（失败返回空，归属展示不阻塞详情）。 */
+    /** Collections containing the series (empty on failure — ownership display must not block the detail). */
     suspend fun seriesCollections(dtoId: String): List<CollectionDto> {
         val api = sessionManager.clients.value?.series ?: return emptyList()
         return api.getCollectionsBySeriesId(dtoId).awaitBody().orEmpty()
     }
 
-    /** 书籍所属阅读列表（失败返回空，归属展示不阻塞详情）。 */
+    /** Read lists containing the book (empty on failure — ownership display must not block the detail). */
     suspend fun bookReadLists(dtoId: String): List<ReadListDto> {
         val api = sessionManager.clients.value?.books ?: return emptyList()
         return api.getReadListsByBookId(dtoId).awaitBody().orEmpty()

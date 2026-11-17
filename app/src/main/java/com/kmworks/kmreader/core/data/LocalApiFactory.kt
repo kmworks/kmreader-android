@@ -8,8 +8,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
 
 /**
- * 在 ApiClients（core/network 只读）之外构建生成/手写 API 服务的共享工厂。
- * 复用同一会话的认证 OkHttpClient 与 baseUrl，按 baseUrl 失效重建。
+ * Shared factory for generated/handwritten API services outside ApiClients (core/network is read-only).
+ * Reuses the same session's authenticated OkHttpClient and baseUrl; rebuilt when baseUrl becomes invalid.
  */
 internal object LocalApiFactory {
 

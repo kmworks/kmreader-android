@@ -16,7 +16,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -29,9 +29,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 
-/** 新建/编辑阅读列表 sheet（对齐 ReadListEditSheet.swift：名称/简介/有序；编辑模式带删除）。 */
+/** New/edit read list sheet (mirrors ReadListEditSheet.swift: name/summary/ordered; delete in edit mode). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadListEditSheet(
@@ -47,7 +49,7 @@ fun ReadListEditSheet(
     var summary by remember { mutableStateOf(initialSummary) }
     var ordered by remember { mutableStateOf(initialOrdered) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -59,19 +61,21 @@ fun ReadListEditSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (isEdit) "编辑阅读列表" else "新建阅读列表",
+                    text = stringResource(
+                        if (isEdit) R.string.readlist_edit_title else R.string.readlist_new_title,
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("名称") },
+                label = { Text(stringResource(R.string.common_name)) },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -80,7 +84,7 @@ fun ReadListEditSheet(
             OutlinedTextField(
                 value = summary,
                 onValueChange = { summary = it },
-                label = { Text("简介") },
+                label = { Text(stringResource(R.string.lists_summary)) },
                 minLines = 3,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -94,7 +98,7 @@ fun ReadListEditSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "按顺序排列",
+                    text = stringResource(R.string.lists_ordered_toggle),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -109,16 +113,16 @@ fun ReadListEditSheet(
             ) {
                 if (isEdit && onDelete != null) {
                     TextButton(onClick = onDelete) {
-                        Text("删除", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
-                OutlinedButton(onClick = onDismiss) { Text("取消") }
+                OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = { onSave(name.trim(), summary.trim(), ordered) },
                     enabled = name.isNotBlank(),
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
         }

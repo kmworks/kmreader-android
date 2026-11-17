@@ -14,10 +14,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * 自动下载未读内容的 SSE 触发器：SSE 书籍/系列事件 → 未读检测 → [DownloadRepository.enqueueBook]。
- * 事件防抖 5s 聚合后，从最新书籍里筛出未读完且未下载的整本入队；
- * 与系列详情页的 autoDownloadUnreadIfEnabled（5a27329）共用同一个开关。
- * 由 LogInitProvider 在进程启动时提前实例化（订阅常驻应用级 scope）。
+ * SSE trigger for auto-downloading unread content: SSE book/series events → unread detection → [DownloadRepository.enqueueBook].
+ * After a 5s debounce, whole unread and not-yet-downloaded books are picked from the latest books and enqueued;
+ * shares one toggle with the series detail page's autoDownloadUnreadIfEnabled (5a27329).
+ * Instantiated eagerly by LogInitProvider at process start (the subscription lives in the app-level scope).
  */
 @OptIn(FlowPreview::class)
 @Singleton
@@ -40,7 +40,7 @@ class AutoDownloadUnreadTrigger @Inject constructor(
     private suspend fun enqueueUnreadLatest() {
         if (!downloadRepository.autoDownloadUnread.first()) return
         val books = runCatching { bookRepository.latest(size = 24) }
-            .onFailure { AppLog.w("Download", "自动下载未读：拉取最新书籍失败：${it.message}") }
+            .onFailure { AppLog.w("Download", "auto-unread: failed to fetch latest books: ${it.message}") }
             .getOrNull() ?: return
         val candidates = books.filter { dto ->
             dto.readProgress?.completed != true && dto.media.pagesCount > 0
@@ -56,6 +56,6 @@ class AutoDownloadUnreadTrigger @Inject constructor(
             )
             enqueued += 1
         }
-        if (enqueued > 0) AppLog.i("Download", "自动下载未读：入队 $enqueued 本")
+        if (enqueued > 0) AppLog.i("Download", "auto-unread: enqueued $enqueued books")
     }
 }

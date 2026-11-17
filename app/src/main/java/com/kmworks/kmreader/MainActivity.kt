@@ -21,7 +21,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // 主题/纯黑/浏览卡片均为应用级 UI 设置，在根部观察持久化流并即时应用。
+            // Theme/true-black/browse cards are app-wide UI settings; observe the
+            // persisted flows at the root and apply them immediately.
             val prefs: SettingsPrefsViewModel = hiltViewModel()
             val themeMode by prefs.themeMode.collectAsStateWithLifecycle()
             val trueBlack by prefs.trueBlackDark.collectAsStateWithLifecycle()
@@ -32,7 +33,8 @@ class MainActivity : FragmentActivity() {
                 else -> systemDark
             }
             KMReaderTheme(darkTheme = darkTheme, trueBlack = trueBlack) {
-                // 浏览卡片显示选项是应用级 UI 设置，在根部注入一次，卡片组件直接消费。
+                // Browse card display options are app-wide UI settings; provide once
+                // at the root so card components consume them directly.
                 val cardDisplay by prefs.cardDisplay.collectAsStateWithLifecycle()
                 CompositionLocalProvider(LocalCardDisplay provides cardDisplay) {
                     AppRoot()

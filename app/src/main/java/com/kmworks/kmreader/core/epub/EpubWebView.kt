@@ -12,26 +12,27 @@ import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
 
 /**
- * EPUB WebView 资源域（mirrors EpubResourceSchemeHandler 的假 scheme 方案）。
- * 页面用 https 假域加载，章节 href 与相对资源统一走拦截转发。
+ * EPUB WebView resource domain (mirrors the fake-scheme approach of EpubResourceSchemeHandler).
+ * Pages load under an https fake domain; chapter hrefs and relative resources are uniformly intercepted
+ * and forwarded.
  */
 object EpubWeb {
 
     const val FAKE_BASE = "https://kmreader-epub.local"
     const val FAKE_HOST = "kmreader-epub.local"
 
-    /** 本地字体的假域路由前缀（对齐原作 __fonts__ 虚拟前缀）。 */
+    /** Fake-domain route prefix for local fonts (mirrors the original __fonts__ virtual prefix). */
     const val FONTS_PREFIX = "/fonts/"
 
-    /** Fake-domain font file URL（服务端 css 的重写目标）。 */
+    /** Fake-domain font file URL (the rewrite target of the server CSS). */
     fun fontUrl(family: String, fileName: String): String =
         "$FAKE_BASE$FONTS_PREFIX${Uri.encode(family, "/")}/${Uri.encode(fileName, "/")}"
 
-    /** 章节页面 URL：/{bookDtoId}/{href}（href 按段编码）。 */
+    /** Chapter page URL: /{bookDtoId}/{href} (href segment-encoded). */
     fun pageUrl(bookDtoId: String, href: String): String =
         "$FAKE_BASE/$bookDtoId/${Uri.encode(href, "/")}"
 
-    /** 从假域 URL 反解 href；非假域返回 null。 */
+    /** Resolve the href back from a fake-domain URL; null for non-fake domains. */
     fun hrefFromUrl(url: String): String? {
         val uri = Uri.parse(url)
         if (uri.host != FAKE_HOST) return null
@@ -40,11 +41,11 @@ object EpubWeb {
         return segments.drop(1).joinToString("/")
     }
 
-    /** 资源请求完整 URL（href 原样拼进 query）。 */
+    /** Full URL of a resource request (href joined verbatim into the query). */
     fun resourceRequestUrl(baseUrl: String, bookDtoId: String, href: String): String =
         "$baseUrl/api/v1/books/$bookDtoId/resource?$href"
 
-    /** 媒体类型（对齐原作 mediaTypeForExtension，文本类型补 utf-8）。 */
+    /** Media type (mirrors the original mediaTypeForExtension; text types get a utf-8 suffix). */
     fun mediaTypeFor(href: String): String =
         when (href.substringAfterLast('.', "").lowercase()) {
             "xhtml", "html", "htm" -> "application/xhtml+xml"
@@ -70,7 +71,7 @@ object EpubWeb {
             mime == "image/svg+xml"
 }
 
-/** 注入主题配置（EpubReaderSettings 到 CSS 覆盖的映射）。 */
+/** Injected theme configuration (mapping of EpubReaderSettings to CSS overrides). */
 data class EpubThemeConfig(
     val background: String = "#FFFFFF",
     val foreground: String = "#1A1A1A",
@@ -79,11 +80,11 @@ data class EpubThemeConfig(
     val lineHeight: Float = 1.4f,
     val marginHPx: Int = 24,
     val publisherStyles: Boolean = true,
-    /** 本地字体 @font-face css（url 已重写为假域 fonts 路由）；null = 无自定义字体。 */
+    /** Local @font-face css (urls already rewritten to the fake-domain fonts route); null = no custom fonts. */
     val fontCss: String? = null,
 ) {
 
-    /** JS 对象字面量（值均已白名单/格式化，无注入面）。 */
+    /** JS object literal (values are whitelisted/formatted — no injection surface). */
     fun toJs(): String {
         val safeFamily = fontFamily.replace("'", "")
         return "{bg:'$background',fg:'$foreground',fontSize:$fontSizePx," +
@@ -92,14 +93,14 @@ data class EpubThemeConfig(
     }
 }
 
-/** 注入 JS：主题覆盖 + 滚动量测上报 + 点按回调（mirrors ScrolledEpubViewController 注入思路）。 */
+/** Injected JS: theme overrides + scroll measurement reporting + tap callbacks (mirrors the injection approach of ScrolledEpubViewController). */
 object EpubJs {
 
     const val BRIDGE = "kmBridge"
 
     /**
-     * readerBridge 模式：滚动/resize 200ms 节流上报 metrics；
-     * 点按（无文本选择）上报 tap 的 x 视口比例。
+     * readerBridge pattern: scroll/resize metrics are throttled to 200ms before reporting;
+     * a tap (without a text selection) reports its x viewport ratio.
      */
     fun injectScript(config: EpubThemeConfig): String {
         val fontCssJs = org.json.JSONObject.quote(config.fontCss ?: "")
@@ -162,7 +163,7 @@ object EpubJs {
     }
 }
 
-/** JS 桥（@JavascriptInterface 在 JS 线程回调，统一切主线程）。 */
+/** JS bridge (@JavascriptInterface callbacks arrive on the JS thread; everything hops to the main thread). */
 class EpubJsBridge(
     private val onMetrics: (Float) -> Unit,
     private val onTap: (Float) -> Unit,
@@ -183,8 +184,9 @@ class EpubJsBridge(
 }
 
 /**
- * WebViewClient：假域请求经 resolveResource 同步转发到服务端资源流；
- * 其余 http(s) 请求一律空响应拦截（对齐原作外部资源不加载策略）。
+ * WebViewClient: fake-domain requests are synchronously forwarded to server resource streams via
+ * resolveResource; every other http(s) request is intercepted with an empty response (mirrors the
+ * original do-not-load-external-resources policy).
  */
 class EpubWebViewClient(
     private val resolveResource: (String) -> EpubResource?,
@@ -221,7 +223,7 @@ class EpubWebViewClient(
         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 }
 
-/** 创建并配置阅读用 WebView（滚动模式，禁 JS 外部网络）。 */
+/** Create and configure the reading WebView (scroll mode, external network disabled for JS). */
 @SuppressLint("SetJavaScriptEnabled")
 fun createEpubWebView(
     context: android.content.Context,

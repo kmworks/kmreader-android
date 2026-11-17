@@ -52,7 +52,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.Series
@@ -64,12 +68,13 @@ import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.SeriesGridCard
+import com.kmworks.kmreader.ui.components.subtitleText
 import kotlinx.coroutines.launch
 
 private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
 
-/** 收藏详情页（对齐 CollectionDetailView.swift + CollectionDetailWideLayoutView.swift）。 */
+/** Collection detail page (mirrors CollectionDetailView.swift + CollectionDetailWideLayoutView.swift). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionDetailScreen(
@@ -82,7 +87,8 @@ fun CollectionDetailScreen(
     onDelete: () -> Unit = {},
     viewModel: CollectionDetailViewModel = hiltViewModel(),
 ) {
-    // 真实数据：反查收藏 DTO 并拉其系列；无会话/未注册回退假数据
+    // Real data: resolves the collection DTO and fetches its series; falls back to
+    // sample data without a session/registration
     val state by viewModel.uiState.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
     LaunchedEffect(collection.id) { viewModel.load(collection.id) }
@@ -102,8 +108,9 @@ fun CollectionDetailScreen(
     var addToReadListOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val notifyFailure: suspend (String) -> Unit = { action ->
-        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+        snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     val onSelectedMarkRead: (Boolean) -> Unit = { read ->
         viewModel.markSeriesRead(selected, read) { ok ->
@@ -111,7 +118,9 @@ fun CollectionDetailScreen(
                 selected = emptySet()
                 selecting = false
             } else {
-                scope.launch { notifyFailure(if (read) "标记已读" else "标记未读") }
+                scope.launch {
+                    notifyFailure(context.getString(if (read) R.string.lists_mark_read else R.string.lists_mark_unread))
+                }
             }
         }
     }
@@ -121,7 +130,7 @@ fun CollectionDetailScreen(
                 selected = emptySet()
                 selecting = false
             } else {
-                scope.launch { notifyFailure("加入下载队列") }
+                scope.launch { notifyFailure(context.getString(R.string.lists_add_to_download_queue)) }
             }
         }
     }
@@ -134,7 +143,8 @@ fun CollectionDetailScreen(
 
     val visible = sourceSeries.filter { it.id !in removedIds }
     val series = sortCollectionSeries(visible, options)
-    // hero 封面：服务端无收藏缩略图端点，用首个系列的缩略图
+    // Hero cover: the server has no collection thumbnail endpoint, so reuse the
+    // first series' thumbnail
     val heroHue = visible.firstOrNull()?.hue ?: 210f
 
     Scaffold(
@@ -145,20 +155,20 @@ fun CollectionDetailScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("置顶") },
+                                text = { Text(stringResource(R.string.lists_pin)) },
                                 leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -166,7 +176,7 @@ fun CollectionDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("编辑") },
+                                text = { Text(stringResource(R.string.common_edit)) },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -174,12 +184,12 @@ fun CollectionDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("刷新封面") },
+                                text = { Text(stringResource(R.string.common_refresh_cover)) },
                                 leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
                                 onClick = { menuOpen = false },
                             )
                             DropdownMenuItem(
-                                text = { Text("删除收藏", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.collection_delete), color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Outlined.Delete,
@@ -204,7 +214,8 @@ fun CollectionDetailScreen(
                 .fillMaxSize(),
         ) {
             if (maxWidth >= WideLayoutBreakpoint) {
-                // 宽版：左栏信息（maxOf(maxWidth*0.382f, 340.dp)）+ 右栏系列列表，独立滚动
+                // Wide layout: left info column (maxOf(maxWidth*0.382f, 340.dp)) + right
+                // series list, scrolling independently
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
@@ -363,6 +374,7 @@ fun CollectionDetailScreen(
             options = options,
             onOptionsChange = { options = it },
             onDismiss = { optionsOpen = false },
+            suggestionCollectionStableId = collection.id,
         )
     }
     if (addToReadListOpen) {
@@ -370,13 +382,15 @@ fun CollectionDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addSeriesToReadList(entry, ids) { ok ->
                     if (ok) {
                         selected = emptySet()
                         selecting = false
                     } else {
-                        scope.launch { notifyFailure("加入阅读列表") }
+                        scope.launch { notifyFailure(context.getString(R.string.lists_add_to_readlist)) }
                     }
                 }
                 addToReadListOpen = false
@@ -386,8 +400,8 @@ fun CollectionDetailScreen(
     }
     if (deleteConfirm) {
         ConfirmDeleteDialog(
-            title = "删除收藏？",
-            message = "「${collection.name}」将被删除，系列本身保留在书库中。",
+            title = stringResource(R.string.lists_delete_item_title, stringResource(R.string.common_collection)),
+            message = stringResource(R.string.collection_delete_message, collection.name),
             onConfirm = onDelete,
             onDismiss = { deleteConfirm = false },
         )
@@ -412,7 +426,7 @@ private fun AutoLoadMore(
     }
 }
 
-/** Hero：封面拼贴占位 + 名称 + 系列计数 + 简介（对齐 CollectionDetailContentView）。 */
+/** Hero: cover collage placeholder + name + series count + summary (mirrors CollectionDetailContentView). */
 @Composable
 private fun CollectionHero(
     collection: CollectionDetail,
@@ -429,7 +443,8 @@ private fun CollectionHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // 服务端无收藏缩略图端点，用收藏内首个系列的缩略图
+        // The server has no collection thumbnail endpoint; reuse the thumbnail of the
+        // first series in the collection
         CoverArt(
             title = collection.name,
             hue = coverHue,
@@ -448,7 +463,7 @@ private fun CollectionHero(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "$seriesCount 部系列",
+                text = pluralStringResource(R.plurals.lists_series_count, seriesCount, seriesCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -462,7 +477,7 @@ private fun CollectionHero(
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    text = "有序",
+                    text = stringResource(R.string.lists_ordered_label),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -479,8 +494,8 @@ private fun CollectionHero(
         if (createdDate != null || lastModifiedDate != null) {
             Text(
                 text = listOfNotNull(
-                    createdDate?.takeIf { it.isNotBlank() }?.let { "创建于 ${it.take(10)}" },
-                    lastModifiedDate?.takeIf { it.isNotBlank() }?.let { "更新于 ${it.take(10)}" },
+                    createdDate?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.lists_created_at, it.take(10)) },
+                    lastModifiedDate?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.lists_modified_at, it.take(10)) },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -490,7 +505,8 @@ private fun CollectionHero(
     }
 }
 
-/** 工具行：筛选 chip 流 + 进入多选；多选态切换为 SelectionToolbar（对齐 CollectionSeriesListView）。 */
+/** Toolbar row: filter chip flow + enter multi-select; switches to SelectionToolbar
+ *  while selecting (mirrors CollectionSeriesListView). */
 @Composable
 private fun SeriesToolbar(
     selecting: Boolean,
@@ -533,13 +549,13 @@ private fun SeriesToolbar(
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = onStartSelecting) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = "多选")
+                Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.lists_select))
             }
         }
     }
 }
 
-/** 系列内容区：列表/网格两档（对齐 CollectionSeriesListView 的 layoutMode 切换）。 */
+/** Series content area: list/grid layouts (mirrors CollectionSeriesListView's layoutMode switch). */
 @Composable
 private fun SeriesContent(
     series: List<Series>,
@@ -593,7 +609,8 @@ private fun SeriesContent(
     }
 }
 
-/** 系列列表行：封面小图 + 标题 + 副标题；多选态前置选中圈。 */
+/** Series list row: small cover + title + subtitle; a selection circle leads the row
+ *  while selecting. */
 @Composable
 private fun SeriesListRow(
     series: Series,
@@ -632,7 +649,7 @@ private fun SeriesListRow(
                 maxLines = 1,
             )
             Text(
-                text = series.subtitle,
+                text = series.subtitleText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -642,10 +659,11 @@ private fun SeriesListRow(
 }
 
 private fun sortCollectionSeries(series: List<Series>, options: BookBrowseOptions): List<Series> {
+    // Sort-field tokens come from BookSortFields in data/BrowseFilter.kt.
     val sorted = when (options.sortField) {
-        "标题" -> series.sortedBy { it.title }
-        "发布日期" -> series.sortedBy { it.releaseYear ?: 0 }
-        "文件大小", "页数" -> series.sortedBy { it.bookCount }
+        "title" -> series.sortedBy { it.title }
+        "releaseDate" -> series.sortedBy { it.releaseYear ?: 0 }
+        "fileSize", "pageCount" -> series.sortedBy { it.bookCount }
         else -> series
     }
     return if (options.sortAscending) sorted else sorted.reversed()

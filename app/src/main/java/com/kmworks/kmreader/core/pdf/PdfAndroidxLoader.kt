@@ -6,12 +6,12 @@ import androidx.pdf.PdfDocument
 import androidx.pdf.SandboxedPdfLoader
 import java.io.File
 
-/** androidx.pdf 沙箱文档加载器封装：调用方负责关闭返回的文档。 */
+/** androidx.pdf sandboxed document loader wrapper: the caller closes the returned document. */
 class PdfAndroidxLoader(context: Context) {
 
     private val loader = SandboxedPdfLoader(context.applicationContext)
 
-    /** 打开本地文件，失败返回 null。 */
+    /** Open a local file; null on failure. */
     suspend fun open(file: File): PdfDocument? =
         runCatching { loader.openDocument(Uri.fromFile(file), null) }.getOrNull()
 }

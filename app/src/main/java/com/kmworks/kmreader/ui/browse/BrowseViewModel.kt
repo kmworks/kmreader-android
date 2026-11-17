@@ -1,15 +1,22 @@
 package com.kmworks.kmreader.ui.browse
 
+import android.content.Context
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -24,11 +31,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Search scope chips of the browse tab. */
-enum class SearchScope(val label: String) {
-    All("全部"),
-    Series("系列"),
-    Books("书籍"),
-    ReadLists("阅读列表"),
+enum class SearchScope(@param:StringRes val labelRes: Int) {
+    All(R.string.common_all),
+    Series(R.string.common_series),
+    Books(R.string.browse_scope_books),
+    ReadLists(R.string.browse_scope_readlists),
+    Collections(R.string.browse_scope_collections),
 }
 
 /** Browse (search) tab state; series/books/readLists/collections are accumulated result pages. */
@@ -46,8 +54,12 @@ data class BrowseUiState(
     val booksHasMore: Boolean = false,
     val readListsHasMore: Boolean = false,
     val collectionsHasMore: Boolean = false,
-    /** 当前 scope 下是否还有下一页（屏幕触底判定用）。 */
+    /** Whether the current scope has another page (for bottom-of-list detection). */
     val hasMore: Boolean = false,
+    /** Library scope (pinned/all/library:{id}; mirrors iOS LibraryBrowseScope, persisted, defaults to pinned). */
+    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Pinned library ids (resolved into a libraryIds filter for the pinned scope). */
+    val pinnedIds: Set<String> = emptySet(),
 ) {
     val isEmpty: Boolean
         get() = series.isEmpty() && books.isEmpty() && readLists.isEmpty() && collections.isEmpty()
@@ -56,22 +68,26 @@ data class BrowseUiState(
 private data class SearchRequest(
     val query: String,
     val scope: SearchScope,
-    val libraryId: String?,
+    val libraryIds: List<String>?,
     val hasSession: Boolean,
+    /** Search filters (session-scoped, not persisted; mirrors the search tab's own browseOptions on iOS). */
+    val options: BookBrowseOptions = BookBrowseOptions(),
 )
 
 /** Search state: 300ms debounce, per-scope fan-out, paged results with bottom load-more. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val searchRepository: SearchRepository,
     private val libraryRepository: LibraryRepository,
+    private val appSettings: AppSettingsStore,
     sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
     private val scope = MutableStateFlow(SearchScope.All)
-    private val selectedLibraryId = MutableStateFlow<String?>(null)
+    private val browseOptions = MutableStateFlow(BookBrowseOptions())
 
     private val _state = MutableStateFlow(BrowseUiState())
     val state = _state.asStateFlow()
@@ -84,7 +100,7 @@ class BrowseViewModel @Inject constructor(
     private var collectionsPage = 0
 
     init {
-        // library list for the scope menu（失败降级为空列表，不进错误态）
+        // library list for the scope menu (on failure fall back to an empty list, no error state)
         viewModelScope.launch {
             sessionManager.clients.collectLatest { clients ->
                 if (clients == null) {
@@ -101,18 +117,32 @@ class BrowseViewModel @Inject constructor(
                 }
             }
         }
-        // debounced search pipeline
+        // debounced search pipeline (library scope persisted as searchBrowseScope; iOS search tab also defaults to pinned)
         viewModelScope.launch {
             combine(
-                query.debounce(300),
-                scope,
-                selectedLibraryId,
-                sessionManager.clients,
-            ) { q, s, libraryId, clients ->
-                SearchRequest(q.trim(), s, libraryId, clients != null)
-            }
+                combine(
+                    query.debounce(300),
+                    scope,
+                    appSettings.searchBrowseScope,
+                    appSettings.pinnedLibraryIds,
+                    sessionManager.clients,
+                ) { q, s, libraryScope, pinned, clients ->
+                    SearchRequest(q.trim(), s, resolveLibraryScopeIds(libraryScope, pinned), clients != null)
+                },
+                browseOptions,
+            ) { request, options -> request.copy(options = options) }
                 .distinctUntilChanged()
                 .collectLatest { request -> performSearch(request) }
+        }
+        // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
+        viewModelScope.launch {
+            combine(
+                appSettings.searchBrowseScope,
+                appSettings.pinnedLibraryIds,
+            ) { s, p -> s to p }
+                .collect { (s, p) ->
+                    _state.update { it.copy(libraryScope = s, pinnedIds = p) }
+                }
         }
     }
 
@@ -124,11 +154,24 @@ class BrowseViewModel @Inject constructor(
         scope.value = value
     }
 
-    fun onLibraryChange(libraryId: String?) {
-        selectedLibraryId.value = libraryId
+    /** Search filters (extra conditions layered on series/books full-text search; session-scoped). */
+    val browseOptionsFlow = browseOptions.asStateFlow()
+
+    fun setBrowseOptions(options: BookBrowseOptions) {
+        browseOptions.value = options
     }
 
-    /** 触底加载当前 scope 的下一页（并发保护 + 无更多直接返回）。 */
+    /** Library scope switch (pinned/all/library:{id}, persisted; mirrors iOS @AppStorage("searchBrowseScope")). */
+    fun onLibraryScopeChange(scope: String) {
+        viewModelScope.launch { appSettings.setSearchBrowseScope(scope) }
+    }
+
+    /** Replace the pinned id set (saved from the pin-editing sheet). */
+    fun setPinnedLibraries(ids: Set<String>) {
+        viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
+    }
+
+    /** Load the next page of the current scope on bottom reach (concurrency guard + early return when no more). */
     fun loadMore() {
         val request = currentRequest ?: return
         if (loadingMore || !_state.value.hasMore) return
@@ -152,37 +195,50 @@ class BrowseViewModel @Inject constructor(
                 } else {
                     null
                 }
-                val nextCollections = if (request.scope == SearchScope.All && state.collectionsHasMore) {
-                    collectionsPage + 1
+                val nextCollections = if (request.scope == SearchScope.All || request.scope == SearchScope.Collections) {
+                    if (state.collectionsHasMore) collectionsPage + 1 else null
                 } else {
                     null
                 }
                 coroutineScope {
                     val series = async {
                         nextSeries?.let {
-                            searchRepository.searchSeriesPage(request.query, request.libraryId, it, SERIES_PAGE_SIZE)
+                            searchRepository.searchSeriesPage(
+                                request.query,
+                                request.libraryIds,
+                                request.options,
+                                it,
+                                SERIES_PAGE_SIZE,
+                            )
                         }
                     }
                     val books = async {
                         nextBooks?.let {
-                            searchRepository.searchBooksPage(request.query, request.libraryId, it, BOOKS_PAGE_SIZE)
+                            searchRepository.searchBooksPage(
+                                request.query,
+                                request.libraryIds,
+                                request.options,
+                                it,
+                                BOOKS_PAGE_SIZE,
+                            )
                         }
                     }
                     val readLists = async {
                         nextReadLists?.let {
-                            searchRepository.searchReadListsPage(request.query, request.libraryId, it, LISTS_PAGE_SIZE)
+                            searchRepository.searchReadListsPage(request.query, request.libraryIds, it, LISTS_PAGE_SIZE)
                         }
                     }
                     val collections = async {
                         nextCollections?.let {
-                            searchRepository.searchCollectionsPage(request.query, request.libraryId, it, LISTS_PAGE_SIZE)
+                            searchRepository.searchCollectionsPage(request.query, request.libraryIds, it, LISTS_PAGE_SIZE)
                         }
                     }
                     val seriesResult = series.await()
                     val booksResult = books.await()
                     val readListsResult = readLists.await()
                     val collectionsResult = collections.await()
-                    // 搜索条件在请求期间变化时丢弃这一页，避免把旧结果追加到新查询里
+                    // Drop this page if the search criteria changed while the request was in flight,
+                    // so stale results are never appended to a new query
                     if (currentRequest != request) return@coroutineScope
                     if (nextSeries != null) seriesPage = nextSeries
                     if (nextBooks != null) booksPage = nextBooks
@@ -230,7 +286,9 @@ class BrowseViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载更多失败") }
+                _state.update {
+                    it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed))
+                }
             } finally {
                 loadingMore = false
             }
@@ -243,7 +301,7 @@ class BrowseViewModel @Inject constructor(
         booksPage = 0
         readListsPage = 0
         collectionsPage = 0
-        // 无会话或空关键词：清空结果，由屏幕展示空态（无假数据回退）
+        // No session or blank query: clear results and let the screen show its empty state (no fake-data fallback)
         if (!request.hasSession || request.query.isBlank()) {
             _state.update {
                 it.copy(
@@ -271,7 +329,8 @@ class BrowseViewModel @Inject constructor(
                     if (request.scope == SearchScope.All || request.scope == SearchScope.Series) {
                         searchRepository.searchSeriesPage(
                             request.query,
-                            request.libraryId,
+                            request.libraryIds,
+                            request.options,
                             page = 0,
                             size = SERIES_PAGE_SIZE,
                         )
@@ -283,7 +342,8 @@ class BrowseViewModel @Inject constructor(
                     if (request.scope == SearchScope.All || request.scope == SearchScope.Books) {
                         searchRepository.searchBooksPage(
                             request.query,
-                            request.libraryId,
+                            request.libraryIds,
+                            request.options,
                             page = 0,
                             size = BOOKS_PAGE_SIZE,
                         )
@@ -295,7 +355,7 @@ class BrowseViewModel @Inject constructor(
                     if (request.scope == SearchScope.All || request.scope == SearchScope.ReadLists) {
                         searchRepository.searchReadListsPage(
                             request.query,
-                            request.libraryId,
+                            request.libraryIds,
                             page = 0,
                             size = LISTS_PAGE_SIZE,
                         )
@@ -304,10 +364,10 @@ class BrowseViewModel @Inject constructor(
                     }
                 }
                 val collections = async {
-                    if (request.scope == SearchScope.All) {
+                    if (request.scope == SearchScope.All || request.scope == SearchScope.Collections) {
                         searchRepository.searchCollectionsPage(
                             request.query,
-                            request.libraryId,
+                            request.libraryIds,
                             page = 0,
                             size = LISTS_PAGE_SIZE,
                         )
@@ -340,7 +400,7 @@ class BrowseViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.copy(loading = false, error = e.message ?: "搜索失败") }
+            _state.update { it.copy(loading = false, error = e.message ?: context.getString(R.string.browse_search_failed)) }
         }
     }
 
@@ -350,6 +410,7 @@ class BrowseViewModel @Inject constructor(
         SearchScope.Series -> state.seriesHasMore
         SearchScope.Books -> state.booksHasMore
         SearchScope.ReadLists -> state.readListsHasMore
+        SearchScope.Collections -> state.collectionsHasMore
     }
 
     private data class SearchResults(
@@ -360,7 +421,7 @@ class BrowseViewModel @Inject constructor(
     )
 
     private companion object {
-        /** 统一 50 条/页，对齐各列表无限滚动策略。 */
+        /** Uniform 50 items per page, matching the infinite-scroll policy of every list. */
         const val SERIES_PAGE_SIZE = 50
         const val BOOKS_PAGE_SIZE = 50
         const val LISTS_PAGE_SIZE = 50

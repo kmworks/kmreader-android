@@ -8,26 +8,27 @@ import com.kmworks.kmreader.core.api.model.SeriesDto
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Creator
+import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.data.Series
 import kotlin.math.absoluteValue
 
-/** Stable Int id for UI models (Komga ids are strings). */
-internal fun String.stableId(): Int = hashCode()
-
 /** Deterministic placeholder hue from a stable key. */
 internal fun hueFor(key: String): Float = (key.hashCode().absoluteValue % 360).toFloat()
 
-private fun mapStatus(status: String): String = when (status.uppercase()) {
-    "ENDED" -> "已完结"
-    "ONGOING" -> "连载中"
-    "ABANDONED" -> "已弃坑"
-    "HIATUS" -> "休刊中"
-    else -> status
+/**
+ * Normalize the Komga series status to a stable token (ENDED/ONGOING/ABANDONED/HIATUS);
+ * unrecognized statuses pass through unchanged. The UI resolves display labels via R.string.core_status_*.
+ */
+private fun mapStatus(status: String): String {
+    val token = status.uppercase()
+    return if (token in KNOWN_STATUS_TOKENS) token else status
 }
 
-/** 角色词表：Komga 的 role 是自由文本，未命中的角色按自定义角色保留原文。 */
+private val KNOWN_STATUS_TOKENS = setOf("ENDED", "ONGOING", "ABANDONED", "HIATUS")
+
+/** Role vocabulary: Komga's role is free text; unmatched roles keep their original text as a custom role. */
 private fun mapRole(role: String): AuthorRole = when (role.lowercase()) {
     "writer", "author" -> AuthorRole.Writer
     "penciller", "artist", "illustrator" -> AuthorRole.Penciller
@@ -49,7 +50,7 @@ fun AuthorDto.toCreator(): Creator = Creator(
 
 /** Map a Komga series to the UI model (progress from read counts). */
 fun SeriesDto.toUiSeries(): Series {
-    val stableId = id.stableId()
+    val stableId = StableIds.series(id)
     DetailIdRegistry.registerSeries(stableId, id)
     CoverUrlRegistry.registerSeries(stableId, id)
     return Series(
@@ -71,23 +72,26 @@ fun SeriesDto.toUiSeries(): Series {
     totalBookCount = metadata.totalBookCount,
     ageRating = metadata.ageRating,
     creators = booksMetadata.authors.map { it.toCreator() },
+    // The server guarantees lowercase kind; still defensively trim+lowercase as on iOS
+    notableEntities = booksMetadata.notableEntities.map { it.toNotableEntity() },
     genres = metadata.genres.toList(),
     tags = metadata.tags.toList(),
     links = metadata.links.map { it.label to it.url },
     summary = metadata.summary.ifBlank { null },
+    oneshot = oneshot,
     )
 }
 
 /** Map a Komga book to the UI model (progress from readProgress). */
 fun BookDto.toUiBook(): Book {
-    val stableId = id.stableId()
+    val stableId = StableIds.book(id)
     DetailIdRegistry.registerBook(stableId, id)
     CoverUrlRegistry.registerBook(stableId, id)
     val n = metadata.number.ifBlank { number.toString() }
-    val numberLabel = if (n.toFloatOrNull() != null) "第 $n 卷" else n
+    // Raw volume/issue number; the UI formats the display label via R.string.core_volume_number.
     return Book(
         id = stableId,
-        number = numberLabel,
+        number = n,
         title = metadata.title.ifBlank { name },
         seriesTitle = seriesTitle,
         hue = hueFor(seriesId),
@@ -99,12 +103,28 @@ fun BookDto.toUiBook(): Book {
                 else -> 0f
             }
         },
+        oneshot = oneshot,
+        author = metadata.authors.firstOrNull()?.name?.ifBlank { null },
+        mediaStatus = media.status,
+        deleted = deleted,
+        links = metadata.links.map { it.label to it.url },
+        notableEntities = metadata.notableEntities.map { it.toNotableEntity() },
+        lastReadAtMs = readProgress?.readDate?.let(::parseInstantMs),
     )
 }
 
+/** ISO-8601 → epoch millis; Komga emits offsets (OffsetDateTime, incl. Z), parse failures silently fall back to null. */
+private fun parseInstantMs(value: String): Long? =
+    runCatching { java.time.OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrNull()
+        ?: runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+
+/** Map a Komga notable entity to the UI model (kind defensively trimmed + lowercased, mirroring iOS). */
+private fun com.kmworks.kmreader.core.api.model.NotableEntityDto.toNotableEntity(): NotableEntity =
+    NotableEntity(name = name, kind = kind.trim().lowercase())
+
 /** Map a Komga read list to the UI list entry (count = books). */
 fun ReadListDto.toListEntry(): SampleData.ListEntry {
-    val stableId = id.stableId()
+    val stableId = StableIds.readList(id)
     DetailIdRegistry.registerReadList(stableId, id)
     CoverUrlRegistry.registerReadList(stableId, id)
     return SampleData.ListEntry(
@@ -120,7 +140,7 @@ fun ReadListDto.toListEntry(): SampleData.ListEntry {
 
 /** Map a Komga collection to the UI list entry (count = series). */
 fun CollectionDto.toListEntry(): SampleData.ListEntry {
-    val stableId = id.stableId()
+    val stableId = StableIds.collection(id)
     DetailIdRegistry.registerCollection(stableId, id)
     CoverUrlRegistry.registerCollection(stableId, id)
     return SampleData.ListEntry(
@@ -129,14 +149,14 @@ fun CollectionDto.toListEntry(): SampleData.ListEntry {
         count = seriesIds.size,
         hue = hueFor(id),
         pinned = false,
-        // Komga CollectionDto 没有 summary 字段（与 ReadListDto 不同），不传避免覆盖。
+        // Komga CollectionDto has no summary field (unlike ReadListDto); omit it to avoid overwriting.
         ordered = ordered,
     )
 }
 
 /** Map a kmrs smart list to the UI list entry (count is resolved by the source screen). */
 fun SmartListDto.toListEntry(count: Int = 0): SampleData.ListEntry {
-    val stableId = id.stableId()
+    val stableId = StableIds.smartList(id)
     DetailIdRegistry.registerSmartList(stableId, id)
     CoverUrlRegistry.registerSmartList(stableId, id)
     return SampleData.ListEntry(

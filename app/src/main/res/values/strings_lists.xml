@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lists tab, list detail screens and list edit sheets. -->
+    <string name="lists_tab_title">Lists</string>
+    <string name="lists_scope_pinned">Pinned</string>
+    <string name="lists_pin">Pin</string>
+    <string name="lists_pinned">Pinned</string>
+    <string name="lists_select">Select</string>
+    <string name="lists_no_session_title">Not Connected to Server</string>
+    <string name="lists_no_session_subtitle">Sign in to view your lists</string>
+    <string name="lists_group_collections">Collections</string>
+    <string name="lists_group_readlists">Read Lists</string>
+    <string name="lists_group_smartlists">Smart Lists</string>
+    <string name="lists_delete_item_title">Delete %1$s?</string>
+    <string name="lists_delete_item_message">\"%1$s\" will be deleted. This cannot be undone.</string>
+    <string name="lists_created_at">Created %1$s</string>
+    <string name="lists_modified_at">Updated %1$s</string>
+    <string name="lists_ordered_label">Ordered</string>
+    <string name="lists_ordered_toggle">Ordered</string>
+    <string name="lists_summary">Summary</string>
+    <string name="lists_add_to_list_title">Add to List</string>
+    <string name="lists_already_in_list">Already in list</string>
+    <string name="lists_smartlist_meta">%1$d items · %2$s · %3$s</string>
+    <string name="lists_item_count">%1$d items</string>
+    <string name="lists_mark_read">Mark Read</string>
+    <string name="lists_mark_unread">Mark Unread</string>
+    <string name="lists_add_to_download_queue">Add to Download Queue</string>
+    <string name="lists_add_to_readlist">Add to Read List</string>
+    <string name="lists_read">Read</string>
+    <string name="lists_read_label">Read</string>
+    <string name="lists_read_incognito">Read Incognito</string>
+    <string name="lists_view_details">View Details</string>
+    <string name="lists_open_series">Open Series</string>
+    <string name="lists_download_book">Download Book</string>
+    <string name="lists_download_selected_books">Download Selected Books</string>
+    <string name="lists_analyze_book">Analyze Book</string>
+    <string name="lists_refresh_metadata">Refresh Metadata</string>
+    <string name="lists_share_book">Share Book</string>
+    <string name="lists_save_book_metadata">Save Book Metadata</string>
+
+    <string name="collection_new_title">New Collection</string>
+    <string name="collection_edit_title">Edit Collection</string>
+    <string name="collection_new_action">New Collection…</string>
+    <string name="collection_delete">Delete Collection</string>
+    <string name="collection_save">Save Collection</string>
+    <string name="collection_delete_message">\"%1$s\" will be deleted. The series will remain in your library.</string>
+
+    <string name="readlist_new_title">New Read List</string>
+    <string name="readlist_edit_title">Edit Read List</string>
+    <string name="readlist_new_action">New Read List…</string>
+    <string name="readlist_delete">Delete Read List</string>
+    <string name="readlist_save">Save Read List</string>
+    <string name="readlist_share">Share Read List</string>
+    <string name="readlist_delete_message">\"%1$s\" will be deleted. The books will remain in your library.</string>
+    <string name="readlist_continue_reading">Continue Reading: Book %1$d</string>
+
+    <string name="smartlist_title">Smart List</string>
+    <string name="smartlist_new_title">New Smart List</string>
+    <string name="smartlist_edit_title">Edit Smart List</string>
+    <string name="smartlist_delete">Delete Smart List</string>
+    <string name="smartlist_save">Save Smart List</string>
+    <string name="smartlist_delete_message">\"%1$s\" will be deleted. Matched items will remain in your library.</string>
+    <string name="smartlist_target_type">Target</string>
+    <string name="smartlist_target_meta">Target: %1$s · %2$d items</string>
+    <string name="smartlist_conditions">Conditions</string>
+    <string name="smartlist_match_all">Match All Conditions</string>
+    <string name="smartlist_match_any">Match Any Condition</string>
+    <string name="smartlist_add_condition">Add Condition</string>
+    <string name="smartlist_rule_field_read_status">Read Status</string>
+    <string name="smartlist_rule_field_release_year">Release Year</string>
+    <string name="smartlist_rule_operator_is">Is</string>
+    <string name="smartlist_rule_operator_is_not">Is Not</string>
+    <string name="smartlist_rule_operator_contains">Contains</string>
+    <string name="smartlist_rule_operator_greater_than">Greater Than</string>
+    <string name="smartlist_rule_operator_less_than">Less Than</string>
+    <string name="smartlist_rule_value">Value</string>
+    <string name="smartlist_rule_value_read">Read</string>
+    <string name="smartlist_rule_value_in_progress">In Progress</string>
+    <string name="smartlist_rule_delete">Delete Condition</string>
+
+    <plurals name="lists_series_count">
+        <item quantity="one">%1$d series</item>
+        <item quantity="other">%1$d series</item>
+    </plurals>
+</resources>

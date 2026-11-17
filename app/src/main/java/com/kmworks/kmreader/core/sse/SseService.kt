@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.sse
 
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.ApiClients
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,19 +38,26 @@ class SseService @Inject constructor(
     private var connectJob: Job? = null
     private var eventSource: EventSource? = null
     private var lastEventId: String? = null
+    private var activeClients: ApiClients? = null
 
-    /** 建立（或切换实例后重建）长连；重复调用同一实例为幂等。 */
+    /** Open (or rebuild after switching instance) the long connection; repeated calls for the same instance are idempotent. */
     fun start(clients: ApiClients) {
-        if (connectJob != null) return
+        // Switching server instance/logged-in user → different clients object, so disconnect and reconnect (mirrors the iOS rebuild on instance change)
+        if (connectJob != null && activeClients === clients) return
+        if (connectJob != null) stop()
+        activeClients = clients
         connectJob = scope.launch { runLoop(clients) }
     }
 
-    /** 断开并停止重连（登出、关闭开关、配置变化时调用）。 */
+    /** Disconnect and stop reconnecting (called on logout, when the toggle is turned off, or on configuration change). */
     fun stop() {
         connectJob?.cancel()
         connectJob = null
         eventSource?.cancel()
         eventSource = null
+        activeClients = null
+        // Mirrors iOS: disconnecting resets the cursor, so the next reconnect receives events from scratch
+        lastEventId = null
         _connectionState.value = SseConnectionState.Disconnected
     }
 
@@ -67,9 +75,10 @@ class SseService @Inject constructor(
         }
     }
 
-    /** 单次连接；返回本次是否成功 onOpen 过。 */
+    /** A single connection; suspends until the connection drops and returns whether onOpen fired this time. */
     private suspend fun connectOnce(clients: ApiClients): Boolean {
-        val opened = CompletableDeferred<Boolean>()
+        var didOpen = false
+        val closed = CompletableDeferred<Unit>()
         val request = Request.Builder()
             .url(clients.baseUrl + "/sse/v1/events")
             .header("Accept", "text/event-stream")
@@ -77,8 +86,8 @@ class SseService @Inject constructor(
             .build()
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
+                didOpen = true
                 _connectionState.value = SseConnectionState.Connected
-                opened.complete(true)
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -89,23 +98,30 @@ class SseService @Inject constructor(
             }
 
             override fun onClosed(eventSource: EventSource) {
-                opened.complete(false)
+                closed.complete(Unit)
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 response?.close()
-                opened.complete(false)
+                AppLog.w(TAG, "SSE connection failed: ${t?.message ?: "HTTP ${response?.code}"}")
+                closed.complete(Unit)
             }
         }
-        eventSource = clients.newEventSource(request, listener)
+        val source = clients.newEventSource(request, listener)
+        eventSource = source
         return try {
-            opened.await()
+            // Critical: hold the connection until it drops; returning at onOpen would leak a new connection
+            // every 2s, and once OkHttp's 5-per-host limit is reached every request (incl. covers) starves
+            closed.await()
+            didOpen
         } finally {
+            source.cancel()
             eventSource = null
         }
     }
 
     private companion object {
+        const val TAG = "SseService"
         const val INITIAL_BACKOFF_MS = 2_000L
         const val MAX_BACKOFF_MS = 60_000L
     }

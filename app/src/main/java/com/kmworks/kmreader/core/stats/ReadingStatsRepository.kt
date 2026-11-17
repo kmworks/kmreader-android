@@ -10,8 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 阅读统计数据源（kmrs 能力；stock Komga 404 时返回 null，由上层按能力门控隐藏）。
- * 服务经 LocalApiFactory 本地构建（ApiClients 只读）。
+ * Reading statistics data source (kmrs capability; returns null on stock Komga 404, the caller hides the
+ * section by capability gating).
+ * The service is built locally via LocalApiFactory (ApiClients is read-only).
  */
 @Singleton
 class ReadingStatsRepository @Inject constructor(
@@ -21,14 +22,15 @@ class ReadingStatsRepository @Inject constructor(
     private fun api(): ReadingStatsApi? =
         sessionManager.clients.value?.let { LocalApiFactory.create(it, ReadingStatsApi::class.java) }
 
-    suspend fun summary(): ReadingStatsSummaryResponse? =
-        api()?.summary()?.awaitBody()
+    /** All endpoints support library filtering (mirrors the in-page library Picker on iOS). */
+    suspend fun summary(libraryId: String? = null): ReadingStatsSummaryResponse? =
+        api()?.summary(libraryId)?.awaitBody()
 
-    suspend fun activity(): ReadingStatsActivityResponse? =
-        api()?.activity(tzOffsetMinutes = deviceTzOffsetMinutes())?.awaitBody()
+    suspend fun activity(libraryId: String? = null): ReadingStatsActivityResponse? =
+        api()?.activity(libraryId, tzOffsetMinutes = deviceTzOffsetMinutes())?.awaitBody()
 
-    suspend fun tops(): ReadingStatsTopsResponse? =
-        api()?.tops()?.awaitBody()
+    suspend fun tops(libraryId: String? = null): ReadingStatsTopsResponse? =
+        api()?.tops(libraryId)?.awaitBody()
 
     private suspend fun deviceTzOffsetMinutes(): Int = withContext(Dispatchers.Default) {
         TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000

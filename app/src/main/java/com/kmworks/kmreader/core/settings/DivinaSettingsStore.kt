@@ -29,8 +29,9 @@ import kotlinx.coroutines.flow.map
 private val Context.divinaSettingsStore by preferencesDataStore(name = "divina_settings")
 
 /**
- * DIVINA 阅读器设置的持久化（对齐原作 ReaderSettingsSheet 的 @AppStorage 键语义）。
- * 键名与原作一致（readerBackground/showPageNumber/...），便于对照排查。
+ * Persistence of DIVINA reader settings (mirrors the @AppStorage key semantics of the original
+ * ReaderSettingsSheet).
+ * Key names match the original (readerBackground/showPageNumber/...), easing side-by-side debugging.
  */
 @Singleton
 class DivinaSettingsStore @Inject constructor(
@@ -69,7 +70,7 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
-    // ---- 单页独显集合（对齐原作 soloPagesByBookId，按书籍持久化，存服务器页号）----
+    // ---- Solo-page sets (mirrors the original soloPagesByBookId, persisted per book, storing server page numbers) ----
     private val keySoloPages = stringPreferencesKey("divinaSoloPages")
 
     fun soloPages(bookDtoId: String): Flow<Set<Int>> =
@@ -94,7 +95,7 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
-    // ---- EPUB 阅读器设置（对齐原作 epubPreferences/epubFlowStyle/animateEpubTapTurns 等 @AppStorage）----
+    // ---- EPUB reader settings (mirrors the original epubPreferences/epubFlowStyle/animateEpubTapTurns etc. @AppStorage) ----
     val epubSettings: Flow<EpubReaderSettings> = store.data.map { prefs ->
         val defaults = EpubReaderSettings()
         EpubReaderSettings(
@@ -140,7 +141,7 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
-    // ---- PDF 阅读器设置（对齐原作 pdfReaderBackground/showPdfControlsGradientBackground/showPdfProgressBarWhileReading 等）----
+    // ---- PDF reader settings (mirrors the original pdfReaderBackground/showPdfControlsGradientBackground/showPdfProgressBarWhileReading etc.) ----
     val pdfSettings: Flow<PdfReaderSettings> = store.data.map { prefs ->
         val defaults = PdfReaderSettings()
         PdfReaderSettings(

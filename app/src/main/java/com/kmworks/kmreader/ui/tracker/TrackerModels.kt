@@ -1,17 +1,18 @@
 package com.kmworks.kmreader.ui.tracker
 
 import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.tracker.TrackerLinkDto
 import com.kmworks.kmreader.core.tracker.TrackerRemoteStateDto
 
-/** Tracker provider（对齐原作 TrackerProvider：anilist/mal/bangumi/mangabaka）。 */
+/** Tracker provider (aligned with the original TrackerProvider: anilist/mal/bangumi/mangabaka). */
 enum class TrackerProvider(
     val displayName: String,
     val entryUrlPattern: String,
-    /** API 路径/DTO 使用的原始值。 */
+    /** Raw value used in API paths/DTOs. */
     val apiName: String,
-    /** provider 品牌 logo 资源（保持原色，与 iOS Assets.xcassets 一致）。 */
+    /** Provider brand logo asset (kept in original colors, matching iOS Assets.xcassets). */
     @DrawableRes val logoRes: Int,
 ) {
     AniList("AniList", "https://anilist.co/manga/{id}", "anilist", R.drawable.tracker_anilist),
@@ -22,7 +23,7 @@ enum class TrackerProvider(
 
     fun entryUrl(trackId: String): String = entryUrlPattern.replace("{id}", trackId)
 
-    /** 从系列 web link URL 反解该 provider 的条目 id（对齐 komf parseProviderLink 的域名匹配）。 */
+    /** Resolves this provider's entry id from a series web link URL (domain matching aligned with komf parseProviderLink). */
     fun trackIdFromUrl(url: String): String? {
         val lower = url.lowercase()
         val regex = when (this) {
@@ -41,18 +42,19 @@ enum class TrackerProvider(
     }
 }
 
-/** 进度映射模式（对齐 TrackerMode）。 */
-enum class TrackerMode(val label: String) {
-    Auto("自动"), Chapter("按章节"), Volume("按卷")
+/** Progress mapping mode (aligned with TrackerMode). */
+enum class TrackerMode(@StringRes val labelRes: Int) {
+    Auto(R.string.tracker_mode_auto), Chapter(R.string.tracker_mode_chapter), Volume(R.string.tracker_mode_volume)
 }
 
-/** 远端阅读状态（对齐 TrackerStatus）。 */
-enum class TrackerStatus(val label: String) {
-    Reading("在阅读"), Planning("计划"), Completed("已完成"),
-    Paused("暂停"), Dropped("弃坑"), Rereading("重读"),
+/** Remote reading status (aligned with TrackerStatus). */
+enum class TrackerStatus(@StringRes val labelRes: Int) {
+    Reading(R.string.tracker_status_reading), Planning(R.string.tracker_status_planning),
+    Completed(R.string.tracker_status_completed), Paused(R.string.tracker_status_paused),
+    Dropped(R.string.tracker_status_dropped), Rereading(R.string.tracker_status_rereading),
 }
 
-/** 已建立的绑定（对齐 TrackerLink）。 */
+/** An established link (aligned with TrackerLink). */
 data class TrackerLink(
     val provider: TrackerProvider,
     val trackId: String,
@@ -64,28 +66,7 @@ data class TrackerLink(
     val totalChapters: Int? = null,
 )
 
-/** 设计稿示例：葬送的芙莉莲已链接 AniList 与 Bangumi。 */
-val SampleTrackerLinks = listOf(
-    TrackerLink(
-        provider = TrackerProvider.AniList,
-        trackId = "108465",
-        title = "葬送のフリーレン",
-        remoteStatus = TrackerStatus.Reading,
-        lastReadChapter = 120.0,
-        totalChapters = null,
-    ),
-    TrackerLink(
-        provider = TrackerProvider.Bangumi,
-        trackId = "285267",
-        title = "葬送的芙莉莲",
-        mode = TrackerMode.Chapter,
-        remoteStatus = TrackerStatus.Reading,
-        lastReadChapter = 120.0,
-        totalChapters = 140,
-    ),
-)
-
-/** provider 账号连接状态（设置页）。 */
+/** Provider account connection state (settings page). */
 data class TrackerAccount(
     val provider: TrackerProvider,
     val connectedUser: String?,
@@ -98,16 +79,16 @@ val SampleTrackerAccounts = listOf(
     TrackerAccount(TrackerProvider.MangaBaka, connectedUser = null),
 )
 
-/** API 原始值 → provider（未知回退 AniList，避免丢绑定）。 */
+/** API raw value → provider (unknown values fall back to AniList to avoid dropping links). */
 fun trackerProviderFromApi(raw: String): TrackerProvider =
     TrackerProvider.entries.firstOrNull { it.apiName == raw } ?: TrackerProvider.AniList
 
-/** API 原始值 → 状态（未知回退 Reading）。 */
+/** API raw value → status (unknown values fall back to Reading). */
 fun trackerStatusFromApi(raw: String): TrackerStatus =
     TrackerStatus.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
         ?: TrackerStatus.Reading
 
-/** DTO → UI 绑定（合并远端状态展示）。 */
+/** DTO → UI link (merges remote state for display). */
 fun TrackerLinkDto.toUiTrackerLink(state: TrackerRemoteStateDto? = null): TrackerLink =
     TrackerLink(
         provider = trackerProviderFromApi(provider),

@@ -23,6 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionRToL
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.TextFormat
 import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -63,6 +67,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,10 +81,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.kmworks.kmreader.R
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
@@ -87,6 +98,13 @@ import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.kindLabel
+import com.kmworks.kmreader.ui.components.bookCountLineText
+import com.kmworks.kmreader.ui.components.completedLastReadText
+import com.kmworks.kmreader.ui.components.oneshotLineText
+import com.kmworks.kmreader.ui.components.pageLabelText
+import com.kmworks.kmreader.ui.components.roleLabelText
+import com.kmworks.kmreader.ui.components.subtitleText
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
@@ -94,24 +112,29 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import com.kmworks.kmreader.ui.components.ContextMenuSheet
+import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
+import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.tracker.TrackerSection
 import com.kmworks.kmreader.ui.tracker.TrackerSeriesSheet
+import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
 
-// 对齐 LayoutConfig.detailWideLayoutMinimumWidth = 960（宽版详情启用阈值）
+// Mirrors LayoutConfig.detailWideLayoutMinimumWidth = 960 (the threshold for the wide detail layout)
 private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
 private val ActionCardMaxWidth = 480.dp
 private val ActionCardShape = RoundedCornerShape(16.dp)
 
-/** 系列详情，对齐 KMReader SeriesDetailView / SeriesDetailContentView：
- *  Hero（大封面+居中信息）→ DetailActionCard（册数行+继续阅读胶囊+下载区）→
- *  时间戳 → 简介 → 分类/标签 chips → 别称 → 书籍列表（筛选/排序/布局/多选行）。
- *  宽屏（≥840dp）为左信息栏右书籍列表，对应 SeriesDetailWideLayoutView。 */
+/** Series detail, mirrors KMReader SeriesDetailView / SeriesDetailContentView:
+ *  Hero (large cover + centered info) → DetailActionCard (book-count row + continue-reading capsule + download area) →
+ *  timestamp → summary → genre/tag chips → alternate titles → book list (filter/sort/layout/multi-select row).
+ *  On wide screens (≥840dp) the info rail sits on the left and the book list on the right, matching
+ *  SeriesDetailWideLayoutView. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SeriesDetailScreen(
@@ -121,12 +144,16 @@ fun SeriesDetailScreen(
     onBrowseFilter: (String) -> Unit,
     onOpenBook: (Book) -> Unit = {},
     onOpenCollection: (Int) -> Unit = {},
+    onReadIncognito: (Book) -> Unit = {},
+    /** Navigation after a successful series delete (closes the detail screen). */
+    onDeleted: () -> Unit = {},
     viewModel: SeriesDetailViewModel = hiltViewModel(),
 ) {
-    // 真实数据：进入时按注册表反查 DTO id 拉单系列与书籍；无会话/未注册回退假数据
+    // Real data: on entry, resolve the DTO id through the registry and load the series and its books;
+    // fall back to the demo data when there is no session or the series is not registered
     val state by viewModel.uiState.collectAsState()
     LaunchedEffect(series.id) { viewModel.load(series.id) }
-    // 演示数据（无会话）下的「标记为已读」本地即时反馈
+    // Instant local feedback for "mark as read" on the demo data (no session)
     var demoMarkedRead by remember(series.id) { mutableStateOf(false) }
     val collections by viewModel.collections.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
@@ -140,21 +167,32 @@ fun SeriesDetailScreen(
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
         ?: books.firstOrNull()
-    // 对齐 seriesDetailLayout：列表/中网格/大网格三档，默认列表，逐页持久化
+    // Mirrors seriesDetailLayout: list / medium grid / large grid, list by default, persisted per page
     val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("seriesDetail", BrowseLayout.List)
-    // 筛选状态（对齐 BookBrowseOptions；真实实现逐页 AppStorage 持久化）
+    // Filter state (mirrors BookBrowseOptions; the real implementation persists per page via AppStorage)
     var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
-    // 多选状态：null = 未进入多选；进入后书籍点击切换选中（对齐 BooksListViewForSeries 选择模式）
+    // Selection state: null = selection mode off; once on, tapping a book toggles it
+    // (mirrors BooksListViewForSeries selection mode)
     var selectedIds by remember { mutableStateOf<Set<Int>?>(null) }
     var showOptionsSheet by remember { mutableStateOf(false) }
     var showEditSheet by remember { mutableStateOf(false) }
     var showKomfSheet by remember { mutableStateOf(false) }
+    var komfResetConfirm by remember { mutableStateOf(false) }
+    var deleteSeriesConfirm by remember { mutableStateOf(false) }
     var showTrackerSheet by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addSelectedToReadListOpen by remember { mutableStateOf(false) }
     var deleteSelectedOpen by remember { mutableStateOf(false) }
-    // 下载状态：真实文件扫描结果（stableId -> 完整）+ 演示本地反馈
+    // Book long-press menu (mirrors iOS: long-pressing in the grid shows BookContextMenu; entering
+    // multi-select goes through the toolbar button)
+    var menuBook by remember { mutableStateOf<Book?>(null) }
+    var addMenuBookToReadListOpen by remember { mutableStateOf(false) }
+    // Book metadata edit sheet and delete confirmation (reached from the long-press menu)
+    var editBook by remember { mutableStateOf<Book?>(null) }
+    var deleteBookConfirm by remember { mutableStateOf<Book?>(null) }
+    val context = LocalContext.current
+    // Download state: real file scan result (stableId -> complete) + demo local feedback
     val downloadedMap by viewModel.downloaded.collectAsState()
     var demoDownloaded by remember { mutableStateOf(false) }
     val seriesDownloaded = (
@@ -163,23 +201,26 @@ fun SeriesDetailScreen(
         ) || demoDownloaded
     val onDownloadSeries = {
         if (viewModel.downloadSeries()) {
-            // 已入队；完成后 downloadedMap 经文件扫描更新
+            // Already queued; once finished, downloadedMap is refreshed by the file scan
         } else {
             demoDownloaded = true
         }
     }
 
-    // 页内 snackbar（komf 任务与多选失败通知共用）
+    // In-page snackbar (shared by komf jobs and multi-select failure notices)
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 多选未开启时长按书籍 = 带该书进入多选（对齐原作长按手势）
+    // Long-pressing a book while multi-select is off enters multi-select with that book
+    // (mirrors the original long-press gesture)
     val toggleSelect: (Book) -> Unit = { book ->
         selectedIds = selectedIds?.let { if (book.id in it) it - book.id else it + book.id }
             ?: setOf(book.id)
     }
 
     val selectionFailure: suspend (String) -> Unit = { action ->
-        snackbarHostState.showSnackbar("${action}失败：没有可写入的真实书籍数据")
+        snackbarHostState.showSnackbar(
+            context.getString(R.string.detail_selection_no_data, action),
+        )
     }
     val onSelectedMarkRead: (Boolean) -> Unit = { read ->
         val ids = selectedIds.orEmpty()
@@ -187,7 +228,7 @@ fun SeriesDetailScreen(
             if (viewModel.markBooksRead(ids, read)) {
                 selectedIds = null
             } else {
-                scope.launch { selectionFailure(if (read) "标记已读" else "标记未读") }
+                scope.launch { selectionFailure(if (read) context.getString(R.string.book_mark_read) else context.getString(R.string.book_mark_unread)) }
             }
         }
     }
@@ -197,7 +238,7 @@ fun SeriesDetailScreen(
             if (viewModel.downloadBooks(ids)) {
                 selectedIds = null
             } else {
-                scope.launch { selectionFailure("下载") }
+                scope.launch { selectionFailure(context.getString(R.string.common_download)) }
             }
         }
     }
@@ -211,7 +252,7 @@ fun SeriesDetailScreen(
         if (!selectedIds.isNullOrEmpty()) deleteSelectedOpen = true
     }
 
-    // komf 任务一次性通知（页内 snackbar，对齐 ErrorManager 通知）
+    // One-shot komf job notifications (in-page snackbar, mirrors ErrorManager notifications)
     LaunchedEffect(viewModel) {
         viewModel.komfEvents.collect { snackbarHostState.showSnackbar(it) }
     }
@@ -225,52 +266,111 @@ fun SeriesDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
-                    // 对应原作详情 toolbar 单一 more 菜单（编辑/komf/重置 仅管理员可见）
+                    // Mirrors the original detail toolbar's single more menu (edit/komf/reset are admin-only)
                     Box {
                         IconButton(onClick = { moreOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                            DropdownMenuItem(text = { Text("分享") }, onClick = { moreOpen = false })
                             DropdownMenuItem(
-                                text = { Text("编辑系列") },
+                                text = { Text(stringResource(R.string.common_share)) },
+                                onClick = {
+                                    moreOpen = false
+                                    val url = viewModel.seriesWebUrl()
+                                    if (url != null) {
+                                        shareText(context, url)
+                                    } else {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                context.getString(R.string.detail_share_failed),
+                                            )
+                                        }
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.series_edit_title)) },
                                 onClick = {
                                     moreOpen = false
                                     showEditSheet = true
                                 },
                             )
-                            DropdownMenuItem(text = { Text("分析") }, onClick = { moreOpen = false })
-                            DropdownMenuItem(text = { Text("刷新元数据") }, onClick = { moreOpen = false })
-                            // komf 三项：kmrs 特性 + 管理员门控（对齐 KomfIntegrationStore）
+                            // Analyze/refresh/delete: admin-gated (mirrors iOS current.isAdmin)
+                            if (state.isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_analyze)) },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.analyzeSeries { ok ->
+                                            if (!ok) {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.getString(R.string.detail_analyze_failed),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_refresh_metadata)) },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.refreshSeriesMetadata { ok ->
+                                            if (!ok) {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.getString(R.string.detail_refresh_failed),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                            // Three komf entries: a kmrs feature + admin-gated (mirrors KomfIntegrationStore)
                             if (state.komfAvailable) {
                                 DropdownMenuItem(
-                                    text = { Text("用 komf 识别…") },
+                                    text = { Text(stringResource(R.string.komf_identify_menu)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                                    },
                                     onClick = {
                                         moreOpen = false
                                         showKomfSheet = true
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("匹配 komf") },
+                                    text = { Text(stringResource(R.string.komf_match)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Sync, contentDescription = null)
+                                    },
                                     onClick = {
                                         moreOpen = false
                                         viewModel.komfMatch()
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("重置 komf") },
+                                    text = { Text(stringResource(R.string.komf_reset)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.RestartAlt,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
                                     onClick = {
                                         moreOpen = false
-                                        viewModel.komfReset()
+                                        komfResetConfirm = true
                                     },
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("加入收藏…") },
+                                text = { Text(stringResource(R.string.series_add_to_collection)) },
                                 onClick = {
                                     moreOpen = false
                                     viewModel.ensureCollectionsLoaded()
@@ -278,17 +378,28 @@ fun SeriesDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("标记为已读") },
+                                text = { Text(stringResource(R.string.book_mark_read)) },
                                 onClick = {
                                     moreOpen = false
-                                    // 真实数据走 API（VM 内更新）；演示数据本地反馈
+                                    // Real data goes through the API (updated inside the VM);
+                                    // demo data gets local feedback
                                     if (!viewModel.markSeriesRead()) demoMarkedRead = true
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("删除…", color = MaterialTheme.colorScheme.error) },
-                                onClick = { moreOpen = false },
-                            )
+                            if (state.isAdmin) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = stringResource(R.string.detail_delete_menu),
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        deleteSeriesConfirm = true
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -301,9 +412,9 @@ fun SeriesDetailScreen(
                 .padding(padding),
         ) {
             if (maxWidth >= WideLayoutBreakpoint) {
-                // 宽版：左侧信息栏 + 右侧书籍列表，两栏独立滚动
-                // 信息栏宽度 = max(可用宽 × 0.382, 340)，对齐原作 DetailWideLayoutView
-                // 的黄金分割小份（width / φ² ≈ 38.2%，340 为窄栏可用下限）
+                // Wide layout: info rail on the left + book list on the right, both scrolling independently
+                // Rail width = max(available width × 0.382, 340), mirroring the original DetailWideLayoutView
+                // golden-ratio minor part (width / φ² ≈ 38.2%, with 340 as the minimum usable rail)
                 val railWidth = maxOf(maxWidth * 0.382f, 340.dp)
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
@@ -367,7 +478,8 @@ fun SeriesDetailScreen(
                             BooksSection(
                                 books = books,
                                 layout = booksLayout,
-                                onOpenBook = onOpenBook,
+                                onReadBook = onRead,
+                                onBookLongClick = { menuBook = it },
                                 selection = selectedIds,
                                 onToggleSelect = toggleSelect,
                             )
@@ -375,8 +487,9 @@ fun SeriesDetailScreen(
                     }
                 }
             } else {
-                // 手机：单列滚动，内容居中（对齐原作 DetailHeroView 居中态：
-                // 操作卡 maxWidth 480 水平居中，时间戳居中，chips 流居中）
+                // Phone: single scrolling column with centered content (mirrors the original
+                // DetailHeroView centered state: the action card is horizontally centered with maxWidth 480,
+                // the timestamp is centered, and the chip flow is centered)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -433,7 +546,8 @@ fun SeriesDetailScreen(
                     BooksSection(
                         books = books,
                         layout = booksLayout,
-                        onOpenBook = onOpenBook,
+                        onReadBook = onRead,
+                        onBookLongClick = { menuBook = it },
                         selection = selectedIds,
                         onToggleSelect = toggleSelect,
                     )
@@ -443,13 +557,11 @@ fun SeriesDetailScreen(
     }
 
     if (showOptionsSheet) {
-        val browseSuggestions = rememberBrowseFilterSuggestions()
         BrowseOptionsSheet(
             options = browseOptions,
             onOptionsChange = { browseOptions = it },
             onDismiss = { showOptionsSheet = false },
-            authorSuggestions = browseSuggestions.authors,
-            tagSuggestions = browseSuggestions.tags,
+            suggestionSeriesStableId = series.id,
         )
     }
     if (showEditSheet) {
@@ -475,8 +587,60 @@ fun SeriesDetailScreen(
             onDismiss = { showKomfSheet = false },
         )
     }
+    if (komfResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { komfResetConfirm = false },
+            title = { Text(stringResource(R.string.komf_reset)) },
+            text = { Text(stringResource(R.string.komf_reset_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        komfResetConfirm = false
+                        viewModel.komfReset()
+                    },
+                ) {
+                    Text(stringResource(R.string.common_reset), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { komfResetConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
+    }
+    if (deleteSeriesConfirm) {
+        AlertDialog(
+            onDismissRequest = { deleteSeriesConfirm = false },
+            title = { Text(stringResource(R.string.series_delete_files_title)) },
+            text = {
+                Text(stringResource(R.string.series_delete_files_message, displaySeries.title))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteSeriesConfirm = false
+                        viewModel.deleteSeries { ok ->
+                            if (ok) {
+                                onDeleted()
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        context.getString(R.string.detail_delete_failed),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteSeriesConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
+    }
     if (showTrackerSheet) {
-        // TrackerSeriesSheet 内部经 Hilt 自接真实数据（TrackerSeriesViewModel）
+        // TrackerSeriesSheet wires up its own real data via Hilt (TrackerSeriesViewModel)
         TrackerSeriesSheet(
             series = displaySeries,
             alternateTitles = state.editable?.alternateTitles.orEmpty().map { it.second },
@@ -486,11 +650,13 @@ fun SeriesDetailScreen(
             },
         )
     }
-    // 「加入收藏」选择器：真实收藏数据，选择后调 API（无会话时为空）
+    // "Add to collection" picker: real collection data, calls the API after selection (empty without a session)
     if (addToCollectionOpen) {
         AddToListSheet(
             collections = collections ?: emptyList(),
             readLists = emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addToCollection(entry)
                 addToCollectionOpen = false
@@ -503,28 +669,163 @@ fun SeriesDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 if (viewModel.addBooksToReadList(entry, ids)) {
                     selectedIds = null
                 } else {
-                    scope.launch { selectionFailure("加入阅读列表") }
+                    scope.launch { selectionFailure(context.getString(R.string.book_add_to_readlist)) }
                 }
                 addSelectedToReadListOpen = false
             },
             onDismiss = { addSelectedToReadListOpen = false },
         )
     }
+    // Book long-press menu (mirrors iOS: long-pressing in the grid shows BookContextMenu; the series
+    // detail screen has no "open series" navigation)
+    menuBook?.let { target ->
+        ContextMenuSheet(
+            items = bookContextMenuItems(
+                hasStarted = target.progress != null,
+                completed = target.progress == 1f,
+                downloaded = downloadedMap[target.id] == true,
+                onRead = { onRead(target) },
+                onReadIncognito = { onReadIncognito(target) },
+                onOpenDetails = { onOpenBook(target) },
+                onMarkRead = { viewModel.markBooksRead(setOf(target.id), true) },
+                onMarkUnread = { viewModel.markBooksRead(setOf(target.id), false) },
+                onDownload = { viewModel.downloadBooks(setOf(target.id)) },
+                onAddToReadList = {
+                    viewModel.ensureReadListsLoaded()
+                    addMenuBookToReadListOpen = true
+                },
+                onEdit = { editBook = target },
+                onAnalyze = {
+                    viewModel.analyzeBook(target.id) { ok ->
+                        if (!ok) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.detail_analyze_failed),
+                                )
+                            }
+                        }
+                    }
+                },
+                onRefresh = {
+                    viewModel.refreshBookMetadata(target.id) { ok ->
+                        if (!ok) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.detail_refresh_failed),
+                                )
+                            }
+                        }
+                    }
+                },
+                onShare = {
+                    val url = viewModel.bookWebUrl(target.id)
+                    if (url != null) {
+                        shareText(context, url)
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.detail_share_failed),
+                            )
+                        }
+                    }
+                },
+                onDelete = { deleteBookConfirm = target },
+            ),
+            onDismiss = { menuBook = null },
+        )
+    }
+    // Book metadata edit sheet (meta is null: diff against the title baseline only)
+    editBook?.let { book ->
+        var editSaving by remember { mutableStateOf(false) }
+        BookEditSheet(
+            book = book,
+            meta = null,
+            saving = editSaving,
+            onSave = { draft ->
+                editSaving = true
+                viewModel.saveBookMetadata(book.id, book.title, draft) { ok ->
+                    editSaving = false
+                    if (ok) {
+                        editBook = null
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.detail_save_failed),
+                            )
+                        }
+                    }
+                }
+            },
+            onDismiss = { editBook = null },
+        )
+    }
+    // Delete book files confirmation (red button; on Komga deleting a book deletes its files, irreversible)
+    deleteBookConfirm?.let { book ->
+        AlertDialog(
+            onDismissRequest = { deleteBookConfirm = null },
+            title = { Text(stringResource(R.string.book_delete_files_title)) },
+            text = { Text(stringResource(R.string.book_delete_files_message, book.title)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteBookConfirm = null
+                    viewModel.deleteBook(book.id) { ok ->
+                        if (!ok) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.detail_delete_failed),
+                                )
+                            }
+                        }
+                    }
+                }) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteBookConfirm = null }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
+    }
+    if (addMenuBookToReadListOpen) {
+        menuBook?.let { target ->
+            AddToListSheet(
+                collections = emptyList(),
+                readLists = readLists ?: emptyList(),
+                onCreateReadList = viewModel::createReadListEntry,
+                onCreateCollection = viewModel::createCollectionEntry,
+                onSelect = { entry ->
+                    if (!viewModel.addBooksToReadList(entry, setOf(target.id))) {
+                        scope.launch { selectionFailure(context.getString(R.string.book_add_to_readlist)) }
+                    }
+                    addMenuBookToReadListOpen = false
+                },
+                onDismiss = { addMenuBookToReadListOpen = false },
+            )
+        }
+    }
     if (deleteSelectedOpen) {
         val ids = selectedIds.orEmpty()
         ConfirmDeleteDialog(
-            title = "删除所选书籍",
-            message = "将删除 ${ids.size} 本书籍的文件。此操作不可撤销。",
+            title = stringResource(R.string.series_delete_selected_title),
+            message = pluralStringResource(
+                R.plurals.series_delete_selected_message,
+                ids.size,
+                ids.size,
+            ),
             onConfirm = {
                 viewModel.deleteBooks(ids) { ok ->
                     if (ok) {
                         selectedIds = null
                     } else {
-                        scope.launch { snackbarHostState.showSnackbar("删除失败，请稍后重试") }
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.detail_delete_failed),
+                            )
+                        }
                     }
                 }
             },
@@ -533,7 +834,7 @@ fun SeriesDetailScreen(
     }
 }
 
-/** Hero：居中大封面在上、信息居中在下（窄布局），对应 DetailHeroView + SeriesHeroInfoView。 */
+/** Hero: large centered cover on top with centered info below (narrow layout), mirrors DetailHeroView + SeriesHeroInfoView. */
 @Composable
 private fun DetailHero(
     series: Series,
@@ -568,12 +869,15 @@ private fun DetailHero(
             }
         }
         Spacer(Modifier.height(12.dp))
-        // SeriesHeroInfoView.creatorItems：出版社(building.2) + 按角色排序的作者(role.icon)，
-        // 均可点击跳转对应元数据筛选的系列浏览页；长流折叠在 "+N" 后原地展开（limit 4）
+        // SeriesHeroInfoView.creatorItems: publisher (building.2) + authors sorted by role (role.icon),
+        // all tappable and navigating to the series browse page filtered by that metadata;
+        // long flows collapse behind "+N" and expand in place (limit 4)
+        val localContext = LocalContext.current
+        val publisherLabel = localContext.getString(R.string.browse_kind_publisher)
         val creatorChips = buildList {
-            series.publisher?.let { add(Icons.Outlined.Business to ("出版社" to it)) }
+            series.publisher?.let { add(Icons.Outlined.Business to (publisherLabel to it)) }
             series.creators.sortedBy { it.role.ordinal }.forEach { creator ->
-                add(creator.role.icon() to ("${creator.role.label}" to creator.name))
+                add(creator.role.icon() to (creator.roleLabelText(localContext) to creator.name))
             }
         }
         CollapsibleMetaChipFlow(
@@ -583,8 +887,8 @@ private fun DetailHero(
             onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
         )
         Spacer(Modifier.height(12.dp))
-        // DetailHeroMetadataGroup：居中 Hero 用水平换行流（一行排不下才折行），
-        // 非居中（宽版信息栏）每条元信息单独一行。
+        // DetailHeroMetadataGroup: the centered hero uses a horizontal wrapping flow (wrapping only when a row
+        // does not fit), while the non-centered (wide rail) layout puts each meta item on its own row.
         if (centered) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -602,19 +906,29 @@ private fun DetailHero(
 
 @Composable
 private fun HeroMetaItems(series: Series) {
-    series.releaseYear?.let { MetaRow(icon = Icons.Filled.DateRange, text = "$it 年开始连载") }
+    val endedLabel = stringResource(R.string.series_status_ended)
+    series.releaseYear?.let {
+        MetaRow(
+            icon = Icons.Filled.DateRange,
+            text = stringResource(R.string.series_started_year, it),
+        )
+    }
     series.status?.let {
-        MetaRow(icon = null, text = it, tint = if (it == "已完结") Color(0xFF4CAF50) else Color(0xFFFFA726))
+        MetaRow(icon = null, text = it, tint = if (it == endedLabel) Color(0xFF4CAF50) else Color(0xFFFFA726))
     }
     series.language?.let { MetaRow(icon = Icons.Filled.Public, text = it) }
     MetaRow(
         icon = Icons.AutoMirrored.Filled.FormatTextdirectionRToL,
-        text = if (series.directionRtl) "从右到左" else "从左到右",
+        text = if (series.directionRtl) {
+            stringResource(R.string.series_direction_rtl)
+        } else {
+            stringResource(R.string.series_direction_ltr)
+        },
     )
 }
 
-/** 操作卡：圆角 16 中性底容器（maxWidth 480），册数行 + 继续阅读胶囊 + 下载本系列。
- *  对应 DetailActionCard + SeriesBookCountView + SeriesReadingActionButton + SeriesDownloadActionsSection。 */
+/** Action card: rounded 16 neutral container (maxWidth 480), book-count row + continue-reading capsule + download series.
+ *  Mirrors DetailActionCard + SeriesBookCountView + SeriesReadingActionButton + SeriesDownloadActionsSection. */
 @Composable
 private fun DetailActionCard(
     series: Series,
@@ -639,24 +953,26 @@ private fun DetailActionCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = series.bookCountLine,
+                text = series.bookCountLineText(),
                 style = MaterialTheme.typography.titleSmall,
             )
-            // 对齐 iOS SeriesBookCountView 的状态行；部分已读分支按用户要求
-            // 用已读数表述（iOS 原文为 "N unread"），不出现「未读」字样。
+            // Mirrors the iOS SeriesBookCountView status line; per the user's request the partially-read
+            // branch is phrased with the read count (iOS says "N unread"), never showing the word "unread".
+            val allReadLabel = stringResource(R.string.series_status_all_read)
+            val readingLabel = stringResource(R.string.series_status_reading)
             val statusLabel = when {
                 series.unreadCount > 0 && series.unreadCount < series.bookCount ->
-                    "已读 ${series.bookCount - series.unreadCount} 册"
-                series.progress != null && series.progress < 1f -> "阅读中"
-                series.unreadCount == 0 && series.bookCount > 0 -> "全部已读"
-                else -> "未读"
+                    stringResource(R.string.series_status_partial_read, series.bookCount - series.unreadCount)
+                series.progress != null && series.progress < 1f -> readingLabel
+                series.unreadCount == 0 && series.bookCount > 0 -> allReadLabel
+                else -> stringResource(R.string.common_unread)
             }
             Text(
                 text = "  ·  $statusLabel",
                 style = MaterialTheme.typography.bodySmall,
                 color = when (statusLabel) {
-                    "全部已读" -> Color(0xFF4CAF50)
-                    "阅读中" -> Color(0xFFFFA726)
+                    allReadLabel -> Color(0xFF4CAF50)
+                    readingLabel -> Color(0xFFFFA726)
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
@@ -664,23 +980,36 @@ private fun DetailActionCard(
         if (continueBook != null) {
             ReadingActionButton(continueBook = continueBook, onRead = onRead)
         }
+        // Secondary button mirrors iOS optimizedControlSize(.mini): mini capsule (28 high, 13sp text, small icon)
         OutlinedButton(
             onClick = onDownload,
             enabled = !downloaded,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             Icon(
                 if (downloaded) Icons.Outlined.CheckCircle else Icons.Filled.Download,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(12.dp),
             )
-            Spacer(Modifier.width(6.dp))
-            Text(if (downloaded) "已下载" else "下载本系列")
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = if (downloaded) {
+                    stringResource(R.string.book_downloaded)
+                } else {
+                    stringResource(R.string.series_download)
+                },
+                fontSize = 13.sp,
+                maxLines = 1,
+            )
         }
     }
 }
 
-/** 阅读胶囊：白底深色字，两行（动作行 + 目标书籍行）。对应 SeriesReadingActionButton。 */
+/** Reading capsule: primary-colored, two lines — the action line at 15sp semibold on top, the target book line at 12sp/0.85 below.
+ *  Mirrors SeriesReadingActionButton (label=.subheadline.semibold, detail=.caption, icon .callout). */
 @Composable
 private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
     // caption: resume with page/percent when in progress, otherwise start (mirrors readLabel)
@@ -688,11 +1017,11 @@ private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
         if (p > 0f && p < 1f) {
             val page = (p * continueBook.pageCount).toInt().coerceAtLeast(1)
             val percent = (p * 100).toInt()
-            "继续阅读 · 第 $page 页 · $percent%"
+            stringResource(R.string.series_resume_reading_progress, page, percent)
         } else {
-            "开始阅读"
+            stringResource(R.string.book_start_reading)
         }
-    } ?: "开始阅读"
+    } ?: stringResource(R.string.book_start_reading)
     Button(
         onClick = onRead,
         modifier = Modifier.fillMaxWidth(),
@@ -701,24 +1030,26 @@ private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Icon(
             Icons.AutoMirrored.Filled.MenuBook,
             contentDescription = null,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(10.dp))
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = caption,
-                style = MaterialTheme.typography.titleSmall,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "#${continueBook.number.removePrefix("第 ").removeSuffix(" 卷")} - ${continueBook.title}",
-                style = MaterialTheme.typography.bodySmall,
+                text = "#${continueBook.number} - ${continueBook.title}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -738,9 +1069,10 @@ private fun DetailSummary(series: Series) {
     }
 }
 
-/** 知名实体 / 分类 / 标签 / 链接 chips，对应 SeriesDetailChipsView。
- *  知名实体(角色 person/团队 person.2/地点 mappin)、分类(theatermasks)、标签(tag) 均可点击
- *  跳转对应元数据筛选的系列浏览页；链接(link) 打开外部 URL；长流折叠在 "+N" 后原地展开（limit 6）。 */
+/** Notable entity / genre / tag / link chips, mirrors SeriesDetailChipsView.
+ *  Notable entities (character person / team person.2 / location mappin), genres (theatermasks) and tags (tag) are
+ *  tappable and jump to the series browse page filtered by that metadata; links open an external URL; long flows
+ *  collapse behind "+N" and expand in place (limit 6). */
 @Composable
 private fun DetailChips(
     series: Series,
@@ -751,21 +1083,28 @@ private fun DetailChips(
         series.tags.isEmpty() && series.links.isEmpty()
     ) return
     val uriHandler = LocalUriHandler.current
+    val localContext = LocalContext.current
+    val notableKindLabel = stringResource(R.string.browse_kind_notable)
+    val genreKindLabel = stringResource(R.string.browse_kind_genre)
+    val tagKindLabel = stringResource(R.string.common_tag)
     Column(
         modifier = Modifier.padding(top = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (series.notableEntities.isNotEmpty()) {
             CollapsibleMetaChipFlow(
-                items = series.notableEntities.map { e -> e.icon() to (e.kindLabel to e.name) },
+                items = series.notableEntities.map { e ->
+                    notableEntityIcon(e.kind) to (e.kindLabel(localContext) to e.name)
+                },
                 limit = 6,
                 centered = centered,
-                onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
+                // Three-part route format "notable · kindLabel · name" (same as the book detail; LibraryScreen parses by prefix)
+                onClick = { (kind, value) -> onBrowseFilter("$notableKindLabel · $kind · $value") },
             )
         }
         if (series.genres.isNotEmpty()) {
             CollapsibleMetaChipFlow(
-                items = series.genres.map { Icons.Outlined.TheaterComedy to ("分类" to it) },
+                items = series.genres.map { Icons.Outlined.TheaterComedy to (genreKindLabel to it) },
                 limit = 6,
                 centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
@@ -773,7 +1112,7 @@ private fun DetailChips(
         }
         if (series.tags.isNotEmpty()) {
             CollapsibleMetaChipFlow(
-                items = series.tags.map { Icons.Outlined.Sell to ("标签" to it) },
+                items = series.tags.map { Icons.Outlined.Sell to (tagKindLabel to it) },
                 limit = 6,
                 centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
@@ -799,7 +1138,7 @@ private fun DetailChips(
     }
 }
 
-/** 归属收藏 chips，对应 SeriesDetailCollectionsView。 */
+/** Membership collection chips, mirrors SeriesDetailCollectionsView. */
 @Composable
 private fun DetailMembershipChips(
     entries: List<ListEntry>,
@@ -812,7 +1151,7 @@ private fun DetailMembershipChips(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "收藏",
+            text = stringResource(R.string.browse_scope_collections),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -834,7 +1173,7 @@ private fun DetailMembershipChips(
     }
 }
 
-/** 可折叠的元数据 chip 流，对应 DetailChipFlow（"+N" chip 原地展开）。 */
+/** Collapsible metadata chip flow, mirrors DetailChipFlow (the "+N" chip expands in place). */
 @Composable
 private fun CollapsibleMetaChipFlow(
     items: List<Pair<ImageVector, Pair<String, String>>>,
@@ -860,7 +1199,7 @@ private fun CollapsibleMetaChipFlow(
     }
 }
 
-/** 作者角色图标，对齐 AuthorRole.icon（writer=pencil / penciller=paintbrush / …）。 */
+/** Author role icon, mirroring AuthorRole.icon (writer=pencil / penciller=paintbrush / …). */
 private fun AuthorRole.icon(): ImageVector = when (this) {
     AuthorRole.Writer -> Icons.Outlined.Create
     AuthorRole.Penciller -> Icons.Outlined.Brush
@@ -873,29 +1212,18 @@ private fun AuthorRole.icon(): ImageVector = when (this) {
     AuthorRole.Custom -> Icons.Outlined.Person
 }
 
-/** 知名实体图标/标签，对齐 NotableEntityChipFlows（character=person / team=person.2 / location=mappin / 其他=tag）。 */
-private fun NotableEntity.icon(): ImageVector = when (kind) {
-    "character" -> Icons.Outlined.Person
-    "team" -> Icons.Outlined.Group
-    "location" -> Icons.Outlined.Place
-    else -> Icons.Outlined.Sell
-}
+/** Shared notable-entity icon/label definition: icon → ui/components/NotableEntityUi.kt,
+ *  kindLabel → data/SampleData.kt (custom kinds are shown as-is, mirroring iOS kindDisplayName). */
 
-private val NotableEntity.kindLabel: String
-    get() = when (kind) {
-        "character" -> "角色"
-        "team" -> "团队"
-        "location" -> "地点"
-        else -> "实体"
-    }
-
-/** 书籍区：列表行或自适应网格（中网格卡宽 108 / 大网格 160，对齐 LayoutConfig）。
- *  点击进入书籍详情（对齐原作 BookListRow 落点 BookDetailView）；多选态点击切换选中。 */
+/** Books section: list rows or an adaptive grid (medium grid card 108 / large grid 160, mirroring LayoutConfig).
+ *  Tapping reads the book (mirroring the original BookRowView/BookCardView, where tap = read);
+ *  long-pressing opens the book menu (mirroring the original grid long-press gesture); in selection mode a tap toggles selection. */
 @Composable
 private fun BooksSection(
     books: List<Book>,
     layout: BrowseLayout,
-    onOpenBook: (Book) -> Unit,
+    onReadBook: (Book) -> Unit,
+    onBookLongClick: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
 ) {
@@ -905,8 +1233,8 @@ private fun BooksSection(
                 if (selection == null) {
                     BookListRow(
                         book = book,
-                        onClick = { onOpenBook(book) },
-                        onLongClick = { onToggleSelect(book) },
+                        onClick = { onReadBook(book) },
+                        onLongClick = { onBookLongClick(book) },
                     )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -928,7 +1256,8 @@ private fun BooksSection(
         BrowseLayout.Grid, BrowseLayout.LargeGrid -> BooksGrid(
             books = books,
             large = layout == BrowseLayout.LargeGrid,
-            onOpenBook = onOpenBook,
+            onReadBook = onReadBook,
+            onBookLongClick = onBookLongClick,
             selection = selection,
             onToggleSelect = onToggleSelect,
         )
@@ -939,7 +1268,8 @@ private fun BooksSection(
 private fun BooksGrid(
     books: List<Book>,
     large: Boolean,
-    onOpenBook: (Book) -> Unit,
+    onReadBook: (Book) -> Unit,
+    onBookLongClick: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
 ) {
@@ -958,13 +1288,13 @@ private fun BooksGrid(
                             val inSelection = selection != null
                             BookGridCard(
                                 book = book,
-                                onClick = { if (inSelection) onToggleSelect(book) else onOpenBook(book) },
-                                onLongClick = { if (!inSelection) onToggleSelect(book) },
+                                onClick = { if (inSelection) onToggleSelect(book) else onReadBook(book) },
+                                onLongClick = { if (!inSelection) onBookLongClick(book) },
                             )
                             if (selection != null && book.id in selection) {
                                 Icon(
                                     Icons.Filled.CheckCircle,
-                                    contentDescription = "已选中",
+                                    contentDescription = stringResource(R.string.detail_selected),
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
@@ -982,8 +1312,8 @@ private fun BooksGrid(
     }
 }
 
-/** 书籍区工具行：多选态显示 SelectionToolbar（对齐 SelectionActionsToolbar），
- *  否则为筛选 chip 流（布局/预设/排序/激活条件，对应 BookFilterView）+ 进入多选。 */
+/** Books toolbar: in selection mode it shows the SelectionToolbar (mirroring SelectionActionsToolbar),
+ *  otherwise the filter chip flow (layout / presets / sort / active conditions, mirroring BookFilterView) plus the enter-selection action. */
 @Composable
 private fun BooksToolbar(
     options: BookBrowseOptions,
@@ -1030,7 +1360,7 @@ private fun BooksToolbar(
             )
         }
         IconButton(onClick = onEnterSelection) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = "多选")
+            Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.detail_multi_select))
         }
     }
 }

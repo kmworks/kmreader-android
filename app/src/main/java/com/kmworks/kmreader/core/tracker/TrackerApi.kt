@@ -13,21 +13,21 @@ import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** 追踪偏好（对齐 TrackerPreferences）。 */
+/** Tracking preferences (mirrors TrackerPreferences). */
 @Serializable
 data class TrackerPreferencesDto(
     val libraries: List<String> = emptyList(),
     val defaultTracker: String? = null,
 )
 
-/** provider 账号状态（对齐 TrackerAccount；logged_in 蛇形键）。 */
+/** Provider account state (mirrors TrackerAccount; snake_case keys). */
 @Serializable
 data class TrackerAccountDto(
     @SerialName("logged_in") val loggedIn: Boolean = false,
     val username: String? = null,
 )
 
-/** 系列绑定（对齐 TrackerLink）。 */
+/** Series binding (mirrors TrackerLink). */
 @Serializable
 data class TrackerLinkDto(
     val seriesId: String = "",
@@ -40,7 +40,7 @@ data class TrackerLinkDto(
     val lastModifiedDate: String? = null,
 )
 
-/** 绑定写入体（对齐 upsertLink 的 JSON 字段）。 */
+/** Binding write body (mirrors the JSON fields of upsertLink). */
 @Serializable
 data class TrackerLinkWriteDto(
     val provider: String,
@@ -50,21 +50,21 @@ data class TrackerLinkWriteDto(
     val chapterOffset: Int,
 )
 
-/** 绑定分组（对齐 TrackerLinkGroup）。 */
+/** Binding group (mirrors TrackerLinkGroup). */
 @Serializable
 data class TrackerLinkGroupDto(
     val seriesId: String = "",
     val links: List<TrackerLinkDto> = emptyList(),
 )
 
-/** 绑定计数（对齐 TrackerLinkCounts）。 */
+/** Binding counts (mirrors TrackerLinkCounts). */
 @Serializable
 data class TrackerLinkCountsDto(
     val series: Int = 0,
     val providers: Map<String, Int> = emptyMap(),
 )
 
-/** 绑定分页（对齐 TrackerLinkPage，只保留使用字段）。 */
+/** Paged bindings (mirrors TrackerLinkPage, keeping only the used fields). */
 @Serializable
 data class TrackerLinkPageDto(
     val content: List<TrackerLinkGroupDto> = emptyList(),
@@ -74,7 +74,7 @@ data class TrackerLinkPageDto(
     val counts: TrackerLinkCountsDto = TrackerLinkCountsDto(),
 )
 
-/** 远端搜索结果（对齐 TrackerSearchItem）。 */
+/** Remote search result (mirrors TrackerSearchItem). */
 @Serializable
 data class TrackerSearchItemDto(
     val id: String = "",
@@ -87,7 +87,7 @@ data class TrackerSearchItemDto(
     val url: String? = null,
 )
 
-/** 远端阅读状态（对齐 TrackerRemoteState，全字段可选）。 */
+/** Remote read state (mirrors TrackerRemoteState, all fields optional). */
 @Serializable
 data class TrackerRemoteStateDto(
     val score: Int? = null,
@@ -100,7 +100,7 @@ data class TrackerRemoteStateDto(
     val finishReadDate: String? = null,
 )
 
-/** 更新台账条目（对齐 TrackerLedgerItem；updatedAt 为 epoch 秒）。 */
+/** Ledger entry of an update (mirrors TrackerLedgerItem; updatedAt is epoch seconds). */
 @Serializable
 data class TrackerLedgerItemDto(
     val provider: String = "",
@@ -111,7 +111,7 @@ data class TrackerLedgerItemDto(
     val updatedAt: Double = 0.0,
 )
 
-/** 台账分页（对齐 Page<TrackerLedgerItem>，只保留使用字段）。 */
+/** Paged ledger (mirrors Page<TrackerLedgerItem>, keeping only the used fields). */
 @Serializable
 data class TrackerLedgerPageDto(
     val content: List<TrackerLedgerItemDto> = emptyList(),
@@ -119,7 +119,7 @@ data class TrackerLedgerPageDto(
     val totalPages: Int = 0,
 )
 
-/** kmrs 私有 Tracker 端点（对齐 iOS TrackerService；手写，经 LocalApiFactory 构建）。 */
+/** kmrs private Tracker endpoints (mirrors iOS TrackerService; handwritten, built via LocalApiFactory). */
 interface TrackerApi {
 
     @GET("api/v1/trackers/preferences")

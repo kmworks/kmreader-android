@@ -57,8 +57,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.ReadListDetail
@@ -73,11 +77,13 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
+import com.kmworks.kmreader.ui.detail.BookEditSheet
+import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
 
 private val WideLayoutBreakpoint = 960.dp
 
-/** 阅读列表详情页（对齐 ReadListDetailView.swift + ReadListDetailWideLayoutView.swift）。 */
+/** Read list detail page (mirrors ReadListDetailView.swift + ReadListDetailWideLayoutView.swift). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadListDetailScreen(
@@ -86,18 +92,22 @@ fun ReadListDetailScreen(
     onRead: (Book) -> Unit,
     onOpenSeries: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    onReadIncognito: (Book) -> Unit = {},
+    onOpenBook: (Book) -> Unit = {},
     onTogglePin: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
     onRemoveBooks: (List<Int>) -> Unit = {},
     viewModel: ReadListDetailViewModel = hiltViewModel(),
 ) {
-    // 真实数据：反查 DTO 并按 bookIds 顺序拉各本书（含真实进度）；无会话时显示空态
+    // Real data: resolves the DTO and fetches each book in bookIds order (with real
+    // progress); shows an empty state without a session
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     val notifyActionFailure: suspend (String) -> Unit = { action ->
-        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+        snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     LaunchedEffect(readList.id) { viewModel.load(readList.id) }
     val displayReadList = readList.copy(
@@ -116,12 +126,14 @@ fun ReadListDetailScreen(
     var deleteConfirm by remember { mutableStateOf(false) }
     val wideListScrollState = rememberScrollState()
     val narrowListScrollState = rememberScrollState()
-    // per-book 「…」菜单与「加入阅读列表」sheet
+    // per-book "..." menu and "Add to Read List" sheet
     var menuBook by remember { mutableStateOf<Book?>(null) }
+    // Book metadata edit sheet (entered from the context menu "Edit")
+    var editBook by remember { mutableStateOf<Book?>(null) }
     var addTarget by remember { mutableStateOf<Book?>(null) }
     var addToReadListOpen by remember { mutableStateOf(false) }
     var addSelectedToReadListOpen by remember { mutableStateOf(false) }
-    // 演示数据（无会话）下的本地即时反馈：标读/未读覆盖
+    // Local immediate feedback under demo data (no session): read/unread overrides
     var demoMarks by remember { mutableStateOf(mapOf<Int, Boolean>()) }
     val readLists by viewModel.readLists.collectAsState()
 
@@ -141,20 +153,20 @@ fun ReadListDetailScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
                         DropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("置顶") },
+                                text = { Text(stringResource(R.string.lists_pin)) },
                                 leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -162,7 +174,7 @@ fun ReadListDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("编辑") },
+                                text = { Text(stringResource(R.string.common_edit)) },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
@@ -170,12 +182,12 @@ fun ReadListDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("刷新封面") },
+                                text = { Text(stringResource(R.string.common_refresh_cover)) },
                                 leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
                                 onClick = { menuOpen = false },
                             )
                             DropdownMenuItem(
-                                text = { Text("删除阅读列表", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.readlist_delete), color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Outlined.Delete,
@@ -200,7 +212,8 @@ fun ReadListDetailScreen(
                 .fillMaxSize(),
         ) {
             if (maxWidth >= WideLayoutBreakpoint) {
-                // 宽版：左栏信息（maxOf(maxWidth*0.382f, 340.dp)）+ 右栏书籍列表，独立滚动
+                // Wide layout: left info column (maxOf(maxWidth*0.382f, 340.dp)) + right
+                // book list, scrolling independently
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
@@ -248,7 +261,8 @@ fun ReadListDetailScreen(
                                 else books.map { it.id }.toSet()
                             },
                             onMarkRead = {
-                                // 真实数据走 API（VM 内更新）；演示数据本地反馈
+                                // Real data goes through the API (updated in the VM);
+                                // demo data gets local feedback
                                 if (!viewModel.markBooksRead(selected, true)) {
                                     demoMarks = demoMarks + selected.associateWith { true }
                                 }
@@ -264,7 +278,7 @@ fun ReadListDetailScreen(
                             },
                             onDownload = {
                                 viewModel.downloadBooks(selected) { ok ->
-                                    if (!ok) coroutineScope.launch { notifyActionFailure("下载所选书籍") }
+                                    if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
                                 }
                                 selected = emptySet()
                                 selecting = false
@@ -361,7 +375,7 @@ fun ReadListDetailScreen(
                         },
                         onDownload = {
                             viewModel.downloadBooks(selected) { ok ->
-                                if (!ok) coroutineScope.launch { notifyActionFailure("下载所选书籍") }
+                                if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
                             }
                             selected = emptySet()
                             selecting = false
@@ -417,24 +431,30 @@ fun ReadListDetailScreen(
             options = options,
             onOptionsChange = { options = it },
             onDismiss = { optionsOpen = false },
+            suggestionReadListStableId = readList.id,
         )
     }
-    // per-book 「…」菜单：标读/未读、加入阅读列表、从列表移除（对齐 BookContextMenu）
+    // per-book "..." menu: mark read/unread, add to read list, remove from list
+    // (mirrors BookContextMenu)
     menuBook?.let { target ->
         ContextMenuSheet(
             items = bookContextMenuItems(
                 hasStarted = target.progress != null,
                 completed = target.progress == 1f,
                 downloaded = false,
+                oneshot = target.oneshot,
                 onOpenSeries = {
                     viewModel.seriesStableIdForBook(target.id) { seriesStableId ->
                         if (seriesStableId != null) onOpenSeries(seriesStableId)
-                        else coroutineScope.launch { notifyActionFailure("打开所属系列") }
+                        else coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_open_series)) }
                     }
                 },
+                onRead = { onRead(target) },
+                onReadIncognito = { onReadIncognito(target) },
+                onOpenDetails = { onOpenBook(target) },
                 onDownload = {
                     viewModel.downloadBooks(setOf(target.id)) { ok ->
-                        if (!ok) coroutineScope.launch { notifyActionFailure("下载书籍") }
+                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_book)) }
                     }
                 },
                 onMarkRead = {
@@ -452,6 +472,25 @@ fun ReadListDetailScreen(
                     viewModel.ensureReadListsLoaded()
                     addToReadListOpen = true
                 },
+                onEdit = { editBook = target },
+                onAnalyze = {
+                    viewModel.analyzeBook(target.id) { ok ->
+                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_analyze_book)) }
+                    }
+                },
+                onRefresh = {
+                    viewModel.refreshBookMetadata(target.id) { ok ->
+                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_refresh_metadata)) }
+                    }
+                },
+                onShare = {
+                    val url = viewModel.bookWebUrl(target.id)
+                    if (url != null) {
+                        shareText(context, url)
+                    } else {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_share_book)) }
+                    }
+                },
                 onDelete = {
                     if (!viewModel.removeBooks(setOf(target.id))) {
                         removedIds = removedIds + target.id
@@ -461,13 +500,36 @@ fun ReadListDetailScreen(
             onDismiss = { menuBook = null },
         )
     }
+    // Book metadata edit sheet (meta passed as null: only the title-baseline diff is submitted)
+    editBook?.let { book ->
+        var editSaving by remember { mutableStateOf(false) }
+        BookEditSheet(
+            book = book,
+            meta = null,
+            saving = editSaving,
+            onSave = { draft ->
+                editSaving = true
+                viewModel.saveBookMetadata(book.id, book.title, draft) { ok ->
+                    editSaving = false
+                    if (ok) {
+                        editBook = null
+                    } else {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_save_book_metadata)) }
+                    }
+                }
+            },
+            onDismiss = { editBook = null },
+        )
+    }
     if (addSelectedToReadListOpen) {
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addBooksToReadList(entry, selected) { ok ->
-                    if (!ok) coroutineScope.launch { notifyActionFailure("加入阅读列表") }
+                    if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_add_to_readlist)) }
                 }
                 addSelectedToReadListOpen = false
                 selected = emptySet()
@@ -481,6 +543,8 @@ fun ReadListDetailScreen(
             AddToListSheet(
                 collections = emptyList(),
                 readLists = readLists ?: emptyList(),
+                onCreateReadList = viewModel::createReadListEntry,
+                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addBookToReadList(entry, target.id)
                     addToReadListOpen = false
@@ -495,8 +559,8 @@ fun ReadListDetailScreen(
     }
     if (deleteConfirm) {
         ConfirmDeleteDialog(
-            title = "删除阅读列表？",
-            message = "「${displayReadList.name}」将被删除，书籍本身保留在书库中。",
+            title = stringResource(R.string.lists_delete_item_title, stringResource(R.string.common_readlist)),
+            message = stringResource(R.string.readlist_delete_message, displayReadList.name),
             onConfirm = onDelete,
             onDismiss = { deleteConfirm = false },
         )
@@ -521,7 +585,7 @@ private fun AutoLoadMore(
     }
 }
 
-/** Hero：封面 + 名称 + 本数/有序 + 简介 + 时间戳（对齐 ReadListDetailContentView）。 */
+/** Hero: cover + name + book count/ordered + summary + timestamps (mirrors ReadListDetailContentView). */
 @Composable
 private fun ReadListHero(
     readList: ReadListDetail,
@@ -557,7 +621,7 @@ private fun ReadListHero(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "$bookCount 本",
+                text = pluralStringResource(R.plurals.book_count, bookCount, bookCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -571,7 +635,7 @@ private fun ReadListHero(
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    text = "有序",
+                    text = stringResource(R.string.lists_ordered_label),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -586,8 +650,8 @@ private fun ReadListHero(
             )
         }
         val timestamps = listOfNotNull(
-            createdDate?.take(10)?.let { "创建于 $it" },
-            lastModifiedDate?.take(10)?.let { "更新于 $it" },
+            createdDate?.take(10)?.let { stringResource(R.string.lists_created_at, it) },
+            lastModifiedDate?.take(10)?.let { stringResource(R.string.lists_modified_at, it) },
         ).joinToString(" · ")
         if (timestamps.isNotEmpty()) {
             Text(
@@ -600,7 +664,7 @@ private fun ReadListHero(
     }
 }
 
-/** 续读提示卡：「继续阅读：第 N 本」（对齐 ReadListContinuationHintView）。 */
+/** Continuation hint card: "Continue Reading: Book N" (mirrors ReadListContinuationHintView). */
 @Composable
 private fun ContinuationHintCard(
     index: Int,
@@ -625,7 +689,7 @@ private fun ContinuationHintCard(
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "继续阅读：第 ${index + 1} 本",
+                text = stringResource(R.string.readlist_continue_reading, index + 1),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
@@ -644,7 +708,8 @@ private fun ContinuationHintCard(
     }
 }
 
-/** 工具行：筛选 chip 流 + 进入多选；多选态切换为 SelectionToolbar（对齐 BooksListViewForReadList）。 */
+/** Toolbar row: filter chip flow + enter multi-select; switches to SelectionToolbar
+ *  while selecting (mirrors BooksListViewForReadList). */
 @Composable
 private fun ReadListToolbar(
     selecting: Boolean,
@@ -687,13 +752,14 @@ private fun ReadListToolbar(
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = onStartSelecting) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = "多选")
+                Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.lists_select))
             }
         }
     }
 }
 
-/** 有序书籍列表：序号体现顺序，行内显示阅读进度（对齐 ReadList 的书籍行）。 */
+/** Ordered book list: the index conveys the order and each row shows reading
+ *  progress (mirrors the ReadList book rows). */
 @Composable
 private fun ReadListBookList(
     books: List<Book>,
@@ -718,7 +784,7 @@ private fun ReadListBookList(
     }
 }
 
-/** 阅读列表书籍行：序号 + 封面 + 标题/页数/进度 + 已读标签 + 「…」菜单。 */
+/** Read list book row: index + cover + title/pages/progress + read badge + "..." menu. */
 @Composable
 private fun ReadListBookRow(
     index: Int,
@@ -767,7 +833,7 @@ private fun ReadListBookRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = book.pageLabel,
+                text = pluralStringResource(R.plurals.book_pages, book.pageCount, book.pageCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -785,7 +851,7 @@ private fun ReadListBookRow(
         }
         if (book.progress == 1f) {
             Text(
-                text = "已读",
+                text = stringResource(R.string.lists_read_label),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 12.dp),
@@ -793,7 +859,7 @@ private fun ReadListBookRow(
         }
         if (onMenu != null) {
             IconButton(onClick = onMenu) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
             }
         }
     }

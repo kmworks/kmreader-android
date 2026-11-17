@@ -41,12 +41,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
@@ -75,10 +77,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 设置 · Tracker 账号（对齐 TrackerAccountsView）：
- * provider 账号行（已连接显示用户名 / 未连接给出授权入口）+ 默认 Tracker + 库范围 + 绑定管理/更新台账。
- * 账号授权在服务器网页端 /account/trackers 完成，app 不持有 token。
- * 有会话且 kmrs 支持 Trackers 时走真实数据；无会话回退演示数据；不支持时显示能力提示。
+ * Settings · Tracker accounts (aligned with TrackerAccountsView):
+ * provider account rows (connected shows the username / not connected offers an authorization entry) + default tracker + library scope + bindings management/update ledger.
+ * Account authorization is completed in the server web interface at /account/trackers; the app never holds tokens.
+ * With a session and kmrs Trackers support this uses real data; without a session it falls back to demo data; without support it shows a capability notice.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -104,10 +106,10 @@ fun TrackerSettingsScreen(
     var pendingDisconnect by remember { mutableStateOf<TrackerProvider?>(null) }
     var pendingUnlink by remember { mutableStateOf<TrackerLinkDto?>(null) }
 
-    // 演示模式（无会话）的本地状态
+    // Local state for demo mode (no session)
     val realMode = hasSession && supported
     var demoDefaultTracker by remember { mutableStateOf(TrackerProvider.AniList) }
-    val demoLibraries = remember { listOf("漫画", "日漫", "国漫") }
+    val demoLibraries = remember { listOf("Comics", "Manga", "Manhua") }
     var demoSelectedLibraries by remember { mutableStateOf(setOf<String>()) }
 
     val accounts: List<TrackerAccount> = if (realMode) {
@@ -126,10 +128,10 @@ fun TrackerSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("阅读进度追踪") },
+                title = { Text(stringResource(R.string.tracker_trackers_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -144,7 +146,7 @@ fun TrackerSettingsScreen(
         ) {
             if (hasSession && !supported) {
                 Text(
-                    "当前服务器不支持 Tracker（需要 kmrs 服务器的 trackers 能力）。",
+                    stringResource(R.string.tracker_unsupported_server),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
@@ -152,7 +154,7 @@ fun TrackerSettingsScreen(
                 return@Column
             }
 
-            TrackerSettingsTitle("账号")
+            TrackerSettingsTitle(stringResource(R.string.tracker_accounts))
             accounts.forEach { account ->
                 Row(
                     modifier = Modifier
@@ -168,7 +170,9 @@ fun TrackerSettingsScreen(
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            account.connectedUser?.let { "已连接 · $it" } ?: "未连接",
+                            account.connectedUser?.let {
+                                stringResource(R.string.tracker_connected_user, it)
+                            } ?: stringResource(R.string.tracker_not_connected),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -176,23 +180,23 @@ fun TrackerSettingsScreen(
                     if (account.connectedUser != null) {
                         TextButton(onClick = {
                             if (realMode) pendingDisconnect = account.provider
-                        }) { Text("断开") }
+                        }) { Text(stringResource(R.string.tracker_disconnect)) }
                     } else {
                         TextButton(
                             onClick = { authorizationUrl?.let(uriHandler::openUri) },
                             enabled = realMode && authorizationUrl != null,
-                        ) { Text("去授权") }
+                        ) { Text(stringResource(R.string.tracker_connect_on_web)) }
                     }
                 }
             }
             Text(
-                "账号授权在服务器网页端 /account/trackers 完成，应用不保存 token。",
+                stringResource(R.string.tracker_accounts_footer),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
 
-            TrackerSettingsTitle("默认 Tracker")
+            TrackerSettingsTitle(stringResource(R.string.tracker_default_tracker))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TrackerProvider.entries.forEach { provider ->
                     FilterChip(
@@ -206,7 +210,7 @@ fun TrackerSettingsScreen(
                 }
             }
 
-            TrackerSettingsTitle("启用的库")
+            TrackerSettingsTitle(stringResource(R.string.tracker_libraries))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (realMode) {
                     libraries.forEach { (libraryId, name) ->
@@ -234,7 +238,7 @@ fun TrackerSettingsScreen(
                 }
             }
             Text(
-                "不选择任何库 = 全部库可用。",
+                stringResource(R.string.tracker_libraries_footer),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -242,16 +246,16 @@ fun TrackerSettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
             SettingsEntryRow(
-                title = "绑定管理",
-                subtitle = "按 provider 过滤、解绑",
+                title = stringResource(R.string.tracker_linked_series),
+                subtitle = stringResource(R.string.tracker_bindings_subtitle),
                 onClick = {
                     showBindings = true
                     if (realMode) viewModel.loadBindings(refresh = true)
                 },
             )
             SettingsEntryRow(
-                title = "更新台账",
-                subtitle = "手动触发的 tracker 更新记录",
+                title = stringResource(R.string.tracker_recent_updates),
+                subtitle = stringResource(R.string.tracker_ledger_subtitle),
                 expanded = showLedger,
                 onClick = {
                     showLedger = !showLedger
@@ -262,7 +266,11 @@ fun TrackerSettingsScreen(
                 val items = if (realMode) ledger.orEmpty() else emptyList()
                 if (items.isEmpty()) {
                     Text(
-                        if (realMode) "暂无更新记录" else "演示模式无台账数据",
+                        if (realMode) {
+                            stringResource(R.string.tracker_no_updates)
+                        } else {
+                            stringResource(R.string.tracker_demo_no_ledger)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 8.dp),
@@ -279,18 +287,18 @@ fun TrackerSettingsScreen(
     pendingDisconnect?.let { provider ->
         AlertDialog(
             onDismissRequest = { pendingDisconnect = null },
-            title = { Text("断开 Tracker") },
+            title = { Text(stringResource(R.string.tracker_disconnect_tracker)) },
             text = {
-                Text("断开 ${provider.displayName} 会移除服务器上的授权；之后需要在服务器网页端重新连接。")
+                Text(stringResource(R.string.tracker_disconnect_message, provider.displayName))
             },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDisconnect = null
                     viewModel.logoutProvider(provider)
-                }) { Text("断开") }
+                }) { Text(stringResource(R.string.tracker_disconnect)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDisconnect = null }) { Text("取消") }
+                TextButton(onClick = { pendingDisconnect = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -317,16 +325,16 @@ fun TrackerSettingsScreen(
     pendingUnlink?.let { link ->
         AlertDialog(
             onDismissRequest = { pendingUnlink = null },
-            title = { Text("解绑 Tracker") },
-            text = { Text("这会移除该系列的 Tracker 绑定，但不会修改远端条目。") },
+            title = { Text(stringResource(R.string.tracker_unlink_tracker)) },
+            text = { Text(stringResource(R.string.tracker_unlink_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingUnlink = null
                     viewModel.deleteBinding(link)
-                }) { Text("解绑") }
+                }) { Text(stringResource(R.string.tracker_unlink)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingUnlink = null }) { Text("取消") }
+                TextButton(onClick = { pendingUnlink = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -348,7 +356,7 @@ private fun TrackerBindingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("绑定管理") },
+        title = { Text(stringResource(R.string.tracker_linked_series)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -356,7 +364,11 @@ private fun TrackerBindingsDialog(
                         selected = provider == null,
                         onClick = { onProviderSelected(null) },
                         label = {
-                            Text(counts?.series?.let { "全部 ($it)" } ?: "全部")
+                            Text(
+                                counts?.series?.let {
+                                    stringResource(R.string.tracker_all_with_count, it)
+                                } ?: stringResource(R.string.common_all)
+                            )
                         },
                     )
                     TrackerProvider.entries.forEach { item ->
@@ -366,7 +378,13 @@ private fun TrackerBindingsDialog(
                             label = {
                                 Text(
                                     counts?.providers?.get(item.apiName)
-                                        ?.let { "${item.displayName} ($it)" }
+                                        ?.let {
+                                            stringResource(
+                                                R.string.tracker_provider_with_count,
+                                                item.displayName,
+                                                it,
+                                            )
+                                        }
                                         ?: item.displayName,
                                 )
                             },
@@ -375,13 +393,13 @@ private fun TrackerBindingsDialog(
                 }
                 if (!realMode) {
                     Text(
-                        "演示模式无绑定数据",
+                        stringResource(R.string.tracker_demo_no_bindings),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else if (groups.isEmpty() && !loading) {
                     Text(
-                        "暂无已绑定系列；可在系列详情页建立 Tracker 绑定。",
+                        stringResource(R.string.tracker_no_bindings),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -414,14 +432,14 @@ private fun TrackerBindingsDialog(
                                 TextButton(
                                     onClick = onLoadMore,
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("加载更多") }
+                                ) { Text(stringResource(R.string.tracker_load_more)) }
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_done)) } },
     )
 }
 
@@ -452,8 +470,8 @@ private fun TrackerBindingGroupRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = { onOpenLink(link) }) { Text("打开") }
-                TextButton(onClick = { onUnlink(link) }) { Text("解绑") }
+                TextButton(onClick = { onOpenLink(link) }) { Text(stringResource(R.string.common_open)) }
+                TextButton(onClick = { onUnlink(link) }) { Text(stringResource(R.string.tracker_unlink)) }
             }
         }
     }
@@ -529,7 +547,7 @@ private fun SettingsEntryRow(
     }
 }
 
-/** Tracker 设置数据（账号/偏好/库/台账）；全部经能力门控的 TrackerRepository。 */
+/** Tracker settings data (accounts/preferences/libraries/ledger); everything goes through the capability-gated TrackerRepository. */
 @HiltViewModel
 class TrackerSettingsViewModel @Inject constructor(
     private val sessionManager: SessionManager,
@@ -556,14 +574,14 @@ class TrackerSettingsViewModel @Inject constructor(
     private val _preferences = MutableStateFlow<TrackerPreferencesDto?>(null)
     val preferences: StateFlow<TrackerPreferencesDto?> = _preferences.asStateFlow()
 
-    /** 库 id → 名称。 */
+    /** Library id → name. */
     private val _libraries = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val libraries: StateFlow<List<Pair<String, String>>> = _libraries.asStateFlow()
 
     private val _ledger = MutableStateFlow<List<TrackerLedgerItemDto>?>(null)
     val ledger: StateFlow<List<TrackerLedgerItemDto>?> = _ledger.asStateFlow()
 
-    /** 服务器端 tracker 账号管理页（对齐 iOS serverURL + /account/trackers）。 */
+    /** Server-side tracker account management page (aligned with iOS serverURL + /account/trackers). */
     val trackerAccountUrl: String?
         get() = sessionManager.clients.value?.baseUrl
             ?.trimEnd('/')
@@ -645,14 +663,14 @@ class TrackerSettingsViewModel @Inject constructor(
         viewModelScope.launch { _ledger.value = trackerRepository.ledger() }
     }
 
-    /** 绑定过滤变化（对齐 iOS TrackerBindingsView 的 provider picker）。 */
+    /** Binding filter change (aligned with the iOS TrackerBindingsView provider picker). */
     fun setBindingProvider(provider: TrackerProvider?) {
         if (_bindingProvider.value == provider) return
         _bindingProvider.value = provider
         loadBindings(refresh = true)
     }
 
-    /** 加载全局绑定第一页；refresh 会重置 provider 当前分页。 */
+    /** Loads the first page of global bindings; refresh resets the current provider's pagination. */
     fun loadBindings(refresh: Boolean = false) {
         if (_bindingsLoading.value) return
         if (!refresh && !_bindingsHasMore.value) return
@@ -682,7 +700,7 @@ class TrackerSettingsViewModel @Inject constructor(
 
     fun loadMoreBindings() = loadBindings(refresh = false)
 
-    /** 解绑单条 Tracker 绑定；成功后本地移除，失败时重载当前过滤页。 */
+    /** Unlinks a single tracker binding; removed locally on success, reloads the current filtered page on failure. */
     fun deleteBinding(link: TrackerLinkDto) {
         viewModelScope.launch {
             val removed = trackerRepository.deleteLink(link.seriesId, link.provider)

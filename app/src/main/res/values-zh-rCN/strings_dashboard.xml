@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dashboard / reading stats / downloads / login / root strings (batch G). -->
+<resources>
+    <!-- Dashboard -->
+    <string name="dashboard_title">仪表盘</string>
+    <string name="dashboard_action_settings">设置</string>
+    <string name="dashboard_scope_pinned">已钉选</string>
+    <string name="dashboard_pin_libraries">钉选书库…</string>
+    <string name="dashboard_library_scope">库范围</string>
+    <string name="dashboard_filter">筛选</string>
+    <string name="dashboard_layout">布局：%1$s</string>
+    <string name="dashboard_action_read">阅读</string>
+    <string name="dashboard_action_read_incognito">隐私阅读</string>
+    <string name="dashboard_action_view_details">查看详情</string>
+    <string name="dashboard_not_connected_title">未连接服务器</string>
+    <string name="dashboard_not_connected_subtitle">登录后查看仪表盘</string>
+    <string name="dashboard_error_pagination_unsupported">该分区暂不支持分页</string>
+    <string name="dashboard_delete_series_title">删除系列文件？</string>
+    <string name="dashboard_delete_series_message">将删除服务器上「%1$s」的系列文件，此操作不可撤销。</string>
+    <string name="dashboard_delete_book_title">删除书籍文件？</string>
+    <string name="dashboard_delete_book_message">将删除服务器上「%1$s」的书籍文件，此操作不可撤销。</string>
+    <!-- Dashboard sections -->
+    <string name="dashboard_section_readlists_in_progress">进行中的阅读列表</string>
+    <string name="dashboard_section_keep_reading">继续阅读</string>
+    <string name="dashboard_section_on_deck">待阅读</string>
+    <string name="dashboard_section_recently_released_books">最近发布的书籍</string>
+    <string name="dashboard_section_recently_added_books">最近新增的书籍</string>
+    <string name="dashboard_section_recently_added_series">最近新增的系列</string>
+    <string name="dashboard_section_recently_updated_series">最近更新的系列</string>
+    <string name="dashboard_section_recently_read_books">最近阅读的书籍</string>
+    <!-- Dashboard card kinds -->
+    <string name="dashboard_card_kind_large">大</string>
+    <string name="dashboard_card_kind_medium">中</string>
+    <string name="dashboard_card_kind_small">小</string>
+    <string name="dashboard_card_kind_horizontal">横向</string>
+    <string name="dashboard_card_kind_default">%1$s（默认）</string>
+    <!-- Read list continuation card -->
+    <string name="dashboard_continuation_read_count">已读 %1$d/%2$d 本</string>
+    <!-- Dashboard settings -->
+    <string name="dashboard_settings_options">选项</string>
+    <string name="dashboard_settings_sections">分区</string>
+    <string name="dashboard_settings_hidden_sections">隐藏分区</string>
+    <string name="dashboard_card_kind_menu">卡片形态菜单</string>
+    <string name="dashboard_card_kind_menu_caption">在分区标题右侧显示卡片形态切换</string>
+    <string name="dashboard_readlist_continuation">阅读列表续读</string>
+    <string name="dashboard_readlist_continuation_caption">显示「进行中的阅读列表」分区</string>
+    <string name="dashboard_settings_scope_note">范围说明：分区内容按仪表盘顶栏的库范围（全部 / 已钉选 / 单库）过滤。</string>
+    <string name="dashboard_settings_reorder_hint">长按右侧手柄拖动调整顺序；开关控制是否在仪表盘显示。</string>
+    <string name="dashboard_reset_default">恢复默认</string>
+    <string name="dashboard_kind_default_line">默认：%1$s</string>
+    <string name="dashboard_kind_custom_line">卡片形态：%1$s（自定义）</string>
+    <string name="dashboard_drag_dragging">拖动中</string>
+    <string name="dashboard_drag_hint">长按拖动排序</string>
+    <string name="dashboard_hidden_badge">已隐藏</string>
+    <string name="dashboard_show_section">显示分区</string>
+    <!-- Reading stats -->
+    <string name="stats_title">阅读统计</string>
+    <string name="stats_unavailable">该服务器不支持阅读统计（kmrs 特性）</string>
+    <string name="stats_sign_in_prompt">登录后查看阅读统计</string>
+    <string name="stats_empty">暂无阅读统计数据</string>
+    <string name="stats_error_with_message">加载失败：%1$s</string>
+    <string name="stats_updated_at">更新于 %1$s</string>
+    <string name="stats_cached_refreshing">显示缓存数据，正在后台刷新…</string>
+    <string name="stats_cached_failed">刷新失败，显示缓存数据</string>
+    <string name="stats_books_started">已开始阅读</string>
+    <string name="stats_total_pages">总页数</string>
+    <string name="stats_reading_days">阅读天数</string>
+    <string name="stats_current_streak">当前连续</string>
+    <string name="stats_longest_streak">最长连续</string>
+    <string name="stats_streak_days">%1$d 天</string>
+    <string name="stats_avg_pages_per_book">每册均页</string>
+    <string name="stats_total_books">总册数</string>
+    <string name="stats_last_read">最近阅读</string>
+    <string name="stats_pages_heatmap">页数热力图</string>
+    <string name="stats_heatmap_day_pages">%1$s · %2$d 页</string>
+    <string name="stats_reading_status">阅读状态</string>
+    <string name="stats_by_weekday">按星期分布</string>
+    <string name="stats_by_hour">按小时分布</string>
+    <string name="stats_top_authors">Top 作者</string>
+    <string name="stats_top_genres">Top 流派</string>
+    <string name="stats_top_tags">Top 标签</string>
+    <string name="stats_genre_distribution">流派分布</string>
+    <string name="stats_tag_distribution">标签分布</string>
+    <string name="stats_library_label">书库：%1$s</string>
+    <string name="stats_less">少</string>
+    <string name="stats_more">多</string>
+    <string name="stats_range_this_week">本周</string>
+    <string name="stats_range_last_7_days">近 7 天</string>
+    <string name="stats_range_last_30_days">近 30 天</string>
+    <string name="stats_range_last_90_days">近 90 天</string>
+    <string name="stats_range_last_6_months">近 6 个月</string>
+    <string name="stats_range_last_year">近一年</string>
+    <string name="stats_range_all_time">全部</string>
+    <string name="stats_status_read">已读</string>
+    <string name="stats_status_in_progress">阅读中</string>
+    <string name="stats_last_read_today">今天</string>
+    <string name="stats_last_read_yesterday">昨天</string>
+    <string name="stats_last_read_days_ago">%1$d 天前</string>
+    <string name="stats_weekday_sun">日</string>
+    <string name="stats_weekday_mon">一</string>
+    <string name="stats_weekday_tue">二</string>
+    <string name="stats_weekday_wed">三</string>
+    <string name="stats_weekday_thu">四</string>
+    <string name="stats_weekday_fri">五</string>
+    <string name="stats_weekday_sat">六</string>
+    <!-- Downloads -->
+    <string name="offline_title">下载</string>
+    <string name="offline_storage_usage">存储占用</string>
+    <string name="offline_storage_summary">已下载 %1$s，共 %2$s</string>
+    <string name="offline_queue">下载队列</string>
+    <string name="offline_queue_empty">暂无下载任务</string>
+    <string name="offline_policy">下载策略</string>
+    <string name="offline_auto_download_unread">自动下载未读内容</string>
+    <string name="offline_auto_download_unread_subtitle">新内容（SSE）或打开系列详情时自动下载未读书籍</string>
+    <string name="offline_wifi_only">仅 Wi-Fi 下载</string>
+    <string name="offline_wifi_only_subtitle">使用蜂窝网络时暂停下载</string>
+    <string name="offline_downloaded_books">已下载书籍</string>
+    <string name="offline_downloaded_empty">暂无已下载内容</string>
+    <string name="offline_task_pages">%1$d/%2$d 页</string>
+    <string name="offline_paused_resume">已暂停 · 已下载 %1$d 页，恢复后续传</string>
+    <string name="offline_failed_retry">下载失败，可重试</string>
+    <string name="offline_pause">暂停</string>
+    <string name="offline_resume">继续</string>
+    <string name="offline_status_downloading">下载中</string>
+    <string name="offline_status_paused">已暂停</string>
+    <string name="offline_status_failed">失败</string>
+    <string name="offline_completed">已完成</string>
+    <string name="offline_delete_free_space">删除释放空间</string>
+    <string name="offline_book_pages_size">%1$d 页 · %2$s</string>
+    <!-- Login -->
+    <string name="login_subtitle">连接到你的 Komga 服务器</string>
+    <string name="login_server_url">服务器地址</string>
+    <string name="login_username">用户名</string>
+    <string name="login_password">密码</string>
+    <string name="login_auth_password">账号密码</string>
+    <string name="login_auth_api_key">API Key</string>
+    <string name="login_connected_as">已连接：%1$s</string>
+    <string name="login_connect">连接</string>
+    <string name="login_error_invalid_credentials">凭据无效</string>
+    <string name="login_error_unreachable">无法连接服务器</string>
+
+    <!-- 离线下载管理 -->
+    <string name="offline_auto_download_unread_caption">新内容（SSE）或打开系列详情时自动下载未读书籍</string>
+    <string name="offline_downloaded">已下载书籍</string>
+    <string name="offline_library_scope">库范围</string>
+    <string name="offline_storage_detail">已下载 %1$s，共 %2$s</string>
+    <string name="offline_task_failed_detail">下载失败，可重试</string>
+    <string name="offline_task_paused_detail">已暂停 · 已下载 %1$d 页，恢复后续传</string>
+    <string name="offline_wifi_only_caption">使用蜂窝网络时暂停下载</string>
+</resources>

@@ -36,7 +36,7 @@ object NetworkModule {
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 }
 
-/** 当前实例会话：配置变化时重建 ApiClients 与带认证的 ImageLoader。 */
+/** Current instance session: ApiClients and the authenticated ImageLoader are rebuilt when the configuration changes. */
 @Singleton
 class SessionManager @Inject constructor(
     @ApplicationContext context: Context,
@@ -45,7 +45,7 @@ class SessionManager @Inject constructor(
     scope: CoroutineScope,
 ) {
 
-    /** 超时设置（AppSettingsStore.networkTimeoutSeconds）变化时同步重建客户端。 */
+    /** Clients are rebuilt in step when the timeout setting (AppSettingsStore.networkTimeoutSeconds) changes. */
     val clients: StateFlow<ApiClients?> = combine(
         configStore.config,
         appSettings.networkTimeoutSeconds,
@@ -53,7 +53,7 @@ class SessionManager @Inject constructor(
         config?.takeIf { it.isConfigured }?.let { ApiClients(it, timeoutSeconds) }
     }.stateIn(scope, SharingStarted.Eagerly, null)
 
-    /** 与当前实例同认证配置的 Coil ImageLoader（封面/缩略图需要认证头），磁盘缓存随设置上限调整。 */
+    /** Coil ImageLoader sharing the current instance's auth configuration (covers/thumbnails need the auth header); the disk cache follows the settings cap. */
     val imageLoader: StateFlow<ImageLoader?> = combine(
         clients,
         appSettings.imageCacheLimitMb,
@@ -72,4 +72,28 @@ class SessionManager @Inject constructor(
                 .build()
         }
     }.stateIn(scope, SharingStarted.Eagerly, null)
+
+    /**
+     * Dedicated loader for third-party covers (komf identify results, tracker remote covers): carries no
+     * Komga credentials.
+     * Some CDNs block okhttp's default UA (`okhttp/x.y.z`), so a regular UA is set explicitly here.
+     */
+    val externalImageLoader: ImageLoader =
+        ImageLoader.Builder(context)
+            .components {
+                add(
+                    OkHttpNetworkFetcherFactory(
+                        callFactory = okhttp3.OkHttpClient.Builder()
+                            .addInterceptor { chain ->
+                                chain.proceed(
+                                    chain.request().newBuilder()
+                                        .header("User-Agent", "KMReader/1.0 (Android)")
+                                        .build(),
+                                )
+                            }
+                            .build(),
+                    ),
+                )
+            }
+            .build()
 }

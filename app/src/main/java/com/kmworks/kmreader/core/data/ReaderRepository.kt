@@ -7,10 +7,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * DIVINA 阅读器页面管线：页面列表 + 页面/缩略图直连 URL。
+ * DIVINA reader page pipeline: page list + direct page/thumbnail URLs.
  *
- * ApiClients 未暴露 BookPagesApi（core/network 只读），服务经 LocalApiFactory
- * 用同一会话的认证 OkHttpClient 构建；URL 拼接规则与 ThumbnailUrls 一致。
+ * ApiClients does not expose BookPagesApi (core/network is read-only); the service is built via
+ * LocalApiFactory with the same session's authenticated OkHttpClient; URL composition follows ThumbnailUrls.
  */
 @Singleton
 class ReaderRepository @Inject constructor(

@@ -1,10 +1,10 @@
 package com.kmworks.kmreader.ui.detail
 
+import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,11 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,9 +23,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,13 +33,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.AlternateTitleUpdateDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.WebLinkUpdateDto
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.SeriesStatus
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.LockableChoiceRow
+import com.kmworks.kmreader.ui.components.LockableListSection
+import com.kmworks.kmreader.ui.components.LockableTextField
+import com.kmworks.kmreader.ui.components.lockUpdate
+import com.kmworks.kmreader.ui.components.rememberLockedField
 
-/** 系列元数据编辑的初始值（DTO 直出，未改动的字段不会提交）。 */
+/** Server lock state for each series metadata field (taken straight from SeriesMetadataDto.xxxLock, all unlocked by default). */
+data class SeriesEditLocks(
+    val titleLock: Boolean = false,
+    val titleSortLock: Boolean = false,
+    val summaryLock: Boolean = false,
+    val statusLock: Boolean = false,
+    val readingDirectionLock: Boolean = false,
+    val languageLock: Boolean = false,
+    val publisherLock: Boolean = false,
+    val ageRatingLock: Boolean = false,
+    val totalBookCountLock: Boolean = false,
+    val genresLock: Boolean = false,
+    val tagsLock: Boolean = false,
+    val linksLock: Boolean = false,
+    val alternateTitlesLock: Boolean = false,
+    val sharingLabelsLock: Boolean = false,
+)
+
+/** Initial values for editing series metadata (taken straight from the DTO; unchanged fields are not submitted). */
 data class SeriesEditValues(
     val title: String,
     val titleSort: String,
@@ -63,32 +85,32 @@ data class SeriesEditValues(
     val links: List<Pair<String, String>>,
     val alternateTitles: List<Pair<String, String>>,
     val sharingLabels: List<String>,
+    /** Server lock state of each field (all false when there is no DTO). */
+    val locks: SeriesEditLocks = SeriesEditLocks(),
 ) {
     companion object {
-        private val statusLabels = mapOf(
-            "ONGOING" to "连载中",
-            "ENDED" to "已完结",
-            "ABANDONED" to "已弃坑",
-            "HIATUS" to "休刊中",
-        )
+        private fun statusRes(token: String): Int? =
+            SeriesStatus.entries.firstOrNull { it.apiName == token }?.labelRes
 
-        private val directionLabels = mapOf(
-            "LEFT_TO_RIGHT" to "从左到右",
-            "RIGHT_TO_LEFT" to "从右到左",
-            "VERTICAL" to "纵向",
-            "WEBTOON" to "条漫",
-        )
+        fun statusLabel(token: String, context: Context): String =
+            statusRes(token)?.let { context.getString(it) } ?: token
 
-        fun statusLabel(token: String): String = statusLabels[token] ?: token
+        fun directionLabel(token: String, context: Context): String = when (token) {
+            "LEFT_TO_RIGHT" -> context.getString(R.string.series_direction_ltr)
+            "RIGHT_TO_LEFT" -> context.getString(R.string.series_direction_rtl)
+            "VERTICAL" -> context.getString(R.string.series_direction_vertical)
+            "WEBTOON" -> context.getString(R.string.series_direction_webtoon)
+            else -> token
+        }
 
-        fun directionLabel(token: String): String = directionLabels[token] ?: token
-
-        /** 无 DTO 时的回退：从 UI 模型尽力还原可编辑字段。 */
-        fun fromUiSeries(series: Series): SeriesEditValues = SeriesEditValues(
+        /** Fallback when there is no DTO: rebuild the editable fields from the UI model as best we can (no locks set). */
+        fun fromUiSeries(series: Series, context: Context): SeriesEditValues = SeriesEditValues(
             title = series.title,
             titleSort = series.title,
             summary = series.summary.orEmpty(),
-            status = statusLabels.entries.firstOrNull { it.value == series.status }?.key ?: "ONGOING",
+            status = seriesStatusOptions.firstOrNull {
+                statusRes(it)?.let { res -> context.getString(res) } == series.status
+            } ?: "ONGOING",
             readingDirection = if (series.directionRtl) "RIGHT_TO_LEFT" else "LEFT_TO_RIGHT",
             language = series.language.orEmpty(),
             publisher = series.publisher.orEmpty(),
@@ -106,29 +128,18 @@ data class SeriesEditValues(
 internal val seriesStatusOptions = listOf("ONGOING", "ENDED", "ABANDONED", "HIATUS")
 internal val seriesDirectionOptions = listOf("LEFT_TO_RIGHT", "RIGHT_TO_LEFT", "VERTICAL", "WEBTOON")
 
-private enum class EditTab(val label: String) {
-    General("通用"), Title("标题"), Tags("标签"), Links("链接"), Sharing("分享标签")
+private enum class EditTab(@param:StringRes val labelRes: Int) {
+    General(R.string.edit_tab_general),
+    Title(R.string.edit_tab_title),
+    Tags(R.string.edit_tab_tags),
+    Links(R.string.edit_tab_links),
+    Sharing(R.string.edit_tab_sharing),
 }
-
-/** 字段锁状态（对齐 SeriesMetadataUpdate.*Lock：编辑自动锁定；锁随保存提交给服务器）。 */
-private class LockedField(initial: String) {
-    var value by mutableStateOf(initial)
-    var locked by mutableStateOf(false)
-
-    fun edit(newValue: String) {
-        value = newValue
-        locked = true
-    }
-}
-
-@Composable
-private fun rememberLockedField(initial: String): LockedField =
-    remember(initial) { LockedField(initial) }
 
 /**
- * 编辑系列元数据（对齐 SeriesEditSheet）：
- * 五个分段 tab（通用/标题/标签/链接/分享标签）；每个字段右侧锁定开关，编辑自动锁定；
- * 保存只提交变更或被锁定的字段，其余字段不落到请求里。
+ * Edits series metadata (mirrors SeriesEditSheet):
+ * five segmented tabs (general/title/tags/links/sharing labels); each field has a lock switch on the right and editing auto-locks it;
+ * the initial lock state comes from the server DTO's xxxLock; saving only submits fields whose value or lock changed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,33 +150,37 @@ fun SeriesEditSheet(
     onSave: (SeriesMetadataUpdateDto?) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
-    val initial = remember(values, series) { values ?: SeriesEditValues.fromUiSeries(series) }
+    val context = LocalContext.current
+    val initial = remember(values, series) { values ?: SeriesEditValues.fromUiSeries(series, context) }
+    val initialLocks = initial.locks
     var tab by remember { mutableStateOf(EditTab.General) }
 
-    // 通用
-    val summary = rememberLockedField(initial.summary)
-    val language = rememberLockedField(initial.language)
-    val publisher = rememberLockedField(initial.publisher)
-    val ageRating = rememberLockedField(initial.ageRating)
-    val totalBookCount = rememberLockedField(initial.totalBookCount)
+    // General
+    val summary = rememberLockedField(initial.summary, initialLocks.summaryLock)
+    val language = rememberLockedField(initial.language, initialLocks.languageLock)
+    val publisher = rememberLockedField(initial.publisher, initialLocks.publisherLock)
+    val ageRating = rememberLockedField(initial.ageRating, initialLocks.ageRatingLock)
+    val totalBookCount = rememberLockedField(initial.totalBookCount, initialLocks.totalBookCountLock)
     var status by remember(initial) { mutableStateOf(initial.status) }
+    var statusLocked by remember(initial) { mutableStateOf(initialLocks.statusLock) }
     var direction by remember(initial) { mutableStateOf(initial.readingDirection) }
-    // 标题
-    val title = rememberLockedField(initial.title)
-    val titleSort = rememberLockedField(initial.titleSort)
+    var directionLocked by remember(initial) { mutableStateOf(initialLocks.readingDirectionLock) }
+    // Title
+    val title = rememberLockedField(initial.title, initialLocks.titleLock)
+    val titleSort = rememberLockedField(initial.titleSort, initialLocks.titleSortLock)
     val alternateTitles = remember(initial) { initial.alternateTitles.toMutableStateList() }
-    var alternateTitlesLocked by remember(initial) { mutableStateOf(false) }
-    // 标签 / 链接 / 分享标签
+    var alternateTitlesLocked by remember(initial) { mutableStateOf(initialLocks.alternateTitlesLock) }
+    // Tags / links / sharing labels
     val genres = remember(initial) { initial.genres.toMutableStateList() }
-    var genresLocked by remember(initial) { mutableStateOf(false) }
+    var genresLocked by remember(initial) { mutableStateOf(initialLocks.genresLock) }
     val tags = remember(initial) { initial.tags.toMutableStateList() }
-    var tagsLocked by remember(initial) { mutableStateOf(false) }
+    var tagsLocked by remember(initial) { mutableStateOf(initialLocks.tagsLock) }
     val links = remember(initial) { initial.links.toMutableStateList() }
-    var linksLocked by remember(initial) { mutableStateOf(false) }
+    var linksLocked by remember(initial) { mutableStateOf(initialLocks.linksLock) }
     val sharingLabels = remember(initial) { initial.sharingLabels.toMutableStateList() }
-    var sharingLabelsLocked by remember(initial) { mutableStateOf(false) }
+    var sharingLabelsLocked by remember(initial) { mutableStateOf(initialLocks.sharingLabelsLock) }
 
-    ModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
+    AppModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 20.dp)
@@ -173,15 +188,15 @@ fun SeriesEditSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "编辑系列",
+                    stringResource(R.string.series_edit_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss, enabled = !saving) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
-            // 分段 tab（对齐 segmented picker）
+            // Segmented tabs (mirrors the segmented picker)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -193,7 +208,7 @@ fun SeriesEditSheet(
                     FilterChip(
                         selected = tab == entry,
                         onClick = { tab = entry },
-                        label = { Text(entry.label) },
+                        label = { Text(stringResource(entry.labelRes)) },
                     )
                 }
             }
@@ -204,89 +219,93 @@ fun SeriesEditSheet(
             ) {
                 when (tab) {
                     EditTab.General -> {
-                        LockableTextField("简介", summary, singleLine = false)
-                        ChoiceRow(
-                            label = "连载状态",
+                        LockableTextField(stringResource(R.string.book_summary), summary, singleLine = false)
+                        LockableChoiceRow(
+                            label = stringResource(R.string.detail_field_status),
                             options = seriesStatusOptions,
                             selected = status,
-                            optionLabel = SeriesEditValues::statusLabel,
-                            onSelect = { status = it },
+                            optionLabel = { SeriesEditValues.statusLabel(it, context) },
+                            locked = statusLocked,
+                            onToggleLock = { statusLocked = !statusLocked },
+                            onSelect = { status = it; statusLocked = true },
                         )
-                        ChoiceRow(
-                            label = "阅读方向",
+                        LockableChoiceRow(
+                            label = stringResource(R.string.detail_field_reading_direction),
                             options = seriesDirectionOptions,
                             selected = direction,
-                            optionLabel = SeriesEditValues::directionLabel,
-                            onSelect = { direction = it },
+                            optionLabel = { SeriesEditValues.directionLabel(it, context) },
+                            locked = directionLocked,
+                            onToggleLock = { directionLocked = !directionLocked },
+                            onSelect = { direction = it; directionLocked = true },
                         )
-                        LockableTextField("语言", language)
-                        LockableTextField("出版社", publisher)
-                        LockableTextField("年龄分级", ageRating)
-                        LockableTextField("总册数", totalBookCount)
+                        LockableTextField(stringResource(R.string.browse_kind_language), language)
+                        LockableTextField(stringResource(R.string.browse_kind_publisher), publisher)
+                        LockableTextField(stringResource(R.string.browse_kind_age_rating), ageRating)
+                        LockableTextField(stringResource(R.string.detail_field_total_books), totalBookCount)
                     }
 
                     EditTab.Title -> {
-                        LockableTextField("标题", title)
-                        LockableTextField("排序标题", titleSort)
-                        TextSection(
-                            title = "别称",
+                        LockableTextField(stringResource(R.string.common_title), title)
+                        LockableTextField(stringResource(R.string.detail_field_title_sort), titleSort)
+                        LockableListSection(
+                            title = stringResource(R.string.detail_section_alternate_titles),
                             locked = alternateTitlesLocked,
                             onToggleLock = { alternateTitlesLocked = !alternateTitlesLocked },
                             entries = alternateTitles.map { "${it.first} · ${it.second}" },
-                            onRemove = { index -> alternateTitles.removeAt(index) },
-                            addLabel = "添加别称",
-                            onAdd = { label, value -> alternateTitles.add(label to value) },
-                            primaryLabel = "别称",
-                            secondaryLabel = "标题",
+                            onRemove = { index -> alternateTitles.removeAt(index); alternateTitlesLocked = true },
+                            addLabel = stringResource(R.string.detail_add_alternate_title),
+                            onAdd = { label, value -> alternateTitles.add(label to value); alternateTitlesLocked = true },
+                            primaryLabel = stringResource(R.string.detail_field_alternate_label),
+                            secondaryLabel = stringResource(R.string.common_title),
                         )
                     }
 
                     EditTab.Tags -> {
-                        TextSection(
-                            title = "分类",
+                        LockableListSection(
+                            title = stringResource(R.string.detail_section_genres),
                             locked = genresLocked,
                             onToggleLock = { genresLocked = !genresLocked },
                             entries = genres,
-                            onRemove = { index -> genres.removeAt(index) },
-                            addLabel = "添加分类",
-                            onAdd = { value, _ -> genres.add(value) },
+                            onRemove = { index -> genres.removeAt(index); genresLocked = true },
+                            addLabel = stringResource(R.string.detail_add_genre),
+                            onAdd = { value, _ -> genres.add(value); genresLocked = true },
                         )
-                        TextSection(
-                            title = "标签",
+                        LockableListSection(
+                            title = stringResource(R.string.detail_section_tags),
                             locked = tagsLocked,
                             onToggleLock = { tagsLocked = !tagsLocked },
                             entries = tags,
-                            onRemove = { index -> tags.removeAt(index) },
-                            addLabel = "添加标签",
-                            onAdd = { value, _ -> tags.add(value) },
+                            onRemove = { index -> tags.removeAt(index); tagsLocked = true },
+                            addLabel = stringResource(R.string.detail_add_tag),
+                            onAdd = { value, _ -> tags.add(value); tagsLocked = true },
                         )
                     }
 
                     EditTab.Links -> {
-                        TextSection(
-                            title = "链接",
+                        LockableListSection(
+                            title = stringResource(R.string.detail_section_links),
                             locked = linksLocked,
                             onToggleLock = { linksLocked = !linksLocked },
                             entries = links.map { "${it.first} · ${it.second}" },
-                            onRemove = { index -> links.removeAt(index) },
-                            addLabel = "添加链接",
-                            onAdd = { label, value -> links.add(label to value) },
-                            primaryLabel = "链接名称",
-                            secondaryLabel = "链接地址",
-                            primaryPlaceholder = "维基百科",
+                            onRemove = { index -> links.removeAt(index); linksLocked = true },
+                            addLabel = stringResource(R.string.detail_add_link),
+                            onAdd = { label, value -> links.add(label to value); linksLocked = true },
+                            primaryLabel = stringResource(R.string.detail_field_link_name),
+                            secondaryLabel = stringResource(R.string.detail_field_link_url),
+                            primaryPlaceholder = "Wikipedia",
                             secondaryPlaceholder = "https://",
                         )
                     }
 
                     EditTab.Sharing -> {
-                        TextSection(
-                            title = "分享标签",
+                        LockableListSection(
+                            title = stringResource(R.string.detail_section_sharing_labels),
                             locked = sharingLabelsLocked,
                             onToggleLock = { sharingLabelsLocked = !sharingLabelsLocked },
                             entries = sharingLabels,
-                            onRemove = { index -> sharingLabels.removeAt(index) },
-                            addLabel = "添加分享标签",
-                            onAdd = { value, _ -> sharingLabels.add(value) },
+                            onRemove = { index -> sharingLabels.removeAt(index); sharingLabelsLocked = true },
+                            addLabel = stringResource(R.string.detail_add_sharing_label),
+                            onAdd = { value, _ -> sharingLabels.add(value); sharingLabelsLocked = true },
                         )
                     }
                 }
@@ -298,7 +317,7 @@ fun SeriesEditSheet(
                     enabled = !saving,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 Button(
                     onClick = {
@@ -320,9 +339,9 @@ fun SeriesEditSheet(
                                 totalBookCount = totalBookCount.value,
                                 totalBookCountLocked = totalBookCount.locked,
                                 status = status,
-                                statusLocked = status != initial.status,
+                                statusLocked = statusLocked,
                                 readingDirection = direction,
-                                readingDirectionLocked = direction != initial.readingDirection,
+                                readingDirectionLocked = directionLocked,
                                 genres = genres,
                                 genresLocked = genresLocked,
                                 tags = tags,
@@ -346,7 +365,7 @@ fun SeriesEditSheet(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text("保存")
+                        Text(stringResource(R.string.common_save))
                     }
                 }
             }
@@ -354,7 +373,13 @@ fun SeriesEditSheet(
     }
 }
 
-/** 只包含改动/被锁定字段的更新体；没有改动时返回 null（不发请求）。 */
+/**
+ * Update body containing only the changed fields; returns null when nothing changed (no request is sent).
+ * Per-field rules (mirrors the iOS per-field lock):
+ * - Content: the content changed, or the lock was newly set (locking submits the current content too) → submit the current content;
+ * - Lock: the lock state differs from the initial value (in either direction) → explicitly submit the current lock state (true=lock / false=unlock),
+ *   unchanged → null (leave the server lock state untouched).
+ */
 internal fun buildSeriesUpdateDto(
     initial: SeriesEditValues,
     title: String,
@@ -386,231 +411,87 @@ internal fun buildSeriesUpdateDto(
     sharingLabels: List<String>,
     sharingLabelsLocked: Boolean,
 ): SeriesMetadataUpdateDto? {
-    val genresChanged = genres.toSet() != initial.genres.toSet() || genresLocked
-    val tagsChanged = tags.toSet() != initial.tags.toSet() || tagsLocked
-    val linksChanged = links != initial.links || linksLocked
-    val alternatesChanged = alternateTitles != initial.alternateTitles || alternateTitlesLocked
-    val sharingChanged = sharingLabels.toSet() != initial.sharingLabels.toSet() || sharingLabelsLocked
-    val titleChanged = title != initial.title || titleLocked
-    val titleSortChanged = titleSort != initial.titleSort || titleSortLocked
-    val summaryChanged = summary != initial.summary || summaryLocked
-    val publisherChanged = publisher != initial.publisher || publisherLocked
-    val languageChanged = language != initial.language || languageLocked
-    val ageRatingChanged = ageRating != initial.ageRating || ageRatingLocked
-    val totalBookCountChanged = totalBookCount != initial.totalBookCount || totalBookCountLocked
+    val locks = initial.locks
+
+    val titleLockChanged = titleLocked != locks.titleLock
+    val titleSortLockChanged = titleSortLocked != locks.titleSortLock
+    val summaryLockChanged = summaryLocked != locks.summaryLock
+    val publisherLockChanged = publisherLocked != locks.publisherLock
+    val languageLockChanged = languageLocked != locks.languageLock
+    val ageRatingLockChanged = ageRatingLocked != locks.ageRatingLock
+    val totalBookCountLockChanged = totalBookCountLocked != locks.totalBookCountLock
+    val statusLockChanged = statusLocked != locks.statusLock
+    val readingDirectionLockChanged = readingDirectionLocked != locks.readingDirectionLock
+    val genresLockChanged = genresLocked != locks.genresLock
+    val tagsLockChanged = tagsLocked != locks.tagsLock
+    val linksLockChanged = linksLocked != locks.linksLock
+    val alternatesLockChanged = alternateTitlesLocked != locks.alternateTitlesLock
+    val sharingLockChanged = sharingLabelsLocked != locks.sharingLabelsLock
+
+    val titleChanged = title != initial.title || titleLockChanged
+    val titleSortChanged = titleSort != initial.titleSort || titleSortLockChanged
+    val summaryChanged = summary != initial.summary || summaryLockChanged
+    val publisherChanged = publisher != initial.publisher || publisherLockChanged
+    val languageChanged = language != initial.language || languageLockChanged
+    val ageRatingChanged = ageRating != initial.ageRating || ageRatingLockChanged
+    val totalBookCountChanged = totalBookCount != initial.totalBookCount || totalBookCountLockChanged
+    val statusChanged = status != initial.status || statusLockChanged
+    val readingDirectionChanged = readingDirection != initial.readingDirection || readingDirectionLockChanged
+    val genresChanged = genres.toSet() != initial.genres.toSet() || genresLockChanged
+    val tagsChanged = tags.toSet() != initial.tags.toSet() || tagsLockChanged
+    val linksChanged = links != initial.links || linksLockChanged
+    val alternatesChanged = alternateTitles != initial.alternateTitles || alternatesLockChanged
+    val sharingChanged = sharingLabels.toSet() != initial.sharingLabels.toSet() || sharingLockChanged
 
     if (!(genresChanged || tagsChanged || linksChanged || alternatesChanged || sharingChanged ||
             titleChanged || titleSortChanged || summaryChanged || publisherChanged ||
             languageChanged || ageRatingChanged || totalBookCountChanged ||
-            statusLocked || readingDirectionLocked)
+            statusChanged || readingDirectionChanged)
     ) {
         return null
     }
 
+    // Content submission: submit the current content when it changed or when the lock was newly set (locking direction); the unlocking direction submits the lock only.
     return SeriesMetadataUpdateDto(
-        title = title.takeIf { titleChanged },
-        titleLock = true.takeIf { titleLocked },
-        titleSort = titleSort.takeIf { titleSortChanged },
-        titleSortLock = true.takeIf { titleSortLocked },
-        summary = summary.takeIf { summaryChanged },
-        summaryLock = true.takeIf { summaryLocked },
-        publisher = publisher.takeIf { publisherChanged },
-        publisherLock = true.takeIf { publisherLocked },
-        language = language.takeIf { languageChanged },
-        languageLock = true.takeIf { languageLocked },
-        ageRating = ageRating.trim().toIntOrNull().takeIf { ageRatingChanged },
-        ageRatingLock = true.takeIf { ageRatingLocked },
-        totalBookCount = totalBookCount.trim().toIntOrNull().takeIf { totalBookCountChanged },
-        totalBookCountLock = true.takeIf { totalBookCountLocked },
+        title = title.takeIf { title != initial.title || (titleLockChanged && titleLocked) },
+        titleLock = lockUpdate(titleLocked, locks.titleLock),
+        titleSort = titleSort.takeIf { titleSort != initial.titleSort || (titleSortLockChanged && titleSortLocked) },
+        titleSortLock = lockUpdate(titleSortLocked, locks.titleSortLock),
+        summary = summary.takeIf { summary != initial.summary || (summaryLockChanged && summaryLocked) },
+        summaryLock = lockUpdate(summaryLocked, locks.summaryLock),
+        publisher = publisher.takeIf { publisher != initial.publisher || (publisherLockChanged && publisherLocked) },
+        publisherLock = lockUpdate(publisherLocked, locks.publisherLock),
+        language = language.takeIf { language != initial.language || (languageLockChanged && languageLocked) },
+        languageLock = lockUpdate(languageLocked, locks.languageLock),
+        ageRating = ageRating.trim().toIntOrNull()
+            .takeIf { ageRating != initial.ageRating || (ageRatingLockChanged && ageRatingLocked) },
+        ageRatingLock = lockUpdate(ageRatingLocked, locks.ageRatingLock),
+        totalBookCount = totalBookCount.trim().toIntOrNull()
+            .takeIf { totalBookCount != initial.totalBookCount || (totalBookCountLockChanged && totalBookCountLocked) },
+        totalBookCountLock = lockUpdate(totalBookCountLocked, locks.totalBookCountLock),
         status = SeriesMetadataUpdateDto.Status.entries.firstOrNull { it.value == status }
-            .takeIf { statusLocked },
-        statusLock = true.takeIf { statusLocked },
+            .takeIf { status != initial.status || (statusLockChanged && statusLocked) },
+        statusLock = lockUpdate(statusLocked, locks.statusLock),
         readingDirection = SeriesMetadataUpdateDto.ReadingDirection.entries
             .firstOrNull { it.value == readingDirection }
-            .takeIf { readingDirectionLocked },
-        readingDirectionLock = true.takeIf { readingDirectionLocked },
-        genres = genres.toSet().takeIf { genresChanged },
-        genresLock = true.takeIf { genresLocked },
-        tags = tags.toSet().takeIf { tagsChanged },
-        tagsLock = true.takeIf { tagsLocked },
+            .takeIf { readingDirection != initial.readingDirection || (readingDirectionLockChanged && readingDirectionLocked) },
+        readingDirectionLock = lockUpdate(readingDirectionLocked, locks.readingDirectionLock),
+        genres = genres.toSet()
+            .takeIf { genres.toSet() != initial.genres.toSet() || (genresLockChanged && genresLocked) },
+        genresLock = lockUpdate(genresLocked, locks.genresLock),
+        tags = tags.toSet()
+            .takeIf { tags.toSet() != initial.tags.toSet() || (tagsLockChanged && tagsLocked) },
+        tagsLock = lockUpdate(tagsLocked, locks.tagsLock),
         links = links
             .map { WebLinkUpdateDto(label = it.first, url = it.second.ifBlank { null }) }
-            .takeIf { linksChanged },
-        linksLock = true.takeIf { linksLocked },
+            .takeIf { links != initial.links || (linksLockChanged && linksLocked) },
+        linksLock = lockUpdate(linksLocked, locks.linksLock),
         alternateTitles = alternateTitles
             .map { AlternateTitleUpdateDto(label = it.first, title = it.second) }
-            .takeIf { alternatesChanged },
-        alternateTitlesLock = true.takeIf { alternateTitlesLocked },
-        sharingLabels = sharingLabels.toSet().takeIf { sharingChanged },
-        sharingLabelsLock = true.takeIf { sharingLabelsLocked },
+            .takeIf { alternateTitles != initial.alternateTitles || (alternatesLockChanged && alternateTitlesLocked) },
+        alternateTitlesLock = lockUpdate(alternateTitlesLocked, locks.alternateTitlesLock),
+        sharingLabels = sharingLabels.toSet()
+            .takeIf { sharingLabels.toSet() != initial.sharingLabels.toSet() || (sharingLockChanged && sharingLabelsLocked) },
+        sharingLabelsLock = lockUpdate(sharingLabelsLocked, locks.sharingLabelsLock),
     )
-}
-
-/** 带锁字段：右侧锁定开关；编辑内容自动锁定（对齐 lockToggle + onChange auto-lock）。 */
-@Composable
-private fun LockableTextField(label: String, field: LockedField, singleLine: Boolean = true) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OutlinedTextField(
-            value = field.value,
-            onValueChange = { field.edit(it) },
-            label = { Text(label) },
-            singleLine = singleLine,
-            minLines = if (singleLine) 1 else 3,
-            modifier = Modifier.weight(1f),
-        )
-        LockToggle(locked = field.locked, onToggle = { field.locked = !field.locked })
-    }
-}
-
-@Composable
-private fun LockToggle(locked: Boolean, onToggle: () -> Unit) {
-    IconButton(onClick = onToggle) {
-        Icon(
-            if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
-            contentDescription = if (locked) "已锁定" else "未锁定",
-            tint = if (locked) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}
-
-/** 枚举型字段：标签 + 一组可选 chip（状态/阅读方向，值即服务端枚举 token）。 */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ChoiceRow(
-    label: String,
-    options: List<String>,
-    selected: String,
-    optionLabel: (String) -> String,
-    onSelect: (String) -> Unit,
-) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 12.dp),
-    )
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEach { option ->
-            FilterChip(
-                selected = selected == option,
-                onClick = { onSelect(option) },
-                label = { Text(optionLabel(option)) },
-            )
-        }
-    }
-}
-
-/** 列表段：行 + 删除 + 添加（对齐 Genres/Tags/Links/SharingLabels/AlternateTitles 段）。 */
-@Composable
-private fun TextSection(
-    title: String,
-    locked: Boolean,
-    onToggleLock: () -> Unit,
-    entries: List<String>,
-    onRemove: (Int) -> Unit,
-    addLabel: String,
-    onAdd: (String, String) -> Unit,
-    primaryLabel: String? = null,
-    secondaryLabel: String? = null,
-    primaryPlaceholder: String = "",
-    secondaryPlaceholder: String = "",
-) {
-    var primary by remember { mutableStateOf("") }
-    var secondary by remember { mutableStateOf("") }
-    val needsValue = primaryLabel != null
-    val canAdd = primary.isNotBlank() && (!needsValue || secondary.isNotBlank())
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        LockToggle(locked = locked, onToggle = onToggleLock)
-    }
-    entries.forEachIndexed { index, entry ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                entry,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { onRemove(index) }) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-    }
-    if (primaryLabel == null) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = primary,
-                onValueChange = { primary = it },
-                label = { Text(title) },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    } else {
-        OutlinedTextField(
-            value = primary,
-            onValueChange = { primary = it },
-            label = { Text(primaryLabel) },
-            placeholder = primaryPlaceholder.takeIf { it.isNotBlank() }?.let { { Text(it) } },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = secondary,
-            onValueChange = { secondary = it },
-            label = { Text(secondaryLabel ?: "") },
-            placeholder = secondaryPlaceholder.takeIf { it.isNotBlank() }?.let { { Text(it) } },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            addLabel,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(
-            onClick = {
-                onAdd(primary.trim(), secondary.trim())
-                primary = ""
-                secondary = ""
-            },
-            enabled = canAdd,
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = addLabel, modifier = Modifier.size(18.dp))
-        }
-    }
 }

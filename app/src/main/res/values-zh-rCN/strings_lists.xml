@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lists tab, list detail screens and list edit sheets. -->
+    <string name="lists_tab_title">列表</string>
+    <string name="lists_scope_pinned">已钉选</string>
+    <string name="lists_pin">置顶</string>
+    <string name="lists_pinned">已置顶</string>
+    <string name="lists_select">多选</string>
+    <string name="lists_no_session_title">未连接服务器</string>
+    <string name="lists_no_session_subtitle">登录后查看列表</string>
+    <string name="lists_group_collections">收藏</string>
+    <string name="lists_group_readlists">阅读列表</string>
+    <string name="lists_group_smartlists">智能列表</string>
+    <string name="lists_delete_item_title">删除%1$s？</string>
+    <string name="lists_delete_item_message">「%1$s」将被删除，此操作无法撤销。</string>
+    <string name="lists_created_at">创建于 %1$s</string>
+    <string name="lists_modified_at">更新于 %1$s</string>
+    <string name="lists_ordered_label">有序</string>
+    <string name="lists_ordered_toggle">按顺序排列</string>
+    <string name="lists_summary">简介</string>
+    <string name="lists_add_to_list_title">加入列表</string>
+    <string name="lists_already_in_list">已在列表中</string>
+    <string name="lists_smartlist_meta">%1$d 项 · %2$s · %3$s</string>
+    <string name="lists_item_count">%1$d 项</string>
+    <string name="lists_mark_read">标记已读</string>
+    <string name="lists_mark_unread">标记未读</string>
+    <string name="lists_add_to_download_queue">加入下载队列</string>
+    <string name="lists_add_to_readlist">加入阅读列表</string>
+    <string name="lists_read">阅读</string>
+    <string name="lists_read_label">已读</string>
+    <string name="lists_read_incognito">隐私阅读</string>
+    <string name="lists_view_details">查看详情</string>
+    <string name="lists_open_series">打开所属系列</string>
+    <string name="lists_download_book">下载书籍</string>
+    <string name="lists_download_selected_books">下载所选书籍</string>
+    <string name="lists_analyze_book">分析书籍</string>
+    <string name="lists_refresh_metadata">刷新元数据</string>
+    <string name="lists_share_book">分享书籍</string>
+    <string name="lists_save_book_metadata">保存书籍元数据</string>
+
+    <string name="collection_new_title">新建收藏</string>
+    <string name="collection_edit_title">编辑收藏</string>
+    <string name="collection_new_action">新建收藏…</string>
+    <string name="collection_delete">删除收藏</string>
+    <string name="collection_save">保存收藏</string>
+    <string name="collection_delete_message">「%1$s」将被删除，系列本身保留在书库中。</string>
+
+    <string name="readlist_new_title">新建阅读列表</string>
+    <string name="readlist_edit_title">编辑阅读列表</string>
+    <string name="readlist_new_action">新建阅读列表…</string>
+    <string name="readlist_delete">删除阅读列表</string>
+    <string name="readlist_save">保存阅读列表</string>
+    <string name="readlist_share">分享阅读列表</string>
+    <string name="readlist_delete_message">「%1$s」将被删除，书籍本身保留在书库中。</string>
+    <string name="readlist_continue_reading">继续阅读：第 %1$d 本</string>
+
+    <string name="smartlist_title">智能列表</string>
+    <string name="smartlist_new_title">新建智能列表</string>
+    <string name="smartlist_edit_title">编辑智能列表</string>
+    <string name="smartlist_delete">删除智能列表</string>
+    <string name="smartlist_save">保存智能列表</string>
+    <string name="smartlist_delete_message">「%1$s」将被删除，命中内容保留在书库中。</string>
+    <string name="smartlist_target_type">目标类型</string>
+    <string name="smartlist_target_meta">目标：%1$s · %2$d 项</string>
+    <string name="smartlist_conditions">条件</string>
+    <string name="smartlist_match_all">满足全部条件</string>
+    <string name="smartlist_match_any">满足任一条件</string>
+    <string name="smartlist_add_condition">添加条件</string>
+    <string name="smartlist_rule_field_read_status">阅读状态</string>
+    <string name="smartlist_rule_field_release_year">发布年份</string>
+    <string name="smartlist_rule_operator_is">等于</string>
+    <string name="smartlist_rule_operator_is_not">不等于</string>
+    <string name="smartlist_rule_operator_contains">包含</string>
+    <string name="smartlist_rule_operator_greater_than">大于</string>
+    <string name="smartlist_rule_operator_less_than">小于</string>
+    <string name="smartlist_rule_value">值</string>
+    <string name="smartlist_rule_value_read">已读</string>
+    <string name="smartlist_rule_value_in_progress">阅读中</string>
+    <string name="smartlist_rule_delete">删除条件</string>
+
+    <plurals name="lists_series_count">
+        <item quantity="other">%1$d 部系列</item>
+    </plurals>
+</resources>

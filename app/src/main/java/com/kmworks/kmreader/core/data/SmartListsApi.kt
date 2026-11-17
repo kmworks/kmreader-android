@@ -13,7 +13,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** Smart list DTO（kmrs 私有端点，openapi spec 未覆盖）。 */
+/** Smart list DTO (kmrs private endpoint, not covered by the openapi spec). */
 @Serializable
 data class SmartListDto(
     val id: String,
@@ -28,13 +28,13 @@ data class SmartListDto(
     val lastModifiedDate: String = "",
 )
 
-/** Page wrapper（只取 content，其余字段忽略）。 */
+/** Page wrapper (only content is read; every other field is ignored). */
 @Serializable
 data class SmartListPageDto(
     val content: List<SmartListDto> = emptyList(),
 )
 
-/** Create body（name/summary/target/search；visibility 等管理员字段后续再接）。 */
+/** Create body (name/summary/target/search; admin fields such as visibility to be wired later). */
 @Serializable
 data class SmartListCreateDto(
     val name: String,
@@ -43,7 +43,7 @@ data class SmartListCreateDto(
     val search: JsonObject,
 )
 
-/** Update body；search 为 null 时整键省略，保护编辑器无法表达的过滤条件。 */
+/** Update body; when search is null the whole key is omitted, protecting filters the editor cannot express. */
 @Serializable
 data class SmartListUpdateDto(
     val name: String,
@@ -79,7 +79,7 @@ interface SmartListsApi {
     @DELETE("api/v1/smart-lists/{id}")
     fun deleteSmartList(@Path("id") id: String): Call<Unit>
 
-    /** 命中内容（书籍目标）；body 为 BookSearch JSON 文档，直接透传服务端存的 search。 */
+    /** Matched content (book target); body is the BookSearch JSON document, passed through as stored server-side. */
     @POST("api/v1/smart-lists/{id}/books")
     fun getSmartListBooks(
         @Path("id") id: String,
@@ -89,7 +89,7 @@ interface SmartListsApi {
         @Query("sort") sort: List<String>? = null,
     ): Call<PageBookDto>
 
-    /** 命中内容（系列目标）；body 为 SeriesSearch JSON 文档。 */
+    /** Matched content (series target); body is the SeriesSearch JSON document. */
     @POST("api/v1/smart-lists/{id}/series")
     fun getSmartListSeries(
         @Path("id") id: String,

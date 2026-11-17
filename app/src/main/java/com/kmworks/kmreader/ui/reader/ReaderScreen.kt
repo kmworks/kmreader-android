@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.reader
 
+import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -18,16 +19,22 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,7 +50,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -76,9 +83,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
@@ -90,6 +101,7 @@ import coil3.compose.SubcomposeAsyncImageContent
 import coil3.request.ImageRequest
 import coil3.request.transformations
 import coil3.size.Size
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.image.BorderCropTransformation
 import com.kmworks.kmreader.data.Book
@@ -100,6 +112,7 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
@@ -110,21 +123,29 @@ private val PageLine = Color.White.copy(alpha = 0.12f)
 private val ChromeText = Color.White
 
 /**
- * 漫画阅读器（DIVINA）：真实页面管线（ReaderViewModel → BookPagesApi），
- * 设置面板里的每一项都会真正作用到画面上（背景/页码/阴影/翻页动画/点按区域/双击/长按/预加载/裁边）。
+ * Comic reader (DIVINA): real page pipeline (ReaderViewModel → BookPagesApi). Every option in the
+ * settings sheet is truly applied to the canvas (background / page number / shadow / page-turn
+ * animation / tap zones / double tap / long press / preloading / border cropping).
  *
- * 行为 1:1 对齐原作 DivinaReaderView / ReaderViewModel：
- * - 初始页：完成或隐私阅读从第 0 页起，否则恢复 readProgress.page（VM 提供 initialPage）
- * - 阅读方向：forceDefaultReadingDirection 时用全局默认，否则用系列方向，否则用全局默认；
- *   方向/布局/拆分宽页/独显封面是【会话内】状态，改动不回写默认（对齐原作 @State + reset 语义）
- * - 双页仅横屏（shouldUseDualPage：宽>高 且 layout!=single 且方向非 vertical/webtoon）；
- *   layout==dual 为强制双页（受同样的横屏门控）
- * - 拆分宽页：none 不切 / auto·ltr·rtl 切前后半 / scroll 保留整幅、点按先在半幅停靠点间平移再翻页
- * - ltr / rtl：横向分页；vertical：纵向分页；webtoon：连续纵向滚动（页宽与点按滚动高度可调）
- * - 手势：点按分区（六种布局 + 镜像）、双击缩放（可关）、捏合缩放平移、长按上下文菜单（分享/独显）
- * - 进度：ReaderProgressRecordingGate（阈值 3 页/完成放行/incognito 跳过），退出时 flush
- * - 预加载：ReaderPreloadProfile 窗口 + 0.3s 节流 + 「仅 Wi-Fi 预加载」门控
+ * Behavior mirrors the original DivinaReaderView / ReaderViewModel 1:1:
+ * - Initial page: completed or incognito starts from page 0, otherwise restores readProgress.page
+ *   (the VM provides initialPage)
+ * - Reading direction: with forceDefaultReadingDirection use the global default, otherwise the
+ *   series direction, otherwise the global default; direction / layout / split-wide / solo cover are
+ *   SESSION-scoped state — changes never write back to the defaults (mirrors @State + reset semantics)
+ * - Dual page only in landscape (shouldUseDualPage: width > height && layout != single && direction
+ *   not vertical/webtoon); layout == dual forces dual pages (same landscape gating)
+ * - Split wide pages: none keeps pages whole / auto·ltr·rtl split into halves / scroll keeps the
+ *   whole spread — tapping first pans between the two spread anchors, then turns the page
+ * - ltr / rtl: horizontal paging; vertical: vertical paging; webtoon: continuous vertical scroll
+ *   (page width and tap-scroll height are adjustable)
+ * - Gestures: tap zones (six layouts + inversion), double-tap zoom (can be disabled), pinch
+ *   zoom/pan, long-press context menu (share / solo)
+ * - Progress: ReaderProgressRecordingGate (3-page threshold / completed bypass / incognito skip),
+ *   flushed on exit
+ * - Preloading: ReaderPreloadProfile window + 0.3s debounce + "preload on Wi-Fi only" gating
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     book: Book,
@@ -132,6 +153,9 @@ fun ReaderScreen(
     incognito: Boolean = false,
     viewModel: ReaderViewModel = hiltViewModel(),
     settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
+    onVisitSeries: (Book) -> Unit = {},
+    onOpenReadList: (Int) -> Unit = {},
+    onBrowseFilter: (String) -> Unit = {},
 ) {
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
@@ -140,12 +164,19 @@ fun ReaderScreen(
     val readerBackground = settings.background.color(darkTheme)
     val pageContentColor = settings.background.contentColor(darkTheme)
 
-    var chromeVisible by remember { mutableStateOf(true) }
+    // Mirrors the original shouldShowControls (initially false): the chrome stays hidden while
+    // loading and reading; only a tap reveals it
+    var chromeVisible by remember { mutableStateOf(false) }
     var page by remember { mutableIntStateOf(1) }
     var pageInitialized by remember { mutableStateOf(false) }
+    // Progress-reporting gate: do not report until the restored page has scrolled into place
+    // (mirrors iOS, where the first observed page is the restored page; otherwise jumping to the
+    // restored page would look like a page turn)
+    var progressArmed by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
-    // 会话内阅读偏好（对齐原作 @State 初始值：从默认值取，改动不回写默认）
+    // Session-scoped reading preferences (mirroring the original @State initial values: seeded from
+    // the defaults, never written back)
     var direction by remember { mutableStateOf<ReadingDirection?>(null) }
     var pageLayout by remember { mutableStateOf<PageLayout?>(null) }
     var splitWideMode by remember { mutableStateOf<SplitWidePageMode?>(null) }
@@ -153,21 +184,37 @@ fun ReaderScreen(
     var rotationDegrees by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var showPageJump by remember { mutableStateOf(false) }
+    var showDetailSheet by remember { mutableStateOf(false) }
     var contextMenuPage by remember { mutableStateOf<ReaderPage?>(null) }
 
-    // 缩放：双击在 1x / 设置倍率之间切换，捏合连续缩放
+    // Zoom: double tap toggles between 1x and the configured scale, pinch zooms continuously
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
 
-    // 整幅跨页（scroll 模式）的平移停靠点：0f=首缘（ltr 左/rtl 右），1f=尾缘
+    // Pan anchors for the whole spread (scroll mode): 0f = leading edge (ltr left / rtl right), 1f = trailing edge
     var spreadPan by remember { mutableFloatStateOf(0f) }
 
-    // 阅读时保持屏幕常亮（对齐原作 keepScreenAwakeWhileReading，默认 false）
+    // Keep the screen awake while reading (mirrors the original keepScreenAwakeWhileReading, default false)
     val view = LocalView.current
     DisposableEffect(view, settings.keepScreenAwake) {
         view.keepScreenOn = settings.keepScreenAwake
         onDispose { view.keepScreenOn = false }
+    }
+
+    // Immersive mode: hide system bars while the chrome is hidden, restore them when the chrome
+    // appears (mirrors iOS .statusBarHidden(!shouldShowControls))
+    DisposableEffect(view, chromeVisible) {
+        val window = (view.context as? Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (chromeVisible) {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
     val context = LocalContext.current
@@ -185,7 +232,7 @@ fun ReaderScreen(
         viewModel.incognito = incognito
         viewModel.load(book)
     }
-    // 退出阅读时 flush 未上报的进度（对齐原作 flushProgress）
+    // Flush unreported progress when leaving the reader (mirrors the original flushProgress)
     DisposableEffect(Unit) {
         onDispose { viewModel.flushProgress(page) }
     }
@@ -194,7 +241,7 @@ fun ReaderScreen(
     val pageCount = readerPages.size
     val ready = uiState.status == ReaderPagesStatus.Ready
 
-    // 加载完成后：恢复初始页 + 解析会话内阅读偏好（只执行一次）
+    // After loading: restore the initial page and resolve session preferences (runs only once)
     LaunchedEffect(ready) {
         if (!ready || pageInitialized) return@LaunchedEffect
         page = uiState.initialPage ?: 1
@@ -218,7 +265,7 @@ fun ReaderScreen(
     val isVertical = directionNow == ReadingDirection.Vertical
     val isPaged = !isWebtoon && !isVertical
 
-    // 双页门控（对齐原作 shouldUseDualPage：仅横屏；webtoon/vertical 无双页）
+    // Dual-page gating (mirrors the original shouldUseDualPage: landscape only; no dual pages for webtoon/vertical)
     val configuration = LocalConfiguration.current
     val isLandscapeScreen = configuration.screenWidthDp > configuration.screenHeightDp
     val allowDualPairs = isLandscapeScreen && pageLayoutNow != PageLayout.Single && isPaged
@@ -249,7 +296,8 @@ fun ReaderScreen(
     val webtoonState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 首次进入（含恢复进度）：滚动到初始页所在单元
+    // First entry (including restored progress): scroll to the cell holding the initial page;
+    // progress reporting is armed only once it is in place
     LaunchedEffect(pageInitialized, items) {
         if (!pageInitialized) return@LaunchedEffect
         if (isWebtoon) {
@@ -259,22 +307,23 @@ fun ReaderScreen(
             val target = items.indexOfFirst { it.pages.contains(page) }
             if (target > 0) pagerState.scrollToPage(target)
         }
+        progressArmed = true
     }
 
-    // Pager → 页码（分页/纵向模式）
+    // Pager → page number (paged/vertical modes)
     LaunchedEffect(pagerState, items) {
         snapshotFlow { pagerState.settledPage }.collect { index ->
             items.getOrNull(index)?.pages?.firstOrNull()?.let { page = it }
         }
     }
-    // 条漫滚动 → 页码
+    // Webtoon scroll → page number
     LaunchedEffect(webtoonState, isWebtoon, items) {
         if (!isWebtoon) return@LaunchedEffect
         snapshotFlow { webtoonState.firstVisibleItemIndex }.collect { index ->
             items.getOrNull(index)?.pages?.firstOrNull()?.let { if (it != page) page = it }
         }
     }
-    // 页码（滑杆/跳页/缩略图）→ 视图
+    // Page number (slider/jump/thumbnails) → view
     LaunchedEffect(page, items, isWebtoon) {
         if (!pageInitialized) return@LaunchedEffect
         if (isWebtoon) {
@@ -285,7 +334,8 @@ fun ReaderScreen(
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0 && target != pagerState.currentPage) pagerState.scrollToPage(target)
     }
-    // 切换布局/拆分宽页/方向后落到当前页所在单元（对齐 regenerateViewStatePreservingCurrentPosition）
+    // After switching layout/split-wide/direction, land on the cell holding the current page
+    // (mirrors regenerateViewStatePreservingCurrentPosition)
     LaunchedEffect(allowDualPairs, forceDualPairs, splitWideNow, directionNow, soloPages, noCover) {
         if (!pageInitialized || isWebtoon) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
@@ -293,7 +343,7 @@ fun ReaderScreen(
         spreadPan = 0f
     }
 
-    // 预加载窗口（对齐 ReaderPageLoadScheduler：0.3s 节流 + preloadProfile 窗口 + 仅 Wi-Fi 门控）
+    // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate)
     LaunchedEffect(pagerState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
         snapshotFlow { pagerState.settledPage }
             .debounce(300)
@@ -310,16 +360,17 @@ fun ReaderScreen(
                 }
             }
     }
-    // 进度上报（分页/纵向）
-    LaunchedEffect(pagerState, items, uiState.bookDtoId) {
+    // Progress reporting (paged/vertical)
+    LaunchedEffect(pagerState, items, uiState.bookDtoId, progressArmed) {
+        if (!progressArmed) return@LaunchedEffect
         snapshotFlow { pagerState.settledPage }.collect { index ->
             if (uiState.bookDtoId == null) return@collect
             items.getOrNull(index)?.let { viewModel.reportProgress(it.pages.max()) }
         }
     }
-    // 条漫：预加载 + 进度上报
-    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
-        if (!isWebtoon) return@LaunchedEffect
+    // Webtoon: preloading + progress reporting
+    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload, progressArmed) {
+        if (!isWebtoon || !progressArmed) return@LaunchedEffect
         snapshotFlow { webtoonState.firstVisibleItemIndex }
             .debounce(300)
             .collect { index ->
@@ -337,7 +388,8 @@ fun ReaderScreen(
             }
     }
 
-    // 单点/双击/长按/捏合手势（在同一个 pointerInput 内并行，避免与 Pager 拖动互抢）
+    // Single-tap/double-tap/long-press/pinch gestures (run in parallel inside one pointerInput so
+    // they do not fight the Pager drag)
     fun stepPage(target: Int) {
         val clamped = target.coerceIn(0, max(0, items.lastIndex))
         scope.launch {
@@ -345,8 +397,8 @@ fun ReaderScreen(
             else pagerState.scrollToPage(clamped)
         }
     }
-    // 整幅跨页两阶段点按（对齐原作 requestPagedStep 的 wholeSpread 行为：
-    // 未到离开缘先平移到离开缘，再点按才翻页）
+    // Two-phase tap on a whole spread (mirrors the original requestPagedStep wholeSpread behavior:
+    // pan to the departure edge first; only the next tap turns the page)
     fun tapNext() {
         val item = items.getOrNull(pagerState.currentPage)
         if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
@@ -467,7 +519,8 @@ fun ReaderScreen(
         translationY = pan.y
     }
 
-    // 当前页独显动作（对齐原作 ReaderPageSoloActions：双页展示中可独显竖版页，已独显可取消）
+    // Solo action for the current page (mirrors the original ReaderPageSoloActions: a portrait page
+    // inside a dual pair can be shown solo; an already-solo page can be restored)
     val currentReaderPage = readerPages.firstOrNull { it.number == page }
     val currentItem = items.getOrNull(pagerState.currentPage.coerceIn(0, max(0, items.lastIndex)))
     val soloAction: SoloMenuAction? = if (currentReaderPage != null) {
@@ -503,12 +556,12 @@ fun ReaderScreen(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    "页面列表加载失败",
+                    stringResource(R.string.reader_pages_load_failed),
                     style = MaterialTheme.typography.titleSmall,
                     color = pageContentColor.copy(alpha = 0.85f),
                 )
                 TextButton(onClick = { viewModel.retry(book) }) {
-                    Text("重试", color = pageContentColor)
+                    Text(stringResource(R.string.common_retry), color = pageContentColor)
                 }
             }
 
@@ -530,6 +583,9 @@ fun ReaderScreen(
                         modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
                         userScrollEnabled = !zoomed,
                         contentPadding = PaddingValues(vertical = 8.dp),
+                        // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
+                        // native pager): no loading placeholder flash while turning pages
+                        beyondViewportPageCount = 1,
                     ) { index ->
                         ViewerPage(
                             item = items[index],
@@ -548,8 +604,12 @@ fun ReaderScreen(
                         reverseLayout = directionNow == ReadingDirection.Rtl,
                         contentPadding = PaddingValues(horizontal = 4.dp),
                         pageSpacing = if (settings.pageTransition == PageTransitionStyle.Cover) 0.dp else 8.dp,
+                        // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
+                        // native pager): no loading placeholder flash while turning pages
+                        beyondViewportPageCount = 1,
                     ) { index ->
-                        // 覆盖式翻页：后续页固定居中，当前页从上方滑走（对齐 Cover 过渡）
+                        // Cover transition: later pages stay centered while the current page slides
+                        // away on top (mirrors the Cover transition)
                         val cover = settings.pageTransition == PageTransitionStyle.Cover
                         val item = items[index]
                         Box(
@@ -585,7 +645,7 @@ fun ReaderScreen(
                                 )
                             }
                             if (cover) {
-                                // 页面间的阴影让覆盖效果有层次
+                                // The shadow between pages gives the cover effect depth
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
@@ -597,8 +657,21 @@ fun ReaderScreen(
                     }
                 }
 
-                // 点按区域提示（对齐原作的 showTapZoneHints）
-                if (settings.showTapZoneHints && chromeVisible && !settings.tapZoneMode.isDisabled) {
+                // Tap zone hints (mirrors the original triggerTapZoneOverlay: when the content is
+                // ready or the tap zone mode changes, a help overlay shows for ~0.4s and then hides
+                // itself; it does not follow the chrome visibility)
+                var tapHintsVisible by remember { mutableStateOf(false) }
+                LaunchedEffect(settings.showTapZoneHints, settings.tapZoneMode, settings.tapZoneInversion) {
+                    if (settings.showTapZoneHints && !settings.tapZoneMode.isDisabled) {
+                        delay(100)
+                        tapHintsVisible = true
+                        delay(400)
+                        tapHintsVisible = false
+                    } else {
+                        tapHintsVisible = false
+                    }
+                }
+                if (tapHintsVisible) {
                     TapZoneHints(
                         mode = settings.tapZoneMode,
                         isRtl = directionNow == ReadingDirection.Rtl,
@@ -606,7 +679,7 @@ fun ReaderScreen(
                     )
                 }
 
-                // 页码（无控件时显示，避免与底栏重复）
+                // Page number (shown while the chrome is hidden, avoiding duplication with the bottom bar)
                 if (settings.showPageNumber && !chromeVisible && pageCount > 0) {
                     Text(
                         text = "$page / $pageCount",
@@ -619,7 +692,7 @@ fun ReaderScreen(
                     )
                 }
 
-                // 阅读进度条（无控件时、可选）
+                // Reading progress bar (optional, while the chrome is hidden)
                 if (settings.showProgressBar && !chromeVisible && pageCount > 0) {
                     Box(
                         modifier = Modifier
@@ -639,7 +712,7 @@ fun ReaderScreen(
             }
         }
 
-        // 顶栏
+        // Top bar
         AnimatedVisibility(
             visible = chromeVisible,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -649,6 +722,9 @@ fun ReaderScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Swallow stray taps across the whole row (mirrors iOS .contentShape(Rectangle()))
+                    // so they cannot fall through to the tap-to-turn gestures
+                    .pointerInput(Unit) { detectTapGestures { } }
                     .background(
                         if (settings.controlsGradient) {
                             Brush.verticalGradient(
@@ -658,20 +734,23 @@ fun ReaderScreen(
                             Brush.verticalGradient(listOf(ChromeScrim, ChromeScrim))
                         },
                     )
+                    // Avoid the status bar; ignoringVisibility keeps the layout stable while system
+                    // bars show/hide
+                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "退出阅读",
+                        contentDescription = stringResource(R.string.reader_exit_reading),
                         tint = ChromeText,
                     )
                 }
                 if (incognito) {
                     Icon(
                         Icons.Filled.VisibilityOff,
-                        contentDescription = "隐私阅读",
+                        contentDescription = stringResource(R.string.reader_incognito),
                         tint = ChromeText.copy(alpha = 0.85f),
                         modifier = Modifier.padding(start = 4.dp),
                     )
@@ -679,18 +758,28 @@ fun ReaderScreen(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = if (incognito) 8.dp else 0.dp),
+                        .padding(start = if (incognito) 8.dp else 0.dp)
+                        // Mirrors the iOS top-bar title button: tapping the title opens the book detail sheet
+                        .clickable { showDetailSheet = true },
                 ) {
-                    Text(book.seriesTitle, style = MaterialTheme.typography.titleSmall, color = ChromeText)
+                    // Mirrors the iOS readerChapterTitle: oneshots show the book title and hide the
+                    // volume-number subtitle
                     Text(
-                        book.number,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ChromeText.copy(alpha = 0.7f),
+                        if (book.oneshot) book.title else book.seriesTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = ChromeText,
                     )
+                    if (!book.oneshot) {
+                        Text(
+                            book.number,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ChromeText.copy(alpha = 0.7f),
+                        )
+                    }
                 }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = ChromeText)
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more), tint = ChromeText)
                     }
                     ReaderOptionsMenu(
                         expanded = menuOpen,
@@ -710,13 +799,14 @@ fun ReaderScreen(
                             viewModel.pageUrl(page)?.let { url -> sharePageUrl(context, url) }
                         },
                         onOpenPageJump = { showPageJump = true },
+
                         onDismiss = { menuOpen = false },
                     )
                 }
             }
         }
 
-        // 底栏：页码胶囊 + 胶囊细进度条（对齐 iOS DivinaControlsOverlayView bottomOverlayContent）
+        // Bottom bar: page capsule + capsule progress bar (mirrors iOS DivinaControlsOverlayView bottomOverlayContent)
         AnimatedVisibility(
             visible = chromeVisible && uiState.status == ReaderPagesStatus.Ready,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -726,6 +816,8 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Swallow stray taps so they cannot fall through to the tap-to-turn gestures
+                    .pointerInput(Unit) { detectTapGestures { } }
                     .background(
                         if (settings.controlsGradient) {
                             Brush.verticalGradient(
@@ -734,7 +826,10 @@ fun ReaderScreen(
                         } else {
                             Brush.verticalGradient(listOf(ChromeScrim, ChromeScrim))
                         },
-                    ),
+                    )
+                    // Avoid the navigation bar; ignoringVisibility keeps the layout stable while
+                    // system bars show/hide
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility),
             ) {
                 Row(
                     modifier = Modifier
@@ -744,7 +839,7 @@ fun ReaderScreen(
                 ) {
                     PageJumpCapsule(page = page, pageCount = pageCount, onClick = { showPageJump = true })
                 }
-                // 胶囊细进度条（对齐 iOS ReadingProgressBar：轨道淡色、填充白色、RTL 反向）
+                // Capsule progress bar (mirrors iOS ReadingProgressBar: dim track, white fill, reversed in RTL)
                 val fillFraction = if (pageCount > 0) (page.toFloat() / pageCount).coerceIn(0f, 1f) else 0f
                 Box(
                     modifier = Modifier
@@ -792,6 +887,15 @@ fun ReaderScreen(
             onDismiss = { showPageJump = false },
         )
     }
+    if (showDetailSheet) {
+        ReaderDetailSheet(
+            book = book,
+            onDismiss = { showDetailSheet = false },
+            onVisitSeries = onVisitSeries,
+            onOpenReadList = onOpenReadList,
+            onBrowseFilter = onBrowseFilter,
+        )
+    }
     contextMenuPage?.let { current ->
         val isSolo = current.number in soloPages
         val canSolo = allowDualPairs && !current.isLandscape && !isSolo
@@ -812,7 +916,7 @@ fun ReaderScreen(
     }
 }
 
-/** 解析会话方向（对齐原作 loadBook 的方向解析：强制默认 → 系列方向 → 全局默认）。 */
+/** Resolves the session direction (mirrors the original loadBook resolution: forced default → series direction → global default). */
 private fun resolveReadingDirection(
     seriesDirection: String?,
     forceDefault: Boolean,
@@ -831,7 +935,7 @@ private fun resolveReadingDirection(
     return series ?: defaultDirection
 }
 
-/** 是否 Wi-Fi（或以太网）网络：用于「仅 Wi-Fi 预加载」门控（对齐原作 wifiOnlyPreload）。 */
+/** Whether the network is Wi-Fi (or Ethernet): used by the "preload on Wi-Fi only" gate (mirrors the original wifiOnlyPreload). */
 private fun isWifiConnected(context: android.content.Context): Boolean {
     val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
         as? android.net.ConnectivityManager ?: return true
@@ -841,16 +945,16 @@ private fun isWifiConnected(context: android.content.Context): Boolean {
         caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
 }
 
-/** 分享当前页链接（对齐原作菜单的分享动作）。 */
+/** Shares the current page link (mirrors the original menu share action). */
 private fun sharePageUrl(context: android.content.Context, url: String) {
     val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(android.content.Intent.EXTRA_TEXT, url)
     }
-    context.startActivity(android.content.Intent.createChooser(intent, "分享页面"))
+    context.startActivity(android.content.Intent.createChooser(intent, context.getString(R.string.reader_share_page)))
 }
 
-/** 条漫：连续纵向滚动，无吸附；页宽与点按滚动高度来自设置。 */
+/** Webtoon: continuous vertical scroll without snapping; page width and tap-scroll height come from settings. */
 @Composable
 private fun WebtoonReader(
     items: List<ReaderViewItem>,
@@ -892,7 +996,7 @@ private fun WebtoonReader(
     }
 }
 
-/** 条漫单元（与分页 ViewerPage 同构，但高度由内容驱动）。 */
+/** A webtoon cell (same structure as the paged ViewerPage, but height is content-driven). */
 @Composable
 private fun WebtoonItem(
     item: ReaderViewItem,
@@ -914,10 +1018,9 @@ private fun WebtoonItem(
             modifier = modifier,
         )
 
-        is ReaderViewItem.Dual -> Row(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        // Dual-page pair (mirrors the original dual cell: no spacing; the two pages align
+        // trailing/leading toward the gutter)
+        is ReaderViewItem.Dual -> Row(modifier = modifier) {
             PageImage(
                 page = item.first,
                 url = pageUrl(item.first.number),
@@ -926,6 +1029,7 @@ private fun WebtoonItem(
                 rotationDegrees = rotationDegrees,
                 contentColor = contentColor,
                 modifier = Modifier.weight(1f),
+                alignment = Alignment.CenterEnd,
             )
             PageImage(
                 page = item.second,
@@ -935,6 +1039,7 @@ private fun WebtoonItem(
                 rotationDegrees = rotationDegrees,
                 contentColor = contentColor,
                 modifier = Modifier.weight(1f),
+                alignment = Alignment.CenterStart,
             )
         }
 
@@ -961,7 +1066,7 @@ private fun WebtoonItem(
     }
 }
 
-/** 单个展示单元：单页 / 双页合幅 / 跨页整幅 / 跨页半边。 */
+/** A single display cell: single page / dual pair / whole spread / spread half. */
 @Composable
 private fun ViewerPage(
     item: ReaderViewItem,
@@ -985,10 +1090,10 @@ private fun ViewerPage(
                 contentColor = contentColor,
             )
 
+            // Dual-page pair (mirrors the original: no spacing; the two pages align toward the gutter)
             is ReaderViewItem.Dual -> Row(
                 modifier = Modifier.fillMaxWidth(0.96f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PageImage(
                     page = item.first,
@@ -998,6 +1103,7 @@ private fun ViewerPage(
                     rotationDegrees = rotationDegrees,
                     contentColor = contentColor,
                     modifier = Modifier.weight(1f),
+                    alignment = Alignment.CenterEnd,
                 )
                 PageImage(
                     page = item.second,
@@ -1007,6 +1113,7 @@ private fun ViewerPage(
                     rotationDegrees = rotationDegrees,
                     contentColor = contentColor,
                     modifier = Modifier.weight(1f),
+                    alignment = Alignment.CenterStart,
                 )
             }
 
@@ -1034,9 +1141,10 @@ private fun ViewerPage(
 }
 
 /**
- * 整幅跨页（scroll 拆分模式）：高度充满、宽度溢出，在「首缘→尾缘」两个停靠点间平移
- * （对齐原作 keepsSplitSpreadsWhole 的 wholeSpread：两个停靠点，点按先平移再翻页）。
- * panFraction：0f=首缘（ltr 左/rtl 右），1f=尾缘。
+ * Whole spread (scroll split mode): fills the height and overflows the width, panning between the
+ * two anchors "leading edge → trailing edge" (mirrors the original keepsSplitSpreadsWhole
+ * wholeSpread: two anchors; a tap pans first, then turns the page).
+ * panFraction: 0f = leading edge (ltr left / rtl right), 1f = trailing edge.
  */
 @Composable
 private fun WholeSpreadPage(
@@ -1053,7 +1161,8 @@ private fun WholeSpreadPage(
     val fullRatio = if (rawRatio.isFinite() && rawRatio > 0f) rawRatio else 1.4f
     val context = LocalContext.current
     val crop = settings.borderCrop
-    // 对齐原作 ReaderBackground.appliesImageMultiplyBlend：sepia 背景对页面图片做正片叠底
+    // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
+    // into the page image
     val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
         ColorFilter.tint(ReaderBackground.SepiaPaper, BlendMode.Multiply)
     } else {
@@ -1077,7 +1186,7 @@ private fun WholeSpreadPage(
     ) {
         if (request == null) {
             PagePlaceholder(
-                label = "第 ${page.number} 页",
+                label = stringResource(R.string.common_page_number, page.number),
                 ratio = fullRatio,
                 contentColor = contentColor,
             )
@@ -1086,13 +1195,14 @@ private fun WholeSpreadPage(
         BoxWithConstraintsCompat {
             val containerW = maxWidth
             val containerH = maxHeight
-            // 图片按高度充满，宽度 = 高度 * 宽高比（通常 > 容器宽，左右溢出）
+            // The image fills the height; width = height * aspect ratio (usually wider than the
+            // container, overflowing left and right)
             val overflowPx = with(androidx.compose.ui.platform.LocalDensity.current) {
                 (containerH.toPx() * fullRatio - containerW.toPx()).coerceAtLeast(0f)
             }
             SubcomposeAsyncImage(
                 model = request,
-                contentDescription = "第 ${page.number} 页（跨页）",
+                contentDescription = stringResource(R.string.reader_page_spread, page.number),
                 imageLoader = imageLoader,
                 contentScale = ContentScale.FillHeight,
                 colorFilter = blendFilter,
@@ -1100,7 +1210,8 @@ private fun WholeSpreadPage(
                     .fillMaxHeight()
                     .aspectRatio(fullRatio)
                     .graphicsLayer {
-                        // 图片居中时两侧各溢出 overflow/2；ltr：0=左缘(+overflow/2) 1=右缘(-overflow/2)；rtl 相反
+                        // Centered, the image overflows by overflow/2 on both sides;
+                        // ltr: 0 = left edge (+overflow/2), 1 = right edge (-overflow/2); rtl is reversed
                         translationX = if (isRtl) {
                             (animatedPan - 0.5f) * overflowPx
                         } else {
@@ -1125,8 +1236,8 @@ private fun BoxWithConstraintsCompat(content: @Composable androidx.compose.found
 }
 
 /**
- * 页面图片：ContentScale.Fit；背景/阴影/旋转/裁边来自设置。
- * 加载中显示页码占位，失败可重试。
+ * Page image: ContentScale.Fit; background/shadow/rotation/cropping come from settings.
+ * Shows a page-number placeholder while loading; failures can be retried.
  */
 @Composable
 private fun PageImage(
@@ -1138,6 +1249,8 @@ private fun PageImage(
     contentColor: Color,
     modifier: Modifier = Modifier,
     half: Int? = null,
+    /** Content alignment inside the cell (toward the gutter in dual pairs; mirrors the original trailing/leading). */
+    alignment: Alignment = Alignment.Center,
 ) {
     val rawRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 0.7f
     val fullRatio = if (rawRatio.isFinite() && rawRatio > 0f) rawRatio else 0.7f
@@ -1154,14 +1267,16 @@ private fun PageImage(
             scaleY = scale
         }
     }
+    // Mirrors the iOS page shadow (black 0.25 / radius 2pt / offset y2): a light elevation, not a deep shadow
     val shadowModifier = if (settings.showPageShadow) {
-        Modifier.shadow(elevation = 6.dp, shape = RoundedCornerShape(2.dp))
+        Modifier.shadow(elevation = 2.dp, shape = RoundedCornerShape(2.dp))
     } else {
         Modifier
     }
     val context = LocalContext.current
     val crop = settings.borderCrop
-    // 对齐原作 ReaderBackground.appliesImageMultiplyBlend：sepia 背景对页面图片做正片叠底
+    // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
+    // into the page image
     val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
         ColorFilter.tint(ReaderBackground.SepiaPaper, BlendMode.Multiply)
     } else {
@@ -1177,12 +1292,18 @@ private fun PageImage(
         }
     }
 
-    // 显示比例：半页模式为整页比的一半（对齐原作半页裁切）
+    // Display ratio: in half mode it is half of the full-page ratio (mirrors the original half-page crop)
     val displayRatio = if (half != null) fullRatio / 2f else fullRatio
+
+    // The page container stays transparent (mirrors the original backgroundColor=.clear: the reader
+    // background shows through while loading); the shadow is applied only after the image loads
+    // (mirrors the original showPageShadow && image != nil)
+    var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
+    val pageLoaded = imageState is AsyncImagePainter.State.Success
 
     if (url == null || request == null) {
         PagePlaceholder(
-            label = "第 ${page.number} 页",
+            label = stringResource(R.string.common_page_number, page.number),
             ratio = displayRatio,
             modifier = modifier.then(rotationModifier),
             half = half,
@@ -1191,21 +1312,22 @@ private fun PageImage(
         return
     }
 
-    // 容器内按比例适配（对齐 iOS scaleAspectFit：竖屏贴宽、横屏贴高，完整显示不裁切）
-    FitRatioBox(ratio = displayRatio, modifier = modifier) {
+    // Fit the ratio inside the container (mirrors iOS scaleAspectFit: hugs the width in portrait,
+    // the height in landscape, showing the whole page uncropped)
+    FitRatioBox(ratio = displayRatio, modifier = modifier, contentAlignment = alignment) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(shadowModifier)
-                .background(PageFill),
+                .then(if (pageLoaded) shadowModifier else Modifier),
         ) {
             if (half != null) {
                 SubcomposeAsyncImage(
                     model = request,
-                    contentDescription = "第 ${page.number} 页",
+                    contentDescription = stringResource(R.string.common_page_number, page.number),
                     imageLoader = imageLoader,
                     contentScale = ContentScale.Fit,
                     colorFilter = blendFilter,
+                    onState = { imageState = it },
                     modifier = Modifier
                         .fillMaxHeight()
                         .aspectRatio(fullRatio)
@@ -1217,10 +1339,11 @@ private fun PageImage(
             } else {
                 SubcomposeAsyncImage(
                     model = request,
-                    contentDescription = "第 ${page.number} 页",
+                    contentDescription = stringResource(R.string.common_page_number, page.number),
                     imageLoader = imageLoader,
                     contentScale = ContentScale.Fit,
                     colorFilter = blendFilter,
+                    onState = { imageState = it },
                     modifier = Modifier.fillMaxSize().then(rotationModifier),
                 ) {
                     PageImageStates(pageNumber = page.number, contentColor = contentColor)
@@ -1231,18 +1354,20 @@ private fun PageImage(
 }
 
 /**
- * 在可用空间内放入一个保持 [ratio] 的最大盒子（对齐 iOS scaleAspectFit 的适配语义）：
- * 容器更宽时贴高、更高时贴宽；高度无约束（条漫列表）时由宽度推导高度。
+ * Puts the largest box that keeps [ratio] into the available space (mirrors the fitting semantics
+ * of iOS scaleAspectFit): hugs the height when the container is wider, the width when it is taller;
+ * with unconstrained height (webtoon list) the height is derived from the width.
  */
 @Composable
 private fun FitRatioBox(
     ratio: Float,
     modifier: Modifier = Modifier,
+    contentAlignment: Alignment = Alignment.Center,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier,
-        contentAlignment = Alignment.Center,
+        contentAlignment = contentAlignment,
     ) {
         val safe = if (ratio.isFinite() && ratio > 0f) ratio else 0.7f
         val sizeModifier = if (
@@ -1257,18 +1382,27 @@ private fun FitRatioBox(
     }
 }
 
-/** SubcomposeAsyncImage 的加载/失败/成功三态（coil3 state 是 StateFlow，需 collect）。 */
+/** Loading/error/success states of SubcomposeAsyncImage (the coil3 state is a StateFlow and must be collected). */
 @Composable
 private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(pageNumber: Int, contentColor: Color) {
     val state by painter.state.collectAsState()
     when (state) {
         is AsyncImagePainter.State.Loading -> {
+            // Mirrors the iOS NativePageItem loading indicator: in-page spinner + page-number placeholder
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "第 $pageNumber 页",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = contentColor.copy(alpha = 0.45f),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.dp,
+                        color = contentColor.copy(alpha = 0.45f),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.common_page_number, pageNumber),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = contentColor.copy(alpha = 0.45f),
+                    )
+                }
             }
         }
 
@@ -1277,12 +1411,12 @@ private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(pageNumber: 
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "第 $pageNumber 页加载失败",
+                        text = stringResource(R.string.reader_page_load_failed, pageNumber),
                         style = MaterialTheme.typography.titleSmall,
                         color = contentColor.copy(alpha = 0.45f),
                     )
                     TextButton(onClick = { retryPainter.restart() }) {
-                        Text("重试", color = contentColor)
+                        Text(stringResource(R.string.common_retry), color = contentColor)
                     }
                 }
             }
@@ -1313,7 +1447,11 @@ private fun PagePlaceholder(
                 Text(text = label, style = MaterialTheme.typography.titleSmall, color = contentColor.copy(alpha = 0.45f))
                 if (half != null) {
                     Text(
-                        text = if (half == 0) "前半页" else "后半页",
+                        text = if (half == 0) {
+                            stringResource(R.string.reader_page_first_half)
+                        } else {
+                            stringResource(R.string.reader_page_second_half)
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = contentColor.copy(alpha = 0.35f),
                         modifier = Modifier.padding(top = 6.dp),
@@ -1324,12 +1462,12 @@ private fun PagePlaceholder(
     }
 }
 
-/** 点按区域提示：淡色分区线与三个主分区的说明。 */
+/** Tap-zone hints: the faint divider lines and the labels of the three main zones. */
 @Composable
 private fun TapZoneHints(mode: TapZoneMode, isRtl: Boolean, inversion: TapZoneInversion) {
     Box(modifier = Modifier.fillMaxSize()) {
         val line = Color.White.copy(alpha = 0.18f)
-        // 横向三分线
+        // Horizontal thirds divider
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1340,21 +1478,21 @@ private fun TapZoneHints(mode: TapZoneMode, isRtl: Boolean, inversion: TapZoneIn
         Row(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Text(
-                    "上一页",
+                    stringResource(R.string.reader_tap_zone_hint_previous),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.35f),
                 )
             }
             Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Text(
-                    "菜单",
+                    stringResource(R.string.reader_tap_zone_hint_menu),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.35f),
                 )
             }
             Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Text(
-                    "下一页",
+                    stringResource(R.string.reader_tap_zone_hint_next),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.35f),
                 )
@@ -1363,7 +1501,10 @@ private fun TapZoneHints(mode: TapZoneMode, isRtl: Boolean, inversion: TapZoneIn
     }
 }
 
-/** 长按图片菜单（对齐原作 Image Context Menu：分享 + 双页展示中的单页独显/取消独显）。 */
+/**
+ * Long-press image menu (aligned with the original Image Context Menu: share, plus showing a single
+ * page on its own / cancelling that in dual-page display).
+ */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderPageMenuSheet(
@@ -1373,10 +1514,12 @@ private fun ReaderPageMenuSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val pageLabel = stringResource(R.string.reader_page_spread, page.number)
+    val shareLabel = stringResource(R.string.reader_share_page)
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 24.dp)) {
             Text(
-                "第 ${page.number} 页",
+                pageLabel,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
@@ -1389,16 +1532,21 @@ private fun ReaderPageMenuSheet(
                                 type = "text/plain"
                                 putExtra(android.content.Intent.EXTRA_TEXT, url)
                             }
-                            context.startActivity(android.content.Intent.createChooser(intent, "分享页面"))
+                            context.startActivity(android.content.Intent.createChooser(intent, shareLabel))
                         }
                         onDismiss()
                     }
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("分享页面", style = MaterialTheme.typography.bodyLarge)
+                Text(shareLabel, style = MaterialTheme.typography.bodyLarge)
             }
             if (soloAction != null) {
+                val soloLabel = if (soloAction.isSolo) {
+                    stringResource(R.string.reader_cancel_solo)
+                } else {
+                    stringResource(R.string.reader_show_page_solo, soloAction.displayPage)
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1410,7 +1558,7 @@ private fun ReaderPageMenuSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (soloAction.isSolo) "取消独显" else "独显第 ${soloAction.displayPage} 页",
+                        soloLabel,
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }

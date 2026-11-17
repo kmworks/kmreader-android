@@ -15,8 +15,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * DIVINA 阅读器设置的读写：设置面板改动立即生效并持久化（对齐原作 @AppStorage 行为），
- * 同时提供默认阅读方向（设置-阅读器默认值里持久化的 divinaDefaultDirection）。
+ * Reads/writes DIVINA reader settings: panel changes take effect immediately and persist
+ * (mirrors the original @AppStorage behavior); also exposes the default reading direction
+ * (divinaDefaultDirection persisted under Settings - Reader Defaults).
  */
 @HiltViewModel
 class DivinaSettingsViewModel @Inject constructor(
@@ -27,12 +28,12 @@ class DivinaSettingsViewModel @Inject constructor(
     private val _settings = MutableStateFlow(DivinaSettings())
     val settings: StateFlow<DivinaSettings> = _settings.asStateFlow()
 
-    /** 设置里保存的默认阅读方向（设置-阅读器默认值里持久化的 divinaDefaultDirection）。 */
+    /** Default reading direction saved in settings (divinaDefaultDirection persisted under Settings - Reader Defaults). */
     val defaultDirection: StateFlow<ReadingDirection> = appSettings.divinaDefaultDirection
         .map { raw -> ReadingDirection.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: ReadingDirection.Ltr }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReadingDirection.Ltr)
 
-    /** 「仅 Wi-Fi 预加载」开关（AppSettingsStore 只读消费，对齐原作 wifiOnlyPreload）。 */
+    /** "Wi-Fi only preloading" toggle (read-only consumption of AppSettingsStore, mirrors the original wifiOnlyPreload). */
     val wifiOnlyPreload: StateFlow<Boolean> = appSettings.wifiOnlyPreload
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
@@ -48,13 +49,13 @@ class DivinaSettingsViewModel @Inject constructor(
         }
     }
 
-    /** 本地先应用（UI 立即生效），再落盘。 */
+    /** Apply locally first (UI takes effect immediately), then persist. */
     fun update(transform: (DivinaSettings) -> DivinaSettings) {
         _settings.value = transform(_settings.value)
         viewModelScope.launch { store.update(transform) }
     }
 
-    // ---- EPUB / PDF 阅读器偏好（全局持久化，对齐原作 @AppStorage 语义）----
+    // ---- EPUB / PDF reader preferences (persisted globally, mirrors the original @AppStorage semantics) ----
 
     private val _epubSettings = MutableStateFlow(EpubReaderSettings())
     val epubSettings: StateFlow<EpubReaderSettings> = _epubSettings.asStateFlow()
@@ -72,7 +73,7 @@ class DivinaSettingsViewModel @Inject constructor(
         viewModelScope.launch { store.updatePdfSettings(transform) }
     }
 
-    /** 阅读方向沿用「设置-阅读器默认值」里的默认方向（与原作同一 AppStorage 语义）。 */
+    /** Reading direction follows the default from "Settings - Reader Defaults" (same AppStorage semantics as the original). */
     fun setDefaultDirection(direction: ReadingDirection) {
         viewModelScope.launch { appSettings.setDivinaDefaultDirection(direction.name.lowercase()) }
     }

@@ -3,6 +3,8 @@ package com.kmworks.kmreader.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.toUiBook
+import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.core.network.ServerConfig
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
@@ -21,7 +23,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** 会话门控：有已配置实例即视为已登录；同时驱动 SSE 长连启停。 */
+/** Session gating: any configured instance counts as signed in; also drives SSE long-connection start/stop. */
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val configStore: ServerConfigStore,
@@ -46,7 +48,7 @@ class RootViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     init {
-        // SSE：有会话且开关打开时长连，否则断开
+        // SSE: hold the long connection while a session exists and the switch is on, otherwise disconnect
         viewModelScope.launch {
             combine(sessionManager.clients, appSettings.sseEnabled) { clients, enabled ->
                 clients to enabled
@@ -56,7 +58,7 @@ class RootViewModel @Inject constructor(
                     if (clients != null && enabled) sseService.start(clients) else sseService.stop()
                 }
         }
-        // SessionExpired 事件 → 自动登出（logout 幂等：sse 随之 stop）
+        // SessionExpired event -> automatic logout (logout is idempotent: SSE stops along with it)
         viewModelScope.launch {
             sseService.events.collect { event ->
                 if (event.kind == SseEventKind.Session) logout()
@@ -64,29 +66,36 @@ class RootViewModel @Inject constructor(
         }
     }
 
-    /** 阅读器真实格式路由（按服务器 mediaType；null=无法解析，调用方回退 DIVINA）。 */
+    /** Reader real-format routing (by server mediaType; null = unresolvable, the caller falls back to DIVINA). */
     suspend fun resolveBookFormat(stableId: Int): String? =
         detailRepository.bookFormat(stableId)
 
-    /** 「访问系列」导航：书籍 → 所属系列 stableId。 */
+    /** "Visit Series" navigation: book -> owning series stableId. */
     suspend fun seriesStableIdForBook(bookStableId: Int): Int? =
         detailRepository.seriesStableIdForBook(bookStableId)
+
+    /** Oneshot series navigation (mirrors iOS navDestination.oneshotDetail): enter the single-book detail with its only book. */
+    suspend fun oneshotBookForSeries(seriesStableId: Int): Book? =
+        detailRepository.seriesDtoId(seriesStableId)
+            ?.let { detailRepository.seriesBooks(it) }
+            ?.firstOrNull()
+            ?.toUiBook()
 
     fun setSseEnabled(enabled: Boolean) {
         viewModelScope.launch { appSettings.setSseEnabled(enabled) }
     }
 
-    /** 清除实例配置，门控自动回到登录页；先对活动实例发 logout（尽力而为）。 */
+    /** Logout: clear the active session key but keep saved instance rows (mirrors the iOS default logout; you can switch back afterwards). */
     fun logout() {
         val clients = sessionManager.clients.value
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 clients?.serverApi?.logout()?.execute()
             } catch (_: Exception) {
-                // fire-and-forget：失败不影响本地登出
+                // fire-and-forget: a failure does not block the local logout
             }
         }
-        viewModelScope.launch { configStore.clear() }
+        viewModelScope.launch { configStore.clearActiveSession() }
     }
 
     override fun onCleared() {

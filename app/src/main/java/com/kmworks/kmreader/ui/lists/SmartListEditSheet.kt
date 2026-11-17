@@ -27,7 +27,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -40,11 +40,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ReferentialRepository
 import com.kmworks.kmreader.data.SmartListTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -54,20 +57,49 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 单条匹配规则：字段 + 运算符 + 值（对齐 SmartListEditSheet 条件构建器的一行）。 */
+/** A single match rule: field + operator + value (one row of the condition builder in SmartListEditSheet). */
 data class SmartListRule(
     val field: String,
     val operator: String,
     val value: String,
 )
 
-/** 规则可选字段（对齐原作条件的字段选择器；「页数」在原作条件 DSL 无对应键故不提供）。 */
-val SmartListRuleFields = listOf("阅读状态", "标签", "作者", "发布年份")
+/** Stable rule field keys persisted into rules; display labels resolved via [smartListRuleFieldLabelRes].
+ *  ("Pages" has no counterpart in the original condition DSL, so it is not offered.) */
+val SmartListRuleFields = listOf("readStatus", "tag", "author", "releaseYear")
 
-/** 规则可选运算符（对齐原作条件的运算符选择器）。 */
-val SmartListRuleOperators = listOf("等于", "不等于", "包含", "大于", "小于")
+/** Stable rule operator keys persisted into rules; display labels resolved via [smartListRuleOperatorLabelRes]. */
+val SmartListRuleOperators = listOf("eq", "neq", "contains", "gt", "lt")
 
-/** 智能列表规则编辑器（对齐 SmartListEditSheet.swift：名称/目标类型/条件组构建器/保存）。 */
+/** Stable read-status rule value keys persisted into rules; display labels resolved via [smartListRuleReadStatusLabelRes]. */
+val SmartListReadStatusValues = listOf("unread", "read", "inProgress")
+
+@StringRes
+fun smartListRuleFieldLabelRes(field: String): Int = when (field) {
+    "readStatus" -> R.string.smartlist_rule_field_read_status
+    "tag" -> R.string.common_tag
+    "author" -> R.string.common_author
+    "releaseYear" -> R.string.smartlist_rule_field_release_year
+    else -> R.string.smartlist_rule_value
+}
+
+@StringRes
+fun smartListRuleOperatorLabelRes(operator: String): Int = when (operator) {
+    "eq" -> R.string.smartlist_rule_operator_is
+    "neq" -> R.string.smartlist_rule_operator_is_not
+    "contains" -> R.string.smartlist_rule_operator_contains
+    "gt" -> R.string.smartlist_rule_operator_greater_than
+    else -> R.string.smartlist_rule_operator_less_than
+}
+
+@StringRes
+fun smartListRuleReadStatusLabelRes(value: String): Int = when (value) {
+    "read" -> R.string.smartlist_rule_value_read
+    "inProgress" -> R.string.smartlist_rule_value_in_progress
+    else -> R.string.common_unread
+}
+
+/** Smart list rule editor (mirrors SmartListEditSheet.swift: name / target / condition builder / save). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartListEditSheet(
@@ -87,67 +119,79 @@ fun SmartListEditSheet(
     var matchAll by remember { mutableStateOf(initialMatchAll) }
     val rules = remember {
         mutableStateListOf<SmartListRule>().also {
-            it.addAll(initialRules.ifEmpty { listOf(SmartListRule("阅读状态", "等于", "未读")) })
+            it.addAll(initialRules.ifEmpty { listOf(SmartListRule("readStatus", "eq", "unread")) })
         }
     }
     val canSave = name.isNotBlank() && rules.isNotEmpty() && rules.all { it.value.isNotBlank() }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
         ) {
-            // 头部：标题 + 关闭
+            // Header: title + close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (isEdit) "编辑智能列表" else "新建智能列表",
+                    text = stringResource(
+                        if (isEdit) R.string.smartlist_edit_title else R.string.smartlist_new_title,
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("名称") },
+                label = { Text(stringResource(R.string.common_name)) },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
             )
 
-            SheetLabel("目标类型")
+            SheetLabel(stringResource(R.string.smartlist_target_type))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmartListTarget.entries.forEach { option ->
-                    // target 创建后不可改（对齐原作：编辑模式锁定）
+                    // Target is immutable after creation (mirrors the original: locked in edit mode)
                     FilterChip(
                         selected = target == option,
                         onClick = { if (!isEdit) target = option },
-                        label = { Text(option.label) },
+                        label = {
+                            Text(
+                                stringResource(
+                                    if (option == SmartListTarget.Book) {
+                                        R.string.common_book
+                                    } else {
+                                        R.string.common_series
+                                    },
+                                ),
+                            )
+                        },
                         enabled = !isEdit,
                     )
                 }
             }
 
-            SheetLabel("条件")
+            SheetLabel(stringResource(R.string.smartlist_conditions))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = matchAll,
                     onClick = { matchAll = true },
-                    label = { Text("满足全部条件") },
+                    label = { Text(stringResource(R.string.smartlist_match_all)) },
                 )
                 FilterChip(
                     selected = !matchAll,
                     onClick = { matchAll = false },
-                    label = { Text("满足任一条件") },
+                    label = { Text(stringResource(R.string.smartlist_match_any)) },
                 )
             }
 
@@ -157,20 +201,20 @@ fun SmartListEditSheet(
                     onRuleChange = { rules[index] = it },
                     onRemove = { rules.removeAt(index) },
                     valueSuggestions = when (rule.field) {
-                        "标签" -> valueSuggestions.tags
-                        "作者" -> valueSuggestions.authors
+                        "tag" -> valueSuggestions.tags
+                        "author" -> valueSuggestions.authors
                         else -> emptyList()
                     },
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
             TextButton(
-                onClick = { rules.add(SmartListRule("标签", "包含", "")) },
+                onClick = { rules.add(SmartListRule("tag", "contains", "")) },
                 modifier = Modifier.padding(top = 4.dp),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
-                Text("添加条件")
+                Text(stringResource(R.string.smartlist_add_condition))
             }
 
             Spacer(Modifier.height(16.dp))
@@ -181,23 +225,24 @@ fun SmartListEditSheet(
             ) {
                 if (isEdit && onDelete != null) {
                     TextButton(onClick = onDelete) {
-                        Text("删除", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
-                OutlinedButton(onClick = onDismiss) { Text("取消") }
+                OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = { onSave(name.trim(), target, matchAll, rules.toList()) },
                     enabled = canSave,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
         }
     }
 }
 
-/** 条件行：字段下拉 + 运算符下拉 + 值输入 + 行尾删除；标签/作者给 Referential 建议 chips。 */
+/** Condition row: field dropdown + operator dropdown + value input + trailing delete;
+ *  tag/author fields show Referential suggestion chips. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RuleRow(
@@ -217,30 +262,42 @@ private fun RuleRow(
                 value = rule.field,
                 options = SmartListRuleFields,
                 onSelect = { onRuleChange(rule.copy(field = it)) },
+                labelOf = { stringResource(smartListRuleFieldLabelRes(it)) },
                 modifier = Modifier.width(112.dp),
             )
             RuleDropdown(
                 value = rule.operator,
                 options = SmartListRuleOperators,
                 onSelect = { onRuleChange(rule.copy(operator = it)) },
+                labelOf = { stringResource(smartListRuleOperatorLabelRes(it)) },
                 modifier = Modifier.width(104.dp),
             )
-            OutlinedTextField(
-                value = rule.value,
-                onValueChange = { onRuleChange(rule.copy(value = it)) },
-                placeholder = { Text("值") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
+            if (rule.field == "readStatus") {
+                RuleDropdown(
+                    value = rule.value,
+                    options = SmartListReadStatusValues,
+                    onSelect = { onRuleChange(rule.copy(value = it)) },
+                    labelOf = { stringResource(smartListRuleReadStatusLabelRes(it)) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                OutlinedTextField(
+                    value = rule.value,
+                    onValueChange = { onRuleChange(rule.copy(value = it)) },
+                    placeholder = { Text(stringResource(R.string.smartlist_rule_value)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             IconButton(onClick = onRemove) {
                 Icon(
                     Icons.Outlined.Delete,
-                    contentDescription = "删除条件",
+                    contentDescription = stringResource(R.string.smartlist_rule_delete),
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
         }
-        // 值建议（对齐原作条件构建器的可选值提示；点 chip 填入）
+        // Value suggestions (mirrors the original condition builder's hints; tap a chip to fill)
         if (valueSuggestions.isNotEmpty()) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -267,12 +324,13 @@ private fun RuleRow(
 
 private const val MAX_VALUE_SUGGESTIONS = 10
 
-/** 下拉选择按钮（字段/运算符共用）。 */
+/** Dropdown selector button (shared by field/operator/value). */
 @Composable
 private fun RuleDropdown(
     value: String,
     options: List<String>,
     onSelect: (String) -> Unit,
+    labelOf: @Composable (String) -> String,
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -282,7 +340,7 @@ private fun RuleDropdown(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                text = value,
+                text = labelOf(value),
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
@@ -292,7 +350,7 @@ private fun RuleDropdown(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option) },
+                    text = { Text(labelOf(option)) },
                     onClick = {
                         open = false
                         onSelect(option)
@@ -313,13 +371,13 @@ private fun SheetLabel(text: String) {
     )
 }
 
-/** 规则值建议（标签/作者，Referential 来源；无会话为空）。 */
+/** Rule value suggestions (tags/authors from Referential; empty without a session). */
 data class SmartListValueSuggestions(
     val tags: List<String> = emptyList(),
     val authors: List<String> = emptyList(),
 )
 
-/** 编辑器自含的建议值来源，调用方零改动。 */
+/** Self-contained suggestion source for the editor; callers need no changes. */
 @HiltViewModel
 class SmartListEditSuggestionsViewModel @Inject constructor(
     private val referentialRepository: ReferentialRepository,

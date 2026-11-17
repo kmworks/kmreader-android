@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- iOS appIconBackground 浅色态；深色态见 values-night/colors.xml -->
+    <!-- iOS appIconBackground light variant; dark variant in values-night/colors.xml -->
     <color name="ic_launcher_background">#FFFFFF</color>
 </resources>

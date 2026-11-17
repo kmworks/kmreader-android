@@ -23,33 +23,45 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
+import com.kmworks.kmreader.ui.reader.EpubThemePresetsSheet
 import com.kmworks.kmreader.ui.reader.PageLayout
 import com.kmworks.kmreader.ui.reader.PdfSettingsContent
 import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 
 /**
- * 阅读器默认值（对齐原作 ReaderPreferencesView + Divina/Epub/Pdf preferences）。
+ * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub/Pdf preferences).
  *
- * 语义对齐原作：这里的默认值是【全局偏好】，立即持久化生效；
- * 阅读器会话内改动的「方向/布局/拆分宽页/独显封面」只活在当次会话，不回写这里的默认值
- * （对齐原作 DivinaReaderView @State 初始值 + resetReaderPreferencesForCurrentBook 语义）。
- * 默认阅读方向走 AppSettingsStore（自动获得 client-settings 云同步），其余走 DivinaSettingsStore。
+ * Semantics mirror the original: these defaults are GLOBAL preferences, persisted and effective immediately;
+ * direction/layout/split-wide/solo-cover changes made inside a reader session live only for that session
+ * and are not written back here (mirrors the original DivinaReaderView @State initial values and the
+ * resetReaderPreferencesForCurrentBook semantics).
+ * The default reading direction uses AppSettingsStore (getting client-settings cloud sync automatically);
+ * everything else uses DivinaSettingsStore.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderDefaultsScreen(
     onBack: () -> Unit,
+    onOpenCustomFonts: () -> Unit = {},
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
     readerSettingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
+    // Theme presets sheet (state local to this screen, opened the same way as EpubSettingsSheet)
+    var showEpubPresets by remember { mutableStateOf(false) }
     // Divina defaults (mirrors DivinaPreferencesView)
     val persistedDirection by prefsViewModel.divinaDefaultDirection.collectAsStateWithLifecycle()
     val divinaDirection = ReadingDirection.entries
@@ -57,14 +69,16 @@ fun ReaderDefaultsScreen(
     val divinaSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
     val epubSettings by readerSettingsViewModel.epubSettings.collectAsStateWithLifecycle()
     val pdfSettings by readerSettingsViewModel.pdfSettings.collectAsStateWithLifecycle()
+    // Mirrors the original AppConfig.progressRecordingThreshold (default 3; 0 = immediately)
+    val progressThreshold by prefsViewModel.progressRecordingThreshold.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("阅读器默认") },
+                title = { Text(stringResource(R.string.reader_defaults_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -77,49 +91,59 @@ fun ReaderDefaultsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                DefaultsSectionTitle("Divina（漫画）")
+                DefaultsSectionTitle(stringResource(R.string.reader_defaults_divina_section))
+                val directionLabels = mutableListOf<String>()
+                for (direction in ReadingDirection.entries) directionLabels.add(stringResource(direction.labelRes))
                 DefaultsChipRow(
-                    label = "默认阅读方向",
-                    options = ReadingDirection.entries.map { it.label },
-                    selected = divinaDirection.label,
+                    label = stringResource(R.string.reader_defaults_reading_direction),
+                    options = directionLabels,
+                    selected = stringResource(divinaDirection.labelRes),
                     onSelect = { label ->
-                        ReadingDirection.entries.firstOrNull { it.label == label }
-                            ?.let { prefsViewModel.setDivinaDefaultDirection(it.name.lowercase()) }
+                        val index = directionLabels.indexOf(label)
+                        if (index >= 0) {
+                            prefsViewModel.setDivinaDefaultDirection(ReadingDirection.entries[index].name.lowercase())
+                        }
                     },
                 )
                 DefaultsSwitchRow(
-                    label = "强制默认阅读方向",
+                    label = stringResource(R.string.reader_defaults_force_direction),
                     checked = divinaSettings.forceDefaultDirection,
                     onCheckedChange = { value ->
                         readerSettingsViewModel.update { it.copy(forceDefaultDirection = value) }
                     },
                 )
-                DefaultsHintText("开启后忽略系列自带的阅读方向（对齐原作 forceDefaultReadingDirection）")
-                // 对齐 DivinaPreferencesView：页面布局 single/auto/dual
+                DefaultsHintText(stringResource(R.string.reader_defaults_force_direction_hint))
+                // Mirrors DivinaPreferencesView: page layout single/auto/dual
+                val pageLayoutLabels = mutableListOf<String>()
+                for (layout in PageLayout.entries) pageLayoutLabels.add(stringResource(layout.labelRes))
                 DefaultsChipRow(
-                    label = "页面布局",
-                    options = PageLayout.entries.map { it.label },
-                    selected = divinaSettings.defaultPageLayout.label,
+                    label = stringResource(R.string.reader_defaults_page_layout),
+                    options = pageLayoutLabels,
+                    selected = stringResource(divinaSettings.defaultPageLayout.labelRes),
                     onSelect = { label ->
-                        PageLayout.entries.firstOrNull { it.label == label }?.let { layout ->
-                            readerSettingsViewModel.update { it.copy(defaultPageLayout = layout) }
+                        val index = pageLayoutLabels.indexOf(label)
+                        if (index >= 0) {
+                            readerSettingsViewModel.update { it.copy(defaultPageLayout = PageLayout.entries[index]) }
                         }
                     },
                 )
-                // 对齐 DivinaPreferencesView：拆分宽页是 5 档 picker（none/auto/ltr/rtl/scroll），不是开关
+                // Mirrors DivinaPreferencesView: split wide pages is a 5-option picker (none/auto/ltr/rtl/scroll), not a switch
+                val splitModeLabels = mutableListOf<String>()
+                for (mode in SplitWidePageMode.entries) splitModeLabels.add(stringResource(mode.labelRes))
                 DefaultsChipRow(
-                    label = "拆分宽页",
-                    options = SplitWidePageMode.entries.map { it.label },
-                    selected = divinaSettings.defaultSplitWideMode.label,
+                    label = stringResource(R.string.reader_defaults_split_wide),
+                    options = splitModeLabels,
+                    selected = stringResource(divinaSettings.defaultSplitWideMode.labelRes),
                     onSelect = { label ->
-                        SplitWidePageMode.entries.firstOrNull { it.label == label }?.let { mode ->
-                            readerSettingsViewModel.update { it.copy(defaultSplitWideMode = mode) }
+                        val index = splitModeLabels.indexOf(label)
+                        if (index >= 0) {
+                            readerSettingsViewModel.update { it.copy(defaultSplitWideMode = SplitWidePageMode.entries[index]) }
                         }
                     },
                 )
-                DefaultsHintText(divinaSettings.defaultSplitWideMode.hint)
+                DefaultsHintText(stringResource(divinaSettings.defaultSplitWideMode.hintRes))
                 DefaultsSwitchRow(
-                    label = "双页模式下独显封面",
+                    label = stringResource(R.string.reader_defaults_solo_cover),
                     checked = divinaSettings.defaultSoloCoverPage,
                     onCheckedChange = { value ->
                         readerSettingsViewModel.update { it.copy(defaultSoloCoverPage = value) }
@@ -127,13 +151,32 @@ fun ReaderDefaultsScreen(
                 )
             }
             item {
+                // Mirrors the original ReaderPreferencesView "Reading Progress" section (options 0/1/3/5/10 pages)
+                DefaultsSectionTitle(stringResource(R.string.reader_defaults_progress_section))
+                val thresholdOptions = listOf(0, 1, 3, 5, 10)
+                val thresholdLabels = mutableListOf<String>()
+                for (threshold in thresholdOptions) thresholdLabels.add(progressThresholdLabel(threshold))
+                DefaultsChipRow(
+                    label = stringResource(R.string.reader_defaults_record_after),
+                    options = thresholdLabels,
+                    selected = progressThresholdLabel(progressThreshold),
+                    onSelect = { label ->
+                        val index = thresholdLabels.indexOf(label)
+                        if (index >= 0) {
+                            prefsViewModel.setProgressRecordingThreshold(thresholdOptions[index])
+                        }
+                    },
+                )
+                DefaultsHintText(stringResource(R.string.reader_defaults_record_after_hint))
+            }
+            item {
                 DefaultsSectionTitle("EPUB")
                 EpubSettingsContent(
                     settings = epubSettings,
                     onSettingsChange = { new -> readerSettingsViewModel.updateEpub { new } },
                     customFonts = emptyList(),
-                    onOpenPresets = { /* wiring point: open presets sheet（导航越界，待 lead 接线） */ },
-                    onOpenCustomFonts = { /* wiring point: open CustomFontsScreen（导航越界，待 lead 接线） */ },
+                    onOpenPresets = { showEpubPresets = true },
+                    onOpenCustomFonts = onOpenCustomFonts,
                 )
             }
             item {
@@ -146,6 +189,17 @@ fun ReaderDefaultsScreen(
             }
         }
     }
+
+    if (showEpubPresets) {
+        EpubThemePresetsSheet(
+            currentSettings = epubSettings,
+            onApply = { applied ->
+                readerSettingsViewModel.updateEpub { applied }
+                showEpubPresets = false
+            },
+            onDismiss = { showEpubPresets = false },
+        )
+    }
 }
 
 @Composable
@@ -155,6 +209,13 @@ private fun DefaultsSectionTitle(title: String) {
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
     )
+}
+
+/** Mirrors the original progressRecordingThresholdLabel: 0 -> Immediately, N -> N pages. */
+@Composable
+private fun progressThresholdLabel(value: Int): String = when (value) {
+    0 -> stringResource(R.string.settings_progress_immediately)
+    else -> pluralStringResource(R.plurals.book_pages, value, value)
 }
 
 @Composable

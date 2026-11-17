@@ -2,6 +2,8 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.SmartListRepository
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
@@ -10,6 +12,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.SmartListTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,7 +25,7 @@ data class SmartListDetailUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
-    /** 注册表已解析出 DTO id（真实列表可编辑/删除）。 */
+    /** DTO id resolved through the registry (a real list can be edited/deleted). */
     val hasRealSmartList: Boolean = false,
     val name: String? = null,
     val summary: String? = null,
@@ -40,6 +43,7 @@ data class SmartListDetailUiState(
 /** Real smart list detail + hits via the kmrs private endpoints. */
 @HiltViewModel
 class SmartListDetailViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val smartListRepository: SmartListRepository,
     private val sessionManager: SessionManager,
 ) : ViewModel() {
@@ -48,16 +52,25 @@ class SmartListDetailViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     private var loadedId: Int? = null
+    /** Entry the current state content belongs to (content resets when the entry changes;
+     *  a forced refresh of the same entry keeps it). */
+    private var contentId: Int? = null
     private var currentDtoId: String? = null
     private var currentSearch: JsonObject? = null
     private var currentTarget: SmartListTarget? = null
     private var nextPage = 0
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     /** Load once per stable id; no session or unknown id keeps the demo fallback. */
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
-        if (sessionManager.clients.value == null) {
+        val hasSession = sessionManager.clients.value != null
+        loadJob?.cancel()
+        if (contentId != stableId) {
+            _state.value = SmartListDetailUiState(hasSession = hasSession)
+        }
+        if (!hasSession) {
             _state.update { it.copy(hasSession = false, loading = false) }
             return
         }
@@ -70,7 +83,7 @@ class SmartListDetailViewModel @Inject constructor(
         currentSearch = null
         currentTarget = null
         nextPage = 0
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     hasSession = true,
@@ -107,16 +120,25 @@ class SmartListDetailViewModel @Inject constructor(
                         name = detail.name,
                         summary = detail.summary.ifBlank { null },
                         target = target,
-                        modifiedLabel = "更新于 ${detail.lastModifiedDate.take(10)}",
-                        createdLabel = detail.createdDate.takeIf { it.isNotBlank() }?.let { "创建于 ${it.take(10)}" },
+                        modifiedLabel = context.getString(
+                            R.string.lists_modified_at,
+                            detail.lastModifiedDate.take(10),
+                        ),
+                        createdLabel = detail.createdDate.takeIf { it.isNotBlank() }
+                            ?.let { context.getString(R.string.lists_created_at, it.take(10)) },
                         books = booksPage?.items.orEmpty().map { dto -> dto.toUiBook() },
                         series = seriesPage?.items.orEmpty().map { dto -> dto.toUiSeries() },
                         hasMore = booksPage?.hasMore ?: seriesPage?.hasMore ?: false,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),
                     )
                 }
+                contentId = stableId
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = e.message ?: "加载失败") }
+                _state.update {
+                    it.copy(loading = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
@@ -155,12 +177,14 @@ class SmartListDetailViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false, error = e.message ?: "加载失败") }
+                _state.update {
+                    it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
 
-    /** 更新名称/简介/条件；成功后重拉详情与命中。 */
+    /** Update name/summary/conditions; on success the detail and hits are reloaded. */
     fun save(name: String, summary: String, search: kotlinx.serialization.json.JsonObject?, onDone: (Boolean) -> Unit) {
         val stableId = loadedId ?: return onDone(false)
         val dtoId = smartListRepository.smartListDtoId(stableId) ?: return onDone(false)
@@ -174,7 +198,7 @@ class SmartListDetailViewModel @Inject constructor(
         }
     }
 
-    /** 删除当前智能列表；成功后 UI 返回上一层。 */
+    /** Delete the current smart list; on success the UI navigates back. */
     fun delete(onDeleted: () -> Unit) {
         val dtoId = loadedId?.let { smartListRepository.smartListDtoId(it) } ?: return
         viewModelScope.launch {

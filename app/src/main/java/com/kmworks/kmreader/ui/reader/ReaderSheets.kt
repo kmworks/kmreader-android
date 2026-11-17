@@ -27,12 +27,13 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,63 +56,66 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import com.kmworks.kmreader.R
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** 阅读方向（对齐原作 ReadingDirection：ltr/rtl/vertical/webtoon）。 */
-enum class ReadingDirection(val label: String) {
-    Ltr("从左到右"), Rtl("从右到左"), Vertical("垂直滚动"), Webtoon("条漫");
+/** Reading direction (mirrors the original ReadingDirection: ltr/rtl/vertical/webtoon). */
+enum class ReadingDirection(@StringRes val labelRes: Int) {
+    Ltr(R.string.reader_direction_ltr), Rtl(R.string.reader_direction_rtl), Vertical(R.string.reader_direction_vertical), Webtoon(R.string.reader_direction_webtoon);
 
     val next: ReadingDirection get() = entries[(ordinal + 1) % entries.size]
 }
 
 /**
- * 宽页（跨页图）处理，对齐原作 SplitWidePageMode（Models/SplitWidePageMode.swift）：
- * none 不拆分 / auto 自动 / ltr·rtl 按方向切两半 / scroll 保留整幅并左右平移。
+ * Wide-page (spread) handling, mirroring the original SplitWidePageMode (Models/SplitWidePageMode.swift):
+ * none = no split / auto = automatic / ltr·rtl = split into two halves by direction / scroll = keep the whole spread and pan horizontally.
  */
-enum class SplitWidePageMode(val label: String, val hint: String) {
-    None("关闭", "宽图整页显示，不切分"),
-    Auto("自动", "按页面内容自动判断是否切分"),
-    Ltr("从左到右", "切成前后两半，按从左到右翻"),
-    Rtl("从右到左", "切成前后两半，按从右到左翻"),
-    Scroll("整幅平移", "保留整幅跨页图，可左右拖动");
+enum class SplitWidePageMode(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
+    None(R.string.reader_split_none, R.string.reader_split_hint_none),
+    Auto(R.string.reader_split_auto, R.string.reader_split_hint_auto),
+    Ltr(R.string.reader_split_ltr, R.string.reader_split_hint_ltr),
+    Rtl(R.string.reader_split_rtl, R.string.reader_split_hint_rtl),
+    Scroll(R.string.reader_split_scroll, R.string.reader_split_hint_scroll);
 
     val isEnabled: Boolean get() = this != None
     val keepsWholeSpread: Boolean get() = this == Scroll
     val next: SplitWidePageMode get() = entries[(ordinal + 1) % entries.size]
 }
 
-/** 页面布局（对齐原作 PageLayout：single/auto/dual-forced；双页只在横屏生效，由阅读器按屏幕方向门控）。 */
-enum class PageLayout(val label: String) {
-    Single("单页"),
-    Auto("自动"),
-    Dual("双页");
+/** Page layout (mirrors the original PageLayout: single/auto/dual-forced; dual pages only take effect in landscape, gated by the reader based on screen orientation). */
+enum class PageLayout(@StringRes val labelRes: Int) {
+    Single(R.string.reader_page_layout_single),
+    Auto(R.string.reader_page_layout_auto),
+    Dual(R.string.reader_page_layout_dual);
 
     val next: PageLayout get() = entries[(ordinal + 1) % entries.size]
 }
 
-/** 菜单「当前页」区的独显动作（对应原作 ReaderPageSoloActions；null = 当前页不可独显）。 */
+/** Solo action in the menu's "Current Page" section (mirrors the original ReaderPageSoloActions; null = current page cannot be solo). */
 data class SoloMenuAction(
     val isSolo: Boolean,
     val displayPage: Int,
     val onToggle: () -> Unit,
 )
 
-/** 菜单值选择弹层（对齐 iOS 菜单 picker 的子菜单语义）。 */
+/** Menu value picker dialog (mirrors the submenu semantics of the iOS menu picker). */
 private enum class ReaderMenuPicker { Direction, Layout, Split, Rotation }
 
 /**
- * 阅读器顶栏「更多」菜单（对应 DivinaControlsOverlayView+Menu）：
- * Current Reading Options（方向/布局/拆分宽页/旋转，点开选项弹层，对齐 iOS picker 子菜单）→
- * 阅读器设置 → 当前页（分享/独显）→ 跳页。
- * 原作菜单里还有目录，但 DIVINA（图片）书籍没有目录数据源，故不显示（对齐 hasTOC 门控）。
+ * Reader top-bar "More" menu (mirrors DivinaControlsOverlayView+Menu):
+ * Current Reading Options (direction/layout/split wide pages/rotation, opening option dialogs like iOS picker submenus) →
+ * Reader Settings → Current Page (share/solo) → Go to Page.
+ * The original menu also has a table of contents, but DIVINA (image) books have no TOC data source, so it is not shown (mirrors the hasTOC gate).
  */
 @Composable
 fun ReaderOptionsMenu(
@@ -133,19 +137,31 @@ fun ReaderOptionsMenu(
     onDismiss: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<ReaderMenuPicker?>(null) }
-    androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        // Current Reading Options（条漫模式只保留阅读方向，对齐原作的门控）
-        MenuSectionHeader("当前阅读选项")
-        MenuValueItem(label = "阅读方向", value = direction.label) {
+    androidx.compose.material3.DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        // Fixed width: value rows (label + current value + chevron) need breathing room; content-sized width would feel cramped
+        modifier = Modifier.width(280.dp),
+    ) {
+        // The book detail entry lives in the top-bar title (mirrors the iOS reader title button); not repeated in the menu
+        // Current Reading Options (webtoon mode keeps only the reading direction, mirroring the original gating)
+        MenuSectionHeader(stringResource(R.string.reader_menu_current_options))
+        MenuValueItem(
+            label = stringResource(R.string.reader_menu_direction),
+            value = stringResource(direction.labelRes),
+        ) {
             onDismiss()
             picker = ReaderMenuPicker.Direction
         }
         if (direction != ReadingDirection.Webtoon) {
-            MenuValueItem(label = "页面布局", value = pageLayout.label) {
+            MenuValueItem(
+                label = stringResource(R.string.reader_menu_page_layout),
+                value = stringResource(pageLayout.labelRes),
+            ) {
                 onDismiss()
                 picker = ReaderMenuPicker.Layout
             }
-            // 独显封面（对齐原作 Solo Cover Page：仅自动/双页布局且非垂直滚动时可选）
+            // Solo cover page (mirrors the original Solo Cover Page: only available for auto/dual layouts and non-vertical scrolling)
             if (direction != ReadingDirection.Vertical && pageLayout != PageLayout.Single) {
                 androidx.compose.material3.DropdownMenuItem(
                     text = {
@@ -153,7 +169,7 @@ fun ReaderOptionsMenu(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("独显封面", modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.reader_menu_solo_cover), modifier = Modifier.weight(1f))
                             if (soloCoverPage) {
                                 Icon(
                                     Icons.Filled.Check,
@@ -169,13 +185,16 @@ fun ReaderOptionsMenu(
                     },
                 )
             }
-            MenuValueItem(label = "拆分宽页", value = splitWideMode.label) {
+            MenuValueItem(
+                label = stringResource(R.string.reader_menu_split_wide),
+                value = stringResource(splitWideMode.labelRes),
+            ) {
                 onDismiss()
                 picker = ReaderMenuPicker.Split
             }
             MenuValueItem(
-                label = "页面旋转",
-                value = if (rotationDegrees == 0) "无" else "$rotationDegrees°",
+                label = stringResource(R.string.reader_menu_rotation),
+                value = if (rotationDegrees == 0) stringResource(R.string.common_none) else "$rotationDegrees°",
             ) {
                 onDismiss()
                 picker = ReaderMenuPicker.Rotation
@@ -183,17 +202,17 @@ fun ReaderOptionsMenu(
         }
         HorizontalDivider()
         androidx.compose.material3.DropdownMenuItem(
-            text = { Text("阅读器设置") },
+            text = { Text(stringResource(R.string.reader_settings_title)) },
             onClick = {
                 onDismiss()
                 onOpenSettings()
             },
         )
         HorizontalDivider()
-        // Current Page（对齐原作：分享 + 双页时的单页独显切换）
-        MenuSectionHeader("当前页面")
+        // Current Page (mirrors the original: share + solo toggle for single pages in dual-page display)
+        MenuSectionHeader(stringResource(R.string.reader_menu_current_page))
         androidx.compose.material3.DropdownMenuItem(
-            text = { Text("分享页面") },
+            text = { Text(stringResource(R.string.reader_share_page)) },
             leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
             onClick = {
                 onDismiss()
@@ -204,8 +223,8 @@ fun ReaderOptionsMenu(
             androidx.compose.material3.DropdownMenuItem(
                 text = {
                     Text(
-                        if (soloAction.isSolo) "取消独显"
-                        else "独显第 ${soloAction.displayPage} 页",
+                        if (soloAction.isSolo) stringResource(R.string.reader_cancel_solo)
+                        else stringResource(R.string.reader_show_page_solo, soloAction.displayPage),
                     )
                 },
                 onClick = {
@@ -215,9 +234,9 @@ fun ReaderOptionsMenu(
             )
         }
         HorizontalDivider()
-        MenuSectionHeader("页面导航")
+        MenuSectionHeader(stringResource(R.string.reader_menu_page_nav))
         androidx.compose.material3.DropdownMenuItem(
-            text = { Text("跳页") },
+            text = { Text(stringResource(R.string.reader_jump_to_page)) },
             leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
             onClick = {
                 onDismiss()
@@ -226,45 +245,57 @@ fun ReaderOptionsMenu(
         )
     }
 
-    // 选项弹层（对齐 iOS picker 子菜单：全选项 + 当前值勾选）
+    // Option dialogs (mirror iOS picker submenus: all options + checkmark on the current value)
     when (picker) {
-        ReaderMenuPicker.Direction -> OptionPickerDialog(
-            title = "阅读方向",
-            options = ReadingDirection.entries.map { it.label },
-            selected = direction.label,
-            onSelect = { label ->
-                ReadingDirection.entries.firstOrNull { it.label == label }?.let(onDirectionChange)
-                picker = null
-            },
-            onDismiss = { picker = null },
-        )
-        ReaderMenuPicker.Layout -> OptionPickerDialog(
-            title = "页面布局",
-            options = PageLayout.entries.map { it.label },
-            selected = pageLayout.label,
-            onSelect = { label ->
-                PageLayout.entries.firstOrNull { it.label == label }?.let(onPageLayoutChange)
-                picker = null
-            },
-            onDismiss = { picker = null },
-        )
-        ReaderMenuPicker.Split -> OptionPickerDialog(
-            title = "拆分宽页",
-            options = SplitWidePageMode.entries.map { it.label },
-            selected = splitWideMode.label,
-            hints = SplitWidePageMode.entries.associate { it.label to it.hint },
-            onSelect = { label ->
-                SplitWidePageMode.entries.firstOrNull { it.label == label }?.let(onSplitWideModeChange)
-                picker = null
-            },
-            onDismiss = { picker = null },
-        )
-        ReaderMenuPicker.Rotation -> {
-            val options = listOf("无", "90°", "180°", "270°")
+        ReaderMenuPicker.Direction -> {
+            val labels = ReadingDirection.entries.associateWith { stringResource(it.labelRes) }
             OptionPickerDialog(
-                title = "页面旋转",
+                title = stringResource(R.string.reader_menu_direction),
+                options = labels.values.toList(),
+                selected = labels[direction].orEmpty(),
+                onSelect = { label ->
+                    labels.entries.firstOrNull { it.value == label }?.key?.let(onDirectionChange)
+                    picker = null
+                },
+                onDismiss = { picker = null },
+            )
+        }
+        ReaderMenuPicker.Layout -> {
+            val labels = PageLayout.entries.associateWith { stringResource(it.labelRes) }
+            OptionPickerDialog(
+                title = stringResource(R.string.reader_menu_page_layout),
+                options = labels.values.toList(),
+                selected = labels[pageLayout].orEmpty(),
+                onSelect = { label ->
+                    labels.entries.firstOrNull { it.value == label }?.key?.let(onPageLayoutChange)
+                    picker = null
+                },
+                onDismiss = { picker = null },
+            )
+        }
+        ReaderMenuPicker.Split -> {
+            val labels = SplitWidePageMode.entries.associateWith { stringResource(it.labelRes) }
+            OptionPickerDialog(
+                title = stringResource(R.string.reader_menu_split_wide),
+                options = labels.values.toList(),
+                selected = labels[splitWideMode].orEmpty(),
+                hints = SplitWidePageMode.entries.associate {
+                    stringResource(it.labelRes) to stringResource(it.hintRes)
+                },
+                onSelect = { label ->
+                    labels.entries.firstOrNull { it.value == label }?.key?.let(onSplitWideModeChange)
+                    picker = null
+                },
+                onDismiss = { picker = null },
+            )
+        }
+        ReaderMenuPicker.Rotation -> {
+            val noneLabel = stringResource(R.string.common_none)
+            val options = listOf(noneLabel, "90°", "180°", "270°")
+            OptionPickerDialog(
+                title = stringResource(R.string.reader_menu_rotation),
                 options = options,
-                selected = if (rotationDegrees == 0) "无" else "$rotationDegrees°",
+                selected = if (rotationDegrees == 0) noneLabel else "$rotationDegrees°",
                 onSelect = { label ->
                     onRotationChange(
                         when (label) {
@@ -283,7 +314,7 @@ fun ReaderOptionsMenu(
     }
 }
 
-/** 菜单分节标题（对齐 iOS Menu Section header）。 */
+/** Menu section header (mirrors the iOS Menu Section header). */
 @Composable
 private fun MenuSectionHeader(title: String) {
     Text(
@@ -294,7 +325,7 @@ private fun MenuSectionHeader(title: String) {
     )
 }
 
-/** 菜单值项：标签 + 当前值 + 箭头（点开选项弹层，对齐 iOS picker 行）。 */
+/** Menu value item: label + current value + chevron (opens an option dialog, mirroring the iOS picker row). */
 @Composable
 private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
     androidx.compose.material3.DropdownMenuItem(
@@ -308,6 +339,7 @@ private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
                     value,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp),
                 )
                 Icon(
                     Icons.Filled.ChevronRight,
@@ -321,7 +353,7 @@ private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
     )
 }
 
-/** 选项弹层：全选项单选列表，当前值尾部勾选（对齐 iOS 菜单 picker 子菜单）。 */
+/** Option dialog: single-choice list of all options, checkmark on the current value (mirrors the iOS menu picker submenu). */
 @Composable
 private fun OptionPickerDialog(
     title: String,
@@ -334,7 +366,7 @@ private fun OptionPickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
         title = { Text(title) },
         text = {
@@ -372,11 +404,11 @@ private fun OptionPickerDialog(
 }
 
 /**
- * 跳页（对齐原作 PageJumpSheetView：横向吸附的大缩略图卡 + 滑杆 + 跳转按钮）：
- * - 卡片横向滚动、吸附居中（iOS scrollTargetBehavior(.viewAligned)），居中项即目标页；
- * - 选中卡 scale 1.0 + 描边 + 深阴影，未选 0.9（iOS PageJumpPreviewCard）；
- * - 滑杆四舍五入同步（iOS sliderBinding），跳转在目标等于当前页时禁用；
- * - RTL 方向时横向布局镜像（iOS layoutDirection 右到左）。
+ * Go to Page (mirrors the original PageJumpSheetView: horizontally snapping large thumbnail cards + slider + jump button):
+ * - cards scroll horizontally and snap to center (iOS scrollTargetBehavior(.viewAligned)); the centered item is the target page;
+ * - the selected card has scale 1.0 + border + deep shadow, unselected 0.9 (iOS PageJumpPreviewCard);
+ * - the slider syncs with rounding (iOS sliderBinding); jump is disabled when the target equals the current page;
+ * - the horizontal layout mirrors for RTL direction (iOS layoutDirection right-to-left).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -392,15 +424,15 @@ fun ReaderPageJumpSheet(
 ) {
     var target by remember { mutableIntStateOf(currentPage) }
     val scope = rememberCoroutineScope()
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         BoxWithConstraints {
-            // 卡片宽 = 面板宽 0.72（对齐 iOS PageJumpPreviewCard.widthRatio）
+            // Card width = panel width * 0.72 (mirrors iOS PageJumpPreviewCard.widthRatio)
             val cardWidth = this.maxWidth * 0.72f
             val sidePadding = (this.maxWidth - cardWidth) / 2
             val listState = rememberLazyListState(
                 initialFirstVisibleItemIndex = (currentPage - 1).coerceAtLeast(0),
             )
-            // 居中项 → 目标页同步（对齐 iOS scrollPosition 绑定）
+            // Centered item → target page sync (mirrors the iOS scrollPosition binding)
             val centeredPage by remember {
                 derivedStateOf {
                     val info = listState.layoutInfo
@@ -418,7 +450,7 @@ fun ReaderPageJumpSheet(
             }
             Column(modifier = Modifier.padding(bottom = 28.dp)) {
                 Text(
-                    "跳页",
+                    stringResource(R.string.reader_go_to_page),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
@@ -482,7 +514,7 @@ fun ReaderPageJumpSheet(
                                         if (thumb != null && imageLoader != null) {
                                             AsyncImage(
                                                 model = thumb,
-                                                contentDescription = "第 $pageNumber 页",
+                                                contentDescription = stringResource(R.string.common_page_number, pageNumber),
                                                 imageLoader = imageLoader,
                                                 contentScale = ContentScale.Fit,
                                                 modifier = Modifier.fillMaxSize(),
@@ -509,7 +541,7 @@ fun ReaderPageJumpSheet(
                                 }
                             }
                         }
-                        // 滑杆（iOS sliderBinding：四舍五入吸附整页）
+                        // Slider (iOS sliderBinding: snaps to whole pages with rounding)
                         Slider(
                             value = target.toFloat(),
                             onValueChange = {
@@ -557,7 +589,7 @@ fun ReaderPageJumpSheet(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 分享（对齐 iOS 跳页面板 controls 区的分享按钮；无分享通道时不显示）
+                    // Share (mirrors the share button in the controls area of the iOS page-jump panel; hidden when no share channel exists)
                     if (onShare != null) {
                         androidx.compose.material3.OutlinedButton(onClick = { onShare(target) }) {
                             Icon(
@@ -566,20 +598,20 @@ fun ReaderPageJumpSheet(
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("分享此页")
+                            Text(stringResource(R.string.reader_share_this_page))
                         }
                     }
                     androidx.compose.material3.Button(
                         onClick = { onJump(target) },
                         enabled = target != currentPage,
-                    ) { Text("跳转") }
+                    ) { Text(stringResource(R.string.reader_jump)) }
                 }
             }
         }
     }
 }
 
-/** 底栏页码胶囊（对应 DivinaControlsOverlayView 底部中央 capsule：书签图标 + 当前/总页，点开 PageJumpSheetView）。 */
+/** Bottom-bar page capsule (mirrors the bottom-center capsule of DivinaControlsOverlayView: bookmark icon + current/total pages, opens PageJumpSheetView). */
 @Composable
 fun PageJumpCapsule(page: Int, pageCount: Int, onClick: () -> Unit) {
     Surface(

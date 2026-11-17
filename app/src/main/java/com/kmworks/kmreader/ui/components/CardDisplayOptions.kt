@@ -3,10 +3,13 @@ package com.kmworks.kmreader.ui.components
 import androidx.compose.runtime.compositionLocalOf
 
 /**
- * 浏览卡片显示选项，对应 KMReader SettingsBrowseView 的 AppStorage 项。
+ * Browse card display options, mirroring the AppStorage entries of KMReader's
+ * SettingsBrowseView.
  *
- * 由 AppRoot 按 [com.kmworks.kmreader.core.settings.AppSettingsStore] 的持久化设置注入，
- * 卡片组件从这里读取，所以设置页的开关真实影响浏览/列表/仪表盘的卡片渲染。
+ * Injected by AppRoot from the persisted settings in
+ * [com.kmworks.kmreader.core.settings.AppSettingsStore]; card components read them
+ * here, so the settings-page toggles genuinely affect card rendering in
+ * browse/lists/dashboard.
  */
 data class CardDisplayOptions(
     val coverOnly: Boolean = false,

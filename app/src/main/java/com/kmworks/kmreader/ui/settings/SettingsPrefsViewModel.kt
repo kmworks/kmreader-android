@@ -17,8 +17,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 设置页共享偏好（AppSettingsStore 持久化 + client-settings 云同步）。
- * 外观/阅读器默认/浏览卡片等设置页通过它读写，落盘即自动获得上行同步。
+ * Shared settings preferences (persisted via AppSettingsStore with client-settings cloud sync).
+ * The appearance, reader-defaults, and browse-card settings screens read and write through it;
+ * persisting a value automatically gets it uploaded by sync.
  */
 @HiltViewModel
 class SettingsPrefsViewModel @Inject constructor(
@@ -35,15 +36,15 @@ class SettingsPrefsViewModel @Inject constructor(
     val divinaDefaultDirection: StateFlow<String> = appSettings.divinaDefaultDirection
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.DEFAULT_DIRECTION)
 
-    /** 应用图标变体（primary/classic/legacy；持久化，切换由 manifest alias 落地）。 */
+    /** App icon variant (primary/classic/legacy; persisted, applied via manifest aliases). */
     val appIcon: StateFlow<String> = appSettings.appIcon
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.APP_ICON_PRIMARY)
 
-    /** 仅 Wi-Fi 预加载（阅读器消费）。 */
+    /** Wi-Fi only preload (consumed by the reader). */
     val wifiOnlyPreload: StateFlow<Boolean> = appSettings.wifiOnlyPreload
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
-    /** 网络请求超时（秒）。 */
+    /** Network request timeout in seconds. */
     val networkTimeoutSeconds: StateFlow<Int> = appSettings.networkTimeoutSeconds
         .stateIn(
             viewModelScope,
@@ -51,7 +52,7 @@ class SettingsPrefsViewModel @Inject constructor(
             AppSettingsStore.DEFAULT_NETWORK_TIMEOUT_SECONDS,
         )
 
-    /** 整本下载页级并发数（DownloadWorker 消费）。 */
+    /** Whole-book download page-level concurrency (consumed by DownloadWorker). */
     val downloadConcurrency: StateFlow<Int> = appSettings.downloadConcurrency
         .stateIn(
             viewModelScope,
@@ -59,7 +60,7 @@ class SettingsPrefsViewModel @Inject constructor(
             AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY,
         )
 
-    /** 图片磁盘缓存上限（MB）。 */
+    /** Image disk cache limit in MB. */
     val imageCacheLimitMb: StateFlow<Int> = appSettings.imageCacheLimitMb
         .stateIn(
             viewModelScope,
@@ -67,15 +68,23 @@ class SettingsPrefsViewModel @Inject constructor(
             AppSettingsStore.DEFAULT_IMAGE_CACHE_LIMIT_MB,
         )
 
-    /** SSE 事件驱动仪表盘自动刷新（随 SSE 总开关联动禁用）。 */
+    /** SSE event-driven dashboard auto-refresh (disabled together with the SSE master switch). */
     val sseAutoRefresh: StateFlow<Boolean> = appSettings.sseAutoRefresh
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
-    /** SSE 连接/任务完成通知（通知基础设施接入前仅持久化）。 */
+    /** SSE connection/task-finished notifications (persisted only until the notification infrastructure lands). */
     val sseNotify: StateFlow<Boolean> = appSettings.sseNotify
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** 浏览卡片显示选项（持久化，卡片组件通过 LocalCardDisplay 消费）。 */
+    /** Page-turn progress recording threshold (mirrors iOS AppConfig.progressRecordingThreshold, default 3; 0 = immediately). */
+    val progressRecordingThreshold: StateFlow<Int> = appSettings.progressRecordingThreshold
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_PROGRESS_RECORDING_THRESHOLD,
+        )
+
+    /** Browse card display options (persisted; card components consume them via LocalCardDisplay). */
     val cardDisplay: StateFlow<CardDisplayOptions> = combine(
         appSettings.cardCoverOnly,
         appSettings.cardTextOverlay,
@@ -111,8 +120,9 @@ class SettingsPrefsViewModel @Inject constructor(
     }
 
     /**
-     * 应用图标变体（primary/classic/legacy）。持久化后立即切换 manifest
-     * activity-alias：启用目标 alias、禁用其余（DONT_KILL_APP，不打断当前会话）。
+     * App icon variant (primary/classic/legacy). After persisting, immediately switches the manifest
+     * activity-alias: enables the target alias and disables the rest (DONT_KILL_APP, so the current
+     * session is not interrupted).
      */
     fun setAppIcon(value: String) {
         viewModelScope.launch { appSettings.setAppIcon(value) }
@@ -161,6 +171,10 @@ class SettingsPrefsViewModel @Inject constructor(
 
     fun setSseNotify(enabled: Boolean) {
         viewModelScope.launch { appSettings.setSseNotify(enabled) }
+    }
+
+    fun setProgressRecordingThreshold(value: Int) {
+        viewModelScope.launch { appSettings.setProgressRecordingThreshold(value) }
     }
 
     fun setCardCoverOnly(enabled: Boolean) {

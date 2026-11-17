@@ -1,21 +1,23 @@
 package com.kmworks.kmreader.ui.reader
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
+import com.kmworks.kmreader.R
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 阅读器背景（对齐原作 ReaderBackground：black/white/gray/sepia/system）。
- * Sepia 对齐原作的纸张色与前景色（ReaderBackground.swift）。
+ * Reader background (mirrors the original ReaderBackground: black/white/gray/sepia/system).
+ * Sepia mirrors the original paper and foreground colors (ReaderBackground.swift).
  */
-enum class ReaderBackground(val label: String) {
-    Black("黑色"),
-    White("白色"),
-    Gray("灰色"),
-    Sepia("米色"),
-    System("跟随系统");
+enum class ReaderBackground(@StringRes val labelRes: Int) {
+    Black(R.string.reader_background_black),
+    White(R.string.reader_background_white),
+    Gray(R.string.reader_background_gray),
+    Sepia(R.string.reader_background_sepia),
+    System(R.string.reader_background_system);
 
-    /** 对齐原作 ReaderBackground.appliesImageMultiplyBlend：仅 sepia 对页面图片做正片叠底。 */
+    /** Mirrors the original ReaderBackground.appliesImageMultiplyBlend: only sepia applies a multiply blend to page images. */
     val appliesImageMultiplyBlend: Boolean get() = this == Sepia
 
     fun color(dark: Boolean): Color = when (this) {
@@ -26,7 +28,7 @@ enum class ReaderBackground(val label: String) {
         System -> if (dark) Color.Black else Color.White
     }
 
-    /** 页面加载占位/文字的前景色。 */
+    /** Foreground color for page placeholders and text. */
     fun contentColor(dark: Boolean): Color = when (this) {
         Black, Gray, System -> if (this == System && !dark) Color.Black else Color.White
         White -> Color.Black
@@ -39,32 +41,32 @@ enum class ReaderBackground(val label: String) {
     }
 }
 
-/** 翻页过渡（对齐原作 PageTransitionStyle.availableCases：scroll/cover；pageCurl 在 Android 不做，计入差异清单）。 */
-enum class PageTransitionStyle(val label: String) {
-    Scroll("滚动"),
-    Cover("覆盖");
+/** Page transition (mirrors the original PageTransitionStyle.availableCases: scroll/cover; pageCurl is not implemented on Android, recorded in the differences list). */
+enum class PageTransitionStyle(@StringRes val labelRes: Int) {
+    Scroll(R.string.reader_transition_scroll),
+    Cover(R.string.reader_transition_cover);
 
     val next: PageTransitionStyle get() = entries[(ordinal + 1) % entries.size]
 }
 
-/** 点按区域布局（对齐原作 TapZoneMode 六档）。 */
-enum class TapZoneMode(val label: String) {
-    None("关闭"),
-    Default("默认"),
-    Edge("边缘"),
-    Kindle("Kindle"),
-    LShape("L 形"),
-    TSplit("上下分栏");
+/** Tap zone layout (mirrors the original TapZoneMode's six cases). */
+enum class TapZoneMode(@StringRes val labelRes: Int) {
+    None(R.string.reader_tap_zone_none),
+    Default(R.string.reader_tap_zone_default),
+    Edge(R.string.reader_tap_zone_edge),
+    Kindle(R.string.reader_tap_zone_kindle),
+    LShape(R.string.reader_tap_zone_l_shape),
+    TSplit(R.string.reader_tap_zone_t_split);
 
     val isDisabled: Boolean get() = this == None
     val next: TapZoneMode get() = entries[(ordinal + 1) % entries.size]
 }
 
-/** 点按区域左右镜像（对齐原作 TapZoneInversionMode：normal/auto/inverted）。 */
-enum class TapZoneInversion(val label: String) {
-    Normal("正常"),
-    Auto("自动"),
-    Inverted("反向");
+/** Tap zone left/right mirroring (mirrors the original TapZoneInversionMode: normal/auto/inverted). */
+enum class TapZoneInversion(@StringRes val labelRes: Int) {
+    Normal(R.string.reader_tap_inversion_normal),
+    Auto(R.string.reader_tap_inversion_auto),
+    Inverted(R.string.reader_tap_inversion_inverted);
 
     fun isInverted(isRtl: Boolean): Boolean = when (this) {
         Normal -> false
@@ -73,48 +75,48 @@ enum class TapZoneInversion(val label: String) {
     }
 }
 
-/** 双击动作（对齐原作 DoubleTapZoomMode：enabled/disabled）。 */
-enum class DoubleTapZoomMode(val label: String) {
-    Enabled("缩放"),
-    Disabled("关闭")
+/** Double-tap action (mirrors the original DoubleTapZoomMode: enabled/disabled). */
+enum class DoubleTapZoomMode(@StringRes val labelRes: Int) {
+    Enabled(R.string.reader_double_tap_zoom),
+    Disabled(R.string.reader_off)
 }
 
-/** 长按动作（对齐原作 ReaderLongPressAction：contextMenu/disabled）。 */
-enum class LongPressAction(val label: String) {
-    ContextMenu("图片菜单"),
-    Disabled("关闭")
+/** Long-press action (mirrors the original ReaderLongPressAction: contextMenu/disabled). */
+enum class LongPressAction(@StringRes val labelRes: Int) {
+    ContextMenu(R.string.reader_long_press_menu),
+    Disabled(R.string.reader_off)
 }
 
 /**
- * 图片预加载窗口（1:1 对齐原作 ReaderPreloadProfile 的三档窗口，ReaderViewModel.swift）：
- * before/after = 预取窗口，keepBefore/keepAfter = 内存保留窗口（超出即清理）。
+ * Image preload window (1:1 mirror of the original ReaderPreloadProfile's three windows, ReaderViewModel.swift):
+ * before/after = prefetch window, keepBefore/keepAfter = in-memory retention window (pages beyond it are evicted).
  */
 enum class PreloadProfile(
-    val label: String,
+    @StringRes val labelRes: Int,
     val before: Int,
     val after: Int,
     val keepBefore: Int,
     val keepAfter: Int,
 ) {
-    LowMemory("低内存", 1, 3, 1, 3),
-    Balanced("均衡", 3, 5, 5, 7),
-    FastPageTurns("快速翻页", 5, 7, 7, 9)
+    LowMemory(R.string.reader_preload_low_memory, 1, 3, 1, 3),
+    Balanced(R.string.reader_preload_balanced, 3, 5, 5, 7),
+    FastPageTurns(R.string.reader_preload_fast_page_turns, 5, 7, 7, 9)
 }
 
-/** 裁边模式（对齐原作 ReaderPageBorderCropMode：disabled/conservative/aggressive）。 */
-enum class BorderCropMode(val label: String, val maxFraction: Float, val tolerance: Int) {
-    Disabled("关闭", 0f, 0),
-    Conservative("保守", 0.08f, 12),
-    Aggressive("激进", 0.20f, 24)
+/** Border crop mode (mirrors the original ReaderPageBorderCropMode: disabled/conservative/aggressive). */
+enum class BorderCropMode(@StringRes val labelRes: Int, val maxFraction: Float, val tolerance: Int) {
+    Disabled(R.string.reader_off, 0f, 0),
+    Conservative(R.string.reader_crop_conservative, 0.08f, 12),
+    Aggressive(R.string.reader_crop_aggressive, 0.20f, 24)
 }
 
 /**
- * DIVINA 阅读器设置（对齐原作 ReaderSettingsSheet 的 @AppStorage 键与默认值）。
- * 面板模式 / Waifu2x 超分 / Live Text 按项目红线不做，记录在 README 差异清单。
+ * DIVINA reader settings (mirrors the original ReaderSettingsSheet's @AppStorage keys and defaults).
+ * Panel mode / Waifu2x upscaling / Live Text are not implemented per project constraints; recorded in the README differences list.
  *
- * defaultPageLayout/defaultSplitWideMode/defaultSoloCoverPage 对应原作 DivinaPreferencesView 的
- * 「Default Reading Options」：只在打开新会话时作为初始值消费，阅读器内改动不回写
- * （对齐原作 DivinaReaderView @State 初始值 + resetReaderPreferencesForCurrentBook 语义）。
+ * defaultPageLayout/defaultSplitWideMode/defaultSoloCoverPage correspond to the original DivinaPreferencesView's
+ * "Default Reading Options": consumed only as initial values when opening a new session; in-reader changes are not
+ * written back (mirrors the original DivinaReaderView @State initial values + resetReaderPreferencesForCurrentBook semantics).
  */
 data class DivinaSettings(
     val background: ReaderBackground = ReaderBackground.System,
@@ -138,16 +140,16 @@ data class DivinaSettings(
     val defaultPageLayout: PageLayout = PageLayout.Auto,
     val defaultSplitWideMode: SplitWidePageMode = SplitWidePageMode.Auto,
     val defaultSoloCoverPage: Boolean = true,
-    /** 对齐原作 forceDefaultReadingDirection：true 时忽略系列方向，永远用全局默认方向。 */
+    /** Mirrors the original forceDefaultReadingDirection: when true, ignores the series direction and always uses the global default direction. */
     val forceDefaultDirection: Boolean = false,
 )
 
-/** 点按结果（对齐原作 TapZoneAction）。 */
+/** Tap result (mirrors the original TapZoneAction). */
 enum class TapZoneAction { Previous, Next, ToggleControls }
 
 /**
- * 点按区域判定（逐条对齐原作 Models/TapZoneHelper.swift）：
- * 归一化坐标 → 动作；inversion 默认 auto（RTL 时左右镜像）。
+ * Tap zone resolution (mirrors the original Models/TapZoneHelper.swift case by case):
+ * normalized coordinates → action; inversion defaults to auto (mirrored left/right for RTL).
  */
 object TapZoneHelper {
 

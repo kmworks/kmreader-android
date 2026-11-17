@@ -13,16 +13,16 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import retrofit2.Call
 
-/** komf 任务轮询状态（对齐 KomfJobTracker 的终态语义）。 */
+/** komf job polling state (mirrors the terminal-state semantics of KomfJobTracker). */
 sealed interface KomfJobState {
     data object Running : KomfJobState
     data object Completed : KomfJobState
     data class Failed(val message: String?) : KomfJobState
-    /** 超时或连续错误退出：任务可能仍在服务端执行，调用方应尽力刷新。 */
+    /** Exited on timeout or consecutive errors: the job may still be running server-side; the caller should refresh best-effort. */
     data object TimedOut : KomfJobState
 }
 
-/** komf 调用（kmrs 私有，管理员专用；失败返回 null/false，由界面门控隐藏）。 */
+/** komf calls (kmrs private, admin-only; failures return null/false and the UI gates them away). */
 @Singleton
 class KomfRepository @Inject constructor(
     private val sessionManager: SessionManager,
@@ -32,11 +32,11 @@ class KomfRepository @Inject constructor(
     private fun api(): KomfApi? =
         sessionManager.clients.value?.let { LocalApiFactory.create(it, KomfApi::class.java) }
 
-    /** null = 请求失败（搜索失败态）。 */
+    /** null = request failed (search failure state). */
     suspend fun search(name: String, libraryId: String, seriesId: String): List<KomfSearchResultDto>? =
         api()?.search(name, libraryId, seriesId)?.awaitBody()
 
-    /** 返回 jobId；null = 提交失败。 */
+    /** Returns the jobId; null = submission failed. */
     suspend fun identify(
         libraryId: String?,
         seriesId: String,
@@ -54,13 +54,14 @@ class KomfRepository @Inject constructor(
     suspend fun match(libraryId: String, seriesId: String): String? =
         api()?.match(libraryId, seriesId)?.executeWithConflictRetry()?.id
 
-    /** reset 非任务：成功即完成，调用方直接刷新。 */
+    /** reset is not a job: success means done, the caller refreshes directly. */
     suspend fun reset(libraryId: String, seriesId: String): Boolean =
         api()?.reset(libraryId, seriesId)?.executeWithConflictRetry() != null
 
     /**
-     * 409 = komf 集成服务端掉线（能力状态变化）：重读一次 server/info 后 clone 重试一次，
-     * 仍失败才返回 null（对齐 KomfIntegrationStore.handleConflictIfNeeded；最多重试 1 次）。
+     * 409 = the komf integration went offline server-side (capability state changed): re-read server/info
+     * once, then clone-and-retry once; only then return null (mirrors
+     * KomfIntegrationStore.handleConflictIfNeeded; at most 1 retry).
      */
     private suspend fun <T> Call<T>.executeWithConflictRetry(): T? = withContext(Dispatchers.IO) {
         try {
@@ -75,7 +76,7 @@ class KomfRepository @Inject constructor(
         }
     }
 
-    /** 重新探测 server profile（对齐 iOS ServerProfileService.refresh()，结果回写 store 更新能力门控）。 */
+    /** Re-probe the server profile (mirrors iOS ServerProfileService.refresh(); the result is written back to the store to update capability gating). */
     private suspend fun reprofileOnce() {
         runCatching { serverProfileStore.refresh() }
     }
@@ -83,8 +84,9 @@ class KomfRepository @Inject constructor(
     suspend fun job(jobId: String): KomfJobDto? = api()?.job(jobId)?.awaitBody()
 
     /**
-     * 轮询任务状态（对齐 KomfJobTracker：2 秒间隔、最多 300 次、连续 5 次错误退出）。
-     * 仅发射状态迁移：起始 Running，终态 Completed / Failed / TimedOut 后结束。
+     * Poll the job state (mirrors KomfJobTracker: 2-second interval, at most 300 polls, exit after
+     * 5 consecutive errors).
+     * Only state transitions are emitted: starts as Running, ends after Completed / Failed / TimedOut.
      */
     fun trackJob(jobId: String): Flow<KomfJobState> = flow {
         emit(KomfJobState.Running)
@@ -109,7 +111,7 @@ class KomfRepository @Inject constructor(
                         emit(KomfJobState.Failed(job.message))
                         return@flow
                     }
-                    else -> Unit // RUNNING：继续轮询
+                    else -> Unit // RUNNING: keep polling
                 }
             }
         }

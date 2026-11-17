@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tracker（阅读进度追踪）界面字符串，与 values/strings_tracker.xml key 集合一致。 -->
+    <string name="tracker_trackers_title">阅读进度追踪</string>
+    <string name="tracker_add_tracker">添加 Tracker</string>
+    <string name="tracker_linked_trackers">已链接</string>
+    <string name="tracker_not_enabled">当前服务器未启用 Tracker 集成。</string>
+    <string name="tracker_no_linked">尚未链接任何 tracker</string>
+    <string name="tracker_link_provider">链接 %1$s</string>
+    <string name="tracker_series_sheet_footer">读完书籍会自动推进 tracker 进度；标记为未读不会回退。</string>
+    <string name="tracker_chapter_label">第 %1$d 话</string>
+    <string name="tracker_chapter_of_total">第 %1$d 话 / %2$d</string>
+    <string name="tracker_volume_label">第 %1$d 卷</string>
+    <string name="tracker_score_label">评分 %1$d</string>
+    <string name="tracker_entry">Tracker 条目</string>
+    <string name="tracker_open_in_provider">在 %1$s 打开</string>
+    <string name="tracker_change">更换</string>
+    <string name="tracker_search_provider">搜索 %1$s</string>
+    <string name="tracker_from_series_links">来自系列链接</string>
+    <string name="tracker_search_results">搜索结果</string>
+    <string name="tracker_search_not_enabled">当前服务器未启用 Tracker 集成，无法搜索。</string>
+    <string name="tracker_no_results">没有匹配的条目。</string>
+    <string name="tracker_progress_mapping">进度映射</string>
+    <string name="tracker_chapter_offset">章节偏移</string>
+    <string name="tracker_decrease">减</string>
+    <string name="tracker_increase">加</string>
+    <string name="tracker_remote_progress">远端进度</string>
+    <string name="tracker_current_remote">当前远端：</string>
+    <string name="tracker_unchanged">保持不变</string>
+    <string name="tracker_remote_progress_footer">只提交变更的非空字段；自动同步跟随已读完的书籍。</string>
+    <string name="tracker_unlink">解绑</string>
+    <string name="tracker_unlink_button">解除链接</string>
+    <string name="tracker_unlink_tracker">解绑 Tracker</string>
+    <string name="tracker_unlink_message">这会移除该系列的 Tracker 绑定，但不会修改远端条目。</string>
+    <string name="tracker_unsupported_server">当前服务器不支持 Tracker（需要 kmrs 服务器的 trackers 能力）。</string>
+    <string name="tracker_accounts">账号</string>
+    <string name="tracker_connected_user">已连接 · %1$s</string>
+    <string name="tracker_not_connected">未连接</string>
+    <string name="tracker_disconnect">断开</string>
+    <string name="tracker_connect_on_web">去授权</string>
+    <string name="tracker_accounts_footer">账号授权在服务器网页端 /account/trackers 完成，应用不保存 token。</string>
+    <string name="tracker_default_tracker">默认 Tracker</string>
+    <string name="tracker_libraries">启用的库</string>
+    <string name="tracker_libraries_footer">不选择任何库 = 全部库可用。</string>
+    <string name="tracker_linked_series">绑定管理</string>
+    <string name="tracker_bindings_subtitle">按 provider 过滤、解绑</string>
+    <string name="tracker_recent_updates">更新台账</string>
+    <string name="tracker_ledger_subtitle">手动触发的 tracker 更新记录</string>
+    <string name="tracker_no_updates">暂无更新记录</string>
+    <string name="tracker_demo_no_ledger">演示模式无台账数据</string>
+    <string name="tracker_demo_no_bindings">演示模式无绑定数据</string>
+    <string name="tracker_disconnect_tracker">断开 Tracker</string>
+    <string name="tracker_disconnect_message">断开 %1$s 会移除服务器上的授权；之后需要在服务器网页端重新连接。</string>
+    <string name="tracker_all_with_count">全部 (%1$d)</string>
+    <string name="tracker_provider_with_count">%1$s (%2$d)</string>
+    <string name="tracker_no_bindings">暂无已绑定系列；可在系列详情页建立 Tracker 绑定。</string>
+    <string name="tracker_load_more">加载更多</string>
+    <string name="tracker_mode_auto">自动</string>
+    <string name="tracker_mode_chapter">按章节</string>
+    <string name="tracker_mode_volume">按卷</string>
+    <string name="tracker_status_reading">在阅读</string>
+    <string name="tracker_status_planning">计划</string>
+    <string name="tracker_status_completed">已完成</string>
+    <string name="tracker_status_paused">暂停</string>
+    <string name="tracker_status_dropped">弃坑</string>
+    <string name="tracker_status_rereading">重读</string>
+</resources>

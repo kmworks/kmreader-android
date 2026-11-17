@@ -9,6 +9,7 @@ import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.pdf.PdfAndroidxLoader
 import com.kmworks.kmreader.core.pdf.PdfRepository
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,13 +25,13 @@ data class PdfReaderUiState(
     val hasSession: Boolean = false,
     val bookDtoId: String? = null,
     val loading: Boolean = false,
-    /** 下载进度；contentLength 未知时为 null（不定进度）。 */
+    /** Download progress; null when contentLength is unknown (indeterminate). */
     val downloadProgress: Float? = null,
     val error: Boolean = false,
     val ready: Boolean = false,
     val pageCount: Int = 0,
     val initialPage: Int = 1,
-    /** androidx.pdf 文档实例；渲染与文本层由 PdfView 托管。 */
+    /** androidx.pdf document instance; rendering and the text layer are managed by PdfView. */
     val document: PdfDocument? = null,
 )
 
@@ -43,25 +44,36 @@ constructor(
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
     private val sessionManager: SessionManager,
+    private val appSettings: AppSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PdfReaderUiState())
     val uiState: StateFlow<PdfReaderUiState> = _uiState.asStateFlow()
 
+    /** Page-turn threshold for recording progress (mirrors the original AppConfig.progressRecordingThreshold, takes effect immediately from the settings page). */
+    @Volatile
+    private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
+
+    init {
+        viewModelScope.launch {
+            appSettings.progressRecordingThreshold.collect { progressThreshold = it }
+        }
+    }
+
     private var lastBook: Book? = null
     private var document: PdfDocument? = null
     private var lastReportedPage = 0
 
-    // 进度上报门控（对齐原作 PdfReaderViewModel 的 ReaderProgressRecordingGate）：
-    // 未读过的书不移动 3 页以上不上报；在读过的书移动 1 页即上报；完成/已记录总放行。
+    // Progress-reporting gate (mirrors the original PdfReaderViewModel's ReaderProgressRecordingGate):
+    // an unread book must move at least 3 pages to report; a book already in progress reports after 1 page; completion/already-recorded always passes.
     private var sessionStartPage: Int? = null
     private var wasInProgress: Boolean = false
     private var hasRecorded: Boolean = false
 
-    /** 隐私阅读（incognito）：跳过进度上报。 */
+    /** Incognito reading: skips progress reporting. */
     var incognito: Boolean = false
 
-    /** 入口：无真实映射时进入错误态（无演示回退）。 */
+    /** Entry point: enters the error state when there is no real mapping (no demo fallback). */
     fun load(book: Book) {
         if (lastBook?.id == book.id) return
         lastBook = book
@@ -92,13 +104,14 @@ constructor(
             document = doc
             val progress = detailRepository.bookDetail(dtoId)?.readProgress
             wasInProgress = progress != null && !progress.completed
-            sessionStartPage = null
             hasRecorded = false
             val initialPage =
                 when {
                     progress == null || progress.completed -> 1
                     else -> progress.page.coerceIn(1, doc.pageCount)
                 }
+            // Gate anchor = resume page (otherwise the page jump on open would cross the threshold and record immediately)
+            sessionStartPage = initialPage
             _uiState.update {
                 it.copy(
                     loading = false,
@@ -111,7 +124,7 @@ constructor(
         }
     }
 
-    /** 全文搜索：返回命中页码列表（1 基，升序）。 */
+    /** Full-text search: returns the list of matching page numbers (1-based, ascending). */
     suspend fun search(query: String): List<Int> {
         val doc = document ?: return emptyList()
         return runCatching {
@@ -121,7 +134,7 @@ constructor(
             .getOrDefault(emptyList())
     }
 
-    /** 上报当前页（去重；末页标记完成）。incognito 跳过。 */
+    /** Reports the current page (de-duplicated; last page marks completion). Skipped when incognito. */
     fun reportProgress(page: Int) {
         if (incognito) return
         val dtoId = _uiState.value.bookDtoId ?: return
@@ -138,11 +151,11 @@ constructor(
         }
     }
 
-    /** 对齐原作 ReaderProgressRecordingGate：threshold=3，clamp 到 pageCount-1，在读过的书 req=1。 */
+    /** Mirrors the original ReaderProgressRecordingGate: threshold from settings, clamped to pageCount-1, req=1 for books already in progress. */
     private fun admitsRecording(page: Int, completed: Boolean, pageCount: Int): Boolean {
         if (completed || hasRecorded) return true
         val start = sessionStartPage ?: return false
-        val threshold = minOf(ReaderProgressRecordingGate.THRESHOLD, pageCount - 1)
+        val threshold = minOf(progressThreshold, pageCount - 1)
         val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
         if (requiredDistance <= 0) return true
         return abs(page - start) >= requiredDistance

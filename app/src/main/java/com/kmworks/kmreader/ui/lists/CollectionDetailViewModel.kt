@@ -2,7 +2,11 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.ui.lists.newCollectionEntry
+import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.toListEntry
@@ -12,6 +16,7 @@ import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 收藏详情状态；series 为 null 时界面回退假数据。 */
+/** Collection detail state; the UI falls back to sample data while series is null. */
 data class CollectionDetailUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
@@ -29,15 +34,16 @@ data class CollectionDetailUiState(
     val series: List<Series>? = null,
     val loadingMore: Boolean = false,
     val hasMore: Boolean = false,
-    /** 收藏封面（服务端缩略图端点）。 */
+    /** Collection cover (server thumbnail endpoint). */
     val heroThumbnail: String? = null,
     val createdDate: String? = null,
     val lastModifiedDate: String? = null,
 )
 
-/** 收藏详情数据：反查收藏 DTO，成员经 GET api/v1/collections/{id}/series 拉取。 */
+/** Collection detail data: resolves the collection DTO, members fetched via GET api/v1/collections/{id}/series. */
 @HiltViewModel
 class CollectionDetailViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
@@ -52,14 +58,23 @@ class CollectionDetailViewModel @Inject constructor(
     val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
 
     private var loadedId: Int? = null
+    /** Entry the current state content belongs to (content resets when the entry changes;
+     *  a forced refresh of the same entry keeps it). */
+    private var contentId: Int? = null
     private var currentDtoId: String? = null
     private var nextPage = 0
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
         val clients = sessionManager.clients.value
         val dtoId = detailRepository.collectionDtoId(stableId)
+        loadJob?.cancel()
+        if (contentId != stableId) {
+            _uiState.value = CollectionDetailUiState(hasSession = clients != null)
+            _readLists.value = null
+        }
         if (clients == null || dtoId == null) {
             _uiState.update { it.copy(hasSession = clients != null, loading = false) }
             return
@@ -67,7 +82,7 @@ class CollectionDetailViewModel @Inject constructor(
         currentDtoId = dtoId
         nextPage = 0
         _uiState.update { it.copy(hasSession = true, loading = true, error = null, series = null, hasMore = false) }
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             try {
                 val collection = detailRepository.collectionDetail(dtoId)
                 if (collection == null) {
@@ -88,8 +103,13 @@ class CollectionDetailViewModel @Inject constructor(
                         lastModifiedDate = collection.lastModifiedDate,
                     )
                 }
+                contentId = stableId
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
+                _uiState.update {
+                    it.copy(loading = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
@@ -113,12 +133,14 @@ class CollectionDetailViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(loadingMore = false, error = e.message ?: "加载失败") }
+                _uiState.update {
+                    it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
 
-    /** 批量标记所选系列已读/未读。 */
+    /** Mark the selected series read/unread in batch. */
     fun markSeriesRead(stableIds: Set<Int>, read: Boolean, onDone: (Boolean) -> Unit) {
         val seriesDtoIds = stableIds.mapNotNull { detailRepository.seriesDtoId(it) }
         if (seriesDtoIds.size != stableIds.size) return onDone(false)
@@ -145,7 +167,7 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
 
-    /** 批量下载所选系列：先拉真实书籍列表，再逐本进入下载队列。 */
+    /** Download the selected series in batch: fetch the real book lists first, then enqueue each book. */
     fun downloadSeries(stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
         if (sessionManager.clients.value == null) return onDone(false)
         val seriesDtoIds = stableIds.mapNotNull { detailRepository.seriesDtoId(it) }
@@ -167,7 +189,7 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
 
-    /** 加载真实阅读列表供批量加入选择。 */
+    /** Load the real read lists for the batch "add to" picker. */
     fun ensureReadListsLoaded() {
         if (_readLists.value != null || sessionManager.clients.value == null) return
         viewModelScope.launch {
@@ -179,7 +201,7 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
 
-    /** 将所选系列内的书籍加入阅读列表（批量 append 到原顺序末尾）。 */
+    /** Add the books of the selected series to a read list (batch append at the end of the original order). */
     fun addSeriesToReadList(entry: ListEntry, stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
         if (sessionManager.clients.value == null) return onDone(false)
         val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return onDone(false)
@@ -199,7 +221,7 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
 
-    /** 从收藏移除所选系列（stableId 集合）；返回 false 表示无 DTO 映射。 */
+    /** Remove the selected series (stableId set) from the collection; returns false when there is no DTO mapping. */
     fun removeSeries(stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
         val collectionDtoId = currentDtoId ?: return onDone(false)
         val seriesDtoIds = stableIds.mapNotNull { detailRepository.seriesDtoId(it) }
@@ -213,6 +235,16 @@ class CollectionDetailViewModel @Inject constructor(
             }
             onDone(ok)
         }
+    }
+
+    /** Create a read list (the "New…" flow of the "Add to list" picker); reports the new entry on success. */
+    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
+    }
+
+    /** Create a collection (the "New…" flow of the "Add to collection" picker); reports the new entry on success. */
+    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
     }
 
     private companion object {

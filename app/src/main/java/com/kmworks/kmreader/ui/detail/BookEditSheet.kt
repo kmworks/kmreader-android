@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.detail
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,11 +25,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,13 +42,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.core.api.model.AuthorUpdateDto
 import com.kmworks.kmreader.core.api.model.BookMetadataUpdateDto
+import com.kmworks.kmreader.core.api.model.NotableEntityUpdateDto
 import com.kmworks.kmreader.core.api.model.WebLinkUpdateDto
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
+import com.kmworks.kmreader.data.BookMetadataLocks
 import com.kmworks.kmreader.data.Creator
+import com.kmworks.kmreader.data.NotableEntity
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.LockToggle
+import com.kmworks.kmreader.ui.components.LockableTextField
+import com.kmworks.kmreader.ui.components.NotableEntitiesContent
+import com.kmworks.kmreader.ui.components.lockUpdate
+import com.kmworks.kmreader.ui.components.rememberLockedField
+import com.kmworks.kmreader.ui.components.roleLabelText
+import androidx.compose.ui.res.stringResource
+import com.kmworks.kmreader.R
 
-/** 书籍元数据编辑草稿（对齐 iOS BookMetadataUpdate 的字段集合）。 */
+/**
+ * Book metadata edit draft (mirrors the field set of iOS BookMetadataUpdate + per-field lock state).
+ * xxxLocked is the UI's current lock state: initially the server lock state, editing locks automatically,
+ * and it can be toggled manually (including unlocking).
+ */
 data class BookMetadataDraft(
     val title: String,
     val number: String,
@@ -60,11 +75,27 @@ data class BookMetadataDraft(
     val authors: List<Creator>,
     val tags: List<String>,
     val links: List<Pair<String, String>>,
+    val notableEntities: List<NotableEntity>,
+    val titleLocked: Boolean = false,
+    val numberLocked: Boolean = false,
+    val numberSortLocked: Boolean = false,
+    val releaseDateLocked: Boolean = false,
+    val isbnLocked: Boolean = false,
+    val summaryLocked: Boolean = false,
+    val authorsLocked: Boolean = false,
+    val tagsLocked: Boolean = false,
+    val linksLocked: Boolean = false,
+    val notableEntitiesLocked: Boolean = false,
 )
 
 /**
- * 只提交改动字段并置锁（对齐 iOS BookMetadataUpdate.toAPIDict(against:)）；
- * 全部未改动时返回 null，表示无需请求。
+ * Submits only the changed fields (mirrors iOS BookMetadataUpdate.toAPIDict(against:) + per-field lock);
+ * returns null when nothing changed, meaning no request is needed.
+ * Per-field rules:
+ * - Content: content changed, or a lock was newly set (lock direction) → submit the current content;
+ *   unlock direction submits the lock only;
+ * - Lock: lock state differs from the initial value (either direction) → explicitly submit the current
+ *   lock state (true=lock / false=unlock); unchanged → null (leave the server lock state untouched).
  */
 internal fun BookMetadataDraft.toUpdateDto(
     baseTitle: String,
@@ -78,60 +109,81 @@ internal fun BookMetadataDraft.toUpdateDto(
     val originalAuthors = original?.authors.orEmpty()
     val originalTags = original?.tags.orEmpty()
     val originalLinks = original?.links.orEmpty()
+    val originalNotableEntities = original?.notableEntities.orEmpty()
+    val locks = original?.locks ?: BookMetadataLocks()
 
-    var changed = false
+    val titleContentChanged = title.trim() != baseTitle
+    val numberContentChanged = number.trim() != originalNumber
     val numberSortValue = numberSort.trim().takeIf { it.isNotEmpty() }?.toFloatOrNull()
+    val sortContentChanged = numberSortValue != originalSort
+    val releaseContentChanged = releaseDate.trim() != originalRelease
+    val isbnContentChanged = isbn.trim() != originalIsbn
+    val summaryContentChanged = summary.trim() != originalSummary
+    val authorsContentChanged = authors != originalAuthors
+    val tagsContentChanged = tags != originalTags
+    val linksContentChanged = links != originalLinks
+    val notableEntitiesContentChanged = notableEntities != originalNotableEntities
 
-    fun <T> diff(current: T, before: T): T? = if (current != before) {
-        changed = true
-        current
-    } else {
-        null
-    }
+    val titleLockChanged = titleLocked != locks.titleLock
+    val numberLockChanged = numberLocked != locks.numberLock
+    val sortLockChanged = numberSortLocked != locks.numberSortLock
+    val releaseLockChanged = releaseDateLocked != locks.releaseDateLock
+    val isbnLockChanged = isbnLocked != locks.isbnLock
+    val summaryLockChanged = summaryLocked != locks.summaryLock
+    val authorsLockChanged = authorsLocked != locks.authorsLock
+    val tagsLockChanged = tagsLocked != locks.tagsLock
+    val linksLockChanged = linksLocked != locks.linksLock
+    val notableEntitiesLockChanged = notableEntitiesLocked != locks.notableEntitiesLock
 
-    val titleValue = diff(title.trim(), baseTitle)
-    val numberValue = diff(number.trim(), originalNumber)
-    val sortValue = diff(numberSortValue, originalSort)
-    val releaseValue = diff(releaseDate.trim(), originalRelease)
-    val isbnValue = diff(isbn.trim(), originalIsbn)
-    val summaryValue = diff(summary.trim(), originalSummary)
-    val authorsChanged = authors != originalAuthors
-    val tagsChanged = tags != originalTags
-    val linksChanged = links != originalLinks
-    if (authorsChanged || tagsChanged || linksChanged) changed = true
+    val changed = titleContentChanged || numberContentChanged || sortContentChanged ||
+        releaseContentChanged || isbnContentChanged || summaryContentChanged ||
+        authorsContentChanged || tagsContentChanged || linksContentChanged ||
+        notableEntitiesContentChanged ||
+        titleLockChanged || numberLockChanged || sortLockChanged || releaseLockChanged ||
+        isbnLockChanged || summaryLockChanged || authorsLockChanged || tagsLockChanged ||
+        linksLockChanged || notableEntitiesLockChanged
     if (!changed) return null
 
     return BookMetadataUpdateDto(
-        title = titleValue,
-        titleLock = titleValue?.let { true },
-        number = numberValue,
-        numberLock = numberValue?.let { true },
-        numberSort = sortValue,
-        numberSortLock = sortValue?.let { true },
-        releaseDate = releaseValue,
-        releaseDateLock = releaseValue?.let { true },
-        isbn = isbnValue,
-        isbnLock = isbnValue?.let { true },
-        summary = summaryValue,
-        summaryLock = summaryValue?.let { true },
-        authors = if (authorsChanged) {
+        title = title.trim().takeIf { titleContentChanged || (titleLockChanged && titleLocked) },
+        titleLock = lockUpdate(titleLocked, locks.titleLock),
+        number = number.trim().takeIf { numberContentChanged || (numberLockChanged && numberLocked) },
+        numberLock = lockUpdate(numberLocked, locks.numberLock),
+        numberSort = numberSortValue.takeIf { sortContentChanged || (sortLockChanged && numberSortLocked) },
+        numberSortLock = lockUpdate(numberSortLocked, locks.numberSortLock),
+        releaseDate = releaseDate.trim()
+            .takeIf { releaseContentChanged || (releaseLockChanged && releaseDateLocked) },
+        releaseDateLock = lockUpdate(releaseDateLocked, locks.releaseDateLock),
+        isbn = isbn.trim().takeIf { isbnContentChanged || (isbnLockChanged && isbnLocked) },
+        isbnLock = lockUpdate(isbnLocked, locks.isbnLock),
+        summary = summary.trim().takeIf { summaryContentChanged || (summaryLockChanged && summaryLocked) },
+        summaryLock = lockUpdate(summaryLocked, locks.summaryLock),
+        authors = if (authorsContentChanged || (authorsLockChanged && authorsLocked)) {
             authors.map { AuthorUpdateDto(name = it.name, role = it.roleToken) }
         } else {
             null
         },
-        authorsLock = if (authorsChanged) true else null,
-        tags = if (tagsChanged) tags.toSet() else null,
-        tagsLock = if (tagsChanged) true else null,
-        links = if (linksChanged) {
+        authorsLock = lockUpdate(authorsLocked, locks.authorsLock),
+        tags = tags.toSet().takeIf { tagsContentChanged || (tagsLockChanged && tagsLocked) },
+        tagsLock = lockUpdate(tagsLocked, locks.tagsLock),
+        links = if (linksContentChanged || (linksLockChanged && linksLocked)) {
             links.map { (label, url) -> WebLinkUpdateDto(label = label, url = url) }
         } else {
             null
         },
-        linksLock = if (linksChanged) true else null,
+        linksLock = lockUpdate(linksLocked, locks.linksLock),
+        notableEntities = if (notableEntitiesContentChanged ||
+            (notableEntitiesLockChanged && notableEntitiesLocked)
+        ) {
+            notableEntities.map { NotableEntityUpdateDto(kind = it.kind, name = it.name) }
+        } else {
+            null
+        },
+        notableEntitiesLock = lockUpdate(notableEntitiesLocked, locks.notableEntitiesLock),
     )
 }
 
-/** 自定义角色保留原文，预定义角色用服务端 token。 */
+/** Custom roles keep their free text; predefined roles use the server token. */
 internal val Creator.roleToken: String
     get() = if (role == AuthorRole.Custom) {
         customRole?.takeIf { it.isNotBlank() } ?: AuthorRole.Custom.token
@@ -139,13 +191,19 @@ internal val Creator.roleToken: String
         role.token
     }
 
-private enum class BookEditTab(val label: String) {
-    General("通用"), Authors("作者"), Tags("标签"), Links("链接"),
+private enum class BookEditTab(@param:StringRes val labelRes: Int) {
+    General(R.string.edit_tab_general),
+    Authors(R.string.edit_tab_authors),
+    Tags(R.string.edit_tab_tags),
+    Links(R.string.edit_tab_links),
+    Entities(R.string.edit_tab_entities),
 }
 
 /**
- * 书籍元数据编辑弹层，字段对齐 KMReader/Features/Book/Views/BookEditSheet.swift：
- * 通用（标题/号码/排序号/发行日期/ISBN/摘要）、作者（姓名+角色）、标签、链接。
+ * Book metadata edit sheet, fields aligned with KMReader/Features/Book/Views/BookEditSheet.swift:
+ * General (title/number/sort number/release date/ISBN/summary), Authors (name + role), Tags, Links.
+ * Each field has a lock toggle on the right: initially the server lock state, editing locks automatically,
+ * and it can be toggled manually (including unlocking).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -158,32 +216,42 @@ fun BookEditSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var tab by rememberSaveable { mutableStateOf(BookEditTab.General) }
+    val locks = remember(meta) { meta?.locks ?: BookMetadataLocks() }
 
-    var title by rememberSaveable { mutableStateOf(book.title) }
-    var number by rememberSaveable { mutableStateOf(meta?.number.orEmpty()) }
-    var numberSort by rememberSaveable {
-        mutableStateOf(meta?.numberSort?.let { formatNumberSort(it) }.orEmpty())
-    }
-    var releaseDate by rememberSaveable { mutableStateOf(meta?.releaseDate.orEmpty()) }
-    var isbn by rememberSaveable { mutableStateOf(meta?.isbn.orEmpty()) }
-    var summary by rememberSaveable { mutableStateOf(meta?.summary.orEmpty()) }
+    val title = rememberLockedField(book.title, locks.titleLock)
+    val number = rememberLockedField(meta?.number.orEmpty(), locks.numberLock)
+    val numberSort = rememberLockedField(
+        meta?.numberSort?.let { formatNumberSort(it) }.orEmpty(),
+        locks.numberSortLock,
+    )
+    val releaseDate = rememberLockedField(meta?.releaseDate.orEmpty(), locks.releaseDateLock)
+    val isbn = rememberLockedField(meta?.isbn.orEmpty(), locks.isbnLock)
+    val summary = rememberLockedField(meta?.summary.orEmpty(), locks.summaryLock)
 
     val authors = remember { mutableStateListOf<Creator>().apply { addAll(meta?.authors.orEmpty()) } }
+    var authorsLocked by remember(meta) { mutableStateOf(locks.authorsLock) }
     val tags = remember { mutableStateListOf<String>().apply { addAll(meta?.tags.orEmpty()) } }
+    var tagsLocked by remember(meta) { mutableStateOf(locks.tagsLock) }
     val links = remember {
         mutableStateListOf<Pair<String, String>>().apply { addAll(meta?.links.orEmpty()) }
     }
+    var linksLocked by remember(meta) { mutableStateOf(locks.linksLock) }
+    // Notable entities (mirrors iOS NotableEntitiesEditor: add/remove locks automatically)
+    val notableEntities = remember {
+        mutableStateListOf<NotableEntity>().apply { addAll(meta?.notableEntities.orEmpty()) }
+    }
+    var notableEntitiesLocked by remember(meta) { mutableStateOf(locks.notableEntitiesLock) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "编辑书籍",
+                    text = stringResource(R.string.book_edit_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
@@ -192,7 +260,7 @@ fun BookEditSheet(
                     FilterChip(
                         selected = tab == entry,
                         onClick = { tab = entry },
-                        label = { Text(entry.label) },
+                        label = { Text(stringResource(entry.labelRes)) },
                     )
                 }
             }
@@ -208,37 +276,50 @@ fun BookEditSheet(
                 when (tab) {
                     BookEditTab.General -> GeneralTab(
                         title = title,
-                        onTitleChange = { title = it },
                         number = number,
-                        onNumberChange = { number = it },
                         numberSort = numberSort,
-                        onNumberSortChange = { numberSort = it },
                         releaseDate = releaseDate,
-                        onReleaseDateChange = { releaseDate = it },
                         isbn = isbn,
-                        onIsbnChange = { isbn = it },
                         summary = summary,
-                        onSummaryChange = { summary = it },
                     )
 
                     BookEditTab.Authors -> AuthorsTab(
                         authors = authors,
-                        onRemove = { authors.removeAt(it) },
+                        locked = authorsLocked,
+                        onToggleLock = { authorsLocked = !authorsLocked },
+                        onRemove = { authors.removeAt(it); authorsLocked = true },
                         onAdd = { name, role, custom ->
                             authors.add(Creator(name = name, role = role, customRole = custom))
+                            authorsLocked = true
                         },
                     )
 
                     BookEditTab.Tags -> TagsTab(
                         tags = tags,
-                        onRemove = { tags.removeAt(it) },
-                        onAdd = { tag -> if (tag !in tags) tags.add(tag) },
+                        locked = tagsLocked,
+                        onToggleLock = { tagsLocked = !tagsLocked },
+                        onRemove = { tags.removeAt(it); tagsLocked = true },
+                        onAdd = { tag -> if (tag !in tags) tags.add(tag); tagsLocked = true },
                     )
 
                     BookEditTab.Links -> LinksTab(
                         links = links,
-                        onRemove = { links.removeAt(it) },
-                        onAdd = { label, url -> links.add(label to url) },
+                        locked = linksLocked,
+                        onToggleLock = { linksLocked = !linksLocked },
+                        onRemove = { links.removeAt(it); linksLocked = true },
+                        onAdd = { label, url -> links.add(label to url); linksLocked = true },
+                    )
+
+                    BookEditTab.Entities -> NotableEntitiesTab(
+                        entities = notableEntities,
+                        locked = notableEntitiesLocked,
+                        onToggleLock = { notableEntitiesLocked = !notableEntitiesLocked },
+                        onRemove = { notableEntities.removeAt(it); notableEntitiesLocked = true },
+                        onAdd = { kind, name ->
+                            val entity = NotableEntity(name = name, kind = kind)
+                            if (entity !in notableEntities) notableEntities.add(entity)
+                            notableEntitiesLocked = true
+                        },
                     )
                 }
             }
@@ -253,20 +334,31 @@ fun BookEditSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     enabled = !saving,
-                ) { Text("取消") }
+                ) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = {
                         onSave(
                             BookMetadataDraft(
-                                title = title,
-                                number = number,
-                                numberSort = numberSort,
-                                releaseDate = releaseDate,
-                                isbn = isbn,
-                                summary = summary,
+                                title = title.value,
+                                number = number.value,
+                                numberSort = numberSort.value,
+                                releaseDate = releaseDate.value,
+                                isbn = isbn.value,
+                                summary = summary.value,
                                 authors = authors.toList(),
                                 tags = tags.toList(),
                                 links = links.toList(),
+                                titleLocked = title.locked,
+                                numberLocked = number.locked,
+                                numberSortLocked = numberSort.locked,
+                                releaseDateLocked = releaseDate.locked,
+                                isbnLocked = isbn.locked,
+                                summaryLocked = summary.locked,
+                                authorsLocked = authorsLocked,
+                                tagsLocked = tagsLocked,
+                                linksLocked = linksLocked,
+                                notableEntities = notableEntities.toList(),
+                                notableEntitiesLocked = notableEntitiesLocked,
                             ),
                         )
                     },
@@ -279,7 +371,7 @@ fun BookEditSheet(
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        Text("保存")
+                        Text(stringResource(R.string.common_save))
                     }
                 }
             }
@@ -287,72 +379,49 @@ fun BookEditSheet(
     }
 }
 
+/** List section header row: field name + lock toggle. */
+@Composable
+private fun LockableTabHeader(title: String, locked: Boolean, onToggleLock: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        LockToggle(locked = locked, onToggle = onToggleLock)
+    }
+}
+
 @Composable
 private fun GeneralTab(
-    title: String,
-    onTitleChange: (String) -> Unit,
-    number: String,
-    onNumberChange: (String) -> Unit,
-    numberSort: String,
-    onNumberSortChange: (String) -> Unit,
-    releaseDate: String,
-    onReleaseDateChange: (String) -> Unit,
-    isbn: String,
-    onIsbnChange: (String) -> Unit,
-    summary: String,
-    onSummaryChange: (String) -> Unit,
+    title: com.kmworks.kmreader.ui.components.LockedField,
+    number: com.kmworks.kmreader.ui.components.LockedField,
+    numberSort: com.kmworks.kmreader.ui.components.LockedField,
+    releaseDate: com.kmworks.kmreader.ui.components.LockedField,
+    isbn: com.kmworks.kmreader.ui.components.LockedField,
+    summary: com.kmworks.kmreader.ui.components.LockedField,
 ) {
-    OutlinedTextField(
-        value = title,
-        onValueChange = onTitleChange,
-        label = { Text("标题") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+    LockableTextField(stringResource(R.string.common_title), title)
+    LockableTextField(stringResource(R.string.detail_field_number), number)
+    LockableTextField(stringResource(R.string.detail_field_sort_number), numberSort)
+    LockableTextField(
+        stringResource(R.string.detail_field_release_date),
+        releaseDate,
+        placeholder = "yyyy-MM-dd",
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
-            value = number,
-            onValueChange = onNumberChange,
-            label = { Text("号码") },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-        OutlinedTextField(
-            value = numberSort,
-            onValueChange = onNumberSortChange,
-            label = { Text("排序号") },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-    }
-    OutlinedTextField(
-        value = releaseDate,
-        onValueChange = onReleaseDateChange,
-        label = { Text("发行日期") },
-        placeholder = { Text("yyyy-MM-dd") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = isbn,
-        onValueChange = onIsbnChange,
-        label = { Text("ISBN") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = summary,
-        onValueChange = onSummaryChange,
-        label = { Text("摘要") },
-        minLines = 3,
-        maxLines = 10,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    LockableTextField(stringResource(R.string.detail_field_isbn), isbn)
+    LockableTextField(stringResource(R.string.book_summary), summary, singleLine = false)
 }
 
 @Composable
 private fun AuthorsTab(
     authors: List<Creator>,
+    locked: Boolean,
+    onToggleLock: () -> Unit,
     onRemove: (Int) -> Unit,
     onAdd: (String, AuthorRole, String?) -> Unit,
 ) {
@@ -361,9 +430,10 @@ private fun AuthorsTab(
     var customRole by rememberSaveable { mutableStateOf("") }
     var roleMenuOpen by remember { mutableStateOf(false) }
 
+    LockableTabHeader(stringResource(R.string.detail_section_authors), locked, onToggleLock)
     if (authors.isEmpty()) {
         Text(
-            text = "暂无作者",
+            text = stringResource(R.string.detail_empty_authors),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -378,13 +448,13 @@ private fun AuthorsTab(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = creator.roleLabel,
+                    text = creator.roleLabelText(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             IconButton(onClick = { onRemove(index) }) {
-                Icon(Icons.Filled.Delete, contentDescription = "删除作者")
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.detail_remove_author))
             }
         }
     }
@@ -394,7 +464,7 @@ private fun AuthorsTab(
     OutlinedTextField(
         value = name,
         onValueChange = { name = it },
-        label = { Text("作者姓名") },
+        label = { Text(stringResource(R.string.detail_author_name)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -402,11 +472,11 @@ private fun AuthorsTab(
         OutlinedButton(
             onClick = { roleMenuOpen = true },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("角色：${role.label}") }
+        ) { Text(stringResource(R.string.detail_role_format, stringResource(role.labelRes))) }
         DropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
             (AuthorRole.predefined + AuthorRole.Custom).forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = { Text(stringResource(option.labelRes)) },
                     onClick = {
                         role = option
                         roleMenuOpen = false
@@ -419,7 +489,7 @@ private fun AuthorsTab(
         OutlinedTextField(
             value = customRole,
             onValueChange = { customRole = it },
-            label = { Text("自定义角色") },
+            label = { Text(stringResource(R.string.detail_custom_role)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -437,20 +507,23 @@ private fun AuthorsTab(
         },
         enabled = pending,
         modifier = Modifier.fillMaxWidth(),
-    ) { Text("添加作者") }
+    ) { Text(stringResource(R.string.detail_add_author)) }
 }
 
 @Composable
 private fun TagsTab(
     tags: List<String>,
+    locked: Boolean,
+    onToggleLock: () -> Unit,
     onRemove: (Int) -> Unit,
     onAdd: (String) -> Unit,
 ) {
     var newTag by rememberSaveable { mutableStateOf("") }
 
+    LockableTabHeader(stringResource(R.string.detail_section_tags), locked, onToggleLock)
     if (tags.isEmpty()) {
         Text(
-            text = "暂无标签",
+            text = stringResource(R.string.detail_empty_tags),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -465,7 +538,7 @@ private fun TagsTab(
                 overflow = TextOverflow.Ellipsis,
             )
             IconButton(onClick = { onRemove(index) }) {
-                Icon(Icons.Filled.Delete, contentDescription = "删除标签")
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.detail_remove_tag))
             }
         }
     }
@@ -476,7 +549,7 @@ private fun TagsTab(
         OutlinedTextField(
             value = newTag,
             onValueChange = { newTag = it },
-            label = { Text("标签") },
+            label = { Text(stringResource(R.string.detail_section_tags)) },
             singleLine = true,
             modifier = Modifier.weight(1f),
         )
@@ -486,22 +559,25 @@ private fun TagsTab(
                 newTag = ""
             },
             enabled = newTag.isNotBlank(),
-        ) { Icon(Icons.Filled.Add, contentDescription = "添加标签") }
+        ) { Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.detail_add_tag)) }
     }
 }
 
 @Composable
 private fun LinksTab(
     links: List<Pair<String, String>>,
+    locked: Boolean,
+    onToggleLock: () -> Unit,
     onRemove: (Int) -> Unit,
     onAdd: (String, String) -> Unit,
 ) {
     var label by rememberSaveable { mutableStateOf("") }
     var url by rememberSaveable { mutableStateOf("") }
 
+    LockableTabHeader(stringResource(R.string.detail_section_links), locked, onToggleLock)
     if (links.isEmpty()) {
         Text(
-            text = "暂无链接",
+            text = stringResource(R.string.detail_empty_links),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -524,7 +600,7 @@ private fun LinksTab(
                 )
             }
             IconButton(onClick = { onRemove(index) }) {
-                Icon(Icons.Filled.Delete, contentDescription = "删除链接")
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.detail_remove_link))
             }
         }
     }
@@ -534,14 +610,14 @@ private fun LinksTab(
     OutlinedTextField(
         value = label,
         onValueChange = { label = it },
-        label = { Text("链接名称") },
+        label = { Text(stringResource(R.string.detail_field_link_name)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
         value = url,
         onValueChange = { url = it },
-        label = { Text("链接地址") },
+        label = { Text(stringResource(R.string.detail_field_link_url)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -553,9 +629,22 @@ private fun LinksTab(
         },
         enabled = label.isNotBlank() && url.isNotBlank(),
         modifier = Modifier.fillMaxWidth(),
-    ) { Text("添加链接") }
+    ) { Text(stringResource(R.string.detail_add_link)) }
 }
 
-/** 排序号显示时去掉多余的 .0。 */
+/** Notable entities tab (mirrors iOS NotableEntitiesEditor; content shared via NotableEntitiesContent). */
+@Composable
+private fun NotableEntitiesTab(
+    entities: List<NotableEntity>,
+    locked: Boolean,
+    onToggleLock: () -> Unit,
+    onRemove: (Int) -> Unit,
+    onAdd: (kind: String, name: String) -> Unit,
+) {
+    LockableTabHeader(stringResource(R.string.browse_kind_notable), locked, onToggleLock)
+    NotableEntitiesContent(entities = entities, onRemove = onRemove, onAdd = onAdd)
+}
+
+/** Strips the redundant .0 when showing the sort number. */
 private fun formatNumberSort(value: Float): String =
     if (value % 1f == 0f) value.toInt().toString() else value.toString()

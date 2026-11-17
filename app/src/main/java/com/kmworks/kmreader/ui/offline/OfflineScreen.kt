@@ -40,11 +40,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.download.DownloadTaskUi
 import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 
 /** Downloads tab (mirrors OfflineView + OfflineTasksView + OfflineDownloadedBookGroupView + ReadListOfflinePolicyMenuItems). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,19 +67,22 @@ fun OfflineScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("下载") },
+                title = { Text(stringResource(R.string.offline_title)) },
                 actions = {
-                    // Library scope (mirrors LibraryScopeMenu)：真实库列表，过滤队列与已下载
+                    // Library scope (mirrors LibraryScopeMenu): real library list filtering queue and downloads
                     Box {
                         IconButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(Icons.Outlined.Checklist, contentDescription = "库范围")
+                            Icon(
+                                Icons.Outlined.Checklist,
+                                contentDescription = stringResource(R.string.offline_library_scope),
+                            )
                         }
                         DropdownMenu(
                             expanded = scopeMenuOpen,
                             onDismissRequest = { scopeMenuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("全部书库") },
+                                text = { Text(stringResource(R.string.common_all_libraries)) },
                                 onClick = {
                                     viewModel.setLibraryScope(null)
                                     scopeMenuOpen = false
@@ -106,12 +112,20 @@ fun OfflineScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp + LocalNavOverlaySpace.current,
+            ),
         ) {
             item(key = "storage") {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("存储占用", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            stringResource(R.string.offline_storage_usage),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
                         Spacer(Modifier.height(8.dp))
                         val total = storage.second
                         LinearProgressIndicator(
@@ -124,7 +138,11 @@ fun OfflineScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "已下载 ${formatBytes(storage.first)}，共 ${formatBytes(total)}",
+                            text = stringResource(
+                                R.string.offline_storage_detail,
+                                formatBytes(storage.first),
+                                formatBytes(total),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -133,14 +151,14 @@ fun OfflineScreen(
                 Spacer(Modifier.height(24.dp))
 
                 // Download queue (mirrors OfflineTasksView sections)
-                Text("下载队列", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.offline_queue), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
             }
 
             if (tasks.isEmpty()) {
                 item(key = "queueEmpty") {
                     Text(
-                        "暂无下载任务",
+                        stringResource(R.string.offline_queue_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -165,31 +183,31 @@ fun OfflineScreen(
 
             item(key = "policy") {
                 Spacer(Modifier.height(24.dp))
-                Text("下载策略", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.offline_policy), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
-                // 策略开关（对齐 ReadListOfflinePolicyMenuItems）
+                // Policy switches (aligned with ReadListOfflinePolicyMenuItems)
                 PolicySwitchRow(
-                    title = "自动下载未读内容",
-                    subtitle = "新内容（SSE）或打开系列详情时自动下载未读书籍",
+                    title = stringResource(R.string.offline_auto_download_unread),
+                    subtitle = stringResource(R.string.offline_auto_download_unread_caption),
                     checked = autoDownloadUnread,
                     onCheckedChange = { viewModel.setAutoDownloadUnread(it) },
                 )
                 PolicySwitchRow(
-                    title = "仅 Wi-Fi 下载",
-                    subtitle = "使用蜂窝网络时暂停下载",
+                    title = stringResource(R.string.offline_wifi_only),
+                    subtitle = stringResource(R.string.offline_wifi_only_caption),
                     checked = wifiOnly,
                     onCheckedChange = { viewModel.setWifiOnly(it) },
                 )
 
                 Spacer(Modifier.height(24.dp))
-                Text("已下载书籍", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.offline_downloaded), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
             }
 
             if (downloaded.isEmpty()) {
                 item(key = "downloadedEmpty") {
                     Text(
-                        "暂无已下载内容",
+                        stringResource(R.string.offline_downloaded_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -234,7 +252,7 @@ private fun DownloadTaskRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(task.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Text(
-                "${task.pageDone}/${task.pageTotal} 页",
+                stringResource(R.string.offline_task_pages, task.pageDone, task.pageTotal),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -250,7 +268,7 @@ private fun DownloadTaskRow(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "${(task.progress * 100).toInt()}% · ${task.status.label}",
+                        "${(task.progress * 100).toInt()}% · ${stringResource(R.string.offline_status_downloading)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -265,7 +283,7 @@ private fun DownloadTaskRow(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "已暂停 · 已下载 ${task.pageDone} 页，恢复后续传",
+                        stringResource(R.string.offline_task_paused_detail, task.pageDone),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -273,7 +291,7 @@ private fun DownloadTaskRow(
 
                 DownloadTaskUi.Status.Failed -> {
                     Text(
-                        "下载失败，可重试",
+                        stringResource(R.string.offline_task_failed_detail),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -285,14 +303,14 @@ private fun DownloadTaskRow(
             TextButton(onClick = onPauseResume) {
                 Text(
                     when (task.status) {
-                        DownloadTaskUi.Status.Downloading -> "暂停"
-                        DownloadTaskUi.Status.Paused -> "继续"
-                        DownloadTaskUi.Status.Failed -> "重试"
+                        DownloadTaskUi.Status.Downloading -> stringResource(R.string.offline_pause)
+                        DownloadTaskUi.Status.Paused -> stringResource(R.string.offline_resume)
+                        DownloadTaskUi.Status.Failed -> stringResource(R.string.common_retry)
                     },
                 )
             }
             TextButton(onClick = onCancel) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }
@@ -342,14 +360,14 @@ private fun DownloadedRow(item: DownloadedBookUi, onRemove: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = "${item.pageCount} 页 · ${formatBytes(item.sizeBytes)}",
+                text = stringResource(R.string.offline_book_pages_size, item.pageCount, formatBytes(item.sizeBytes)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Icon(
             imageVector = Icons.Filled.CheckCircle,
-            contentDescription = "已完成",
+            contentDescription = stringResource(R.string.offline_completed),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
@@ -357,7 +375,7 @@ private fun DownloadedRow(item: DownloadedBookUi, onRemove: () -> Unit) {
         IconButton(onClick = onRemove) {
             Icon(
                 Icons.Filled.DeleteOutline,
-                contentDescription = "删除释放空间",
+                contentDescription = stringResource(R.string.offline_delete_free_space),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

@@ -9,25 +9,28 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
+import com.kmworks.kmreader.R
 import kotlin.math.roundToInt
 
 /**
- * 阅读器设置面板（对齐原作 Views/Sheets/Divina/ReaderSettingsSheet.swift 的分组与选项）：
- * 外观 / 翻页 / 手势 / 性能 / 图像处理。所有项都直接写入 [DivinaSettings] 并持久化，改完即生效。
+ * Reader settings panel (mirrors the grouping and options of the original Views/Sheets/Divina/ReaderSettingsSheet.swift):
+ * Appearance / Page Turn / Gestures / Performance / Image Processing. Every option writes directly into [DivinaSettings],
+ * is persisted, and takes effect immediately.
  *
- * 与原作差异（记录在 README 差异清单）：
- * - 翻页过渡只做「滚动」「覆盖」；「仿真卷页」为 iOS PageCurl 专有，Android 不实现
- * - 面板模式（Panel Mode）、Waifu2x 超分、Live Text 按项目红线不做
+ * Differences from the original (recorded in the README differences list):
+ * - Page transitions only offer "Scroll" and "Cover"; "Page Curl" is iOS PageCurl-specific and not implemented on Android
+ * - Panel Mode, Waifu2x upscaling, and Live Text are not implemented per project constraints
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,7 +42,7 @@ fun ReaderSettingsSheet(
 ) {
     val isWebtoon = direction == ReadingDirection.Webtoon
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -47,38 +50,38 @@ fun ReaderSettingsSheet(
                 .padding(bottom = 28.dp),
         ) {
             Text(
-                "阅读器设置",
+                stringResource(R.string.reader_settings_title),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
 
-            SettingsGroupTitle("外观")
+            SettingsGroupTitle(stringResource(R.string.reader_group_appearance))
             SettingsChoiceRow(
-                label = "阅读器背景",
+                label = stringResource(R.string.reader_background_title),
                 options = ReaderBackground.entries,
                 selected = settings.background,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(background = value) } },
             )
-            SettingsToggleRow("显示页码", settings.showPageNumber) { value ->
+            SettingsToggleRow(stringResource(R.string.reader_show_page_number), settings.showPageNumber) { value ->
                 onUpdate { it.copy(showPageNumber = value) }
             }
-            SettingsToggleRow("页面阴影", settings.showPageShadow) { value ->
+            SettingsToggleRow(stringResource(R.string.reader_show_page_shadow), settings.showPageShadow) { value ->
                 onUpdate { it.copy(showPageShadow = value) }
             }
-            SettingsToggleRow("控件渐变背景", settings.controlsGradient) { value ->
+            SettingsToggleRow(stringResource(R.string.reader_controls_gradient), settings.controlsGradient) { value ->
                 onUpdate { it.copy(controlsGradient = value) }
             }
-            SettingsToggleRow("阅读时显示进度条", settings.showProgressBar) { value ->
+            SettingsToggleRow(stringResource(R.string.reader_show_progress_bar), settings.showProgressBar) { value ->
                 onUpdate { it.copy(showProgressBar = value) }
             }
-            // 对齐原作 ReaderSettingsSheet.keepScreenAwakeWhileReading（默认 false）
-            SettingsToggleRow("阅读时保持屏幕常亮", settings.keepScreenAwake) { value ->
+            // Mirrors the original ReaderSettingsSheet.keepScreenAwakeWhileReading (default false)
+            SettingsToggleRow(stringResource(R.string.reader_keep_screen_awake), settings.keepScreenAwake) { value ->
                 onUpdate { it.copy(keepScreenAwake = value) }
             }
             if (isWebtoon) {
                 SettingsSliderRow(
-                    label = "条漫页面宽度",
+                    label = stringResource(R.string.reader_webtoon_page_width),
                     value = settings.webtoonPageWidthPercentage,
                     valueRange = 50f..100f,
                     steps = 9,
@@ -89,40 +92,40 @@ fun ReaderSettingsSheet(
                 )
             }
 
-            SettingsGroupTitle("翻页")
+            SettingsGroupTitle(stringResource(R.string.reader_group_page_turn))
             if (!isWebtoon) {
                 SettingsChoiceRow(
-                    label = "翻页动画样式",
+                    label = stringResource(R.string.reader_transition_title),
                     options = PageTransitionStyle.entries,
                     selected = settings.pageTransition,
-                    optionLabel = { it.label },
+                    optionLabel = { stringResource(it.labelRes) },
                     onSelect = { value -> onUpdate { it.copy(pageTransition = value) } },
                 )
             }
-            SettingsToggleRow("点按翻页动画", settings.animateTapTurns) { value ->
+            SettingsToggleRow(stringResource(R.string.reader_animate_tap_turns), settings.animateTapTurns) { value ->
                 onUpdate { it.copy(animateTapTurns = value) }
             }
             SettingsChoiceRow(
-                label = "点按区域布局",
+                label = stringResource(R.string.reader_tap_zone_layout),
                 options = TapZoneMode.entries,
                 selected = settings.tapZoneMode,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(tapZoneMode = value) } },
             )
             if (!settings.tapZoneMode.isDisabled) {
                 SettingsChoiceRow(
-                    label = "点按区域镜像",
+                    label = stringResource(R.string.reader_tap_zone_inversion),
                     options = TapZoneInversion.entries,
                     selected = settings.tapZoneInversion,
-                    optionLabel = { it.label },
+                    optionLabel = { stringResource(it.labelRes) },
                     onSelect = { value -> onUpdate { it.copy(tapZoneInversion = value) } },
                 )
-                SettingsToggleRow("显示点按区域提示", settings.showTapZoneHints) { value ->
+                SettingsToggleRow(stringResource(R.string.reader_show_tap_zone_hints), settings.showTapZoneHints) { value ->
                     onUpdate { it.copy(showTapZoneHints = value) }
                 }
                 if (isWebtoon) {
                     SettingsSliderRow(
-                        label = "条漫点按滚动高度",
+                        label = stringResource(R.string.reader_webtoon_tap_scroll_height),
                         value = settings.webtoonTapScrollPercentage,
                         valueRange = 25f..100f,
                         steps = 14,
@@ -134,17 +137,17 @@ fun ReaderSettingsSheet(
                 }
             }
 
-            SettingsGroupTitle("手势")
+            SettingsGroupTitle(stringResource(R.string.reader_group_gestures))
             SettingsChoiceRow(
-                label = "双击动作",
+                label = stringResource(R.string.reader_double_tap_action),
                 options = DoubleTapZoomMode.entries,
                 selected = settings.doubleTapZoomMode,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(doubleTapZoomMode = value) } },
             )
             if (settings.doubleTapZoomMode == DoubleTapZoomMode.Enabled) {
                 SettingsSliderRow(
-                    label = "双击缩放倍率",
+                    label = stringResource(R.string.reader_double_tap_zoom_scale),
                     value = settings.doubleTapZoomScale,
                     valueRange = 1f..8f,
                     steps = 13,
@@ -155,38 +158,38 @@ fun ReaderSettingsSheet(
                 )
             }
             SettingsChoiceRow(
-                label = "长按动作",
+                label = stringResource(R.string.reader_long_press_action),
                 options = LongPressAction.entries,
                 selected = settings.longPressAction,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(longPressAction = value) } },
             )
 
-            SettingsGroupTitle("性能")
+            SettingsGroupTitle(stringResource(R.string.reader_group_performance))
             SettingsChoiceRow(
-                label = "图片预加载",
+                label = stringResource(R.string.reader_preload_title),
                 options = PreloadProfile.entries,
                 selected = settings.preloadProfile,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(preloadProfile = value) } },
             )
             SettingsHintText(
                 when (settings.preloadProfile) {
-                    PreloadProfile.LowMemory -> "解码更少的邻近页面以降低内存占用，翻页时可能更常等待加载。"
-                    PreloadProfile.Balanced -> "使用默认预加载窗口，兼顾内存占用与翻页流畅度。"
-                    PreloadProfile.FastPageTurns -> "预解码更多邻近页面以加快翻页，代价是更高的内存占用。"
+                    PreloadProfile.LowMemory -> stringResource(R.string.reader_preload_hint_low_memory)
+                    PreloadProfile.Balanced -> stringResource(R.string.reader_preload_hint_balanced)
+                    PreloadProfile.FastPageTurns -> stringResource(R.string.reader_preload_hint_fast_page_turns)
                 },
             )
 
-            SettingsGroupTitle("图像处理")
+            SettingsGroupTitle(stringResource(R.string.reader_group_image_processing))
             SettingsChoiceRow(
-                label = "裁边模式",
+                label = stringResource(R.string.reader_crop_title),
                 options = BorderCropMode.entries,
                 selected = settings.borderCrop,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { value -> onUpdate { it.copy(borderCrop = value) } },
             )
-            SettingsHintText("裁掉页面四周与底色相同的留白；关闭后按原图显示。")
+            SettingsHintText(stringResource(R.string.reader_crop_hint))
         }
     }
 }
@@ -216,7 +219,7 @@ private fun <T> SettingsChoiceRow(
     label: String,
     options: List<T>,
     selected: T,
-    optionLabel: (T) -> String,
+    optionLabel: @Composable (T) -> String,
     onSelect: (T) -> Unit,
 ) {
     Column(modifier = Modifier.padding(vertical = 6.dp)) {

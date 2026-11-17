@@ -1,38 +1,46 @@
 package com.kmworks.kmreader.ui.dashboard
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.Paged
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.server.ServerProfileStore
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Section detail ("更多") state; items are Book/Series, paged with bottom load-more. */
+/** Section detail ("More") state; items are Book/Series, paged with bottom load-more. */
 data class DashboardSectionDetailUiState(
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
     val error: String? = null,
     val items: List<Any> = emptyList(),
     val hasMore: Boolean = false,
-    /** 库范围菜单数据：服务器真实库列表。 */
+    /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
-    /** 库范围选择（null = 全部）；分页查询经 libraryIds 参数过滤。 */
-    val libraryScope: String? = null,
+    /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); session-level choice, defaults to pinned. */
+    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
+    val pinnedIds: Set<String> = emptySet(),
 )
 
 /**
- * Re-fetches a dashboard section feed with page/size so the "更多" page can load more,
+ * Re-fetches a dashboard section feed with page/size so the "More" page can load more,
  * aligned with DashboardSectionDetailView (pageSize 50).
  */
 @HiltViewModel
@@ -40,6 +48,8 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val libraryRepository: LibraryRepository,
     private val serverProfileStore: ServerProfileStore,
+    private val appSettings: AppSettingsStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardSectionDetailUiState())
@@ -48,8 +58,30 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private var sectionId: String? = null
     private var page = 0
     private var loadingMore = false
-    /** 代际号：库范围切换/重新绑定后，丢弃在途旧查询的结果。 */
+    /** Generation counter: after a scope switch or rebind, discard results of in-flight stale queries. */
     private var generation = 0
+
+    init {
+        // Pinned-set change: re-query when the current scope is pinned (aligned with the iOS libraryIds-driven refresh)
+        viewModelScope.launch {
+            appSettings.pinnedLibraryIds.collect { pinned ->
+                val changed = pinned != _state.value.pinnedIds
+                _state.update { it.copy(pinnedIds = pinned) }
+                if (changed &&
+                    sectionId != null &&
+                    _state.value.libraryScope == AppSettingsStore.SCOPE_PINNED
+                ) {
+                    generation++
+                    page = 0
+                    loadingMore = false
+                    _state.update {
+                        it.copy(items = emptyList(), hasMore = false, error = null, loading = true)
+                    }
+                    loadPage(0)
+                }
+            }
+        }
+    }
 
     /** Bind to a section; only the first call per section id triggers a fresh load. */
     fun start(section: DashboardSection<out Any>) {
@@ -66,15 +98,15 @@ class DashboardSectionDetailViewModel @Inject constructor(
         }
     }
 
-    /** 库范围切换（LibraryScopeMenu）：重置分页并按 libraryIds 重新拉取（null = 全部）。 */
-    fun setLibraryScope(libraryId: String?) {
-        if (_state.value.libraryScope == libraryId) return
+    /** Library scope switch (pinned/all/library:{id}, LibraryScopeMenu): reset paging and re-fetch with libraryIds. */
+    fun setScope(scope: String) {
+        if (_state.value.libraryScope == scope) return
         generation++
         page = 0
         loadingMore = false
         _state.update {
             it.copy(
-                libraryScope = libraryId,
+                libraryScope = scope,
                 items = emptyList(),
                 hasMore = false,
                 error = null,
@@ -85,7 +117,12 @@ class DashboardSectionDetailViewModel @Inject constructor(
         viewModelScope.launch { loadPage(0) }
     }
 
-    /** 触底加载下一页（并发保护 + 无更多直接返回）。 */
+    /** Overwrite the pinned set (saved from the pin-editing sheet, persisted in AppSettingsStore). */
+    fun setPinnedLibraries(ids: Set<String>) {
+        viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
+    }
+
+    /** Load the next page when scrolled to the bottom (concurrency guard + early return when no more). */
     fun loadMore() {
         if (loadingMore || !_state.value.hasMore) return
         loadingMore = true
@@ -98,10 +135,14 @@ class DashboardSectionDetailViewModel @Inject constructor(
         _state.update { it.copy(loadingMore = true) }
         try {
             val result = fetch(id, target, PAGE_SIZE)
-            if (gen != generation) return // 代际已切换，丢弃旧结果
+            if (gen != generation) return // generation advanced; discard the stale result
             if (result == null) {
                 _state.update {
-                    it.copy(loading = false, loadingMore = false, error = "该分区暂不支持分页")
+                    it.copy(
+                        loading = false,
+                        loadingMore = false,
+                        error = context.getString(R.string.dashboard_error_pagination_unsupported),
+                    )
                 }
                 return
             }
@@ -122,9 +163,13 @@ class DashboardSectionDetailViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (gen != generation) return // 代际已切换，不覆盖新查询的状态
+            if (gen != generation) return // generation advanced; do not overwrite the newer query's state
             _state.update {
-                it.copy(loading = false, loadingMore = false, error = e.message ?: "加载失败")
+                it.copy(
+                    loading = false,
+                    loadingMore = false,
+                    error = e.message ?: context.getString(R.string.common_load_failed),
+                )
             }
         } finally {
             if (gen == generation) loadingMore = false
@@ -132,7 +177,10 @@ class DashboardSectionDetailViewModel @Inject constructor(
     }
 
     private suspend fun fetch(sectionId: String, page: Int, size: Int): Paged<Any>? {
-        val libraryIds = _state.value.libraryScope?.let { listOf(it) }
+        // Read the pinned set straight from DataStore: avoids a startup race where start()/load runs
+        // before the first pinnedIds emission and mis-resolves the pinned scope to null (= all libraries).
+        val pinned = appSettings.pinnedLibraryIds.first()
+        val libraryIds = resolveLibraryScopeIds(_state.value.libraryScope, pinned)
         return when (sectionId) {
             "keepReading" -> searchRepository.keepReadingPage(
                 page, size, libraryIds,
@@ -157,7 +205,7 @@ class DashboardSectionDetailViewModel @Inject constructor(
     }
 
     private companion object {
-        /** 原作 DashboardSectionDetailView pageSize。 */
+        /** pageSize of the original DashboardSectionDetailView. */
         const val PAGE_SIZE = 50
     }
 }

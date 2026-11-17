@@ -31,7 +31,7 @@ data class SseEvent(
     val kind: SseEventKind = kindOf(name)
 
     companion object {
-        /** 按事件名前缀归类（对齐原作 SSEEvent.swift 的枚举命名）。 */
+        /** Classify by event-name prefix (mirrors the enum naming of the original SSEEvent.swift). */
         fun kindOf(name: String): SseEventKind = when {
             name.startsWith("ThumbnailSeriesCollection") -> SseEventKind.Collection
             name.startsWith("ThumbnailReadList") -> SseEventKind.ReadList

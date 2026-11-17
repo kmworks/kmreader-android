@@ -9,12 +9,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.LibraryAdd
+import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,19 +46,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
+import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSectionSetting
-import com.kmworks.kmreader.data.label
+import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import kotlin.math.roundToInt
 
 /**
- * 仪表盘自定义（对齐 iOS SettingsDashboardView）：
- * 选项开关 + 分区拖拽排序（对应 iOS List .onMove）+ 分区显示开关，全部持久化到 AppSettingsStore。
+ * Dashboard customization (aligned with iOS SettingsDashboardView):
+ * option switches + section drag reordering (iOS List .onMove) + section visibility switches,
+ * all persisted to AppSettingsStore.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +75,8 @@ fun SettingsDashboardScreen(
     val visibleSections = state.visibleSections
     val hiddenSections = state.hiddenSections
 
-    // 拖拽排序的本地顺序：非拖拽时跟随持久化状态，拖拽期间由手势驱动，松手时一次性提交
+    // Local order for drag reordering: follows the persisted state when idle, is gesture-driven
+    // while dragging, and is committed once on release
     val sectionsById = remember(visibleSections) { visibleSections.associateBy { it.id } }
     var dragOrder by remember { mutableStateOf<List<String>?>(null) }
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -76,10 +92,13 @@ fun SettingsDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("仪表盘") },
+                title = { Text(stringResource(R.string.dashboard_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
                     }
                 },
             )
@@ -91,26 +110,26 @@ fun SettingsDashboardScreen(
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            item { GroupHeader("选项") }
+            item { GroupHeader(stringResource(R.string.dashboard_settings_options)) }
             item {
                 SwitchRow(
-                    title = "卡片形态菜单",
-                    subtitle = "在分区标题右侧显示卡片形态切换",
+                    title = stringResource(R.string.dashboard_card_kind_menu),
+                    subtitle = stringResource(R.string.dashboard_card_kind_menu_caption),
                     checked = state.cardKindMenu,
                     onCheckedChange = viewModel::setCardKindMenu,
                 )
             }
             item {
                 SwitchRow(
-                    title = "阅读列表续读",
-                    subtitle = "显示「进行中的阅读列表」分区",
+                    title = stringResource(R.string.dashboard_readlist_continuation),
+                    subtitle = stringResource(R.string.dashboard_readlist_continuation_caption),
                     checked = state.continuation,
                     onCheckedChange = viewModel::setContinuation,
                 )
             }
             item {
                 Text(
-                    text = "范围说明：分区内容按仪表盘顶栏的库范围（全部 / 已钉选 / 单库）过滤。",
+                    text = stringResource(R.string.dashboard_settings_scope_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -118,10 +137,10 @@ fun SettingsDashboardScreen(
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
 
-            item { GroupHeader("分区") }
+            item { GroupHeader(stringResource(R.string.dashboard_settings_sections)) }
             item {
                 Text(
-                    text = "长按右侧手柄拖动调整顺序；开关控制是否在仪表盘显示。",
+                    text = stringResource(R.string.dashboard_settings_reorder_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -138,6 +157,7 @@ fun SettingsDashboardScreen(
                 }
                 SectionSettingRow(
                     setting = setting,
+                    effectiveKind = state.overrides[setting.id] ?: setting.defaultKind,
                     dragging = isDragging,
                     modifier = Modifier
                         .zIndex(if (isDragging) 1f else 0f)
@@ -184,7 +204,7 @@ fun SettingsDashboardScreen(
 
             if (hiddenSections.isNotEmpty()) {
                 item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-                item { GroupHeader("隐藏分区") }
+                item { GroupHeader(stringResource(R.string.dashboard_settings_hidden_sections)) }
                 items(hiddenSections.size, key = { index -> hiddenSections[index].id }) { index ->
                     val setting = hiddenSections[index]
                     HiddenSectionRow(
@@ -202,17 +222,21 @@ fun SettingsDashboardScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
                 ) {
-                    Text("恢复默认", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.dashboard_reset_default),
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
     }
 }
 
-/** 可见分区一行：名称 + 默认卡片形态 + 显示开关 + 拖拽手柄（长按拖动）。 */
+/** A visible-section row: icon + name + effective card kind + visibility switch + drag handle (long-press to drag). */
 @Composable
 private fun SectionSettingRow(
     setting: DashboardSectionSetting,
+    effectiveKind: DashboardCardKind,
     dragging: Boolean,
     modifier: Modifier = Modifier,
     onDragStart: () -> Unit,
@@ -226,14 +250,32 @@ private fun SectionSettingRow(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Section icon (aligned with the row-leading section.icon in iOS SettingsDashboardView)
+        Icon(
+            imageVector = setting.icon(),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .width(24.dp)
+                .size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
+            val defaultKindLabel = stringResource(dashboardCardKindLabelRes(setting.defaultKind))
             Text(
-                text = setting.title,
+                text = dashboardSectionTitleRes(setting.id)?.let { stringResource(it) } ?: setting.title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "默认：${setting.defaultKind.label}",
+                text = if (effectiveKind == setting.defaultKind) {
+                    stringResource(R.string.dashboard_kind_default_line, defaultKindLabel)
+                } else {
+                    stringResource(
+                        R.string.dashboard_kind_custom_line,
+                        stringResource(dashboardCardKindLabelRes(effectiveKind)),
+                    )
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -241,7 +283,11 @@ private fun SectionSettingRow(
         Switch(checked = true, onCheckedChange = { onToggle() })
         Icon(
             imageVector = Icons.Filled.DragHandle,
-            contentDescription = if (dragging) "拖动中" else "长按拖动排序",
+            contentDescription = if (dragging) {
+                stringResource(R.string.dashboard_drag_dragging)
+            } else {
+                stringResource(R.string.dashboard_drag_hint)
+            },
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(start = 8.dp)
@@ -260,7 +306,7 @@ private fun SectionSettingRow(
     }
 }
 
-/** 隐藏分区一行：名称 + 加回按钮。 */
+/** A hidden-section row: icon + name + re-add button. */
 @Composable
 private fun HiddenSectionRow(
     setting: DashboardSectionSetting,
@@ -272,22 +318,47 @@ private fun HiddenSectionRow(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            imageVector = setting.icon(),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier
+                .width(24.dp)
+                .size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = setting.title,
+                text = dashboardSectionTitleRes(setting.id)?.let { stringResource(it) } ?: setting.title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "已隐藏",
+                text = stringResource(R.string.dashboard_hidden_badge),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         IconButton(onClick = onShow) {
-            Icon(Icons.Filled.Add, contentDescription = "显示分区")
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = stringResource(R.string.dashboard_show_section),
+            )
         }
     }
+}
+
+/** Row-leading section icon (aligned with the semantic mapping of iOS DashboardSection.icon). */
+private fun DashboardSectionSetting.icon(): ImageVector = when (id) {
+    ReadListsInProgressSectionId -> Icons.AutoMirrored.Filled.PlaylistPlay
+    "keepReading" -> Icons.AutoMirrored.Filled.MenuBook
+    "onDeck" -> Icons.Outlined.Schedule
+    "recentlyReleasedBooks" -> Icons.Outlined.NewReleases
+    "recentlyAddedBooks" -> Icons.Outlined.LibraryAdd
+    "recentlyAddedSeries" -> Icons.Outlined.Collections
+    "recentlyUpdatedSeries" -> Icons.Outlined.Update
+    "recentlyReadBooks" -> Icons.Outlined.History
+    else -> Icons.Outlined.Dashboard
 }
 
 @Composable

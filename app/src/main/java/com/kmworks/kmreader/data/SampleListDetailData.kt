@@ -1,11 +1,11 @@
 package com.kmworks.kmreader.data
 
-/** 智能列表目标类型（对齐 SmartList.target：book/series）。 */
+/** Smart list target type (aligned with SmartList.target: book/series). */
 enum class SmartListTarget(val label: String) {
-    Book("书籍"), Series("系列")
+    Book("Books"), Series("Series")
 }
 
-/** 收藏详情导航模型（真实内容由 CollectionDetailViewModel 经注册表加载覆盖）。 */
+/** Collection detail navigation model (real content is loaded and overridden by CollectionDetailViewModel via the registry). */
 data class CollectionDetail(
     val id: Int,
     val name: String,
@@ -14,7 +14,7 @@ data class CollectionDetail(
     val seriesIds: List<Int>,
 )
 
-/** 阅读列表详情导航模型；bookIds 有序，顺序即阅读顺序（真实内容由 VM 覆盖）。 */
+/** Read list detail navigation model; bookIds are ordered and the order is the reading order (real content is overridden by the VM). */
 data class ReadListDetail(
     val id: Int,
     val name: String,
@@ -23,7 +23,7 @@ data class ReadListDetail(
     val bookIds: List<Int>,
 )
 
-/** 智能列表详情导航模型（真实内容由 SmartListDetailViewModel 经注册表加载覆盖）。 */
+/** Smart list detail navigation model (real content is loaded and overridden by SmartListDetailViewModel via the registry). */
 data class SmartListDetail(
     val id: Int,
     val name: String,
@@ -34,7 +34,21 @@ data class SmartListDetail(
     val seriesIds: List<Int> = emptyList(),
 )
 
-/** 书籍详情补充元数据（发布日期/大小/格式/路径/简介/作者/标签，由 BookDto 映射）。 */
+/** Server lock state of each book metadata field (BookMetadataDto.xxxLock passed through; all unlocked by default). */
+data class BookMetadataLocks(
+    val titleLock: Boolean = false,
+    val numberLock: Boolean = false,
+    val numberSortLock: Boolean = false,
+    val releaseDateLock: Boolean = false,
+    val isbnLock: Boolean = false,
+    val summaryLock: Boolean = false,
+    val authorsLock: Boolean = false,
+    val tagsLock: Boolean = false,
+    val linksLock: Boolean = false,
+    val notableEntitiesLock: Boolean = false,
+)
+
+/** Supplemental book detail metadata (release date/size/format/path/summary/authors/tags, mapped from BookDto). */
 data class BookDetailMeta(
     val releaseDate: String,
     val sizeLabel: String,
@@ -43,23 +57,13 @@ data class BookDetailMeta(
     val summary: String,
     val authors: List<Creator>,
     val tags: List<String>,
-    /** 可编辑元数据原始值（对齐 BookEditSheet 的 General/Links 字段）。 */
+    /** Raw values of the editable metadata (aligned with the General/Links fields of BookEditSheet). */
     val number: String = "",
     val numberSort: Float? = null,
     val isbn: String? = null,
     val links: List<Pair<String, String>> = emptyList(),
+    /** Notable entities (aligned with iOS book.metadata.notableEntities). */
+    val notableEntities: List<NotableEntity> = emptyList(),
+    /** Server lock state of each field (all false when there is no DTO). */
+    val locks: BookMetadataLocks = BookMetadataLocks(),
 )
-
-/**
- * 路由占位：演示假数据已移除，byId 返回空模型；详情页 ViewModel 按注册表反查 DTO id
- * 加载真实内容覆盖显示。
- */
-object SampleListDetailData {
-
-    fun collectionById(id: Int): CollectionDetail? = null
-
-    fun readListById(id: Int): ReadListDetail? = null
-
-    fun smartListById(id: Int): SmartListDetail =
-        SmartListDetail(id, "", null, SmartListTarget.Book, "")
-}

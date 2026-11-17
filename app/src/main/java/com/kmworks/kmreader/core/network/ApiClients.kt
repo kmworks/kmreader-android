@@ -27,13 +27,13 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
 
 /**
- * 由实例配置构建的全部 Komga API 客户端。
- * 认证：apiKey 走 `X-API-Key` 头；否则每次请求带 Basic Auth（Komga 同时支持，
- * 会话 cookie 非必需）。
+ * All Komga API clients built from an instance configuration.
+ * Authentication: an apiKey goes through the `X-API-Key` header; otherwise every request carries Basic
+ * Auth (Komga supports both; a session cookie is not required).
  */
 class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS) {
 
-    /** 规范化 base URL（缩略图等直连地址拼接用）。 */
+    /** Normalized base URL (used to compose direct URLs such as thumbnails). */
     val baseUrl: String = config.normalizedBaseUrl
 
     private val json = Json {
@@ -54,11 +54,11 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
                     header("Authorization", Credentials.basic(config.username, config.password))
                 }
             }.build()
-            // 网络层失败埋点：IO 异常与非 2xx 响应进 AppLog（日志页/分享可取证）。
+            // Network-layer failure instrumentation: IO exceptions and non-2xx responses go to AppLog (evidence available on the logs page / in shares).
             val response = try {
                 chain.proceed(request)
             } catch (e: Exception) {
-                AppLog.e("HTTP", "${request.method} ${request.url} 网络异常", e)
+                AppLog.e("HTTP", "${request.method} ${request.url} network error", e)
                 throw e
             }
             if (!response.isSuccessful) {
@@ -71,12 +71,12 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
         )
         .build()
 
-    /** SSE 长连用派生客户端：读超时置 0，认证拦截器继承。 */
+    /** Derived client for the SSE long connection: read timeout zeroed, auth interceptor inherited. */
     private val sseHttpClient: OkHttpClient = okHttpClient.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
-    /** 建立带认证的 SSE EventSource（端点由调用方给定）。 */
+    /** Build an authenticated SSE EventSource (endpoint supplied by the caller). */
     fun newEventSource(request: Request, listener: EventSourceListener): EventSource =
         EventSources.createFactory(sseHttpClient).newEventSource(request, listener)
 
@@ -97,14 +97,14 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
     val announcements: AnnouncementsApi by lazy { retrofit.create(AnnouncementsApi::class.java) }
     val userSession: UserSessionApi by lazy { retrofit.create(UserSessionApi::class.java) }
 
-    /** kmrs smart-lists（手写接口，openapi spec 未覆盖；stock 服务器 404）。 */
+    /** kmrs smart-lists (handwritten interface, not covered by the openapi spec; 404 on stock servers). */
     val smartLists: SmartListsApi by lazy { retrofit.create(SmartListsApi::class.java) }
 
-    /** server/info 能力探测 + logout（手写接口）。 */
+    /** server/info capability probing + logout (handwritten interface). */
     val serverApi: ServerApi by lazy { retrofit.create(ServerApi::class.java) }
 
     companion object {
-        /** 默认网络超时（秒），设置页可调（AppSettingsStore.networkTimeoutSeconds）。 */
+        /** Default network timeout (seconds), adjustable on the settings page (AppSettingsStore.networkTimeoutSeconds). */
         const val DEFAULT_TIMEOUT_SECONDS = 30
     }
 }

@@ -15,9 +15,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 仪表盘自定义（对齐 SettingsDashboardView 的 AppStorage DashboardConfiguration）：
- * 可见分区 = 有顺序的 id 列表，隐藏分区 = 不在该列表内的 id。
- * 全部持久化在 AppSettingsStore（DataStore），仪表盘按同一份配置渲染。
+ * Dashboard customization (aligned with the AppStorage DashboardConfiguration of SettingsDashboardView):
+ * visible sections = an ordered id list; hidden sections = ids not in that list.
+ * Everything is persisted in AppSettingsStore (DataStore); the dashboard renders from the same configuration.
  */
 data class DashboardSettingsUiState(
     val order: List<String> = emptyList(),
@@ -26,7 +26,7 @@ data class DashboardSettingsUiState(
     val continuation: Boolean = true,
     val overrides: Map<String, DashboardCardKind> = emptyMap(),
 ) {
-    /** 可见分区，按持久化顺序；未定制过的分区按默认顺序追加。 */
+    /** Visible sections in persisted order; sections never customized are appended in default order. */
     val visibleSections: List<DashboardSectionSetting>
         get() {
             val all = SampleDashboardData.dashboardSections
@@ -69,17 +69,7 @@ class SettingsDashboardViewModel @Inject constructor(
         initialValue = DashboardSettingsUiState(),
     )
 
-    fun move(sectionId: String, delta: Int) {
-        val ids = state.value.visibleSections.map { it.id }.toMutableList()
-        val index = ids.indexOf(sectionId)
-        if (index < 0) return
-        val target = (index + delta).coerceIn(0, ids.lastIndex)
-        if (target == index) return
-        ids.add(target, ids.removeAt(index))
-        viewModelScope.launch { appSettings.setDashboardSectionOrder(ids) }
-    }
-
-    /** 拖拽排序结束后整体提交可见分区顺序（对齐 iOS .onMove 的持久化时机）。 */
+    /** Commits the whole visible-section order once drag reordering ends (aligned with the persistence timing of iOS .onMove). */
     fun setOrder(ids: List<String>) {
         viewModelScope.launch { appSettings.setDashboardSectionOrder(ids) }
     }

@@ -18,8 +18,9 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- 应用图标变体（对齐 iOS AppIconOption：primary/classic/legacy）。
-             启动入口只挂在 alias 上，切换图标 = 启用对应 alias、禁用其余。 -->
+        <!-- App icon variants (mirrors iOS AppIconOption: primary/classic/legacy).
+             The launcher entry only lives on aliases; switching icon = enable one
+             alias and disable the rest. -->
         <activity-alias
             android:name=".AppIconPrimary"
             android:enabled="true"
@@ -60,13 +61,13 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- 启动期安装日志文件输出并接入 SSE 日志 -->
+        <!-- Installs log file output at startup and hooks it into SSE logs -->
         <provider
             android:name=".core.logging.LogInitProvider"
             android:authorities="${applicationId}.loginit"
             android:exported="false" />
 
-        <!-- 日志分享导出 -->
+        <!-- Log share/export -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

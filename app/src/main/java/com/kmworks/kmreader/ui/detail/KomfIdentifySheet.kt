@@ -6,14 +6,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
@@ -25,7 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -39,17 +40,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.komf.parseKomfProviderLinks
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
 
 /**
- * 用 komf 识别（对齐 KomfIdentifySheet）：
- * 搜索框（预填系列标题，300ms 防抖在 VM）→ Provider Links 段（系列 links 反解，多条时首行聚合）→
- * 结果段（40×60 封面 + 标题 + meta + provider 胶囊）；选中提交 identify → 任务进入轮询跟踪，
- * 提交成功即关闭 sheet，完成/失败由详情页 snackbar 通知。
+ * Identify with komf (mirrors KomfIdentifySheet):
+ * search field (prefilled with the series title, 300ms debounce in the VM) → Provider Links section
+ * (parsed back from the series links, aggregated into a single row when there are several) →
+ * results section (40×60 cover + title + meta + provider capsule); selecting one submits identify → the job
+ * enters polling, the sheet closes as soon as the submit succeeds, and completion/failure is surfaced by the
+ * detail screen's snackbar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,9 +69,17 @@ fun KomfIdentifySheet(
     var pendingKey by remember { mutableStateOf<String?>(null) }
     var submitFailed by remember { mutableStateOf(false) }
 
-    val providerLinks = remember(series) { parseKomfProviderLinks(series.links) }
+    // Mirrors iOS KomfIdentifySheet:29-33: for one-shots without series links, fall back to the book's metadata.links
+    val providerLinks = remember(series, state.books) {
+        val links = if (series.oneshot && series.links.isEmpty()) {
+            state.books.orEmpty().firstOrNull()?.links.orEmpty()
+        } else {
+            series.links
+        }
+        parseKomfProviderLinks(links)
+    }
 
-    // 300ms 防抖在 VM；query 变化即转发（空查询由 VM 清空结果）
+    // 300ms debounce lives in the VM; forward every query change (the VM clears results on an empty query)
     LaunchedEffect(query) { viewModel.komfSearch(query) }
 
     val submit: (String, String, String) -> Unit = { key, provider, providerSeriesId ->
@@ -82,147 +96,175 @@ fun KomfIdentifySheet(
         )
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
+                // The identify job polling keeps changing the content height; a fixed height keeps the anchor
+                // stable and avoids jitter while dragging
+                .fillMaxHeight(0.9f)
+                .padding(bottom = 20.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Fixed header (mirrors iOS SheetView: the title does not scroll with the content)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 20.dp, end = 8.dp),
+            ) {
                 Text(
-                    "用 komf 识别",
+                    stringResource(R.string.komf_identify_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("搜索 komf provider…") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
+            LazyColumn(
                 modifier = Modifier
+                    .weight(1f)
+                    .widthIn(max = 560.dp)
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-            )
-
-            if (submitFailed) {
-                Text(
-                    "识别提交失败，请重试",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                )
-            }
-
-            // Provider Links（对齐：系列 metadata.links 反解的 provider 直链，>1 时首行聚合提交首个）
-            if (providerLinks.isNotEmpty()) {
-                KomfSectionTitle("Provider 链接")
-                if (providerLinks.size > 1) {
-                    val first = providerLinks.first()
-                    KomfProviderRow(
-                        icon = {
-                            Icon(Icons.Filled.CloudSync, contentDescription = null)
-                        },
-                        title = "聚合全部 provider",
-                        subtitle = "合并 ${providerLinks.size} 个 provider 直链",
-                        pending = pendingKey == first.key,
-                        enabled = pendingKey == null,
-                        onClick = { submit(first.key, first.provider, first.providerSeriesId) },
-                    )
-                }
-                providerLinks.forEach { link ->
-                    KomfProviderRow(
-                        icon = {
-                            Icon(Icons.Filled.Link, contentDescription = null)
-                        },
-                        title = link.displayName,
-                        subtitle = link.providerSeriesId,
-                        pending = pendingKey == link.key,
-                        enabled = pendingKey == null,
-                        onClick = { submit(link.key, link.provider, link.providerSeriesId) },
-                    )
-                }
-            }
-
-            // 结果段（对齐 resultsSection：加载中/失败+重试/无结果/列表）
-            KomfSectionTitle("搜索结果")
-            when {
-                state.komfSearching && state.komfSearchResults.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    }
-                }
-                state.komfSearchFailed -> {
-                    Column(
+                    .align(Alignment.CenterHorizontally)
+                    .padding(horizontal = 20.dp),
+            ) {
+                item {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text(stringResource(R.string.komf_search_placeholder)) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        singleLine = true,
+                        // Rounded search bar mirroring iOS .searchable
+                        shape = RoundedCornerShape(28.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
+                    )
+                }
+
+                if (submitFailed) {
+                    item {
                         Text(
-                            "搜索失败",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            stringResource(R.string.komf_submit_failed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(vertical = 4.dp),
                         )
-                        TextButton(onClick = { viewModel.komfSearch(query) }) {
-                            Text("重试")
+                    }
+                }
+
+                // Provider Links (mirrors: provider direct links parsed back from the series metadata.links;
+                // when there are more than one, the first row aggregates them and submits the first)
+                if (providerLinks.isNotEmpty()) {
+                    item { KomfSectionTitle(stringResource(R.string.komf_provider_links)) }
+                    item {
+                        KomfGroupCard {
+                            if (providerLinks.size > 1) {
+                                val first = providerLinks.first()
+                                KomfProviderRow(
+                                    icon = {
+                                        Icon(Icons.Filled.CloudSync, contentDescription = null)
+                                    },
+                                    title = stringResource(R.string.komf_aggregate_providers),
+                                    subtitle = stringResource(
+                                        R.string.komf_merge_provider_links,
+                                        providerLinks.size,
+                                    ),
+                                    pending = pendingKey == first.key,
+                                    enabled = pendingKey == null,
+                                    onClick = { submit(first.key, first.provider, first.providerSeriesId) },
+                                )
+                            }
+                            providerLinks.forEach { link ->
+                                KomfProviderRow(
+                                    icon = {
+                                        Icon(Icons.Filled.Link, contentDescription = null)
+                                    },
+                                    title = link.displayName,
+                                    subtitle = link.providerSeriesId,
+                                    pending = pendingKey == link.key,
+                                    enabled = pendingKey == null,
+                                    onClick = { submit(link.key, link.provider, link.providerSeriesId) },
+                                )
+                            }
                         }
                     }
                 }
-                query.isNotBlank() && state.komfSearchResults.isEmpty() && !state.komfSearching -> {
-                    Text(
-                        "无结果",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
-                else -> {
-                    state.komfSearchResults.forEach { result ->
-                        KomfResultRow(
-                            title = result.title,
-                            metaText = result.metaText,
-                            provider = result.provider,
-                            imageUrl = result.imageUrl,
-                            fallbackHue = series.hue,
-                            pending = pendingKey == result.key,
-                            enabled = pendingKey == null,
-                            onClick = { submit(result.key, result.provider, result.resultId) },
-                        )
+
+                // Results section (mirrors resultsSection: loading / failure + retry / no results / list)
+                item { KomfSectionTitle(stringResource(R.string.komf_search_results)) }
+                item {
+                    KomfGroupCard {
+                        when {
+                            state.komfSearching && state.komfSearchResults.isEmpty() -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                }
+                            }
+                            state.komfSearchFailed -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        stringResource(R.string.komf_search_failed),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    TextButton(onClick = { viewModel.komfSearch(query) }) {
+                                        Text(stringResource(R.string.common_retry))
+                                    }
+                                }
+                            }
+                            query.isNotBlank() && state.komfSearchResults.isEmpty() && !state.komfSearching -> {
+                                Text(
+                                    stringResource(R.string.komf_no_results),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                )
+                            }
+                            else -> {
+                                state.komfSearchResults.forEach { result ->
+                                    KomfResultRow(
+                                        title = result.title,
+                                        metaText = result.metaText,
+                                        provider = result.provider,
+                                        imageUrl = result.imageUrl,
+                                        fallbackHue = series.hue,
+                                        pending = pendingKey == result.key,
+                                        enabled = pendingKey == null,
+                                        onClick = { submit(result.key, result.provider, result.resultId) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            // 任务跟踪状态（对齐 KomfJobTracker：提交后轮询，完成/失败/超时通知）
-            if (state.komfJobRunning) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 12.dp),
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        "识别任务执行中…（完成后将收到通知）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+/** Grouped Form-style card (mirrors the iOS inset-grouped section).
+ *  Its color must be one step above the sheet background (surfaceContainerLow), otherwise the card is invisible. */
+@Composable
+private fun KomfGroupCard(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+            content()
         }
     }
 }
@@ -238,12 +280,20 @@ private fun KomfResultRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        // Transparent: drawn on top of KomfGroupCard to avoid the default surface color
+        // (one step darker than the card) forming a dark block
+        color = Color.Transparent,
+    ) {
         Row(
-            modifier = Modifier.padding(vertical = 6.dp),
+            modifier = Modifier.padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 封面走共享 CoverArt（认证 ImageLoader + 占位兜底），与全站一致
+            // Covers go through the shared CoverArt (authenticated ImageLoader + placeholder fallback),
+            // consistent with the rest of the app
             CoverArt(
                 title = title,
                 hue = fallbackHue,
@@ -257,7 +307,7 @@ private fun KomfResultRow(
                 Text(
                     title,
                     style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (metaText.isNotEmpty()) {
@@ -275,7 +325,7 @@ private fun KomfResultRow(
             } else {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                     Text(
                         provider,
@@ -292,9 +342,9 @@ private fun KomfResultRow(
 private fun KomfSectionTitle(title: String) {
     Text(
         title,
-        style = MaterialTheme.typography.titleSmall,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
+        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),
     )
 }
 
@@ -307,15 +357,20 @@ private fun KomfProviderRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent,
+    ) {
         Row(
-            modifier = Modifier.padding(vertical = 8.dp),
+            modifier = Modifier.padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+                    .size(36.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 icon()

@@ -21,9 +21,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 
-/** 多选完成态工具条（对齐 SelectionActionsToolbar：全选/批量操作/完成）。 */
+/** Selection-mode toolbar (mirrors SelectionActionsToolbar: select all / batch actions / done). */
 @Composable
 fun SelectionToolbar(
     selectedCount: Int,
@@ -52,42 +54,42 @@ fun SelectionToolbar(
         TextButton(onClick = onSelectAll) {
             Icon(Icons.Outlined.SelectAll, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text(if (selectedCount == totalCount) "取消全选" else "全选")
+            Text(stringResource(if (selectedCount == totalCount) R.string.selection_deselect_all else R.string.selection_select_all))
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = "已选 $selectedCount / $totalCount",
+            text = stringResource(R.string.selection_selected_count, selectedCount, totalCount),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
         if (showMarkActions) {
             IconButton(onClick = onMarkRead, enabled = actionsEnabled) {
-                Icon(Icons.Outlined.CheckCircle, contentDescription = "标记为已读")
+                Icon(Icons.Outlined.CheckCircle, contentDescription = stringResource(R.string.menu_mark_read))
             }
             IconButton(onClick = onMarkUnread, enabled = actionsEnabled) {
-                Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = "标记为未读")
+                Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = stringResource(R.string.menu_mark_unread))
             }
         }
         if (showDownload) {
             IconButton(onClick = onDownload, enabled = actionsEnabled) {
-                Icon(Icons.Outlined.Download, contentDescription = "下载")
+                Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.common_download))
             }
         }
         if (showAddToReadList) {
             IconButton(onClick = onAddToReadList, enabled = actionsEnabled) {
-                Icon(Icons.Outlined.PlaylistAdd, contentDescription = "加入阅读列表")
+                Icon(Icons.Outlined.PlaylistAdd, contentDescription = stringResource(R.string.menu_add_to_read_list))
             }
         }
         if (showDelete) {
             IconButton(onClick = onDelete, enabled = actionsEnabled) {
                 Icon(
                     Icons.Outlined.Delete,
-                    contentDescription = "删除",
+                    contentDescription = stringResource(R.string.common_delete),
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
         }
-        TextButton(onClick = onDone) { Text("完成") }
+        TextButton(onClick = onDone) { Text(stringResource(R.string.common_done)) }
     }
 }

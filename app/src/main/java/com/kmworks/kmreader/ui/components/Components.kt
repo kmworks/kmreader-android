@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +45,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -51,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.toBitmap
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.CoverUrlRegistry
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.logging.AppLog
@@ -62,13 +68,14 @@ import java.net.URI
 private val CoverShape = RoundedCornerShape(8.dp)
 
 /**
- * 封面：纯色块 + 首字占位。
+ * Cover art: solid color block with a first-letter placeholder.
  *
- * 两种取图方式，互不重叠：
- * - [stableId]：Komga 内容封面，URL 由 [CoverUrlRegistry] 按 stableId 解析，始终用会话 ImageLoader
- *   （带认证）。会话就绪前先显示占位，绝不退回到无认证的单例 loader。
- * - [imageUrl]：外部绝对地址（Komf 识别结果、tracker 远程封面），走单例 loader，
- *   避免把 Komga 凭据发送到第三方图片站。
+ * Two mutually exclusive image sources:
+ * - [stableId]: Komga content cover; the URL is resolved by [CoverUrlRegistry] from the stableId and
+ *   always uses the session ImageLoader (authenticated). Until the session is ready the placeholder is
+ *   shown, and it never falls back to the unauthenticated singleton loader.
+ * - [imageUrl]: external absolute URL (Komf recognition results, tracker remote covers) goes through the
+ *   singleton loader so Komga credentials are never sent to third-party image hosts.
  */
 @Composable
 fun CoverArt(
@@ -79,7 +86,7 @@ fun CoverArt(
     imageUrl: String? = null,
     coverVersion: Int = 0,
     contentScale: ContentScale = ContentScale.Crop,
-    /** 封面加载成功回调（横向卡提取平均色 tint 用，对齐 iOS ThumbnailTintColorCache）。 */
+    /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
     Box(
@@ -103,17 +110,17 @@ fun CoverArt(
         val session = remember(entryPoint) { entryPoint.sessionManager() }
         val clients by session.clients.collectAsState()
         val sessionLoader by session.imageLoader.collectAsState()
-        val externalLoader = remember(context) { SingletonImageLoader.get(context) }
+        val externalLoader = remember(session) { session.externalImageLoader }
         val serverBaseUrl = clients?.baseUrl
         val resolvedUrl = remember(stableId, imageUrl, serverBaseUrl, coverVersion) {
             val base = if (stableId != null) {
                 CoverUrlRegistry.url(stableId, clients)
             } else {
-                imageUrl
+                imageUrl?.takeIf { it.isNotBlank() }
             }
             val absolute = base?.let { normalizeCoverUrl(it, serverBaseUrl) }
             if (absolute != null && coverVersion > 0) {
-                // 「刷新封面」：附加版本参数换缓存键，强制重新拉取服务端封面
+                // "Refresh cover": append a version parameter to change the cache key and force a refetch of the server cover
                 val separator = if (absolute.contains('?')) "&" else "?"
                 "$absolute${separator}v=$coverVersion"
             } else {
@@ -122,7 +129,7 @@ fun CoverArt(
         }
         val serverOwnedImage = resolvedUrl != null && serverBaseUrl != null &&
             sameOrigin(resolvedUrl, serverBaseUrl)
-        // Komga/同域封面必须走带认证的会话 loader；真正的第三方地址才用无认证单例 loader。
+        // Komga / same-origin covers must use the authenticated session loader; only real third-party URLs use the unauthenticated singleton loader.
         val loader = if (stableId != null || serverOwnedImage) sessionLoader else externalLoader
 
         LaunchedEffect(stableId, imageUrl, clients, resolvedUrl) {
@@ -150,8 +157,8 @@ fun CoverArt(
                 contentDescription = null,
                 imageLoader = loader,
                 contentScale = contentScale,
-                // 服务端缩略图常被放大显示（大网格 152dp@3x≈456px vs 300px 源），
-                // 默认 Low 采样发糊；对齐 iOS ImageDecodeHelper 的高质量重采样。
+                // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
+                // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
                 filterQuality = FilterQuality.High,
                 modifier = Modifier.matchParentSize(),
                 onSuccess = { state -> onCoverBitmap?.invoke(state.result.image.toBitmap()) },
@@ -166,7 +173,7 @@ fun CoverArt(
     }
 }
 
-/** 分区标题行：左侧标题，右侧「更多」。对应 KMReader DashboardSectionLayout 的 header。 */
+/** Section header row: title on the left, "More" on the right. Mirrors the header of KMReader DashboardSectionLayout. */
 @Composable
 fun SectionHeader(
     title: String,
@@ -184,11 +191,11 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
-        TextButton(onClick = onMore) { Text("更多") }
+        TextButton(onClick = onMore) { Text(stringResource(R.string.common_more)) }
     }
 }
 
-/** 网格/大卡：封面 + 可选进度条 + 标题一行 + 副标题。对应 KMReader GridCardView 骨架。 */
+/** Grid / large card: cover + optional progress bar + one title line + subtitle. Mirrors the KMReader GridCardView skeleton. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SeriesGridCard(
@@ -196,6 +203,8 @@ fun SeriesGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    /** Used inside horizontal group rows: reserve the slot even without a progress bar so cards in a row keep the same height (avoids row height jumps when scrolling offscreen). */
+    reserveProgressSpace: Boolean = false,
 ) {
     val display = LocalCardDisplay.current
     Column(
@@ -221,14 +230,20 @@ fun SeriesGridCard(
             if (!display.coverOnly && display.textOverlay) {
                 CardTextOverlay(
                     title = series.title,
-                    subtitle = series.subtitle,
+                    // Mirrors iOS SeriesCardView: oneshot detail line = oneshotLine + book.closed icon
+                    subtitle = if (series.oneshot) series.oneshotLineText() else series.subtitleText(),
                     modifier = Modifier.matchParentSize(),
+                    subtitleLeadingIcon = series.oneshot,
                 )
             }
         }
         if (display.showProgressBar) {
-            series.progress?.let { p ->
-                if (p < 1f) ProgressBar(p, topPadding = if (display.textOverlay) 3.dp else 6.dp)
+            val barTopPadding = if (display.textOverlay) 3.dp else 6.dp
+            val p = series.progress?.takeIf { it < 1f }
+            if (p != null) {
+                ProgressBar(p, topPadding = barTopPadding)
+            } else if (reserveProgressSpace) {
+                Spacer(Modifier.padding(top = barTopPadding).height(3.dp))
             }
         }
         if (!display.coverOnly && !display.textOverlay) {
@@ -239,18 +254,38 @@ fun SeriesGridCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            Text(
-                text = series.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (series.oneshot) {
+                // Mirrors iOS SeriesCardView: oneshot detail line = book.closed icon + oneshotLine, with no book count
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Book,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = series.oneshotLineText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                Text(
+                    text = series.subtitleText(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
 
-/** 书籍大卡：与系列卡同构，进度来自当前阅读位置。 */
+/** Book large card: same structure as the series card, with progress taken from the current reading position. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookGridCard(
@@ -258,6 +293,8 @@ fun BookGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    /** Used inside horizontal group rows: reserve the slot even without a progress bar so cards in a row keep the same height (avoids row height jumps when scrolling offscreen). */
+    reserveProgressSpace: Boolean = false,
 ) {
     val display = LocalCardDisplay.current
     Column(
@@ -278,27 +315,60 @@ fun BookGridCard(
                 CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
             }
             if (!display.coverOnly && display.textOverlay) {
+                // Mirrors iOS BookCardView: the oneshot subtitle is the author line (with a small book icon);
+                // otherwise the series title is shown per settings. The status line mirrors overlayDetail's
+                // statusContent (page count / progress / last-read time / colored status).
+                val (statusText, statusColor) = bookCardStatusLine(book, overlay = true)
                 CardTextOverlay(
                     title = book.titleLine,
-                    subtitle = if (display.showBookSeriesTitle) book.seriesTitle else null,
+                    subtitle = when {
+                        book.oneshot -> book.oneshotLineText()
+                        display.showBookSeriesTitle -> book.seriesTitle
+                        else -> null
+                    },
                     modifier = Modifier.matchParentSize(),
+                    subtitleLeadingIcon = book.oneshot,
+                    statusLabel = statusText,
+                    statusColor = statusColor,
                 )
             }
         }
         if (display.showProgressBar) {
-            book.progress?.let { p ->
-                if (p < 1f) ProgressBar(p, topPadding = if (display.textOverlay) 3.dp else 6.dp)
+            val barTopPadding = if (display.textOverlay) 3.dp else 6.dp
+            val p = book.progress?.takeIf { it < 1f }
+            if (p != null) {
+                ProgressBar(p, topPadding = barTopPadding)
+            } else if (reserveProgressSpace) {
+                Spacer(Modifier.padding(top = barTopPadding).height(3.dp))
             }
         }
         if (!display.coverOnly && !display.textOverlay) {
             Text(
                 text = book.titleLine,
                 style = MaterialTheme.typography.titleSmall,
-                maxLines = if (display.showBookSeriesTitle) 1 else 2,
+                // Mirrors iOS BookCardView titleLineLimit: one line for oneshot or when a subtitle is shown
+                maxLines = if (book.oneshot || display.showBookSeriesTitle) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            if (display.showBookSeriesTitle) {
+            if (book.oneshot) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Book,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = book.oneshotLineText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else if (display.showBookSeriesTitle) {
                 Text(
                     text = book.seriesTitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -307,6 +377,16 @@ fun BookGridCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // Mirrors the iOS BookCardView statusContent detail line: in progress "xx% • N pages",
+            // finished "✓ relative last-read time", unread "N pages"; unavailable / abnormal media use colored status text
+            val (statusText, statusColor) = bookCardStatusLine(book, overlay = false)
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -336,25 +416,25 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
         urlPort == serverPort
 }.getOrDefault(false)
 
-/** 卡片封面宽高比：保持原始比例时用漫画封面比，否则方形裁切。 */
+/** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop. */
 private fun seriesAspect(display: CardDisplayOptions): Float =
     if (display.preserveAspectRatio) 2f / 3f else 1f
 
 private fun coverScale(display: CardDisplayOptions): ContentScale =
     if (display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
 
-/** 封面装饰：投影 + 未读模糊（对齐 thumbnailShowShadow / thumbnailBlurUnreadCovers）。 */
+/** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
 private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
     this
         .then(if (display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
         .then(if (display.blurUnreadCovers && unread) Modifier.blur(6.dp) else Modifier)
 
-/** 角标底板：对齐 iOS CornerBadgeSlab——深色半透明 slab，形状贴合封面右上角
- *  （topTrailing 圆角 = 封面圆角 8，bottomLeading 圆角 ≈ 8，其余直角）。 */
+/** Badge slab: mirrors iOS CornerBadgeSlab — a dark translucent slab shaped to hug the cover's top-right corner
+ *  (topTrailing radius = cover radius 8, bottomLeading radius ≈ 8, all other corners square). */
 private val BadgeSlabShape = RoundedCornerShape(topEnd = 8.dp, bottomStart = 8.dp)
 private val BadgeSlabColor = Color(0xD91F1F1F) // Color(white: 0.12).opacity(0.85)
 
-/** 未读数字角标（对齐 iOS UnreadCountBadge）：白色等宽数字 semibold，底板贴合封面右上角。 */
+/** Unread count badge (mirrors iOS UnreadCountBadge): white monospaced semibold digits on a slab hugging the cover's top-right corner. */
 @Composable
 private fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
     Box(
@@ -375,7 +455,7 @@ private fun UnreadCountBadge(count: Int, modifier: Modifier = Modifier) {
     }
 }
 
-/** 已读完角标（对齐 iOS CompletedIndicator）：与数字角标同底板，白色 checkmark。 */
+/** Finished badge (mirrors iOS CompletedIndicator): same slab as the count badge, white checkmark. */
 @Composable
 private fun CompletedIndicatorBadge(modifier: Modifier = Modifier) {
     Box(
@@ -387,20 +467,67 @@ private fun CompletedIndicatorBadge(modifier: Modifier = Modifier) {
     ) {
         Icon(
             Icons.Filled.Check,
-            contentDescription = "已读完",
+            contentDescription = stringResource(R.string.common_completed),
             tint = Color.White,
             modifier = Modifier.size(11.dp),
         )
     }
 }
 
-/** 文字叠加（对齐 iOS CardTextOverlay）：全封面纵向渐变（上半透明 → 底部 88% 黑），
- *  圆角随封面 8dp；文字 pinned 底部，caption 白 / caption2 白 0.85，padding h8 v6。 */
+/** Mirrors iOS MediaStatus.color: the status text colors used on cards (READY is not shown). */
+internal val MediaStatusOrange = Color(0xFFF57C00)
+internal val MediaStatusYellow = Color(0xFFF9A825)
+
+/** Mirrors iOS MediaStatus.label/color: returns (label, color) when the status is not READY. */
+@Composable
+internal fun mediaStatusLabel(status: String): Pair<String, Color>? = when (status) {
+    "READY" -> null
+    "ERROR" -> stringResource(R.string.media_status_error) to MaterialTheme.colorScheme.error
+    "UNSUPPORTED" -> stringResource(R.string.media_status_unsupported) to MediaStatusOrange
+    "OUTDATED" -> stringResource(R.string.media_status_outdated) to MediaStatusYellow
+    else -> stringResource(R.string.media_status_unknown) to MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/** Detail line for book cards, mirroring iOS BookCardView.statusContent: deleted → "Unavailable" in red;
+ *  abnormal media → colored status; in progress → "xx% • N pages"; finished → "✓ relative last-read time"
+ *  (falling back to page count); unread → "N pages".
+ *  With overlay=true plain text uses the overlay white scale (mirrors iOS CardOverlayTextStyle.secondaryColor). */
+@Composable
+private fun bookCardStatusLine(book: Book, overlay: Boolean): Pair<String, Color> {
+    val quiet = if (overlay) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+    if (book.deleted) return stringResource(R.string.card_unavailable) to MaterialTheme.colorScheme.error
+    mediaStatusLabel(book.mediaStatus)?.let { return it }
+    return when {
+        book.progress != null && book.progress > 0f && book.progress < 1f ->
+            "${(book.progress * 100).toInt()}% • ${book.pageLabelText()}" to quiet
+        book.progress == 1f -> "✓ ${book.completedLastReadText() ?: book.pageLabelText()}" to quiet
+        else -> book.pageLabelText() to quiet
+    }
+}
+
+/** Mirrors iOS MediaStatus.detailColor: the small status line on detail pages (yellow is unreadable on light backgrounds, so it maps to orange). */
+@Composable
+internal fun mediaStatusDetailLabel(status: String): Pair<String, Color>? = when (status) {
+    "READY" -> null
+    "ERROR" -> stringResource(R.string.media_status_error) to MaterialTheme.colorScheme.error
+    "UNSUPPORTED", "OUTDATED" -> (if (status == "UNSUPPORTED") stringResource(R.string.media_status_unsupported) else stringResource(R.string.media_status_outdated)) to MediaStatusOrange
+    else -> stringResource(R.string.media_status_unknown) to MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/** Text overlay (mirrors iOS CardTextOverlay): a full-cover vertical gradient (transparent at the top → 88% black at the bottom),
+ *  with the cover's 8dp corner radius; text is pinned to the bottom with h8 v6 padding.
+ *  Mirrors iOS CardOverlayTextStack: subtitle on top (caption2 ≈ 11sp, white 0.85), title below (caption ≈ 12sp white),
+ *  4dp spacing; the compact line height must be explicit — the inherited 24sp line height of bodyLarge makes the gap look doubled.
+ *  subtitleLeadingIcon: prefixes the oneshot subtitle with a small book icon (mirrors iOS ContentIcon.oneshot / CompactLabelStyle). */
 @Composable
 private fun CardTextOverlay(
     title: String,
     subtitle: String?,
     modifier: Modifier = Modifier,
+    subtitleLeadingIcon: Boolean = false,
+    /** Media status text (shown under the title when not READY; mirrors overlayDetail's statusContent on iOS). */
+    statusLabel: String? = null,
+    statusColor: Color = Color.White,
 ) {
     Box(
         modifier = modifier
@@ -418,29 +545,55 @@ private fun CardTextOverlay(
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (subtitle != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (subtitleLeadingIcon) {
+                        Icon(
+                            Icons.Outlined.Book,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(10.dp),
+                        )
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    Text(
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TightTextStyle,
+                    )
+                }
+            }
             Text(
                 text = title,
                 color = Color.White,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = TightTextStyle,
             )
-            if (subtitle != null) {
+            if (statusLabel != null) {
                 Text(
-                    text = subtitle,
-                    color = Color.White.copy(alpha = 0.85f),
+                    text = statusLabel,
+                    color = statusColor,
                     fontSize = 11.sp,
+                    lineHeight = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    style = TightTextStyle,
                 )
             }
         }
     }
 }
 
-/** 卡片进度条。 */
+/** Card progress bar. */
 @Composable
 private fun ProgressBar(progress: Float, topPadding: Dp = 6.dp) {
     LinearProgressIndicator(
@@ -452,7 +605,7 @@ private fun ProgressBar(progress: Float, topPadding: Dp = 6.dp) {
     )
 }
 
-/** 封面平均色缓存（对齐 iOS ThumbnailTintColorCache，key = "type#id"）。 */
+/** Cover average-color cache (mirrors iOS ThumbnailTintColorCache, key = "type#id"). */
 private object CoverTintCache {
     private const val MaxEntries = 128
     private val cache = LinkedHashMap<String, Color>(MaxEntries, 0.75f, true)
@@ -467,9 +620,16 @@ private object CoverTintCache {
     }
 }
 
-/** 对齐 iOS thumbnailTint：缩到 8×8 取平均色，HSV 饱和度 ≤0.8、亮度 clamp 到 0.2–0.45。 */
-private fun computeCoverTint(bitmap: Bitmap): Color {
-    val scaled = Bitmap.createScaledBitmap(bitmap, 8, 8, true)
+/** Mirrors iOS thumbnailTint: downscale to 8×8 for the average color, clamp HSV saturation to ≤0.8 and brightness to 0.2–0.45. */
+private fun computeCoverTint(bitmap: Bitmap): Color? {
+    // The session ImageLoader produces hardware bitmaps by default, and createScaledBitmap would draw the
+    // source into a software Canvas and throw "Software rendering doesn't support hardware bitmaps" — copy to software first.
+    val software = if (bitmap.config == Bitmap.Config.HARDWARE) {
+        bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+    } else {
+        bitmap
+    }
+    val scaled = Bitmap.createScaledBitmap(software, 8, 8, true)
     var r = 0L
     var g = 0L
     var b = 0L
@@ -493,7 +653,7 @@ private fun computeCoverTint(bitmap: Bitmap): Color {
     return Color.hsv(hsv[0], hsv[1], hsv[2])
 }
 
-/** 横向卡配色（对齐 iOS HorizontalCardPalette）：有 tint 用白系文字，无 tint 用主题色。 */
+/** Horizontal card palette (mirrors iOS HorizontalCardPalette): white-scale text when tinted, theme colors otherwise. */
 internal class HorizontalCardPalette(
     val tinted: Boolean,
     val title: Color,
@@ -501,15 +661,22 @@ internal class HorizontalCardPalette(
     val meta: Color,
 )
 
-/** iOS CoverAspectRatio.widthToHeight = 1/√2。 */
+/** iOS CoverAspectRatio.widthToHeight = 1/√2. */
 private const val Sqrt2CoverAspect: Float = 0.7071f
 
 private val HorizontalCardCoverWidth = 43.dp
+
+/** Tight text style with font padding disabled: in fixed-height text columns (horizontal cards / overlays)
+ *  the default includeFontPadding of the first and last lines pushes content out of the visible area, so it must be off. */
+internal val TightTextStyle = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+)
 private val HorizontalCardShape = RoundedCornerShape(12.dp)
 
 /**
- * 横向卡骨架（对齐 iOS HorizontalCardSkeleton）：圆角 12、封面平均色打底（无 tint 退回 surface）、
- * padding 8、封面 43dp 宽按 √2 槽位强制裁切，文字列与封面等高（≈60.8dp）。
+ * Horizontal card skeleton (mirrors iOS HorizontalCardSkeleton): corner radius 12, average cover color as the
+ * background (falling back to surface without a tint), padding 8, a 43dp-wide cover cropped to the √2 slot, and a
+ * text column with the same height as the cover (≈60.8dp).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -522,14 +689,17 @@ internal fun HorizontalCardContainer(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    text: @Composable ColumnScope.(HorizontalCardPalette) -> Unit,
+    text: @Composable BoxScope.(HorizontalCardPalette) -> Unit,
 ) {
     var tint by remember(tintKey) { mutableStateOf(CoverTintCache.get(tintKey)) }
-    val reportTint = remember(tintKey) {
+    val reportTint: (Bitmap) -> Unit = remember(tintKey) {
         { bitmap: Bitmap ->
-            val color = computeCoverTint(bitmap)
-            CoverTintCache.put(tintKey, color)
-            tint = color
+            // The tint is purely decorative; no bitmap failure may crash the card
+            runCatching { computeCoverTint(bitmap) }.getOrNull()?.let { color ->
+                CoverTintCache.put(tintKey, color)
+                tint = color
+            }
+            Unit
         }
     }
     val fallback = MaterialTheme.colorScheme.surface
@@ -561,7 +731,10 @@ internal fun HorizontalCardContainer(
             onCoverBitmap = reportTint,
         )
         Spacer(Modifier.width(8.dp))
-        Column(
+        // The text column is fixed to the cover height (√2 slot ≈60.8dp, mirroring iOS HorizontalCardSkeleton):
+        // cards in the same row always share one height; with the tight line height (includeFontPadding=false)
+        // 4 lines fit exactly, and only very large system font sizes clip the bottom progress line — same as iOS.
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .height(HorizontalCardCoverWidth / Sqrt2CoverAspect),
@@ -572,8 +745,9 @@ internal fun HorizontalCardContainer(
 }
 
 /**
- * 横向卡片（对齐 iOS BookHorizontalCardView）：标题「卷号 - 书名」（semibold 13，最多 2 行）
- * + 系列行 11 + 底部进度文本 10（"xx% • N 页"），无进度条控件；已读完标题降透明度。
+ * Horizontal card (mirrors iOS BookHorizontalCardView): title "Volume - Book title" (semibold 13, up to 2 lines)
+ * + series line 11 + bottom progress text 10 ("xx% • N pages", or "✓ relative last-read time" when finished), no
+ * progress bar control; the title is dimmed when finished.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -585,11 +759,20 @@ fun BookHorizontalCard(
 ) {
     val display = LocalCardDisplay.current
     val completed = book.progress == 1f
+    // Mirrors iOS BookHorizontalCardView statusContent: deleted → "Unavailable" in red, abnormal media → colored status;
+    // the meta line shows the relative last-read time when finished (falling back to page count)
+    val statusDisplay = mediaStatusLabel(book.mediaStatus)
+    val metaStatusColor = when {
+        book.deleted -> MaterialTheme.colorScheme.error
+        else -> statusDisplay?.second
+    }
     val metaText = when {
+        book.deleted -> stringResource(R.string.card_unavailable)
+        statusDisplay != null -> statusDisplay.first
         book.progress != null && book.progress > 0f && book.progress < 1f ->
-            "${(book.progress * 100).toInt()}% • ${book.pageLabel}"
-        completed -> "✓ ${book.pageLabel}"
-        else -> book.pageLabel
+            "${(book.progress * 100).toInt()}% • ${book.pageLabelText()}"
+        completed -> "✓ ${book.completedLastReadText() ?: book.pageLabelText()}"
+        else -> book.pageLabelText()
     }
     HorizontalCardContainer(
         tintKey = "book#${book.id}",
@@ -606,34 +789,63 @@ fun BookHorizontalCard(
             completed -> palette.meta
             else -> palette.title
         }
-        Text(
-            text = book.titleLine,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = titleColor,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = book.seriesTitle,
-            fontSize = 11.sp,
-            color = palette.series,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.weight(1f))
+        Column(modifier = Modifier.align(Alignment.TopStart)) {
+            Text(
+                text = book.titleLine,
+                fontSize = 13.sp,
+                lineHeight = 15.5.sp, // Explicit line height: changing only fontSize inherits bodyLarge's 24sp and clips the two-line title
+                fontWeight = FontWeight.SemiBold,
+                color = titleColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = TightTextStyle, // includeFontPadding=false, otherwise the extra padding of the first/last lines pushes the bottom progress out of the column height
+            )
+            Spacer(Modifier.height(4.dp))
+            if (book.oneshot) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Book,
+                        contentDescription = null,
+                        tint = palette.series,
+                        modifier = Modifier.size(11.dp),
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = book.oneshotLineText(),
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        color = palette.series,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TightTextStyle,
+                    )
+                }
+            } else {
+                Text(
+                    text = book.seriesTitle,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    color = palette.series,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TightTextStyle,
+                )
+            }
+        }
         Text(
             text = metaText,
             fontSize = 10.sp,
-            color = palette.meta,
+            lineHeight = 12.sp,
+            color = metaStatusColor ?: palette.meta,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            style = TightTextStyle,
+            modifier = Modifier.align(Alignment.BottomStart),
         )
     }
 }
 
-/** 书籍列表行（详情页用）。 */
+/** Book list row (used on detail pages). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookListRow(
@@ -668,10 +880,12 @@ fun BookListRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Mirrors the iOS BookRowView status area: colored status text replaces the page count for abnormal media
+            val rowStatus = mediaStatusLabel(book.mediaStatus)
             Text(
-                text = book.pageLabel,
+                text = rowStatus?.first ?: book.pageLabelText(),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = rowStatus?.second ?: MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (display.showProgressBar) {
                 book.progress?.let { p ->
@@ -689,7 +903,7 @@ fun BookListRow(
         }
         if (book.progress == 1f) {
             Text(
-                text = "已读",
+                text = stringResource(R.string.read_status_read),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 12.dp),
@@ -698,7 +912,7 @@ fun BookListRow(
     }
 }
 
-/** 系列列表行（列表布局用，对齐 iOS SeriesRowView）。 */
+/** Series list row (list layout; mirrors iOS SeriesRowView). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SeriesListRow(
@@ -733,13 +947,33 @@ fun SeriesListRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = series.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (series.oneshot) {
+                // Mirrors iOS SeriesRowView: oneshot line = book.closed icon + oneshotLine
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Book,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = series.oneshotLineText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                Text(
+                    text = series.subtitleText(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (display.showProgressBar) {
                 series.progress?.let { p ->
                     if (p < 1f) {
@@ -756,7 +990,7 @@ fun SeriesListRow(
         }
         if (series.progress == 1f) {
             Text(
-                text = "已读",
+                text = stringResource(R.string.read_status_read),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 12.dp),

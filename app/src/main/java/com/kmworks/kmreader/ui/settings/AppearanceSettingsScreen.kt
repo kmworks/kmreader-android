@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.settings
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,23 +38,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
 
-/** 主题选项（存储值 ↔ 显示标签）。 */
+/** Theme options (stored value to display label resource). */
 private val ThemeOptions = listOf(
-    "system" to "跟随系统",
-    "light" to "浅色",
-    "dark" to "深色",
+    "system" to R.string.appearance_theme_system,
+    "light" to R.string.appearance_theme_light,
+    "dark" to R.string.appearance_theme_dark,
 )
 
-/** 应用图标选项（存储值 ↔ 显示标签；对齐 iOS AppIconOption）。 */
+/** App icon options (stored value to display label resource; mirrors iOS AppIconOption). */
 private val AppIconOptions = listOf(
-    "primary" to "默认",
-    "classic" to "经典",
-    "legacy" to "旧版",
+    "primary" to R.string.appearance_icon_default,
+    "classic" to R.string.appearance_icon_classic,
+    "legacy" to R.string.appearance_icon_legacy,
 )
 
 /** Appearance settings (mirrors SettingsAppearanceView + AppIconOption). */
@@ -63,7 +65,7 @@ fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
 ) {
-    // 主题/纯黑/应用图标走 AppSettingsStore 持久化（主题与纯黑自动获得 client-settings 云同步）
+    // Theme/true black/app icon are persisted via AppSettingsStore (theme and true black get client-settings cloud sync automatically)
     val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
     val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
     val appIcon by prefsViewModel.appIcon.collectAsStateWithLifecycle()
@@ -71,10 +73,10 @@ fun AppearanceSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("外观") },
+                title = { Text(stringResource(R.string.appearance_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -87,13 +89,13 @@ fun AppearanceSettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                AppearanceSectionTitle("主题")
+                AppearanceSectionTitle(stringResource(R.string.appearance_theme))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ThemeOptions.forEach { option ->
                         FilterChip(
                             selected = themeMode == option.first,
                             onClick = { prefsViewModel.setThemeMode(option.first) },
-                            label = { Text(option.second) },
+                            label = { Text(stringResource(option.second)) },
                         )
                     }
                 }
@@ -106,9 +108,9 @@ fun AppearanceSettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("纯黑深色", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.appearance_true_black_title), style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "深色模式下使用纯黑背景（OLED 省电）",
+                            stringResource(R.string.appearance_true_black_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -120,7 +122,7 @@ fun AppearanceSettingsScreen(
                 }
             }
             item {
-                AppearanceSectionTitle("应用图标")
+                AppearanceSectionTitle(stringResource(R.string.appearance_app_icon))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     // Mirrors AppIconOption: primary / classic / legacy
                     AppIconOptions.forEach { (value, label) ->
@@ -139,11 +141,11 @@ fun AppearanceSettingsScreen(
 }
 
 /**
- * 图标预览：镜像 iOS AppIconPreview —— 真实启动图标的前景字形 + 背景填充。
- * primary/legacy 背景白/深灰，classic 为蓝色渐变（深色模式下 iOS 塌缩为深灰纯色）。
+ * Icon preview mirroring iOS AppIconPreview: the real launcher icon foreground glyph on its background fill.
+ * primary/legacy use a white/dark-gray background; classic uses a blue gradient (iOS collapses it to solid dark gray in dark mode).
  */
 @Composable
-private fun AppIconCell(value: String, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun AppIconCell(value: String, @StringRes label: Int, selected: Boolean, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val foreground = when (value) {
         "classic" -> R.mipmap.ic_launcher_classic_foreground
@@ -191,7 +193,7 @@ private fun AppIconCell(value: String, label: String, selected: Boolean, onClick
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(label), style = MaterialTheme.typography.labelMedium)
             if (selected) {
                 Spacer(Modifier.size(4.dp))
                 Icon(

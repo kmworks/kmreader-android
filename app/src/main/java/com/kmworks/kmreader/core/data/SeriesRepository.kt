@@ -18,21 +18,14 @@ class SeriesRepository @Inject constructor(
     fun thumbnailUrl(seriesId: String): String? =
         sessionManager.clients.value?.seriesThumbnailUrl(seriesId)
 
-    /** Recently added or updated series (GET api/v1/series/latest). */
-    suspend fun latest(size: Int = 12, libraryIds: List<String>? = null): List<SeriesDto> {
-        val api = api ?: return emptyList()
-        return api.getSeriesLatest(
-            libraryId = libraryIds?.takeIf { it.isNotEmpty() },
-            size = size,
-        ).awaitBody()?.content.orEmpty()
-    }
-
     /** Newly added series (GET api/v1/series/new). */
     suspend fun newlyAdded(size: Int = 12, libraryIds: List<String>? = null): List<SeriesDto> {
         val api = api ?: return emptyList()
         return api.getSeriesNew(
             libraryId = libraryIds?.takeIf { it.isNotEmpty() },
             size = size,
+            // Mirrors iOS SeriesService.getNewSeries: exclude oneshot one-shots
+            oneshot = false,
         ).awaitBody()?.content.orEmpty()
     }
 
@@ -42,6 +35,8 @@ class SeriesRepository @Inject constructor(
         return api.getSeriesUpdated(
             libraryId = libraryIds?.takeIf { it.isNotEmpty() },
             size = size,
+            // Mirrors iOS SeriesService.getUpdatedSeries: exclude oneshot one-shots
+            oneshot = false,
         ).awaitBody()?.content.orEmpty()
     }
 

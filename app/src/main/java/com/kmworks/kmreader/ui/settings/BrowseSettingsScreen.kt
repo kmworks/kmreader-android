@@ -28,9 +28,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
@@ -39,8 +41,9 @@ import com.kmworks.kmreader.ui.components.LocalCardDisplay
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
 /**
- * 浏览设置（对齐 KMReader SettingsBrowseView）：卡片预览 + 显示项开关，全部持久化到
- * [com.kmworks.kmreader.core.settings.AppSettingsStore]，卡片组件经 [LocalCardDisplay] 实时生效。
+ * Browse settings (mirrors KMReader SettingsBrowseView): card preview plus display-option toggles,
+ * all persisted to [com.kmworks.kmreader.core.settings.AppSettingsStore]; card components pick up
+ * changes live via [LocalCardDisplay].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,10 +56,10 @@ fun BrowseSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("浏览") },
+                title = { Text(stringResource(R.string.browse_settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -69,9 +72,9 @@ fun BrowseSettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                BrowseSectionTitle("卡片预览")
-                // LocalCardDisplay 是 staticCompositionLocalOf（ui/components 侧），
-                // key(display) 强制重建预览子树，保证开关在预览里立即生效。
+                BrowseSectionTitle(stringResource(R.string.browse_settings_preview))
+                // LocalCardDisplay is a staticCompositionLocalOf (see ui/components);
+                // key(display) forces the preview subtree to rebuild so toggles apply to the preview immediately.
                 key(display) {
                     CompositionLocalProvider(LocalCardDisplay provides display) {
                         Row(
@@ -99,64 +102,64 @@ fun BrowseSettingsScreen(
                     }
                 }
                 Text(
-                    text = "预览使用真实卡片组件渲染，开关立即生效。",
+                    text = stringResource(R.string.browse_settings_preview_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
             item {
-                BrowseSectionTitle("卡片")
+                BrowseSectionTitle(stringResource(R.string.browse_settings_cards))
                 BrowseSwitchRow(
-                    title = "文字叠加封面",
-                    subtitle = "标题与说明压在封面上，不占额外高度",
+                    title = stringResource(R.string.browse_settings_text_overlay_title),
+                    subtitle = stringResource(R.string.browse_settings_text_overlay_subtitle),
                     checked = display.textOverlay,
                     onCheckedChange = viewModel::setCardTextOverlay,
                 )
                 if (!display.textOverlay) {
                     BrowseSwitchRow(
-                        title = "仅显示封面",
-                        subtitle = "隐藏卡片上的全部文字",
+                        title = stringResource(R.string.browse_settings_cover_only_title),
+                        subtitle = stringResource(R.string.browse_settings_cover_only_subtitle),
                         checked = display.coverOnly,
                         onCheckedChange = viewModel::setCardCoverOnly,
                     )
                 }
                 BrowseSwitchRow(
-                    title = "书籍卡显示系列名",
-                    subtitle = "书籍卡第二行显示所属系列",
+                    title = stringResource(R.string.browse_settings_show_series_title),
+                    subtitle = stringResource(R.string.browse_settings_show_series_subtitle),
                     checked = display.showBookSeriesTitle,
                     onCheckedChange = viewModel::setCardShowBookSeriesTitle,
                 )
                 if (!display.textOverlay) {
                     BrowseSwitchRow(
-                        title = "保持封面比例",
-                        subtitle = "关闭后封面按方形裁切",
+                        title = stringResource(R.string.browse_settings_preserve_aspect_title),
+                        subtitle = stringResource(R.string.browse_settings_preserve_aspect_subtitle),
                         checked = display.preserveAspectRatio,
                         onCheckedChange = viewModel::setThumbnailPreserveAspectRatio,
                     )
                 }
-                BrowseSectionTitle("缩略图")
+                BrowseSectionTitle(stringResource(R.string.browse_settings_thumbnails))
                 BrowseSwitchRow(
-                    title = "封面投影",
-                    subtitle = "为封面加轻微阴影",
+                    title = stringResource(R.string.browse_settings_shadow_title),
+                    subtitle = stringResource(R.string.browse_settings_shadow_subtitle),
                     checked = display.showShadow,
                     onCheckedChange = viewModel::setThumbnailShowShadow,
                 )
                 BrowseSwitchRow(
-                    title = "未读角标",
-                    subtitle = "未读内容右上角显示圆点",
+                    title = stringResource(R.string.browse_settings_unread_indicator_title),
+                    subtitle = stringResource(R.string.browse_settings_unread_indicator_subtitle),
                     checked = display.showUnreadIndicator,
                     onCheckedChange = viewModel::setThumbnailShowUnreadIndicator,
                 )
                 BrowseSwitchRow(
-                    title = "模糊未读封面",
-                    subtitle = "未读内容封面做模糊处理",
+                    title = stringResource(R.string.browse_settings_blur_unread_title),
+                    subtitle = stringResource(R.string.browse_settings_blur_unread_subtitle),
                     checked = display.blurUnreadCovers,
                     onCheckedChange = viewModel::setThumbnailBlurUnreadCovers,
                 )
                 BrowseSwitchRow(
-                    title = "显示进度条",
-                    subtitle = "在卡片下方显示阅读进度",
+                    title = stringResource(R.string.browse_settings_progress_bar_title),
+                    subtitle = stringResource(R.string.browse_settings_progress_bar_subtitle),
                     checked = display.showProgressBar,
                     onCheckedChange = viewModel::setThumbnailShowProgressBar,
                 )
@@ -168,8 +171,8 @@ fun BrowseSettingsScreen(
 
 private val previewSeries = Series(
     id = 0,
-    title = "示例系列",
-    author = "示例作者",
+    title = "Sample Series",
+    author = "Sample Author",
     hue = 210f,
     bookCount = 12,
     unreadCount = 3,
@@ -178,9 +181,9 @@ private val previewSeries = Series(
 
 private val previewInProgressBook = Book(
     id = 0,
-    number = "第 7 卷",
-    title = "示例书籍",
-    seriesTitle = "示例系列",
+    number = "Vol. 7",
+    title = "Sample Book",
+    seriesTitle = "Sample Series",
     hue = 210f,
     pageCount = 200,
     progress = 0.35f,
@@ -188,12 +191,13 @@ private val previewInProgressBook = Book(
 
 private val previewCompletedBook = Book(
     id = 0,
-    number = "第 6 卷",
-    title = "示例书籍",
-    seriesTitle = "示例系列",
+    number = "Vol. 6",
+    title = "Sample Book",
+    seriesTitle = "Sample Series",
     hue = 210f,
     pageCount = 200,
     progress = 1f,
+    lastReadAtMs = System.currentTimeMillis() - 3 * 86_400_000, // "3 days ago" to preview the completed state row
 )
 
 @Composable

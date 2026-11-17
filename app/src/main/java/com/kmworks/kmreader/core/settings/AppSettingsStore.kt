@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.map
 
 private val Context.appSettingsStore by preferencesDataStore(name = "app_settings")
 
-/** client-settings 远端键（小数点命名空间，Komga 校验格式）。 */
+/** Remote client-settings keys (dot-namespaced; Komga validates the format). */
 object ClientSettingKeys {
     const val SSE_ENABLED = "kmreader.sse.enabled"
     const val THEME_MODE = "kmreader.appearance.theme"
@@ -26,7 +26,7 @@ object ClientSettingKeys {
     const val DIVINA_DIRECTION = "kmreader.reader.divina.direction"
 }
 
-/** 本地设置的一次变更（远端键 + 字符串值），ClientSettingsSync 订阅上行。 */
+/** One local setting change (remote key + string value); ClientSettingsSync subscribes and pushes it upstream. */
 data class AppSettingChange(
     val remoteKey: String,
     val value: String,
@@ -34,7 +34,7 @@ data class AppSettingChange(
 
 /**
  * App-level settings, same pattern as ServerConfigStore.
- * set* 写本地并发出 change（触发云同步上行）；write* 只写本地不发声（远端下行应用用）。
+ * set* writes locally and emits a change (triggers cloud sync upstream); write* writes locally only without emitting (used for applying remote downlink).
  */
 @Singleton
 class AppSettingsStore @Inject constructor(
@@ -46,7 +46,7 @@ class AppSettingsStore @Inject constructor(
     private val _changes = MutableSharedFlow<AppSettingChange>(extraBufferCapacity = 16)
     val changes: SharedFlow<AppSettingChange> = _changes.asSharedFlow()
 
-    /** 是否启用 SSE 实时更新（默认开）。 */
+    /** Whether SSE realtime updates are enabled (default on). */
     val sseEnabled: Flow<Boolean> = store.data.map { prefs ->
         prefs[Keys.SSE_ENABLED] ?: true
     }
@@ -56,7 +56,7 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.SSE_ENABLED, enabled.toString())
     }
 
-    /** 主题模式：system / light / dark。 */
+    /** Theme mode: system / light / dark. */
     val themeMode: Flow<String> = store.data.map { prefs ->
         prefs[Keys.THEME_MODE] ?: THEME_SYSTEM
     }
@@ -66,7 +66,7 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.THEME_MODE, mode)
     }
 
-    /** 纯黑深色（OLED，默认开）。 */
+    /** True black dark theme (OLED, default on). */
     val trueBlackDark: Flow<Boolean> = store.data.map { prefs ->
         prefs[Keys.TRUE_BLACK] ?: true
     }
@@ -76,7 +76,7 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.TRUE_BLACK, enabled.toString())
     }
 
-    /** Divina 默认阅读方向（ReadingDirection.name.lowercase()：ltr/rtl/vertical/webtoon）。 */
+    /** Divina default reading direction (ReadingDirection.name.lowercase(): ltr/rtl/vertical/webtoon). */
     val divinaDefaultDirection: Flow<String> = store.data.map { prefs ->
         prefs[Keys.DIVINA_DIRECTION] ?: DEFAULT_DIRECTION
     }
@@ -86,7 +86,7 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.DIVINA_DIRECTION, direction)
     }
 
-    /** 钉选书库 id 集合（对齐 iOS dashboard.libraryIds；纯本地，不走 client-settings）。 */
+    /** Pinned library id set (aligned with iOS dashboard.libraryIds; local only, not synced through client-settings). */
     val pinnedLibraryIds: Flow<Set<String>> = store.data.map { prefs ->
         prefs[Keys.PINNED_LIBRARY_IDS]
             ?.split(',')
@@ -99,7 +99,33 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.PINNED_LIBRARY_IDS] = ids.joinToString(",") }
     }
 
-    /** 库浏览范围（对齐 iOS LibraryBrowseScope rawValue：pinned/all/library:{id}）。 */
+    /** Pinned collection id set (aligned with iOS Collection isPinned: local storage only, pinned items sort first in the list). */
+    val pinnedCollectionIds: Flow<Set<String>> = store.data.map { prefs ->
+        prefs[Keys.PINNED_COLLECTION_IDS]
+            ?.split(',')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+    }
+
+    suspend fun setPinnedCollectionIds(ids: Set<String>) {
+        store.edit { prefs -> prefs[Keys.PINNED_COLLECTION_IDS] = ids.joinToString(",") }
+    }
+
+    /** Pinned read-list id set (aligned with iOS ReadList isPinned: local storage only, pinned items sort first in the list). */
+    val pinnedReadListIds: Flow<Set<String>> = store.data.map { prefs ->
+        prefs[Keys.PINNED_READLIST_IDS]
+            ?.split(',')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+    }
+
+    suspend fun setPinnedReadListIds(ids: Set<String>) {
+        store.edit { prefs -> prefs[Keys.PINNED_READLIST_IDS] = ids.joinToString(",") }
+    }
+
+    /** Library browse scope (aligned with iOS LibraryBrowseScope rawValue: pinned/all/library:{id}). */
     val libraryBrowseScope: Flow<String> = store.data.map { prefs ->
         prefs[Keys.LIBRARY_BROWSE_SCOPE] ?: SCOPE_PINNED
     }
@@ -108,7 +134,16 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.LIBRARY_BROWSE_SCOPE] = scope }
     }
 
-    /** 仪表盘分区顺序（可见分区的 id，按展示顺序；对齐 iOS dashboard.sections 有序数组）。 */
+    /** Library browse scope of the search tab (aligned with iOS `@AppStorage("searchBrowseScope")`, persisted, default pinned). */
+    val searchBrowseScope: Flow<String> = store.data.map { prefs ->
+        prefs[Keys.SEARCH_BROWSE_SCOPE] ?: SCOPE_PINNED
+    }
+
+    suspend fun setSearchBrowseScope(scope: String) {
+        store.edit { prefs -> prefs[Keys.SEARCH_BROWSE_SCOPE] = scope }
+    }
+
+    /** Dashboard section order (ids of visible sections in display order; aligned with the iOS dashboard.sections ordered array). */
     val dashboardSectionOrder: Flow<List<String>> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_SECTION_ORDER].toCsvList()
     }
@@ -117,7 +152,7 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_SECTION_ORDER] = ids.joinToString(",") }
     }
 
-    /** 仪表盘隐藏分区（不在可见顺序里的分区 id）。 */
+    /** Hidden dashboard sections (section ids that are not in the visible order). */
     val dashboardHiddenSections: Flow<Set<String>> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_HIDDEN_SECTIONS].toCsvList().toSet()
     }
@@ -126,7 +161,7 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_HIDDEN_SECTIONS] = ids.joinToString(",") }
     }
 
-    /** 分区标题右侧是否显示卡片形态菜单（默认开）。 */
+    /** Whether the card kind menu is shown on the right side of a section title (default on). */
     val dashboardCardKindMenu: Flow<Boolean> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_CARD_KIND_MENU] ?: true
     }
@@ -135,7 +170,7 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_CARD_KIND_MENU] = enabled }
     }
 
-    /** 是否显示「进行中的阅读列表」分区（默认开）。 */
+    /** Whether the "Read Lists in Progress" section is shown (default on). */
     val dashboardContinuationEnabled: Flow<Boolean> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_CONTINUATION] ?: true
     }
@@ -144,7 +179,7 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_CONTINUATION] = enabled }
     }
 
-    /** 分区卡片形态覆盖（"id=kind" 逗号分隔；未覆盖的分区跟随默认）。 */
+    /** Section card kind overrides (comma-separated "id=kind"; sections without an override follow the default). */
     val dashboardKindOverrides: Flow<Map<String, String>> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_KIND_OVERRIDES].toCsvList()
             .mapNotNull { entry ->
@@ -163,7 +198,7 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** 各浏览页布局覆盖（"page=Layout" 逗号分隔；对齐 iOS 逐页布局记忆，BrowseLayout.name 值）。 */
+    /** Per browse-page layout overrides (comma-separated "page=Layout"; aligned with the iOS per-page layout memory, BrowseLayout.name values). */
     val browseLayoutOverrides: Flow<Map<String, String>> = store.data.map { prefs ->
         prefs[Keys.BROWSE_LAYOUT_OVERRIDES].toCsvList()
             .mapNotNull { entry ->
@@ -173,7 +208,7 @@ class AppSettingsStore @Inject constructor(
             .toMap()
     }
 
-    /** 单个浏览页的布局（无记录时为 null → 调用方用页面默认）。 */
+    /** Layout of a single browse page (null when unrecorded → callers use the page default). */
     fun browseLayout(page: String): Flow<String?> = browseLayoutOverrides.map { it[page] }
 
     suspend fun setBrowseLayout(page: String, layout: String) {
@@ -184,70 +219,86 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** 仅封面卡片（隐藏标题/副标题；对齐 iOS coverOnlyCards）。 */
+    /** Cover-only cards (hide title/subtitle; aligned with iOS coverOnlyCards). */
     val cardCoverOnly: Flow<Boolean> = booleanPref(Keys.CARD_COVER_ONLY, false)
 
     suspend fun setCardCoverOnly(enabled: Boolean) = writeBoolean(Keys.CARD_COVER_ONLY, enabled)
 
-    /** 文字叠加在封面上（对齐 iOS cardTextOverlayMode）。 */
+    /** Text overlaid on the cover (aligned with iOS cardTextOverlayMode). */
     val cardTextOverlay: Flow<Boolean> = booleanPref(Keys.CARD_TEXT_OVERLAY, false)
 
     suspend fun setCardTextOverlay(enabled: Boolean) = writeBoolean(Keys.CARD_TEXT_OVERLAY, enabled)
 
-    /** 书籍卡显示所属系列名（对齐 iOS showBookCardSeriesTitle）。 */
+    /** Show the parent series title on book cards (aligned with iOS showBookCardSeriesTitle). */
     val cardShowBookSeriesTitle: Flow<Boolean> = booleanPref(Keys.CARD_SHOW_BOOK_SERIES_TITLE, true)
 
     suspend fun setCardShowBookSeriesTitle(enabled: Boolean) =
         writeBoolean(Keys.CARD_SHOW_BOOK_SERIES_TITLE, enabled)
 
-    /** 封面保持原始比例（不裁剪；对齐 iOS thumbnailPreserveAspectRatio）。 */
+    /** Keep covers at their original aspect ratio (no cropping; aligned with iOS thumbnailPreserveAspectRatio). */
     val thumbnailPreserveAspectRatio: Flow<Boolean> =
         booleanPref(Keys.THUMBNAIL_PRESERVE_ASPECT_RATIO, true)
 
     suspend fun setThumbnailPreserveAspectRatio(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_PRESERVE_ASPECT_RATIO, enabled)
 
-    /** 封面投影（对齐 iOS thumbnailShowShadow）。 */
+    /** Cover shadow (aligned with iOS thumbnailShowShadow). */
     val thumbnailShowShadow: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_SHOW_SHADOW, true)
 
     suspend fun setThumbnailShowShadow(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_SHOW_SHADOW, enabled)
 
-    /** 未读角标（对齐 iOS thumbnailShowUnreadIndicator）。 */
+    /** Unread badge (aligned with iOS thumbnailShowUnreadIndicator). */
     val thumbnailShowUnreadIndicator: Flow<Boolean> =
         booleanPref(Keys.THUMBNAIL_SHOW_UNREAD_INDICATOR, true)
 
     suspend fun setThumbnailShowUnreadIndicator(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_SHOW_UNREAD_INDICATOR, enabled)
 
-    /** 进度条（对齐 iOS thumbnailShowProgressBar）。 */
+    /** Progress bar (aligned with iOS thumbnailShowProgressBar). */
     val thumbnailShowProgressBar: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_SHOW_PROGRESS_BAR, true)
 
     suspend fun setThumbnailShowProgressBar(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_SHOW_PROGRESS_BAR, enabled)
 
-    /** 未读封面模糊（对齐 iOS thumbnailBlurUnreadCovers）。 */
+    /** Blur unread covers (aligned with iOS thumbnailBlurUnreadCovers). */
     val thumbnailBlurUnreadCovers: Flow<Boolean> = booleanPref(Keys.THUMBNAIL_BLUR_UNREAD_COVERS, false)
 
     suspend fun setThumbnailBlurUnreadCovers(enabled: Boolean) =
         writeBoolean(Keys.THUMBNAIL_BLUR_UNREAD_COVERS, enabled)
 
-    /** 仅 Wi-Fi 预加载（对齐 iOS wifiOnlyPreload）。 */
+    /** Wi-Fi only preload (aligned with iOS wifiOnlyPreload). */
     val wifiOnlyPreload: Flow<Boolean> = booleanPref(Keys.WIFI_ONLY_PRELOAD, true)
 
     suspend fun setWifiOnlyPreload(enabled: Boolean) = writeBoolean(Keys.WIFI_ONLY_PRELOAD, enabled)
 
-    /** SSE 事件驱动仪表盘自动刷新（对齐 iOS enableSSEAutoRefresh，默认开；随 SSE 总开关联动禁用）。 */
+    /** SSE event-driven dashboard auto refresh (aligned with iOS enableSSEAutoRefresh, default on; disabled together with the overall SSE switch). */
     val sseAutoRefresh: Flow<Boolean> = booleanPref(Keys.SSE_AUTO_REFRESH, true)
 
     suspend fun setSseAutoRefresh(enabled: Boolean) = writeBoolean(Keys.SSE_AUTO_REFRESH, enabled)
 
-    /** SSE 连接/任务完成通知（对齐 iOS enableSSENotify，默认关；通知基础设施接入前仅持久化）。 */
+    /**
+     * Page-turn progress recording threshold (aligned with iOS AppConfig.progressRecordingThreshold, default 3):
+     * an unread/finished book starts recording progress only after turning that many pages from the starting page
+     * (prevents an accidental open from polluting the state); 0 = record immediately; a book in progress records on
+     * every page turn.
+     */
+    val progressRecordingThreshold: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.PROGRESS_RECORDING_THRESHOLD] ?: DEFAULT_PROGRESS_RECORDING_THRESHOLD
+    }
+
+    suspend fun setProgressRecordingThreshold(value: Int) {
+        store.edit { prefs ->
+            prefs[Keys.PROGRESS_RECORDING_THRESHOLD] = value.coerceAtLeast(0)
+        }
+    }
+
+    /** SSE connection/task completion notifications (aligned with iOS enableSSENotify, default off; persisted only until the notification infrastructure is wired up). */
     val sseNotify: Flow<Boolean> = booleanPref(Keys.SSE_NOTIFY, false)
 
     suspend fun setSseNotify(enabled: Boolean) = writeBoolean(Keys.SSE_NOTIFY, enabled)
 
-    /** 网络请求超时（秒；设计稿默认 30，范围 5–120；对齐 iOS requestTimeout 语义）。 */
+    /** Network request timeout (seconds; design default 30, range 5–120; aligned with iOS requestTimeout semantics). */
     val networkTimeoutSeconds: Flow<Int> = store.data.map { prefs ->
         prefs[Keys.NETWORK_TIMEOUT_SECONDS] ?: DEFAULT_NETWORK_TIMEOUT_SECONDS
     }
@@ -258,7 +309,7 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** 整本下载的页级并发数（设计稿默认 2，范围 1–8；DownloadWorker 消费）。 */
+    /** Per-book page-level download concurrency (design default 2, range 1–8; consumed by DownloadWorker). */
     val downloadConcurrency: Flow<Int> = store.data.map { prefs ->
         prefs[Keys.DOWNLOAD_CONCURRENCY] ?: DEFAULT_DOWNLOAD_CONCURRENCY
     }
@@ -269,7 +320,7 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** 图片磁盘缓存上限（MB，设计稿默认 2048；SessionManager ImageLoader 消费）。 */
+    /** Image disk cache limit (MB, design default 2048; consumed by the SessionManager ImageLoader). */
     val imageCacheLimitMb: Flow<Int> = store.data.map { prefs ->
         prefs[Keys.IMAGE_CACHE_LIMIT_MB] ?: DEFAULT_IMAGE_CACHE_LIMIT_MB
     }
@@ -280,7 +331,7 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** 应用图标变体：primary / classic / legacy（对齐 iOS AppIconOption）。 */
+    /** App icon variant: primary / classic / legacy (aligned with iOS AppIconOption). */
     val appIcon: Flow<String> = store.data.map { prefs -> prefs[Keys.APP_ICON] ?: APP_ICON_PRIMARY }
 
     suspend fun setAppIcon(value: String) {
@@ -294,7 +345,7 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[key] = value }
     }
 
-    // remote-apply writers：不发出 change，避免上下行回环
+    // remote-apply writers: emit no change, avoiding an up/down loopback
     internal suspend fun writeSseEnabled(enabled: Boolean) {
         store.edit { prefs -> prefs[Keys.SSE_ENABLED] = enabled }
     }
@@ -324,6 +375,7 @@ class AppSettingsStore @Inject constructor(
         const val DEFAULT_NETWORK_TIMEOUT_SECONDS = 30
         const val DEFAULT_DOWNLOAD_CONCURRENCY = 2
         const val DEFAULT_IMAGE_CACHE_LIMIT_MB = 2048
+        const val DEFAULT_PROGRESS_RECORDING_THRESHOLD = 3
         fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
     }
 
@@ -333,7 +385,10 @@ class AppSettingsStore @Inject constructor(
         val TRUE_BLACK = booleanPreferencesKey("true_black")
         val DIVINA_DIRECTION = stringPreferencesKey("divina_default_direction")
         val PINNED_LIBRARY_IDS = stringPreferencesKey("dashboard_pinned_library_ids")
+        val PINNED_COLLECTION_IDS = stringPreferencesKey("pinned_collection_ids")
+        val PINNED_READLIST_IDS = stringPreferencesKey("pinned_readlist_ids")
         val LIBRARY_BROWSE_SCOPE = stringPreferencesKey("library_browse_scope")
+        val SEARCH_BROWSE_SCOPE = stringPreferencesKey("search_browse_scope")
         val DASHBOARD_SECTION_ORDER = stringPreferencesKey("dashboard_section_order")
         val DASHBOARD_HIDDEN_SECTIONS = stringPreferencesKey("dashboard_hidden_sections")
         val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")
@@ -354,6 +409,7 @@ class AppSettingsStore @Inject constructor(
         val NETWORK_TIMEOUT_SECONDS = intPreferencesKey("network_timeout_seconds")
         val DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")
         val IMAGE_CACHE_LIMIT_MB = intPreferencesKey("image_cache_limit_mb")
+        val PROGRESS_RECORDING_THRESHOLD = intPreferencesKey("progress_recording_threshold")
         val APP_ICON = stringPreferencesKey("app_icon")
     }
 }

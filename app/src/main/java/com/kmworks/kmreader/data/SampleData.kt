@@ -1,42 +1,54 @@
 package com.kmworks.kmreader.data
 
-/** 作者角色，对齐 KMReader AuthorRole（icon 映射一致）。token 为服务端 role 原文。 */
-enum class AuthorRole(val label: String, val token: String) {
-    Writer("原作", "writer"), Penciller("作画", "penciller"), Inker("勾线", "inker"),
-    Colorist("上色", "colorist"), Letterer("嵌字", "letterer"), Cover("封面", "cover"),
-    Editor("编辑", "editor"), Translator("翻译", "translator"), Custom("其他", "custom"),
+import androidx.annotation.StringRes
+import com.kmworks.kmreader.R
+
+/** Author role, mirroring KMReader AuthorRole (same icon mapping). [token] is the raw server role value. */
+enum class AuthorRole(@param:StringRes val labelRes: Int, val token: String) {
+    Writer(R.string.author_role_writer, "writer"),
+    Penciller(R.string.author_role_penciller, "penciller"),
+    Inker(R.string.author_role_inker, "inker"),
+    Colorist(R.string.author_role_colorist, "colorist"),
+    Letterer(R.string.author_role_letterer, "letterer"),
+    Cover(R.string.author_role_cover, "cover"),
+    Editor(R.string.author_role_editor, "editor"),
+    Translator(R.string.author_role_translator, "translator"),
+    Custom(R.string.author_role_custom, "custom"),
     ;
 
     companion object {
-        /** 编辑表单可选的预定义角色（对齐 iOS AuthorRole.predefinedCases）。 */
+        /** Predefined roles selectable in edit forms (mirrors iOS AuthorRole.predefinedCases). */
         val predefined: List<AuthorRole>
             get() = listOf(Writer, Penciller, Inker, Colorist, Letterer, Cover, Editor, Translator)
     }
 }
 
 /**
- * 详情页创作者条目（按角色排序展示，对齐 SeriesHeroInfoView.creatorItems）。
- * [customRole] 保留服务端自定义角色原文（AuthorRole.Custom 时用作显示名，对齐 iOS AuthorRole.custom(String)）。
+ * Creator entry on the detail page (sorted by role, mirroring SeriesHeroInfoView.creatorItems).
+ * [customRole] keeps the raw server-provided custom role text (used as the display name when
+ * role is AuthorRole.Custom, mirroring iOS AuthorRole.custom(String)).
  */
 data class Creator(
     val name: String,
     val role: AuthorRole,
     val customRole: String? = null,
-) {
-    /** 角色中文名；自定义角色优先用服务端原文，缺失时回退「其他」。 */
-    val roleLabel: String
-        get() = if (role == AuthorRole.Custom) {
-            customRole?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
-                ?: AuthorRole.Custom.label
-        } else {
-            role.label
-        }
-}
+)
 
-/** 书籍元数据中聚合出的知名实体（角色/团队/地点），对齐 NotableEntity。 */
+/** Notable entity aggregated from book metadata (character/team/location), mirroring NotableEntity. */
+@kotlinx.serialization.Serializable
 data class NotableEntity(val name: String, val kind: String)
 
-/** 系列（Series）。progress 为该系列整体已读比例，null 表示未开始。 */
+/** Known entity kinds (mirrors iOS NotableEntity.knownKinds: character/team/location). */
+val NotableEntityKnownKinds = listOf("character", "team", "location")
+
+/** Filter/route value key: kind ␟ name (␟-separated, mirrors iOS NotableEntity.filterKey). */
+val NotableEntity.filterKey: String get() = "$kind\u001F$name"
+
+/** Restore an entity from its value key (picker write-back / route un-selection). */
+fun notableEntityFromFilterKey(key: String): NotableEntity? =
+    key.split('\u001F').takeIf { it.size == 2 }?.let { NotableEntity(name = it[1], kind = it[0]) }
+
+/** Series. [progress] is the overall read ratio of the series, null means not started. */
 data class Series(
     val id: Int,
     val title: String,
@@ -58,26 +70,11 @@ data class Series(
     val tags: List<String> = emptyList(),
     val links: List<Pair<String, String>> = emptyList(),
     val summary: String? = null,
-) {
-    /**
-     * 卡片副标题，对齐 iOS SeriesCardView.statusContent：
-     * 部分已读 → 「共 N 册 · 已读 xx%」；全部读完 → 「共 N 册 · 已读完」；未开始 → 「共 N 册」。
-     * 任何状态都不出现「未读」字样。
-     */
-    val subtitle: String
-        get() = when {
-            progress != null && progress > 0f && progress < 1f ->
-                "共 $bookCount 册 · 已读 ${(progress * 100).toInt()}%"
-            progress == 1f || (unreadCount == 0 && bookCount > 0) -> "共 $bookCount 册 · 已读完"
-            else -> "共 $bookCount 册"
-        }
+    /** One-shot (mirrors iOS series.oneshot): the card detail row shows the one-shot line and taps into the one-shot detail. */
+    val oneshot: Boolean = false,
+)
 
-    /** 详情页操作卡的册数行，对齐 SeriesBookCountView。 */
-    val bookCountLine: String
-        get() = if (totalBookCount != null) "$bookCount / $totalBookCount 册" else "$bookCount 册"
-}
-
-/** 书籍（Book）。progress null=未读，1f=已读完。 */
+/** Book. progress null = unread, 1f = finished. */
 data class Book(
     val id: Int,
     val number: String,
@@ -86,14 +83,26 @@ data class Book(
     val hue: Float,
     val pageCount: Int,
     val progress: Float?,
+    /** One-shot (mirrors iOS book.oneshot). */
+    val oneshot: Boolean = false,
+    /** First author name, used as the one-shot card subtitle (mirrors iOS authors.primary). */
+    val author: String? = null,
+    /** Media status (READY/ERROR/UNSUPPORTED/OUTDATED/UNKNOWN, mirrors iOS MediaStatus). */
+    val mediaStatus: String = "READY",
+    /** Marked deleted on the server (mirrors iOS book.deleted; shown in red as "Unavailable" on the detail page). */
+    val deleted: Boolean = false,
+    /** External metadata links (komf identification candidates; series links are often empty for one-shots so fall back to the book). */
+    val links: List<Pair<String, String>> = emptyList(),
+    /** Notable entities (character/team/location/custom, mirrors iOS book.metadata.notableEntities). */
+    val notableEntities: List<NotableEntity> = emptyList(),
+    /** Last read timestamp (epoch millis, from readProgress.readDate; mirrors iOS readProgress.readDate). */
+    val lastReadAtMs: Long? = null,
 ) {
-    val pageLabel: String get() = "$pageCount 页"
-
-    /** 对齐 iOS Book.bookTitleLine："number - title"。 */
-    val titleLine: String get() = "$number - $title"
+    /** Mirrors iOS BookDisplayItem.bookTitleLine: one-shots carry no number prefix. */
+    val titleLine: String get() = if (oneshot) title else "$number - $title"
 }
 
-/** 对齐 KMReader LayoutConfig（iPhone 值，对照 Apple Books 校准）：large 152 / medium 116 / small 80 / horizontal 250。 */
+/** Mirrors KMReader LayoutConfig (iPhone values, calibrated against Apple Books): large 152 / medium 116 / small 80 / horizontal 250. */
 enum class DashboardCardKind(val widthDp: Int) {
     Large(152), Medium(116), Small(80), Horizontal(250)
 }
@@ -105,7 +114,7 @@ data class DashboardSection<T>(
     val items: List<T>,
 )
 
-/** 共享 UI 模型容器（演示假数据已全部移除，内容一律来自服务器）。 */
+/** Shared UI model container (demo fixtures were removed entirely; all content comes from the server). */
 object SampleData {
 
     data class ListGroup(val title: String, val items: List<ListEntry>)
@@ -115,10 +124,10 @@ object SampleData {
         val count: Int,
         val hue: Float,
         val pinned: Boolean,
-        /** 智能列表用：目标类型（书籍/系列）与更新日期；普通列表为 null。 */
+        /** Smart lists only: target type (book/series) and modification date; null for plain lists. */
         val targetLabel: String? = null,
         val modifiedLabel: String? = null,
-        /** 编辑 sheet 初始值；来自真实 DTO，避免以空白覆盖服务端字段。 */
+        /** Initial values for the edit sheet; sourced from the real DTO so blank values never overwrite server fields. */
         val summary: String? = null,
         val ordered: Boolean? = null,
         val smartListTarget: SmartListTarget? = null,

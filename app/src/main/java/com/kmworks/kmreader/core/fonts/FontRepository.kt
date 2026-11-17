@@ -2,6 +2,7 @@ package com.kmworks.kmreader.core.fonts
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.kmworks.kmreader.core.api.FontsApi
 import com.kmworks.kmreader.core.data.LocalApiFactory
 import com.kmworks.kmreader.core.data.awaitBody
@@ -15,7 +16,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Server font download store (mirrors Komga FontsApi + iOS 本地字体注入思路)。 */
+/** Server font download store (mirrors Komga FontsApi + the iOS local-font injection approach). */
 @Singleton
 class FontRepository @Inject constructor(
     private val sessionManager: SessionManager,
@@ -27,11 +28,11 @@ class FontRepository @Inject constructor(
     private fun api(): FontsApi? =
         sessionManager.clients.value?.let { LocalApiFactory.create(it, FontsApi::class.java) }
 
-    /** 服务端字体家庭列表；失败返回空（界面门控）。 */
+    /** Server-side font families; empty on failure (the UI gates on it). */
     suspend fun families(): List<String> =
         api()?.getFonts()?.awaitBody()?.sorted() ?: emptyList()
 
-    /** 已下载（本地 css 存在视为完成）。 */
+    /** Downloaded (an existing local css counts as complete). */
     fun downloadedFamilies(): Set<String> =
         fontsDir.listFiles()
             ?.filter { it.isDirectory && File(it, CSS_FILE).exists() }
@@ -40,8 +41,8 @@ class FontRepository @Inject constructor(
             .orEmpty()
 
     /**
-     * 下载家庭的 css 与全部字体文件到 filesDir/fonts/{family}/；
-     * css 内 url(...) 重写为 WebView 假域 fonts 路由（已存在的文件跳过）。
+     * Download a family's css and all font files to filesDir/fonts/{family}/;
+     * url(...) entries inside the css are rewritten to the WebView fake-domain fonts route (existing files skipped).
      */
     suspend fun downloadFontFamily(family: String): Boolean = withContext(Dispatchers.IO) {
         val api = api() ?: return@withContext false
@@ -71,7 +72,7 @@ class FontRepository @Inject constructor(
         }
     }
 
-    /** 本地 @font-face css（已重写为假域 URL）；未下载返回 null。 */
+    /** Local @font-face css (already rewritten to fake-domain URLs); null when not downloaded. */
     fun localCss(family: String): String? =
         File(fontsDir, "$family/$CSS_FILE").takeIf { it.exists() }?.readText()
 
@@ -79,7 +80,58 @@ class FontRepository @Inject constructor(
         File(fontsDir, family).deleteRecursively()
     }
 
-    /** 假域 fonts 路由的本地文件读取（WebViewClient 线程同步调用）。 */
+    /**
+     * Import local font files (.ttf/.otf/.ttc picked via SAF):
+     * writes filesDir/fonts/{family}/ and generates an @font-face family.css (fake-domain URLs),
+     * then takes the same route as server-downloaded fonts (downloadedFamilies/localCss) consumed by the EPUB reader.
+     * Returns the imported family name; unsupported extensions or read failures return null.
+     */
+    suspend fun importLocalFont(uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val displayName = queryDisplayName(uri) ?: return@withContext null
+            val extension = displayName.substringAfterLast('.', "").lowercase()
+            if (extension !in IMPORTABLE_EXTENSIONS) return@withContext null
+            val family = sanitizeFamilyName(displayName.substringBeforeLast('.'))
+                .ifBlank { return@withContext null }
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return@withContext null
+            val dir = File(fontsDir, family).apply { mkdirs() }
+            // A same-named family is treated as an overwrite import: clear old files to avoid stale fonts
+            dir.listFiles()?.forEach { it.delete() }
+            val fileName = "$family.$extension"
+            File(dir, fileName).writeBytes(bytes)
+            val css = """
+                @font-face {
+                    font-family: "${family.replace("\"", "\\\"")}";
+                    src: url("${EpubWeb.fontUrl(family, fileName)}");
+                }
+            """.trimIndent()
+            File(dir, CSS_FILE).writeText(css)
+            family
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** SAF file name (OpenableColumns.DISPLAY_NAME). */
+    private fun queryDisplayName(uri: Uri): String? =
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index < 0) null else cursor.getString(index)
+        }
+
+    /** Family name sanitization: strips path/URL-dangerous characters, keeps CJK, Latin and spaces. */
+    private fun sanitizeFamilyName(raw: String): String =
+        raw.trim().replace(Regex("""[\\/:*?"<>|]+"""), "_").trim('.', ' ')
+
+    /** Local file read for the fake-domain fonts route (called synchronously on the WebViewClient thread). */
     fun localFontResource(path: String): EpubResource? {
         if (!path.startsWith(EpubWeb.FONTS_PREFIX)) return null
         val relative = path.removePrefix(EpubWeb.FONTS_PREFIX)
@@ -98,5 +150,6 @@ class FontRepository @Inject constructor(
     private companion object {
         const val CSS_FILE = "family.css"
         val URL_PATTERN = Regex("""url\(([^)]+)\)""")
+        val IMPORTABLE_EXTENSIONS = setOf("ttf", "otf", "ttc")
     }
 }

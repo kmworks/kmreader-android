@@ -25,24 +25,33 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kmworks.kmreader.R
 
 /**
- * 登录 / 连接服务器（对齐 LoginView）：居中窄列，
- * 服务器地址 + 账号密码 / API Key 两种认证，探测成功后自动进入主界面。
+ * Login / connect server (mirrors LoginView): a centered narrow column with the server URL plus either
+ * username-password or API Key authentication; a successful probe enters the main UI automatically.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
+    /** When used as "Add Server" from a signed-in state, notify the caller to close this page after login. */
+    onLoggedIn: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.connectedUser) {
+        if (state.connectedUser != null) onLoggedIn?.invoke()
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -57,7 +66,7 @@ fun LoginScreen(
             ) {
                 Text("KMReader", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "连接到你的 Komga 服务器",
+                    stringResource(R.string.login_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -66,7 +75,7 @@ fun LoginScreen(
                     value = state.serverUrl,
                     onValueChange = viewModel::updateServerUrl,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务器地址") },
+                    label = { Text(stringResource(R.string.login_server_url)) },
                     placeholder = { Text("https://komga.example.com") },
                     leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null) },
                     singleLine = true,
@@ -84,7 +93,7 @@ fun LoginScreen(
                             ),
                             enabled = !state.loading,
                         ) {
-                            Text(mode.label)
+                            Text(stringResource(mode.labelRes))
                         }
                     }
                 }
@@ -95,7 +104,7 @@ fun LoginScreen(
                             value = state.username,
                             onValueChange = viewModel::updateUsername,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("用户名") },
+                            label = { Text(stringResource(R.string.login_username)) },
                             leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
                             singleLine = true,
                             enabled = !state.loading,
@@ -105,7 +114,7 @@ fun LoginScreen(
                             value = state.password,
                             onValueChange = viewModel::updatePassword,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("密码") },
+                            label = { Text(stringResource(R.string.login_password)) },
                             leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,
@@ -118,7 +127,7 @@ fun LoginScreen(
                             value = state.apiKey,
                             onValueChange = viewModel::updateApiKey,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("API Key") },
+                            label = { Text(stringResource(R.string.login_auth_api_key)) },
                             leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,
@@ -137,7 +146,7 @@ fun LoginScreen(
                 state.connectedUser?.let { user ->
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "已连接：${user.email}",
+                        stringResource(R.string.login_connected_as, user.email),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -155,7 +164,7 @@ fun LoginScreen(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text("连接")
+                        Text(stringResource(R.string.login_connect))
                     }
                 }
             }

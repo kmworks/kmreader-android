@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dagger.hilt.android.EntryPointAccessors
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -20,9 +21,10 @@ import okhttp3.Request
 import java.io.File
 
 /**
- * 整本下载 Worker：逐页 GET 页面图片写入应用私有目录（页级并发 = 网络设置页的下载并发数）。
- * 目标文件 downloads/{bookDtoId}/{page:000}.{ext}，已存在的页跳过（可断点续下）。
- * 完成后写 meta（标题/页数），供已下载列表与完整性检查使用。
+ * Whole-book download Worker: GETs each page image into the app-private directory
+ * (page-level concurrency = the download concurrency from the network settings page).
+ * Target files downloads/{bookDtoId}/{page:000}.{ext}; existing pages are skipped (resumable).
+ * On completion writes meta (title/page count) for the downloaded list and integrity checks.
  */
 class DownloadWorker(
     appContext: Context,
@@ -41,7 +43,7 @@ class DownloadWorker(
             .fromApplication(applicationContext, ImageLoaderEntryPoint::class.java)
             .sessionManager()
         val clients = sessionManager.clients.value
-            ?: return Result.failure(workDataOf(KEY_ERROR to "无会话"))
+            ?: return Result.failure(workDataOf(KEY_ERROR to applicationContext.getString(R.string.download_no_session)))
         val dir = File(applicationContext.filesDir, "downloads/$bookId")
         dir.mkdirs()
         return try {
@@ -65,10 +67,10 @@ class DownloadWorker(
                 }
             }
             File(dir, META_FILE).writeText("title=$title\npageCount=$pageCount\n")
-            AppLog.i("Download", "完成：$title（$pageCount 页，并发 $concurrency）")
+            AppLog.i("Download", "done: $title ($pageCount pages, concurrency $concurrency)")
             Result.success()
         } catch (e: CancellationException) {
-            // WorkManager 停止/取消：直接抛出，不进入重试
+            // Stopped/cancelled by WorkManager: rethrow, do not retry
             throw e
         } catch (e: Exception) {
             val doneCount = dir.listFiles()?.count { it.name != META_FILE } ?: 0
@@ -77,13 +79,13 @@ class DownloadWorker(
                 KEY_PAGE_TOTAL to pageCount,
                 KEY_TITLE to title,
             ))
-            AppLog.e("Download", "失败：$title 第 ${doneCount + 1} 页", e)
+            AppLog.e("Download", "failed: $title page ${doneCount + 1}", e)
             if (runAttemptCount < 3) Result.retry()
-            else Result.failure(workDataOf(KEY_ERROR to (e.message ?: "下载失败")))
+            else Result.failure(workDataOf(KEY_ERROR to (e.message ?: applicationContext.getString(R.string.download_failed))))
         }
     }
 
-    /** 下载单页；扩展名由响应 Content-Type 决定。 */
+    /** Download a single page; the extension is derived from the response Content-Type. */
     private suspend fun downloadPage(
         client: okhttp3.OkHttpClient,
         baseUrl: String,
@@ -122,7 +124,7 @@ class DownloadWorker(
             else -> "img"
         }
 
-        /** 已落盘的第 N 页文件（扩展名任意）；未下载返回 null。 */
+        /** The persisted file of page N (any extension); null when not downloaded. */
         fun pageFile(dir: File, page: Int): File? {
             val prefix = "%03d.".format(page)
             return dir.listFiles()?.firstOrNull { it.name.startsWith(prefix) }

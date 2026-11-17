@@ -22,19 +22,21 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.R
 
-/** 上下文菜单条目（对齐原作各 ContextMenu 的 Label/Button；destructive 用 error 色）。 */
+/** Context-menu entry (mirrors the Label/Button entries of the original ContextMenus; destructive uses the error color). */
 data class ContextMenuItem(
     val title: String,
     val icon: ImageVector,
@@ -43,14 +45,14 @@ data class ContextMenuItem(
     val onClick: () -> Unit,
 )
 
-/** 通用长按上下文菜单（对齐 KMReader 各 ContextMenu，设计稿以 ModalBottomSheet 呈现）。 */
+/** Generic long-press context menu (mirrors the KMReader ContextMenus, presented as a ModalBottomSheet). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContextMenuSheet(
     items: List<ContextMenuItem>,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 28.dp)) {
             items.forEach { item ->
                 val tint = if (item.destructive) {
@@ -77,128 +79,178 @@ fun ContextMenuSheet(
     }
 }
 
-/** 系列上下文菜单（对齐 SeriesContextMenu）。 */
+// Every action callback is nullable: null = this page does not support the action, so the
+// menu entry is not rendered (no dead "nothing happens" items).
+
+/** Series context menu (mirrors SeriesContextMenu). */
+@Composable
 fun seriesContextMenuItems(
     pinned: Boolean,
     hasStarted: Boolean,
     completed: Boolean,
     downloaded: Boolean,
-    onTogglePin: () -> Unit = {},
-    onMarkRead: () -> Unit = {},
-    onMarkUnread: () -> Unit = {},
-    onDownload: () -> Unit = {},
-    onAddToCollection: () -> Unit = {},
-    onAddToReadList: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onRefreshCover: () -> Unit = {},
-    onShare: () -> Unit = {},
-    onDelete: () -> Unit = {},
+    onTogglePin: (() -> Unit)? = null,
+    onMarkRead: (() -> Unit)? = null,
+    onMarkUnread: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
+    onAddToCollection: (() -> Unit)? = null,
+    onAddToReadList: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onRefreshCover: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
 ): List<ContextMenuItem> = buildList {
-    add(ContextMenuItem(if (pinned) "取消置顶" else "置顶", Icons.Outlined.PushPin, onClick = onTogglePin))
+    onTogglePin?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (pinned) R.string.menu_unpin else R.string.menu_pin),
+                Icons.Outlined.PushPin,
+                onClick = it,
+            )
+        )
+    }
     if (!completed) {
-        add(ContextMenuItem("标记为已读", Icons.Outlined.CheckCircle, onClick = onMarkRead))
+        onMarkRead?.let { add(ContextMenuItem(stringResource(R.string.menu_mark_read), Icons.Outlined.CheckCircle, onClick = it)) }
     }
     if (hasStarted) {
-        add(ContextMenuItem("标记为未读", Icons.Outlined.RadioButtonUnchecked, onClick = onMarkUnread))
+        onMarkUnread?.let { add(ContextMenuItem(stringResource(R.string.menu_mark_unread), Icons.Outlined.RadioButtonUnchecked, onClick = it)) }
     }
-    add(
-        ContextMenuItem(
-            if (downloaded) "移除下载" else "下载",
-            Icons.Outlined.Download,
-            onClick = onDownload,
+    onDownload?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (downloaded) R.string.menu_remove_download else R.string.common_download),
+                Icons.Outlined.Download,
+                onClick = it,
+            )
         )
-    )
-    add(ContextMenuItem("加入收藏", Icons.Outlined.CollectionsBookmark, onClick = onAddToCollection))
-    add(ContextMenuItem("加入阅读列表", Icons.Outlined.PlaylistAdd, onClick = onAddToReadList))
-    add(ContextMenuItem("编辑", Icons.Outlined.Edit, onClick = onEdit))
-    add(ContextMenuItem("刷新封面", Icons.Outlined.Image, onClick = onRefreshCover))
-    add(ContextMenuItem("分享", Icons.Outlined.Share, onClick = onShare))
-    add(ContextMenuItem("删除", Icons.Outlined.Delete, destructive = true, onClick = onDelete))
+    }
+    onAddToCollection?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_collection), Icons.Outlined.CollectionsBookmark, onClick = it)) }
+    onAddToReadList?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_read_list), Icons.Outlined.PlaylistAdd, onClick = it)) }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onRefreshCover?.let { add(ContextMenuItem(stringResource(R.string.common_refresh_cover), Icons.Outlined.Image, onClick = it)) }
+    onShare?.let { add(ContextMenuItem(stringResource(R.string.common_share), Icons.Outlined.Share, onClick = it)) }
+    onDelete?.let { add(ContextMenuItem(stringResource(R.string.common_delete), Icons.Outlined.Delete, destructive = true, onClick = it)) }
 }
 
-/** 书籍上下文菜单（对齐 BookContextMenu；「访问系列」对应原作的系列导航入口）。 */
+/** Book context menu (mirrors BookContextMenu; "Go to Series" is the original series-navigation entry). */
+@Composable
 fun bookContextMenuItems(
     hasStarted: Boolean,
     completed: Boolean,
     downloaded: Boolean,
-    onOpenSeries: () -> Unit = {},
-    onRead: () -> Unit = {},
-    onReadIncognito: () -> Unit = {},
-    onMarkRead: () -> Unit = {},
-    onMarkUnread: () -> Unit = {},
-    onDownload: () -> Unit = {},
-    onAddToReadList: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onAnalyze: () -> Unit = {},
-    onRefresh: () -> Unit = {},
-    onShare: () -> Unit = {},
-    onDelete: () -> Unit = {},
+    /** One-shot: hides "Go to Series" (mirrors iOS BookContextMenu: showSeriesNavigation && !oneshot). */
+    oneshot: Boolean = false,
+    onOpenSeries: (() -> Unit)? = null,
+    onRead: (() -> Unit)? = null,
+    onReadIncognito: (() -> Unit)? = null,
+    onOpenDetails: (() -> Unit)? = null,
+    onMarkRead: (() -> Unit)? = null,
+    onMarkUnread: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
+    onAddToReadList: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onAnalyze: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
 ): List<ContextMenuItem> = buildList {
     // read actions first (mirrors BookContextMenu ControlGroup: read / peek / series)
-    add(ContextMenuItem("阅读", Icons.AutoMirrored.Outlined.MenuBook, onClick = onRead))
-    add(ContextMenuItem("隐私阅读", Icons.Outlined.Visibility, onClick = onReadIncognito))
-    add(ContextMenuItem("访问系列", Icons.Outlined.AutoStories, onClick = onOpenSeries))
+    onRead?.let { add(ContextMenuItem(stringResource(R.string.menu_read), Icons.AutoMirrored.Outlined.MenuBook, onClick = it)) }
+    onReadIncognito?.let { add(ContextMenuItem(stringResource(R.string.menu_read_incognito), Icons.Outlined.Visibility, onClick = it)) }
+    onOpenDetails?.let { add(ContextMenuItem(stringResource(R.string.menu_view_details), Icons.Outlined.Info, onClick = it)) }
+    if (!oneshot) {
+        onOpenSeries?.let { add(ContextMenuItem(stringResource(R.string.menu_open_series), Icons.Outlined.AutoStories, onClick = it)) }
+    }
     if (!completed) {
-        add(ContextMenuItem("标记为已读", Icons.Outlined.CheckCircle, onClick = onMarkRead))
+        onMarkRead?.let { add(ContextMenuItem(stringResource(R.string.menu_mark_read), Icons.Outlined.CheckCircle, onClick = it)) }
     }
     if (hasStarted) {
-        add(ContextMenuItem("标记为未读", Icons.Outlined.RadioButtonUnchecked, onClick = onMarkUnread))
+        onMarkUnread?.let { add(ContextMenuItem(stringResource(R.string.menu_mark_unread), Icons.Outlined.RadioButtonUnchecked, onClick = it)) }
     }
-    add(
-        ContextMenuItem(
-            if (downloaded) "移除下载" else "下载",
-            Icons.Outlined.Download,
-            onClick = onDownload,
+    onDownload?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (downloaded) R.string.menu_remove_download else R.string.common_download),
+                Icons.Outlined.Download,
+                onClick = it,
+            )
         )
-    )
-    add(ContextMenuItem("加入阅读列表", Icons.Outlined.PlaylistAdd, onClick = onAddToReadList))
-    add(ContextMenuItem("编辑元数据", Icons.Outlined.Edit, onClick = onEdit))
-    add(ContextMenuItem("分析", Icons.Outlined.Analytics, onClick = onAnalyze))
-    add(ContextMenuItem("刷新元数据", Icons.Outlined.Refresh, onClick = onRefresh))
-    add(ContextMenuItem("分享", Icons.Outlined.Share, onClick = onShare))
-    add(ContextMenuItem("删除", Icons.Outlined.Delete, destructive = true, onClick = onDelete))
+    }
+    onAddToReadList?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_read_list), Icons.Outlined.PlaylistAdd, onClick = it)) }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.menu_edit_metadata), Icons.Outlined.Edit, onClick = it)) }
+    onAnalyze?.let { add(ContextMenuItem(stringResource(R.string.menu_analyze), Icons.Outlined.Analytics, onClick = it)) }
+    onRefresh?.let { add(ContextMenuItem(stringResource(R.string.menu_refresh_metadata), Icons.Outlined.Refresh, onClick = it)) }
+    onShare?.let { add(ContextMenuItem(stringResource(R.string.common_share), Icons.Outlined.Share, onClick = it)) }
+    onDelete?.let { add(ContextMenuItem(stringResource(R.string.common_delete), Icons.Outlined.Delete, destructive = true, onClick = it)) }
 }
 
-/** 收藏上下文菜单（对齐 CollectionContextMenu）。 */
+/** Collection context menu (mirrors CollectionContextMenu). */
+@Composable
 fun collectionContextMenuItems(
     pinned: Boolean,
-    onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onRefreshCover: () -> Unit = {},
-    onDelete: () -> Unit = {},
-): List<ContextMenuItem> = listOf(
-    ContextMenuItem(if (pinned) "取消置顶" else "置顶", Icons.Outlined.PushPin, onClick = onTogglePin),
-    ContextMenuItem("编辑", Icons.Outlined.Edit, onClick = onEdit),
-    ContextMenuItem("刷新封面", Icons.Outlined.Image, onClick = onRefreshCover),
-    ContextMenuItem("删除收藏", Icons.Outlined.Delete, destructive = true, onClick = onDelete),
-)
+    onTogglePin: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onRefreshCover: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+): List<ContextMenuItem> = buildList {
+    onTogglePin?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (pinned) R.string.menu_unpin else R.string.menu_pin),
+                Icons.Outlined.PushPin,
+                onClick = it,
+            )
+        )
+    }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onRefreshCover?.let { add(ContextMenuItem(stringResource(R.string.common_refresh_cover), Icons.Outlined.Image, onClick = it)) }
+    onDelete?.let { add(ContextMenuItem(stringResource(R.string.menu_delete_collection), Icons.Outlined.Delete, destructive = true, onClick = it)) }
+}
 
-/** 阅读列表上下文菜单（对齐 ReadListContextMenu）。 */
+/** Read-list context menu (mirrors ReadListContextMenu). */
+@Composable
 fun readListContextMenuItems(
     pinned: Boolean,
-    onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onRefreshCover: () -> Unit = {},
-    onShare: () -> Unit = {},
-    onDelete: () -> Unit = {},
-): List<ContextMenuItem> = listOf(
-    ContextMenuItem(if (pinned) "取消置顶" else "置顶", Icons.Outlined.PushPin, onClick = onTogglePin),
-    ContextMenuItem("编辑", Icons.Outlined.Edit, onClick = onEdit),
-    ContextMenuItem("刷新封面", Icons.Outlined.Image, onClick = onRefreshCover),
-    ContextMenuItem("分享", Icons.Outlined.Share, onClick = onShare),
-    ContextMenuItem("删除阅读列表", Icons.Outlined.Delete, destructive = true, onClick = onDelete),
-)
+    onTogglePin: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onRefreshCover: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+): List<ContextMenuItem> = buildList {
+    onTogglePin?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (pinned) R.string.menu_unpin else R.string.menu_pin),
+                Icons.Outlined.PushPin,
+                onClick = it,
+            )
+        )
+    }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onRefreshCover?.let { add(ContextMenuItem(stringResource(R.string.common_refresh_cover), Icons.Outlined.Image, onClick = it)) }
+    onShare?.let { add(ContextMenuItem(stringResource(R.string.common_share), Icons.Outlined.Share, onClick = it)) }
+    onDelete?.let { add(ContextMenuItem(stringResource(R.string.menu_delete_readlist), Icons.Outlined.Delete, destructive = true, onClick = it)) }
+}
 
-/** 智能列表上下文菜单（对齐 SmartListContextMenu）。 */
+/** Smart-list context menu (mirrors SmartListContextMenu). */
+@Composable
 fun smartListContextMenuItems(
     pinned: Boolean,
-    onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onRefreshCover: () -> Unit = {},
-    onDelete: () -> Unit = {},
-): List<ContextMenuItem> = listOf(
-    ContextMenuItem(if (pinned) "取消置顶" else "置顶", Icons.Outlined.PushPin, onClick = onTogglePin),
-    ContextMenuItem("编辑", Icons.Outlined.Edit, onClick = onEdit),
-    ContextMenuItem("刷新封面", Icons.Outlined.Image, onClick = onRefreshCover),
-    ContextMenuItem("删除智能列表", Icons.Outlined.Delete, destructive = true, onClick = onDelete),
-)
+    onTogglePin: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onRefreshCover: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+): List<ContextMenuItem> = buildList {
+    onTogglePin?.let {
+        add(
+            ContextMenuItem(
+                stringResource(if (pinned) R.string.menu_unpin else R.string.menu_pin),
+                Icons.Outlined.PushPin,
+                onClick = it,
+            )
+        )
+    }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onRefreshCover?.let { add(ContextMenuItem(stringResource(R.string.common_refresh_cover), Icons.Outlined.Image, onClick = it)) }
+    onDelete?.let { add(ContextMenuItem(stringResource(R.string.menu_delete_smartlist), Icons.Outlined.Delete, destructive = true, onClick = it)) }
+}

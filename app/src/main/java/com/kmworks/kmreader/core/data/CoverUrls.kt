@@ -60,7 +60,7 @@ object CoverUrlRegistry {
     private fun put(stableId: Int, ref: CoverRef) {
         val previous = refs.put(stableId, ref)
         if (previous != null && previous != ref) {
-            // UI 使用 Int stableId；同一 id 映射到另一个 DTO 时封面会串图，必须能在日志里定位。
+            // The UI uses Int stableIds; if one id maps to another DTO covers get mixed up, so this must be traceable in the logs.
             AppLog.w(
                 "CoverUrlRegistry",
                 "stableId collision: id=$stableId ${previous.kind}:${previous.dtoId} -> ${ref.kind}:${ref.dtoId}",

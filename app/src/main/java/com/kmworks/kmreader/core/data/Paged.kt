@@ -4,6 +4,6 @@ package com.kmworks.kmreader.core.data
 data class Paged<out T>(
     val items: List<T>,
     val hasMore: Boolean,
-    /** 服务端匹配总数（分页端点的 totalElements）；不支持总数的来源为 null。 */
+    /** Total server-side matches (totalElements of paged endpoints); null for sources without a total. */
     val totalElements: Long? = null,
 )

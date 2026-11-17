@@ -2,7 +2,7 @@ package com.kmworks.kmreader.core.komf
 
 import kotlinx.serialization.Serializable
 
-/** komf 搜索结果（对齐 KomfSearchResult）。 */
+/** komf search result (mirrors KomfSearchResult). */
 @Serializable
 data class KomfSearchResultDto(
     val url: String? = null,
@@ -13,14 +13,14 @@ data class KomfSearchResultDto(
     val mediaType: String? = null,
     val language: String? = null,
 ) {
-    /** provider:resultId（对齐 result.id）。 */
+    /** provider:resultId (mirrors result.id). */
     val key: String get() = "$provider:$resultId"
 
-    /** metaText = mediaType · language（对齐 result.metaText）。 */
+    /** metaText = mediaType · language (mirrors result.metaText). */
     val metaText: String get() = listOfNotNull(mediaType, language).joinToString(" · ")
 }
 
-/** identify 请求体（对齐 KomfIdentifyRequest：libraryId 为空时省略该键）。 */
+/** identify request body (mirrors KomfIdentifyRequest: the libraryId key is omitted when empty). */
 @Serializable
 data class KomfIdentifyRequestDto(
     val seriesId: String,
@@ -29,11 +29,11 @@ data class KomfIdentifyRequestDto(
     val libraryId: String? = null,
 )
 
-/** 返回 jobId 的任务响应（对齐 KomfMetadataJobResponse）。 */
+/** Job response returning a jobId (mirrors KomfMetadataJobResponse). */
 @Serializable
 data class KomfMetadataJobResponseDto(val id: String)
 
-/** komf 任务（对齐 KomfJob）。 */
+/** komf job (mirrors KomfJob). */
 @Serializable
 data class KomfJobDto(
     val id: String,
@@ -44,7 +44,7 @@ data class KomfJobDto(
     val finishedAt: String? = null,
 )
 
-/** komf provider 直链（对齐 KomfProviderLink，SCREAMING_SNAKE provider id）。 */
+/** komf provider deep link (mirrors KomfProviderLink, SCREAMING_SNAKE provider id). */
 data class KomfProviderLink(
     val provider: String,
     val providerSeriesId: String,
@@ -106,7 +106,7 @@ private fun parseProviderLink(url: String): KomfProviderLink? {
     return null
 }
 
-/** 从系列 web links（label, url）反解 provider 直链，去重保序（对齐 parseAll）。 */
+/** Resolve provider deep links back from series web links (label, url), deduplicated in order (mirrors parseAll). */
 fun parseKomfProviderLinks(links: List<Pair<String, String>>): List<KomfProviderLink> {
     val seen = mutableSetOf<String>()
     return links.mapNotNull { parseProviderLink(it.second) }.filter { seen.add(it.key) }

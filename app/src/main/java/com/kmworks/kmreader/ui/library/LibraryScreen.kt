@@ -40,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,32 +51,61 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
-import com.kmworks.kmreader.ui.components.EmptyState
+import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.filterKey
+import com.kmworks.kmreader.ui.components.EmptyState
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
+import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
+import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
+import com.kmworks.kmreader.ui.detail.BookEditSheet
+import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
+import com.kmworks.kmreader.ui.util.shareText
 
-private enum class ContentType(val label: String) { Series("系列"), Books("书籍") }
+private enum class ContentType(@param:StringRes val labelRes: Int) {
+    Series(R.string.common_series),
+    Books(R.string.browse_scope_books),
+}
 
-/** 书库：内容优先浏览（Apple Books 式）。顶部 = 内容类型 chips（系列/书籍，带计数），
- *  其下为范围说明（范围标题 + 体积 caption）；范围（全部/已钉选/单库）在工具栏菜单原位切换，
- *  默认「已钉选」。对齐 KMReader LibraryBrowseView + BrowseContentView。 */
+/** Wire tokens of the metadata-filter route shared with the detail screens (they emit, this
+ *  screen consumes). Internal routing values only; display labels are localized at render time. */
+private const val FILTER_KIND_AUTHOR = "author"
+private const val FILTER_KIND_TAG = "tag"
+private const val FILTER_KIND_PUBLISHER = "publisher"
+private const val FILTER_KIND_GENRE = "genre"
+private const val FILTER_KIND_AGE_RATING = "ageRating"
+private const val FILTER_KIND_LANGUAGE = "language"
+private const val FILTER_KIND_RELEASE_YEAR = "releaseYear"
+private const val FILTER_KIND_NOTABLE = "notable"
+
+/** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
+ *  with counts), below it the scope summary (scope title + size caption); the scope
+ *  (all/pinned/single library) is switched in place from the toolbar menu and defaults to pinned.
+ *  Mirrors KMReader LibraryBrowseView + BrowseContentView. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -87,90 +117,153 @@ fun LibraryScreen(
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
 ) {
     var contentType by remember { mutableStateOf(ContentType.Series) }
-    // 布局逐内容类型持久化（对齐 iOS seriesBrowseLayout / bookBrowseLayout，默认 grid）
+    // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout,
+    // default grid)
     val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.Grid)
     val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.Grid)
     val layout = if (contentType == ContentType.Series) seriesLayout else booksLayout
     val setLayout = if (contentType == ContentType.Series) setSeriesLayout else setBooksLayout
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
-    // 「加入收藏/阅读列表」sheet 目标
+    // Target of the "Add to Collection/Read List" sheet
     var addTarget by remember { mutableStateOf<Any?>(null) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
     var showOptionsSheet by remember { mutableStateOf(false) }
-    // 长按上下文菜单目标（对齐原作卡片 contextMenu）
+    // Long-press context menu target (mirrors the original card contextMenu)
     var menuSeries by remember { mutableStateOf<Series?>(null) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
+    // Edit/delete sheet targets (entered from the context menu)
+    var editSeries by remember { mutableStateOf<Series?>(null) }
+    var editBook by remember { mutableStateOf<Book?>(null) }
+    var deleteSeriesTarget by remember { mutableStateOf<Series?>(null) }
+    var deleteBookTarget by remember { mutableStateOf<Book?>(null) }
+    val context = LocalContext.current
 
     val viewModel: LibraryViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
     // real content only; empty state when there is no session or nothing loaded
     val series = state.series ?: emptyList()
     val allBooks = state.books ?: emptyList()
-    // 当前范围显示名（对齐 iOS LibraryScopeMenu）
-    val scopeLabel = when {
-        state.scope == AppSettingsStore.SCOPE_ALL -> "全部书库"
-        state.scope == AppSettingsStore.SCOPE_PINNED -> "已钉选"
-        state.scope.startsWith("library:") -> {
-            val id = state.scope.removePrefix("library:")
-            state.libraries.find { it.id == id }?.name ?: "单个书库"
-        }
-        else -> "全部书库"
-    }
+    // Display name of the current scope (mirrors iOS LibraryScopeMenu)
+    val scopeLabel = libraryScopeLabel(state.scope, state.libraries)
 
-    // 详情页元数据 chip 跳转：把「作者 · X」「标签 · Y」翻译成真实浏览筛选并落到查询里
+    // Target of the metadata-chip jumps from detail pages: routes like "author · X" and
+    // "notable · kind · X" are translated into real browse filters applied to the query.
+    // Mirrors iOS NavDestination.metadataFilter: switching chips replaces the previous condition
+    // wholesale (revoke first, then add) instead of accumulating.
     var appliedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
     LaunchedEffect(activeFilter) {
         val applied = appliedFilter
-        if (activeFilter == null) {
-            // 清除筛选时同步移除 chip 带来的作者/标签条件
-            if (applied != null) {
-                val current = state.browseOptions
-                viewModel.setBrowseOptions(
-                    when (applied.first) {
-                        "作者" -> current.copy(authors = current.authors - applied.second)
-                        "标签" -> current.copy(tags = current.tags - applied.second)
-                        else -> current
-                    },
+        var current = state.browseOptions
+        if (applied != null) {
+            // Revoke the previously applied condition (notable entities are stored as filterKey,
+            // other dimensions store the value itself)
+            current = when (applied.first) {
+                FILTER_KIND_AUTHOR -> current.copy(authors = current.authors - applied.second)
+                FILTER_KIND_TAG -> current.copy(tags = current.tags - applied.second)
+                FILTER_KIND_PUBLISHER -> current.copy(publishers = current.publishers - applied.second)
+                FILTER_KIND_GENRE -> current.copy(genres = current.genres - applied.second)
+                FILTER_KIND_AGE_RATING -> current.copy(ageRatings = current.ageRatings - applied.second)
+                FILTER_KIND_LANGUAGE -> current.copy(languages = current.languages - applied.second)
+                FILTER_KIND_RELEASE_YEAR -> current.copy(releaseYears = current.releaseYears - applied.second)
+                FILTER_KIND_NOTABLE -> current.copy(
+                    notableEntities = current.notableEntities
+                        .filterNot { it.filterKey == applied.second },
                 )
-                appliedFilter = null
+                else -> current
             }
-            return@LaunchedEffect
+            appliedFilter = null
         }
-        val parts = activeFilter.split("·", limit = 2).map { it.trim() }
-        if (parts.size != 2 || parts[1].isBlank()) return@LaunchedEffect
-        val (kind, value) = parts
-        val current = state.browseOptions
-        when (kind) {
-            "作者" -> if (value !in current.authors) {
-                viewModel.setBrowseOptions(current.copy(authors = current.authors + value))
+        val parts = activeFilter?.split("·")?.map { it.trim() }.orEmpty()
+        val kind = parts.getOrNull(0).orEmpty()
+        // Two-part: "author · X" etc.; three-part: "notable · kind · X" (kind = entity kind token)
+        val value: String
+        val next: BookBrowseOptions
+        when {
+            parts.size == 3 && kind == FILTER_KIND_NOTABLE && parts[2].isNotBlank() -> {
+                val entity = NotableEntity(
+                    name = parts[2],
+                    kind = parts[1],
+                )
+                value = entity.filterKey
+                next = if (entity !in current.notableEntities) {
+                    current.copy(notableEntities = current.notableEntities + entity)
+                } else {
+                    current
+                }
             }
-            "标签" -> if (value !in current.tags) {
-                viewModel.setBrowseOptions(current.copy(tags = current.tags + value))
+            parts.size == 2 && parts[1].isNotBlank() -> {
+                value = parts[1]
+                next = when (kind) {
+                    FILTER_KIND_AUTHOR -> if (value !in current.authors) {
+                        current.copy(authors = current.authors + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_TAG -> if (value !in current.tags) {
+                        current.copy(tags = current.tags + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_PUBLISHER -> if (value !in current.publishers) {
+                        current.copy(publishers = current.publishers + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_GENRE -> if (value !in current.genres) {
+                        current.copy(genres = current.genres + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_AGE_RATING -> if (value !in current.ageRatings) {
+                        current.copy(ageRatings = current.ageRatings + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_LANGUAGE -> if (value !in current.languages) {
+                        current.copy(languages = current.languages + value)
+                    } else {
+                        current
+                    }
+                    FILTER_KIND_RELEASE_YEAR -> if (value !in current.releaseYears) {
+                        current.copy(releaseYears = current.releaseYears + value)
+                    } else {
+                        current
+                    }
+                    else -> current
+                }
             }
-            else -> Unit
+            else -> {
+                if (applied != null) viewModel.setBrowseOptions(current)
+                return@LaunchedEffect
+            }
         }
+        if (next != current || applied != null) viewModel.setBrowseOptions(next)
         appliedFilter = kind to value
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("书库") },
+                title = { Text(stringResource(R.string.library_title)) },
                 actions = {
                     TextButton(onClick = { scopeMenuOpen = true }) {
                         Text(scopeLabel)
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "切换书库范围")
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = stringResource(R.string.library_switch_scope),
+                        )
                     }
                     DropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
-                        // 对齐 iOS LibraryScopeMenu：已钉选（有钉选时）/全部书库/单库/钉选编辑
+                        // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries /
+                        // single libraries / pin editing
                         if (state.pinnedIds.isNotEmpty()) {
                             DropdownMenuItem(
-                                text = { Text("已钉选") },
+                                text = { Text(stringResource(R.string.library_scope_pinned)) },
                                 leadingIcon = {
                                     Icon(Icons.Filled.PushPin, contentDescription = null)
                                 },
@@ -181,7 +274,7 @@ fun LibraryScreen(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("全部书库") },
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
                             onClick = {
                                 viewModel.setScope(AppSettingsStore.SCOPE_ALL)
                                 scopeMenuOpen = false
@@ -198,7 +291,7 @@ fun LibraryScreen(
                         }
                         HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text("钉选书库…") },
+                            text = { Text(stringResource(R.string.library_pin_libraries)) },
                             onClick = {
                                 scopeMenuOpen = false
                                 showPinSheet = true
@@ -206,10 +299,16 @@ fun LibraryScreen(
                         )
                     }
                     IconButton(onClick = { setLayout(layout.next) }) {
-                        Icon(Icons.Filled.GridView, contentDescription = "布局：${layout.label}")
+                        Icon(
+                            Icons.Filled.GridView,
+                            contentDescription = stringResource(R.string.library_layout_cd, stringResource(layout.labelRes)),
+                        )
                     }
                     IconButton(onClick = { showOptionsSheet = true }) {
-                        Icon(Icons.Filled.FilterList, contentDescription = "筛选")
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = stringResource(R.string.browse_filter),
+                        )
                     }
                 },
             )
@@ -237,7 +336,8 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ContentType.entries.forEach { type ->
-                    // 对齐 iOS 书库标题：显示服务端总量，无分页数据时回退已加载数
+                    // Mirrors the iOS library titles: show the server-side totals, falling back to
+                    // the loaded count before paged data arrives
                     val count = if (type == ContentType.Series) {
                         state.seriesTotal ?: series.size.toLong()
                     } else {
@@ -246,13 +346,20 @@ fun LibraryScreen(
                     FilterChip(
                         selected = contentType == type,
                         onClick = { contentType = type },
-                        label = { Text("${type.label} $count") },
+                        label = {
+                            Text(stringResource(R.string.library_content_count, stringResource(type.labelRes), count))
+                        },
                     )
                 }
             }
             Text(
                 text = if (state.hasSession) {
-                    "$scopeLabel · ${state.libraryCount} 个库"
+                    pluralStringResource(
+                        R.plurals.library_scope_libraries,
+                        state.libraryCount,
+                        scopeLabel,
+                        state.libraryCount,
+                    )
                 } else {
                     scopeLabel
                 },
@@ -260,17 +367,25 @@ fun LibraryScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            // 详情页元数据 chip 跳转的目标：显示激活的元数据筛选（出版社/作者/分类/标签/知名实体）
+            // Target of the metadata-chip jumps from detail pages: show the active metadata filter
+            // (publisher/author/genre/tag/notable entity)
             activeFilter?.let { filter ->
+                val parts = filter.split("·").map { it.trim() }
+                val chipLabel = when {
+                    parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE ->
+                        "${stringResource(R.string.browse_kind_notable)} · ${notableKindLabel(parts[1])} · ${parts[2]}"
+                    parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
+                    else -> filter
+                }
                 Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                     FilterChip(
                         selected = true,
                         onClick = onClearFilter,
-                        label = { Text(filter) },
+                        label = { Text(chipLabel) },
                         trailingIcon = {
                             Icon(
                                 Icons.Filled.Close,
-                                contentDescription = "清除筛选",
+                                contentDescription = stringResource(R.string.browse_clear_filter),
                                 modifier = Modifier.padding(2.dp),
                             )
                         },
@@ -279,12 +394,12 @@ fun LibraryScreen(
             }
             if (!state.hasSession) {
                 EmptyState(
-                    title = "未连接服务器",
-                    subtitle = "登录后浏览书库",
+                    title = stringResource(R.string.library_offline_title),
+                    subtitle = stringResource(R.string.library_offline_subtitle),
                     modifier = Modifier.weight(1f),
                 )
             } else {
-                // 系列/书籍各自独立滚动位置；触底自动加载下一页
+                // Series/books keep independent scroll positions; load the next page at the bottom
                 val seriesGridState = rememberLazyGridState()
                 val booksGridState = rememberLazyGridState()
                 val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
@@ -312,7 +427,8 @@ fun LibraryScreen(
                     ContentType.Series -> state.seriesHasMore
                     ContentType.Books -> state.booksHasMore
                 }
-                // loadedCount 进入 key：追加一页后仍停在底部时继续请求下一页
+                // loadedCount joins the key: keep requesting pages while still at the bottom after
+                // a page was appended
                 val loadedCount = if (contentType == ContentType.Series) series.size else allBooks.size
                 LaunchedEffect(shouldLoadMore, contentType, hasMore, loadedCount) {
                     if (!shouldLoadMore || !hasMore) return@LaunchedEffect
@@ -325,7 +441,7 @@ fun LibraryScreen(
                     BrowseLayout.List -> LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalNavOverlaySpace.current),
                     ) {
                         when (contentType) {
                             ContentType.Series -> items(series.size, key = { series[it].id }) { index ->
@@ -340,7 +456,7 @@ fun LibraryScreen(
                                 val book = allBooks[index]
                                 BookListRow(
                                     book = book,
-                                    onClick = { onOpenBook(book) },
+                                    onClick = { onReadBook(book, false) },
                                     onLongClick = { menuBook = book },
                                 )
                             }
@@ -363,7 +479,12 @@ fun LibraryScreen(
                         columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
                         state = gridState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            top = 16.dp,
+                            end = 16.dp,
+                            bottom = 16.dp + LocalNavOverlaySpace.current,
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -379,7 +500,7 @@ fun LibraryScreen(
                             ContentType.Books -> items(allBooks, key = { it.id }) { book ->
                                 BookGridCard(
                                     book = book,
-                                    onClick = { onOpenBook(book) },
+                                    onClick = { onReadBook(book, false) },
                                     modifier = Modifier.fillMaxWidth(),
                                     onLongClick = { menuBook = book },
                                 )
@@ -407,13 +528,12 @@ fun LibraryScreen(
     }
 
     if (showOptionsSheet) {
-        val browseSuggestions = rememberBrowseFilterSuggestions()
         BrowseOptionsSheet(
             options = state.browseOptions,
             onOptionsChange = viewModel::setBrowseOptions,
             onDismiss = { showOptionsSheet = false },
-            authorSuggestions = browseSuggestions.authors,
-            tagSuggestions = browseSuggestions.tags,
+            showSeriesFilters = true,
+            suggestionLibraryIds = resolveLibraryScopeIds(state.scope, state.pinnedIds),
         )
     }
     if (showPinSheet) {
@@ -436,6 +556,7 @@ fun LibraryScreen(
                 downloaded = false,
                 onMarkRead = { viewModel.markSeriesRead(series, true) },
                 onMarkUnread = { viewModel.markSeriesRead(series, false) },
+                onDownload = { viewModel.downloadSeries(series.id) },
                 onAddToCollection = {
                     addTarget = series
                     addToCollectionOpen = true
@@ -444,6 +565,12 @@ fun LibraryScreen(
                     addTarget = series
                     addToReadListOpen = true
                 },
+                onEdit = { editSeries = series },
+                onRefreshCover = { viewModel.refreshCover(series.id) },
+                onShare = {
+                    viewModel.seriesWebUrl(series.id)?.let { url -> shareText(context, url) }
+                },
+                onDelete = { deleteSeriesTarget = series },
             ),
             onDismiss = { menuSeries = null },
         )
@@ -454,25 +581,79 @@ fun LibraryScreen(
                 hasStarted = book.progress != null,
                 completed = book.progress == 1f,
                 downloaded = false,
+                oneshot = book.oneshot,
                 onOpenSeries = { onVisitSeries(book) },
                 onRead = { onReadBook(book, false) },
                 onReadIncognito = { onReadBook(book, true) },
+                onOpenDetails = { onOpenBook(book) },
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
+                onDownload = { viewModel.downloadBook(book.id, book.title, book.pageCount) },
                 onAddToReadList = {
                     addTarget = book
                     addToReadListOpen = true
                 },
+                onEdit = { editBook = book },
+                onAnalyze = { viewModel.analyzeBook(book.id) {} },
+                onRefresh = { viewModel.refreshBookMetadata(book.id) {} },
+                onShare = {
+                    viewModel.bookWebUrl(book.id)?.let { url -> shareText(context, url) }
+                },
+                onDelete = { deleteBookTarget = book },
             ),
             onDismiss = { menuBook = null },
         )
     }
-    // 「加入收藏/阅读列表」选择器：真实列表数据（无会话时为空）
+    // Edit series/book metadata (mirrors SeriesEditSheet/BookEditSheet; closes directly when
+    // unchanged)
+    editSeries?.let { series ->
+        SeriesEditSheet(
+            series = series,
+            onSave = { dto ->
+                viewModel.saveSeriesMetadata(series.id, dto) { ok ->
+                    if (ok) editSeries = null
+                }
+            },
+            onDismiss = { editSeries = null },
+        )
+    }
+    editBook?.let { book ->
+        BookEditSheet(
+            book = book,
+            meta = null,
+            onSave = { draft ->
+                viewModel.saveBookMetadata(book.id, book.title, draft) { ok ->
+                    if (ok) editBook = null
+                }
+            },
+            onDismiss = { editBook = null },
+        )
+    }
+    // Delete confirmation (deletes the files on the server, destructive)
+    deleteSeriesTarget?.let { series ->
+        ConfirmDeleteDialog(
+            title = stringResource(R.string.series_delete_files_title),
+            message = stringResource(R.string.series_delete_files_message, series.title),
+            onConfirm = { viewModel.deleteSeries(series.id) {} },
+            onDismiss = { deleteSeriesTarget = null },
+        )
+    }
+    deleteBookTarget?.let { book ->
+        ConfirmDeleteDialog(
+            title = stringResource(R.string.book_delete_files_title),
+            message = stringResource(R.string.book_delete_files_message, book.title),
+            onConfirm = { viewModel.deleteBook(book.id) {} },
+            onDismiss = { deleteBookTarget = null },
+        )
+    }
+    // "Add to Collection/Read List" pickers: real list data (empty without a session)
     if (addToCollectionOpen) {
         (addTarget as? Series)?.let { series ->
             AddToListSheet(
                 collections = state.collections ?: emptyList(),
                 readLists = emptyList(),
+                onCreateReadList = viewModel::createReadListEntry,
+                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addSeriesToCollection(entry, series)
                     addToCollectionOpen = false
@@ -490,8 +671,11 @@ fun LibraryScreen(
             is Series -> AddToListSheet(
                 collections = emptyList(),
                 readLists = state.readLists ?: emptyList(),
+                onCreateReadList = viewModel::createReadListEntry,
+                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
-                    // Komga 阅读列表只收书籍：系列加入时逐本追加
+                    // Komga read lists accept books only: appending a series adds its books
+                    // one by one
                     viewModel.addSeriesToReadList(entry, target)
                     addToReadListOpen = false
                     addTarget = null
@@ -504,6 +688,8 @@ fun LibraryScreen(
             is Book -> AddToListSheet(
                 collections = emptyList(),
                 readLists = state.readLists ?: emptyList(),
+                onCreateReadList = viewModel::createReadListEntry,
+                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addBookToReadList(entry, target)
                     addToReadListOpen = false
@@ -519,65 +705,28 @@ fun LibraryScreen(
     }
 }
 
-/** 钉选编辑 sheet（对齐 iOS LibraryPickerSheet：勾选要钉选的书库，保存后「已钉选」范围生效）。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** The pin-editing sheet and library-scope resolution/labeling live in
+ *  ui/components/LibraryScope.kt (shared by dashboard/search/library). */
+
+/** Localized display label of a metadata-filter route token. */
 @Composable
-private fun LibraryPinSheet(
-    libraries: List<LibraryDto>,
-    pinnedIds: Set<String>,
-    onSave: (Set<String>) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var selection by remember { mutableStateOf(pinnedIds) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                "钉选书库",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-            Text(
-                "被钉选的书库会出现在「已钉选」范围",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-            libraries.forEach { library ->
-                val checked = library.id in selection
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            selection = if (checked) selection - library.id else selection + library.id
-                        }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Filled.MenuBook,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        library.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 12.dp),
-                    )
-                    if (checked) {
-                        Icon(Icons.Filled.Check, contentDescription = "已钉选")
-                    }
-                }
-            }
-            TextButton(
-                onClick = { onSave(selection) },
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(vertical = 8.dp),
-            ) {
-                Text("完成")
-            }
-        }
-    }
+private fun filterKindLabel(kind: String): String = when (kind) {
+    FILTER_KIND_AUTHOR -> stringResource(R.string.common_author)
+    FILTER_KIND_TAG -> stringResource(R.string.common_tag)
+    FILTER_KIND_PUBLISHER -> stringResource(R.string.browse_kind_publisher)
+    FILTER_KIND_GENRE -> stringResource(R.string.browse_kind_genre)
+    FILTER_KIND_AGE_RATING -> stringResource(R.string.browse_kind_age_rating)
+    FILTER_KIND_LANGUAGE -> stringResource(R.string.browse_kind_language)
+    FILTER_KIND_RELEASE_YEAR -> stringResource(R.string.browse_kind_release_year)
+    FILTER_KIND_NOTABLE -> stringResource(R.string.browse_kind_notable)
+    else -> kind
+}
+
+/** Localized display label of a notable-entity kind token (mirrors iOS kindDisplayName). */
+@Composable
+private fun notableKindLabel(kind: String): String = when (kind) {
+    "character" -> stringResource(R.string.browse_kind_character)
+    "team" -> stringResource(R.string.browse_kind_team)
+    "location" -> stringResource(R.string.browse_kind_location)
+    else -> kind
 }

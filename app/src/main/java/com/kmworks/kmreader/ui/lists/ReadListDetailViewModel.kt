@@ -2,16 +2,24 @@ package com.kmworks.kmreader.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.ui.lists.newCollectionEntry
+import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
+import com.kmworks.kmreader.ui.detail.BookMetadataDraft
+import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 阅读列表详情状态；books 为 null 时界面回退假数据。 */
+/** Read list detail state; the UI falls back to sample data while books is null. */
 data class ReadListDetailUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
@@ -32,13 +40,15 @@ data class ReadListDetailUiState(
     val books: List<Book>? = null,
     val loadingMore: Boolean = false,
     val hasMore: Boolean = false,
-    /** 阅读列表封面（服务端缩略图端点）。 */
+    /** Read list cover (server thumbnail endpoint). */
     val heroThumbnail: String? = null,
 )
 
-/** 阅读列表详情数据：反查 DTO，书籍经 GET api/v1/readlists/{id}/books 按序拉取（含真实 readProgress）。 */
+/** Read list detail data: resolves the DTO; books are fetched in order via
+ *  GET api/v1/readlists/{id}/books (with real readProgress). */
 @HiltViewModel
 class ReadListDetailViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
@@ -53,14 +63,23 @@ class ReadListDetailViewModel @Inject constructor(
     val readLists: StateFlow<List<ListEntry>?> = _readLists.asStateFlow()
 
     private var loadedId: Int? = null
+    /** Entry the current state content belongs to (content resets when the entry changes;
+     *  a forced refresh of the same entry keeps it). */
+    private var contentId: Int? = null
     private var currentDtoId: String? = null
     private var nextPage = 0
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
         val clients = sessionManager.clients.value
         val dtoId = detailRepository.readListDtoId(stableId)
+        loadJob?.cancel()
+        if (contentId != stableId) {
+            _uiState.value = ReadListDetailUiState(hasSession = clients != null)
+            _readLists.value = null
+        }
         if (clients == null || dtoId == null) {
             _uiState.update { it.copy(hasSession = clients != null, loading = false) }
             return
@@ -68,7 +87,7 @@ class ReadListDetailViewModel @Inject constructor(
         currentDtoId = dtoId
         nextPage = 0
         _uiState.update { it.copy(hasSession = true, loading = true, error = null, books = null, hasMore = false) }
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             try {
                 val readList = detailRepository.readListDetail(dtoId)
                 if (readList == null) {
@@ -90,8 +109,13 @@ class ReadListDetailViewModel @Inject constructor(
                         heroThumbnail = detailRepository.readListThumbnailUrl(dtoId),
                     )
                 }
+                contentId = stableId
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, error = e.message ?: "加载失败") }
+                _uiState.update {
+                    it.copy(loading = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
@@ -115,12 +139,15 @@ class ReadListDetailViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(loadingMore = false, error = e.message ?: "加载失败") }
+                _uiState.update {
+                    it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_failed))
+                }
             }
         }
     }
 
-    /** 从列表移除所选书籍（stableId 集合）；返回 false 表示无 DTO 映射（演示数据，界面本地处理）。 */
+    /** Remove the selected books (stableId set) from the list; returns false when there is
+     *  no DTO mapping (demo data, handled locally by the UI). */
     fun removeBooks(stableIds: Set<Int>): Boolean {
         val readListDtoId = loadedId?.let { detailRepository.readListDtoId(it) } ?: return false
         val bookDtoIds = stableIds.mapNotNull { detailRepository.bookDtoId(it) }
@@ -135,7 +162,8 @@ class ReadListDetailViewModel @Inject constructor(
         return true
     }
 
-    /** 批量标记已读/未读并即时更新本地状态；返回 false 表示无 DTO 映射（演示数据）。 */
+    /** Mark read/unread in batch and update local state immediately; returns false when there
+     *  is no DTO mapping (demo data). */
     fun markBooksRead(stableIds: Set<Int>, read: Boolean): Boolean {
         val bookDtoIds = stableIds.mapNotNull { detailRepository.bookDtoId(it) }
         if (bookDtoIds.isEmpty()) return false
@@ -155,7 +183,7 @@ class ReadListDetailViewModel @Inject constructor(
         return true
     }
 
-    /** 批量下载所选书籍；返回 false 表示任何一本都无法映射到服务端 DTO。 */
+    /** Download the selected books in batch; returns false when any book cannot be mapped to a server DTO. */
     fun downloadBooks(stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
         val books = _uiState.value.books.orEmpty().filter { it.id in stableIds }
         if (books.size != stableIds.size) return onDone(false)
@@ -173,7 +201,7 @@ class ReadListDetailViewModel @Inject constructor(
         }
     }
 
-    /** 批量加入另一个阅读列表。 */
+    /** Add the selected books to another read list in batch. */
     fun addBooksToReadList(entry: ListEntry, stableIds: Set<Int>, onDone: (Boolean) -> Unit) {
         val readListDtoId = detailRepository.readListDtoId(entry.id)
         val bookDtoIds = stableIds.mapNotNull { detailRepository.bookDtoId(it) }
@@ -183,20 +211,20 @@ class ReadListDetailViewModel @Inject constructor(
         }
     }
 
-    /** 反查书籍所属系列 stableId，用于 iOS BooksListView 的“打开所属系列”。 */
+    /** Resolve the stableId of the series a book belongs to, for the iOS BooksListView "Open Series". */
     fun seriesStableIdForBook(bookStableId: Int, onResult: (Int?) -> Unit) {
         viewModelScope.launch {
             onResult(detailRepository.seriesStableIdForBook(bookStableId))
         }
     }
 
-    /** 按需加载阅读列表（「加入阅读列表」选择器用）。 */
+    /** Load read lists on demand (for the "Add to Read List" picker). */
     fun ensureReadListsLoaded() {
         if (_readLists.value != null) return
         viewModelScope.launch {
             _readLists.value = listRepository.readLists().map { dto ->
                 ListEntry(
-                    id = dto.id.hashCode(),
+                    id = StableIds.readList(dto.id),
                     title = dto.name,
                     count = dto.bookIds.size,
                     hue = hueFor(dto.id),
@@ -206,7 +234,7 @@ class ReadListDetailViewModel @Inject constructor(
         }
     }
 
-    /** 把书籍加入另一个阅读列表；返回 false 表示无 DTO 映射。 */
+    /** Add a book to another read list; returns false when there is no DTO mapping. */
     fun addBookToReadList(entry: ListEntry, bookStableId: Int): Boolean {
         val bookDtoId = detailRepository.bookDtoId(bookStableId) ?: return false
         val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return false
@@ -214,6 +242,54 @@ class ReadListDetailViewModel @Inject constructor(
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
         return true
+    }
+
+    /** Create a read list (the "New…" flow of the "Add to list" picker); reports the new entry on success. */
+    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
+    }
+
+    /** Create a collection (the "New…" flow of the "Add to collection" picker); reports the new entry on success. */
+    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
+        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    }
+
+    /** Save book metadata (BookEditSheet flow, mirrors BookDetailViewModel.saveMetadata):
+     *  succeeds immediately when nothing changed; on success the list is force-reloaded. */
+    fun saveBookMetadata(stableId: Int, baseTitle: String, draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
+        val body = draft.toUpdateDto(baseTitle, null) ?: return onDone(true)
+        viewModelScope.launch {
+            val ok = actionRepository.updateBookMetadata(dtoId, body)
+            if (ok) reloadBooks()
+            onDone(ok)
+        }
+    }
+
+    /** Re-analyze a book (thin wrapper: dtoId lookup + ActionRepository). */
+    fun analyzeBook(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
+        viewModelScope.launch { onDone(actionRepository.analyzeBook(dtoId)) }
+    }
+
+    /** Refresh book metadata (thin wrapper: dtoId lookup + ActionRepository). */
+    fun refreshBookMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
+        viewModelScope.launch { onDone(actionRepository.refreshBookMetadata(dtoId)) }
+    }
+
+    /** Web share link for a book ({baseUrl}/book/{dtoId}). */
+    fun bookWebUrl(stableId: Int): String? {
+        val dtoId = detailRepository.bookDtoId(stableId) ?: return null
+        val clients = sessionManager.clients.value ?: return null
+        return "${clients.baseUrl}/book/$dtoId"
+    }
+
+    /** Force-reload the current list (load deduplicates the same entry, so clear loadedId first). */
+    private fun reloadBooks() {
+        val stableId = loadedId ?: return
+        loadedId = null
+        load(stableId)
     }
 
     private companion object {

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,10 +55,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleData.ListGroup
@@ -66,12 +69,15 @@ import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
+import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
+import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
 
-/** 列表 tab：对齐 KMReader ListsBrowseView —— 收藏 / 阅读列表 / 智能列表三条横向条带，
- *  pinned 置顶，条带头可进入对应类型全页；工具栏范围筛选（LibraryScopeMenu）。 */
+/** Lists tab: mirrors KMReader ListsBrowseView — three horizontal strips of
+ *  collections / read lists / smart lists, pinned entries first, each strip header
+ *  opens the full page of that type; toolbar scope filter (LibraryScopeMenu). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListsScreen(
@@ -79,34 +85,42 @@ fun ListsScreen(
     onOpenReadList: (Int) -> Unit = {},
     onOpenSmartList: (Int) -> Unit = {},
 ) {
-    var scope by remember { mutableStateOf("已钉选") }
+    val groupCollectionsLabel = stringResource(R.string.lists_group_collections)
+    val groupReadListsLabel = stringResource(R.string.lists_group_readlists)
+    val groupSmartListsLabel = stringResource(R.string.lists_group_smartlists)
+    val scopePinnedLabel = stringResource(R.string.lists_scope_pinned)
+    val scopeAllLibrariesLabel = stringResource(R.string.common_all_libraries)
+    var scope by remember { mutableStateOf(scopePinnedLabel) }
     var scopeMenuOpen by remember { mutableStateOf(false) }
-    // 长按上下文菜单目标（分组名 + 条目）
+    // Long-press context menu target (group name + entry)
     var menuTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
-    // 编辑 sheet 目标（从上下文菜单「编辑」进入）
+    // Edit sheet target (entered from the context menu "Edit")
     var editTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
+    // Delete confirmation dialog target (entered from the context menu "Delete")
+    var deleteTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
+    val context = LocalContext.current
 
     val viewModel: ListsViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val notifyActionFailure: suspend (String) -> Unit = { action ->
-        snackbarHostState.showSnackbar("$action 失败，请稍后重试")
+        snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     // real groups only (capability-gated: smart lists hidden when unsupported/empty)
     val groups = buildList {
-        state.collections?.let { if (it.isNotEmpty()) add(ListGroup("收藏", it)) }
-        state.readLists?.let { if (it.isNotEmpty()) add(ListGroup("阅读列表", it)) }
-        state.smartLists?.let { if (it.isNotEmpty()) add(ListGroup("智能列表", it)) }
+        state.collections?.let { if (it.isNotEmpty()) add(ListGroup(groupCollectionsLabel, it)) }
+        state.readLists?.let { if (it.isNotEmpty()) add(ListGroup(groupReadListsLabel, it)) }
+        state.smartLists?.let { if (it.isNotEmpty()) add(ListGroup(groupSmartListsLabel, it)) }
     }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("列表") },
+                title = { Text(stringResource(R.string.lists_tab_title)) },
                 actions = {
-                    // LibraryScopeMenu：全部书库 / 已钉选 / 单库
+                    // LibraryScopeMenu: all libraries / pinned / single library
                     Box {
                         TextButton(onClick = { scopeMenuOpen = true }) {
                             Icon(
@@ -121,7 +135,8 @@ fun ListsScreen(
                             expanded = scopeMenuOpen,
                             onDismissRequest = { scopeMenuOpen = false },
                         ) {
-                            listOf("全部书库", "已钉选", "漫画", "日漫", "国漫").forEach { s ->
+                            // Demo library names are fixture data.
+                            listOf(scopeAllLibrariesLabel, scopePinnedLabel, "Comics", "Manga", "Manhua").forEach { s ->
                                 DropdownMenuItem(
                                     text = { Text(s) },
                                     onClick = {
@@ -140,7 +155,7 @@ fun ListsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalNavOverlaySpace.current),
         ) {
             if (state.loading) {
                 item(key = "loading") {
@@ -160,29 +175,29 @@ fun ListsScreen(
             if (!state.hasSession) {
                 item(key = "empty") {
                     EmptyState(
-                        title = "未连接服务器",
-                        subtitle = "登录后查看列表",
+                        title = stringResource(R.string.lists_no_session_title),
+                        subtitle = stringResource(R.string.lists_no_session_subtitle),
                         modifier = Modifier.fillParentMaxSize(),
                     )
                 }
             }
             items(groups, key = { it.title }) { group ->
                 val onOpenEntry: (ListEntry) -> Unit = when (group.title) {
-                    "收藏" -> ({ e -> onOpenCollection(e.id) })
-                    "阅读列表" -> ({ e -> onOpenReadList(e.id) })
+                    groupCollectionsLabel -> ({ e -> onOpenCollection(e.id) })
+                    groupReadListsLabel -> ({ e -> onOpenReadList(e.id) })
                     else -> ({ e -> onOpenSmartList(e.id) })
                 }
                 ListStrip(
                     group = group,
                     hasMore = when (group.title) {
-                        "收藏" -> state.collectionsHasMore
-                        "阅读列表" -> state.readListsHasMore
+                        groupCollectionsLabel -> state.collectionsHasMore
+                        groupReadListsLabel -> state.readListsHasMore
                         else -> false
                     },
                     loadingMore = state.loadingMore,
                     onLoadMore = when (group.title) {
-                        "收藏" -> viewModel::loadMoreCollections
-                        "阅读列表" -> viewModel::loadMoreReadLists
+                        groupCollectionsLabel -> viewModel::loadMoreCollections
+                        groupReadListsLabel -> viewModel::loadMoreReadLists
                         else -> ({})
                     },
                     onOpenEntry = onOpenEntry,
@@ -194,28 +209,83 @@ fun ListsScreen(
 
     menuTarget?.let { (groupTitle, entry) ->
         val items: List<ContextMenuItem> = when (groupTitle) {
-            "收藏" -> collectionContextMenuItems(
+            groupCollectionsLabel -> collectionContextMenuItems(
                 pinned = entry.pinned,
+                onTogglePin = { viewModel.toggleCollectionPinned(entry) },
                 onEdit = { editTarget = groupTitle to entry },
+                onRefreshCover = {
+                    if (!viewModel.refreshCover(entry.id)) {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                    }
+                },
+                onDelete = { deleteTarget = groupTitle to entry },
             )
-            "阅读列表" -> readListContextMenuItems(
+            groupReadListsLabel -> readListContextMenuItems(
                 pinned = entry.pinned,
+                onTogglePin = { viewModel.toggleReadListPinned(entry) },
                 onEdit = { editTarget = groupTitle to entry },
+                onRefreshCover = {
+                    if (!viewModel.refreshCover(entry.id)) {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                    }
+                },
+                onShare = {
+                    val url = viewModel.readListWebUrl(entry.id)
+                    if (url != null) {
+                        shareText(context, url)
+                    } else {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_share)) }
+                    }
+                },
+                onDelete = { deleteTarget = groupTitle to entry },
             )
             else -> smartListContextMenuItems(
                 pinned = entry.pinned,
                 onEdit = { editTarget = groupTitle to entry },
+                onRefreshCover = {
+                    if (!viewModel.refreshCover(entry.id)) {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                    }
+                },
+                onDelete = { deleteTarget = groupTitle to entry },
             )
         }
         ContextMenuSheet(items = items, onDismiss = { menuTarget = null })
     }
 
+    deleteTarget?.let { (groupTitle, entry) ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(stringResource(R.string.lists_delete_item_title, groupTitle)) },
+            text = { Text(stringResource(R.string.lists_delete_item_message, entry.title)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    when (groupTitle) {
+                        groupCollectionsLabel -> viewModel.deleteCollection(entry) { ok ->
+                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_delete)) }
+                        }
+                        groupReadListsLabel -> viewModel.deleteReadList(entry) { ok ->
+                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
+                        }
+                        else -> viewModel.deleteSmartList(entry) { ok ->
+                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_delete)) }
+                        }
+                    }
+                }) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
+    }
+
     editTarget?.let { (groupTitle, entry) ->
         when (groupTitle) {
-            "收藏" -> CollectionEditSheet(
+            groupCollectionsLabel -> CollectionEditSheet(
                 onSave = { name, ordered ->
                     viewModel.saveCollection(entry, name, ordered) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存收藏") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_save)) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -224,14 +294,14 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteCollection(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除收藏") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_delete)) }
                     }
                 },
             )
-            "阅读列表" -> ReadListEditSheet(
+            groupReadListsLabel -> ReadListEditSheet(
                 onSave = { name, summary, ordered ->
                     viewModel.saveReadList(entry, name, summary, ordered) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存阅读列表") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_save)) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -241,14 +311,14 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteReadList(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除阅读列表") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
                     }
                 },
             )
             else -> SmartListEditSheet(
                 onSave = { name, _, matchAll, rules ->
                     viewModel.saveSmartList(entry, name, matchAll, rules) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("保存智能列表") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -257,7 +327,7 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteSmartList(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure("删除智能列表") }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_delete)) }
                     }
                 },
             )
@@ -265,7 +335,8 @@ fun ListsScreen(
     }
 }
 
-/** 单条横向条带：分区头（可点进入全页）+ 卡片横排；触底加载下一页。 */
+/** One horizontal strip: section header (tap to open the full page) + card row;
+ *  requests the next page when scrolled to the end. */
 @Composable
 private fun ListStrip(
     group: ListGroup,
@@ -276,7 +347,8 @@ private fun ListStrip(
     onEntryMenu: (ListEntry) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    // 横向条带触底判定：最后可见项进入末尾 3 项内即请求下一页。
+    // Strip end detection: request the next page once the last visible item is within
+    // the final 3 items.
     val shouldLoadMore by remember(listState) {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -284,7 +356,8 @@ private fun ListStrip(
             info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
         }
     }
-    // items.size 进入 key：追加一页后仍停在条带末尾时继续请求下一页
+    // items.size is part of the key: keep requesting pages while still parked at the
+    // end of the strip after an append
     LaunchedEffect(shouldLoadMore, hasMore, loadingMore, group.items.size) {
         if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
     }
@@ -304,7 +377,7 @@ private fun ListStrip(
             )
             Icon(
                 Icons.Filled.ChevronRight,
-                contentDescription = "全部",
+                contentDescription = stringResource(R.string.common_all),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -313,7 +386,7 @@ private fun ListStrip(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // pinned 置顶（对齐原作置顶排前）
+            // pinned first (matches the original app's ordering)
             items(group.items.sortedByDescending { it.pinned }, key = { it.id }) { entry ->
                 ListEntryCard(
                     entry = entry,
@@ -323,7 +396,8 @@ private fun ListStrip(
                     modifier = Modifier.width(110.dp),
                 )
             }
-            // 底部加载行：还有下一页时显示，滑到末尾会自动请求
+            // Trailing loading row: shown while another page exists; scrolling to the
+            // end requests it automatically
             if (hasMore) {
                 item(key = "load-more") {
                     Box(
@@ -340,7 +414,7 @@ private fun ListStrip(
     }
 }
 
-/** 列表条目卡：封面占位 + 标题 + 数量；置顶条目带 pin 标记。 */
+/** List entry card: cover placeholder + title + count; pinned entries carry a pin badge. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ListEntryCard(
@@ -367,7 +441,7 @@ private fun ListEntryCard(
             if (entry.pinned) {
                 Icon(
                     Icons.Filled.PushPin,
-                    contentDescription = "已置顶",
+                    contentDescription = stringResource(R.string.lists_pinned),
                     tint = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -384,10 +458,15 @@ private fun ListEntryCard(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = if (group.title == "智能列表") {
-                "${entry.count} 项 · ${entry.targetLabel} · ${entry.modifiedLabel}"
+            text = if (group.title == stringResource(R.string.lists_group_smartlists)) {
+                stringResource(
+                    R.string.lists_smartlist_meta,
+                    entry.count,
+                    entry.targetLabel ?: "",
+                    entry.modifiedLabel ?: "",
+                )
             } else {
-                "${entry.count} 项"
+                stringResource(R.string.lists_item_count, entry.count)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

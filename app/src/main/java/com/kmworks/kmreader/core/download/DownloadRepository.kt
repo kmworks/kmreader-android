@@ -26,9 +26,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 下载管理（MVP：整本下载到应用私有目录 downloads/{bookDtoId}/）。
- * 队列状态来自 WorkManager（tag = bookDtoId，公共 tag = book_download）；
- * 已下载列表与完整性检查用文件扫描（meta.txt 记标题/页数）。
+ * Download management (MVP: whole-book download to the app-private directory downloads/{bookDtoId}/).
+ * Queue state comes from WorkManager (tag = bookDtoId, shared tag = book_download);
+ * the downloaded list and integrity checks use a file scan (meta.txt stores title/page count).
  */
 @Singleton
 class DownloadRepository @Inject constructor(
@@ -41,7 +41,7 @@ class DownloadRepository @Inject constructor(
     private val workManager get() = WorkManager.getInstance(context)
     private val downloadsDir get() = File(context.filesDir, "downloads")
 
-    // 页级并发数：网络设置页持久化到 AppSettingsStore，入队时透传给 Worker
+    // Page-level concurrency: persisted to AppSettingsStore from the network settings page, passed to the Worker at enqueue time
     @Volatile
     private var pageConcurrency = AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY
 
@@ -51,17 +51,17 @@ class DownloadRepository @Inject constructor(
         }
     }
 
-    // 入队元数据（WorkInfo 不带 inputData，标题/页数存这里供队列行展示）
+    // Enqueue metadata (WorkInfo carries no inputData; title/page count live here for queue rows)
     private val enqueueMeta
         get() = context.getSharedPreferences("download_enqueue_meta", Context.MODE_PRIVATE)
 
-    // 下载策略（对齐 OfflinePolicySheet 的 Wi-Fi/自动下载开关）
+    // Download policy (mirrors the Wi-Fi/auto-download toggles of OfflinePolicySheet)
     private val settingsPrefs
         get() = context.getSharedPreferences("download_settings", Context.MODE_PRIVATE)
 
     private val _wifiOnly = MutableStateFlow(settingsPrefs.getBoolean(KEY_WIFI_ONLY, false))
 
-    /** 仅 Wi-Fi 下载：on 时任务约束 UNMETERED 网络。 */
+    /** Wi-Fi-only download: when on, tasks are constrained to an UNMETERED network. */
     val wifiOnly: Flow<Boolean> = _wifiOnly
 
     fun setWifiOnly(enabled: Boolean) {
@@ -72,8 +72,8 @@ class DownloadRepository @Inject constructor(
     private val _autoDownloadUnread = MutableStateFlow(settingsPrefs.getBoolean(KEY_AUTO_UNREAD, false))
 
     /**
-     * 自动下载未读内容：开关持久化于此；触发器 = AutoDownloadUnreadTrigger（SSE 书籍/系列事件）
-     * 与系列详情页的 autoDownloadUnreadIfEnabled（打开详情时补下该系列未读）。
+     * Auto-download unread content: the toggle persists here; the trigger is AutoDownloadUnreadTrigger (SSE book/series events),
+     * together with the series detail page's autoDownloadUnreadIfEnabled (top-up downloads of that series' unread books when the detail opens).
      */
     val autoDownloadUnread: Flow<Boolean> = _autoDownloadUnread
 
@@ -82,10 +82,10 @@ class DownloadRepository @Inject constructor(
         _autoDownloadUnread.value = enabled
     }
 
-    // 暂停/恢复/入队等本地动作通过 tick 驱动 downloads flow 重新合成
+    // Local actions (pause/resume/enqueue) drive a re-composition of the downloads flow via tick
     private val tick = MutableStateFlow(0)
 
-    /** 入队整本下载；同名任务 REPLACE 重跑（重试语义）。libraryId 用于离线页库范围过滤，缺省保留旧值。 */
+    /** Enqueue a whole-book download; a same-named task is REPLACE-restarted (retry semantics). libraryId filters queue tasks by library on the offline page; omitted keeps the old value. */
     fun enqueueBook(bookDtoId: String, title: String, pageCount: Int, libraryId: String? = null) {
         enqueueMeta.edit()
             .putString(bookDtoId, title)
@@ -111,29 +111,29 @@ class DownloadRepository @Inject constructor(
             .addTag(bookDtoId)
             .build()
         workManager.enqueueUniqueWork(workName(bookDtoId), androidx.work.ExistingWorkPolicy.REPLACE, request)
-        AppLog.i("Download", "入队：$title（$pageCount 页）")
+        AppLog.i("Download", "enqueue: $title ($pageCount pages)")
         tick.value += 1
     }
 
-    /** 真暂停：标记暂停态并取消任务；已落盘的页保留（续传时自动跳过）。 */
+    /** Real pause: mark the paused state and cancel the task; downloaded pages are kept (skipped automatically on resume). */
     suspend fun pauseBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         enqueueMeta.edit().putBoolean("$bookDtoId#paused", true).apply()
         workManager.cancelUniqueWork(workName(bookDtoId))
-        AppLog.i("Download", "暂停：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
+        AppLog.i("Download", "pause: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         tick.value += 1
     }
 
-    /** 恢复下载：清除暂停标记并重新入队（已存在的页自动跳过，天然续传）。 */
+    /** Resume download: clear the paused flag and re-enqueue (existing pages are skipped — natural resume). */
     suspend fun resumeBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         val title = enqueueMeta.getString(bookDtoId, null) ?: return@withContext
         val pageCount = enqueueMeta.getInt("$bookDtoId#pages", 0)
         if (pageCount <= 0) return@withContext
         enqueueMeta.edit().putBoolean("$bookDtoId#paused", false).apply()
-        AppLog.i("Download", "恢复：$title")
+        AppLog.i("Download", "resume: $title")
         enqueueBook(bookDtoId, title, pageCount)
     }
 
-    /** 下载中队列（进行中 + 已暂停 + 失败）。 */
+    /** Downloading queue (in progress + paused + failed). */
     val downloads: Flow<List<DownloadTaskUi>> =
         workManager.getWorkInfosByTagFlow(DownloadWorker.TAG)
             .combine(tick) { infos, _ -> infos }
@@ -173,7 +173,7 @@ class DownloadRepository @Inject constructor(
                         else -> null
                     }
                 }
-                // WorkInfo 已被回收的暂停项（重启后）：按文件扫描补齐 Paused 行
+                // Paused entries whose WorkInfo was already pruned (after a restart): backfill Paused rows from the file scan
                 val present = rows.map { it.bookDtoId }.toSet()
                 val pausedOrphans = enqueueMeta.all
                     .filter { it.key.endsWith("#paused") && it.value == true }
@@ -185,7 +185,7 @@ class DownloadRepository @Inject constructor(
                         if (!dir.isDirectory || pageTotal <= 0) return@mapNotNull null
                         val pageDone = dir.listFiles()
                             ?.count { it.name != DownloadWorker.META_FILE } ?: 0
-                        // 已完整的不该出现在队列（等 completed 列表接管）
+                        // A fully downloaded one must not appear in the queue (the completed list takes over)
                         if (pageDone >= pageTotal) return@mapNotNull null
                         DownloadTaskUi(
                             bookDtoId = bookId,
@@ -199,7 +199,7 @@ class DownloadRepository @Inject constructor(
             }
             .flowOn(Dispatchers.IO)
 
-    /** 已下载书籍（文件扫描；需 meta.txt 与页文件齐全）。 */
+    /** Downloaded books (file scan; requires meta.txt and all page files). */
     suspend fun downloadedBooks(): List<DownloadedBookUi> = withContext(Dispatchers.IO) {
         downloadsDir.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
             val meta = File(dir, DownloadWorker.META_FILE).takeIf { it.isFile } ?: return@mapNotNull null
@@ -220,7 +220,7 @@ class DownloadRepository @Inject constructor(
         }?.sortedBy { it.title } ?: emptyList()
     }
 
-    /** 完整性检查：目录存在且页数齐全。 */
+    /** Integrity check: the directory exists and every page is present. */
     suspend fun isBookDownloaded(bookDtoId: String): Boolean = withContext(Dispatchers.IO) {
         val dir = File(downloadsDir, bookDtoId)
         val meta = File(dir, DownloadWorker.META_FILE)
@@ -232,10 +232,10 @@ class DownloadRepository @Inject constructor(
         pages >= pageCount
     }
 
-    /** 取消任务并删除已落盘的页文件。 */
+    /** Cancel the task and delete the downloaded page files. */
     suspend fun cancelBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
-        AppLog.i("Download", "取消：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
+        AppLog.i("Download", "cancel: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         enqueueMeta.edit()
             .remove(bookDtoId)
             .remove("$bookDtoId#pages")
@@ -246,10 +246,10 @@ class DownloadRepository @Inject constructor(
         tick.value += 1
     }
 
-    /** 删除已完成的书籍文件。 */
+    /** Delete a completed book's files. */
     suspend fun deleteBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
-        AppLog.i("Download", "删除：${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
+        AppLog.i("Download", "delete: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         enqueueMeta.edit()
             .remove(bookDtoId)
             .remove("$bookDtoId#pages")
@@ -260,18 +260,18 @@ class DownloadRepository @Inject constructor(
         tick.value += 1
     }
 
-    /** 下载目录总占用字节数。 */
+    /** Total bytes used by the download directory. */
     suspend fun usedBytes(): Long = withContext(Dispatchers.IO) {
         downloadsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
-    /** 设备总存储字节数（filesDir 所在分区）。 */
+    /** Total device storage bytes (the partition holding filesDir). */
     suspend fun totalBytes(): Long = withContext(Dispatchers.IO) {
         val stat = StatFs(context.filesDir.absolutePath)
         stat.blockSizeLong * stat.blockCountLong
     }
 
-    /** 入队时记录的所属库 id（供离线页库范围过滤队列任务）。 */
+    /** Owning library id recorded at enqueue time (used to filter queue tasks by library on the offline page). */
     fun libraryIdOf(bookDtoId: String): String? =
         enqueueMeta.getString("$bookDtoId#library", null)
 

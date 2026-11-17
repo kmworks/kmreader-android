@@ -15,8 +15,9 @@ import kotlinx.serialization.json.put
 import retrofit2.Call
 
 /**
- * Tracker 数据（对齐 iOS TrackerService 调用方语义）：
- * 能力门控 ServerFeature.Trackers（stock Komga 全部短路）；列表失败返空、动作返 Boolean。
+ * Tracker data (call-site semantics mirror iOS TrackerService):
+ * capability-gated on ServerFeature.Trackers (everything short-circuits on stock Komga); list failures
+ * return empty, actions return Boolean.
  */
 @Singleton
 class TrackerRepository @Inject constructor(
@@ -24,7 +25,7 @@ class TrackerRepository @Inject constructor(
     private val serverProfileStore: ServerProfileStore,
 ) {
 
-    /** kmrs Trackers 能力（无 profile/stock → false）。 */
+    /** kmrs Trackers capability (no profile/stock → false). */
     val supported: Boolean
         get() = serverProfileStore.hasFeature(ServerFeature.Trackers)
 
@@ -45,14 +46,14 @@ class TrackerRepository @Inject constructor(
     suspend fun logoutProvider(provider: String): Boolean =
         api?.logout(provider)?.executeOrFalse() == true
 
-    /** 全局绑定列表（设置页绑定管理；可按 provider 过滤并分页）。 */
+    /** Global binding list (binding management on the settings page; filterable by provider and paged). */
     suspend fun links(
         page: Int = 0,
         size: Int = 50,
         provider: String? = null,
     ): TrackerLinkPageDto? = api?.getLinks(page, size, provider)?.fetchOrNull()
 
-    /** 某系列的绑定列表（无会话/无能力/失败 → 空）。 */
+    /** Binding list of one series (no session / no capability / failure → empty). */
     suspend fun links(seriesDtoId: String): List<TrackerLinkDto> =
         api?.getSeriesLinks(seriesDtoId)?.fetchOrNull().orEmpty()
 
@@ -77,7 +78,7 @@ class TrackerRepository @Inject constructor(
     suspend fun deleteLink(seriesDtoId: String, provider: String): Boolean =
         api?.deleteLink(seriesDtoId, provider)?.executeOrFalse() == true
 
-    /** 远端搜索（对齐 search：name/nsfw/language 参数）。 */
+    /** Remote search (mirrors search: name/nsfw/language parameters). */
     suspend fun search(provider: String, query: String): List<TrackerSearchItemDto> {
         val trackerApi = api
         if (trackerApi == null) {
@@ -98,7 +99,7 @@ class TrackerRepository @Inject constructor(
     suspend fun remoteState(provider: String, trackId: String): TrackerRemoteStateDto? =
         api?.getState(provider, trackId)?.fetchOrNull()
 
-    /** 推送远端状态（只提交非空字段；trackId 恒携带）。 */
+    /** Push remote state (only non-null fields are submitted; trackId is always included). */
     suspend fun pushUpdate(
         provider: String,
         trackId: String,

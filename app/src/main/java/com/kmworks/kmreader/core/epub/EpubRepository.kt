@@ -17,7 +17,7 @@ import retrofit2.http.Headers
 import retrofit2.http.PUT
 import retrofit2.http.Path
 
-/** WebPub manifest link（Komga 目录容器项可省略 href，故可空）。 */
+/** WebPub manifest link (Komga TOC container entries may omit href, hence nullable). */
 @Serializable
 data class EpubLinkDto(
     val href: String? = null,
@@ -34,7 +34,7 @@ data class EpubManifestDto(
     val toc: List<EpubLinkDto> = emptyList(),
 )
 
-/** Readium locator locations（progression=章节内比例，totalProgression=全书比例）。 */
+/** Readium locator locations (progression = ratio within the chapter, totalProgression = ratio of the whole book). */
 @Serializable
 data class EpubLocatorLocationsDto(
     val progression: Float? = null,
@@ -51,21 +51,21 @@ data class EpubLocatorDto(
     val locations: EpubLocatorLocationsDto? = null,
 )
 
-/** GET positions 响应。 */
+/** GET positions response. */
 @Serializable
 data class EpubPositionsDto(
     val positions: List<EpubLocatorDto> = emptyList(),
     val total: Int = 0,
 )
 
-/** progression 请求体的 device 段。 */
+/** Device section of the progression request body. */
 @Serializable
 data class EpubDeviceDto(
     val id: String = "",
     val name: String = "",
 )
 
-/** Readium progression（PUT progression 请求体 / GET 响应）。 */
+/** Readium progression (PUT progression request body / GET response). */
 @Serializable
 data class EpubProgressionDto(
     val modified: String = "",
@@ -73,14 +73,14 @@ data class EpubProgressionDto(
     val locator: EpubLocatorDto = EpubLocatorDto(),
 )
 
-/** 资源流结果（mime 来自服务端 Content-Type，encoding 仅文本类型）。 */
+/** Resource stream result (mime from the server Content-Type, encoding only for text types). */
 class EpubResource(
     val data: ByteArray,
     val mimeType: String,
     val encoding: String?,
 )
 
-/** WebPub manifest / positions / progression 端点（对齐原作 BookService）。 */
+/** WebPub manifest / positions / progression endpoints (mirrors the original BookService). */
 interface EpubApi {
 
     @Headers("Accept: application/webpub+json")
@@ -94,7 +94,7 @@ interface EpubApi {
     @GET("api/v1/books/{bookId}/positions")
     fun positions(@Path("bookId") bookId: String): Call<EpubPositionsDto>
 
-    // 原作 updateWebPubProgression 用 PUT（非 POST），body=R2Progression
+    // The original updateWebPubProgression uses PUT (not POST), body=R2Progression
     @Headers("Accept: application/vnd.readium.progression+json")
     @PUT("api/v1/books/{bookId}/progression")
     fun updateProgression(
@@ -104,8 +104,8 @@ interface EpubApi {
 }
 
 /**
- * EPUB WebPub 数据通道（mirrors BookService WebPub endpoints + EpubResourceSchemeHandler 资源流）。
- * 资源 URL 模板：{baseUrl}/api/v1/books/{bookId}/resource?{href}（href 原样拼接，Komga 整串解析）。
+ * EPUB WebPub data channel (mirrors BookService WebPub endpoints + EpubResourceSchemeHandler resource streams).
+ * Resource URL template: {baseUrl}/api/v1/books/{bookId}/resource?{href} (href joined verbatim; Komga parses the whole string).
  */
 @Singleton
 class EpubRepository @Inject constructor(
@@ -125,15 +125,15 @@ class EpubRepository @Inject constructor(
     val baseUrl: String?
         get() = sessionManager.clients.value?.baseUrl
 
-    /** WebPub manifest；无会话或失败返回 null。 */
+    /** WebPub manifest; null without a session or on failure. */
     suspend fun manifest(bookDtoId: String): EpubManifestDto? =
         fetchOrNull { api?.manifest(bookDtoId) }
 
-    /** 位置数组（章节权重/seek 映射用）；失败返回 null。 */
+    /** Positions array (chapter weights / seek mapping); null on failure. */
     suspend fun positions(bookDtoId: String): EpubPositionsDto? =
         fetchOrNull { api?.positions(bookDtoId) }
 
-    /** 服务端保存的进度；404/空 body/空 locator 视为缺失返回 null（对齐原作 decodeRemoteWebPubProgression）。 */
+    /** Server-saved progress; 404 / empty body / empty locator count as missing → null (mirrors the original decodeRemoteWebPubProgression). */
     suspend fun savedProgression(bookDtoId: String): EpubProgressionDto? = withContext(Dispatchers.IO) {
         runCatching {
             val response = api?.progression(bookDtoId)?.execute() ?: return@runCatching null
@@ -149,7 +149,7 @@ class EpubRepository @Inject constructor(
         }.getOrNull()
     }
 
-    /** 节流上报阅读进度（PUT progression，body 对齐原作 R2Progression）。 */
+    /** Throttled read-progress reporting (PUT progression, body mirrors the original R2Progression). */
     suspend fun reportProgression(
         bookDtoId: String,
         href: String,
@@ -175,13 +175,10 @@ class EpubRepository @Inject constructor(
         }.getOrDefault(false)
     }
 
-    /** 资源完整 URL（href 原样拼进 query，对齐 Komga web reader）。 */
-    fun resourceUrl(bookDtoId: String, href: String): String? =
-        baseUrl?.let { "$it/api/v1/books/$bookDtoId/resource?$href" }
-
     /**
-     * 同步转发资源请求（WebViewClient.shouldInterceptRequest 线程直接调用，复用认证 client）。
-     * 返回 null 表示失败/无会话。
+     * Synchronously forward a resource request (called directly on the WebViewClient.shouldInterceptRequest
+     * thread, reusing the authenticated client).
+     * Returns null on failure / no session.
      */
     fun fetchResourceBlocking(url: String): EpubResource? {
         val client = sessionManager.clients.value?.okHttpClient ?: return null
@@ -211,7 +208,7 @@ class EpubRepository @Inject constructor(
     }
 }
 
-/** 章节项（readingOrder 展平后的可导航条目）。 */
+/** Chapter entry (navigable items flattened from readingOrder). */
 data class EpubChapter(
     val index: Int,
     val href: String,

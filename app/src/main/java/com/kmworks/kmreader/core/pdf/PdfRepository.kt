@@ -13,8 +13,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 
 /**
- * PDF 整本下载与缓存（对齐原作 PdfReaderView 的本地文件缓存）。
- * GET {baseUrl}/api/v1/books/{id}/file 经会话 OkHttp（认证拦截器）流式写入 filesDir/pdf/。
+ * Whole-PDF download and caching (mirrors the local file cache of the original PdfReaderView).
+ * GET {baseUrl}/api/v1/books/{id}/file streams through the session OkHttp (auth interceptor) into filesDir/pdf/.
  */
 @Singleton
 class PdfRepository @Inject constructor(
@@ -26,17 +26,18 @@ class PdfRepository @Inject constructor(
 
     fun bookDtoId(stableId: Int): String? = DetailIdRegistry.bookDtoId(stableId)
 
-    /** 已缓存的 PDF 文件（存在且非空）；否则 null。 */
+    /** The cached PDF file (exists and non-empty); otherwise null. */
     fun cachedFile(bookDtoId: String): File? {
         val file = File(pdfDir, "$bookDtoId.pdf")
         return if (file.exists() && file.length() > 0) file else null
     }
 
     /**
-     * 下载整本 PDF；已缓存直接返回。
-     * 断点续传：存在 .part 半成品时带 Range 头（响应 206 追加；服务端忽略 Range
-     * 返回 200 则全量重写）。失败保留 .part 供下次续传。
-     * onProgress(copiedBytes, totalBytes)；total 未知时传 -1（不定进度）。
+     * Download the whole PDF; returns immediately when already cached.
+     * Resumable: when a .part half-finished file exists a Range header is sent (append on 206; if the
+     * server ignores Range and answers 200, the whole file is rewritten). Failures keep .part for the
+     * next resume attempt.
+     * onProgress(copiedBytes, totalBytes); total is -1 when unknown (indeterminate progress).
      */
     suspend fun downloadPdf(
         bookDtoId: String,
@@ -76,14 +77,24 @@ class PdfRepository @Inject constructor(
                 if (tmp.renameTo(target)) target else null
             }
         } catch (e: Exception) {
-            // 保留 .part 半成品：下次调用从断点续传
+            // Keep the .part half-finished file: the next call resumes from it
             null
         }
     }
 
-    /** 删除缓存文件。 */
+    /** Delete the cached file. */
     suspend fun deletePdf(bookDtoId: String) = withContext(Dispatchers.IO) {
         File(pdfDir, "$bookDtoId.pdf").delete()
         File(pdfDir, "$bookDtoId.pdf.part").delete()
+    }
+
+    /** Total PDF cache size (bytes). */
+    suspend fun cacheBytes(): Long = withContext(Dispatchers.IO) {
+        pdfDir.listFiles()?.sumOf { it.length() } ?: 0L
+    }
+
+    /** Clear the whole PDF cache (used by the cache settings page). */
+    suspend fun clearAll() = withContext(Dispatchers.IO) {
+        pdfDir.listFiles()?.forEach { it.delete() }
     }
 }

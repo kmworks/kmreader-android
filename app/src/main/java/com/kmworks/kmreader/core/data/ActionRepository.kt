@@ -9,7 +9,7 @@ import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 写操作仓库：标记已读/未读、阅读进度上报、加入收藏/阅读列表。 */
+/** Write operations repository: mark read/unread, read-progress reporting, add to collection/read list. */
 @Singleton
 class ActionRepository @Inject constructor(
     private val sessionManager: SessionManager,
@@ -57,7 +57,7 @@ class ActionRepository @Inject constructor(
         return addBooksToReadList(readListDtoId, listOf(bookDtoId))
     }
 
-    /** 批量加入阅读列表；保留服务端顺序并过滤已存在项。 */
+    /** Batch-add to a read list; keeps server order and filters already-present entries. */
     suspend fun addBooksToReadList(readListDtoId: String, bookDtoIds: List<String>): Boolean {
         val clients = sessionManager.clients.value ?: return false
         val current = clients.readlists.getReadListById(readListDtoId).awaitBody() ?: return false
@@ -69,19 +69,49 @@ class ActionRepository @Inject constructor(
             .awaitBody() != null
     }
 
-    /** Komga 的书籍删除操作对应删除书籍文件（DELETE /api/v1/books/{bookId}/file）。 */
+    /** Re-analyze a book (POST /api/v1/books/{bookId}/analyze, admin). */
+    suspend fun analyzeBook(bookDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.books.bookAnalyze(bookDtoId).awaitBody() != null
+    }
+
+    /** Refresh book metadata (POST /api/v1/books/{bookId}/metadata/refresh, admin). */
+    suspend fun refreshBookMetadata(bookDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.books.bookRefreshMetadata(bookDtoId).awaitBody() != null
+    }
+
+    /** Re-analyze a series (POST /api/v1/series/{seriesId}/analyze, admin). */
+    suspend fun analyzeSeries(seriesDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.series.seriesAnalyze(seriesDtoId).awaitBody() != null
+    }
+
+    /** Refresh series metadata (POST /api/v1/series/{seriesId}/metadata/refresh, admin). */
+    suspend fun refreshSeriesMetadata(seriesDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.series.seriesRefreshMetadata(seriesDtoId).awaitBody() != null
+    }
+
+    /** Delete the series file (DELETE /api/v1/series/{seriesId}/file, admin). */
+    suspend fun deleteSeries(seriesDtoId: String): Boolean {
+        val clients = sessionManager.clients.value ?: return false
+        return clients.series.deleteSeriesFile(seriesDtoId).awaitBody() != null
+    }
+
+    /** Komga's book deletion maps to deleting the book file (DELETE /api/v1/books/{bookId}/file). */
     suspend fun deleteBook(bookDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
         return clients.books.deleteBookFile(bookDtoId).awaitBody() != null
     }
 
-    /** 更新书籍元数据（PATCH /api/v1/books/{bookId}/metadata；只带上锁字段）。 */
+    /** Update book metadata (PATCH /api/v1/books/{bookId}/metadata; only locked fields are sent). */
     suspend fun updateBookMetadata(bookDtoId: String, body: BookMetadataUpdateDto): Boolean {
         val clients = sessionManager.clients.value ?: return false
         return clients.books.updateBookMetadata(bookDtoId, body).awaitBody() != null
     }
 
-    /** 更新系列元数据（PATCH /api/v1/series/{seriesId}/metadata；只带上锁字段）。 */
+    /** Update series metadata (PATCH /api/v1/series/{seriesId}/metadata; only locked fields are sent). */
     suspend fun updateSeriesMetadata(seriesDtoId: String, body: SeriesMetadataUpdateDto): Boolean {
         val clients = sessionManager.clients.value ?: return false
         return clients.series.updateSeriesMetadata(seriesDtoId, body).awaitBody() != null

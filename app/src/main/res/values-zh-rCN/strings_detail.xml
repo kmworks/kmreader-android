@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Detail / Browse / Library screens (batch E) -->
+    <string name="browse_search_failed">搜索失败</string>
+    <string name="browse_scope_books">书籍</string>
+    <string name="browse_scope_readlists">阅读列表</string>
+    <string name="browse_scope_collections">收藏</string>
+    <string name="browse_search_placeholder">搜索系列、书籍、作者…</string>
+    <string name="browse_filter">筛选</string>
+    <string name="browse_filter_count">筛选 · %1$d</string>
+    <string name="browse_hint_offline">未连接服务器，登录后搜索</string>
+    <string name="browse_hint_enter_query">输入关键词开始搜索</string>
+    <string name="browse_hint_no_results">未找到匹配结果</string>
+    <string name="browse_clear_filter">清除筛选</string>
+    <string name="browse_kind_publisher">出版社</string>
+    <string name="browse_kind_genre">分类</string>
+    <string name="browse_kind_age_rating">年龄分级</string>
+    <string name="browse_kind_language">语言</string>
+    <string name="browse_kind_release_year">发布年份</string>
+    <string name="browse_kind_notable">知名实体</string>
+    <string name="browse_kind_character">角色</string>
+    <string name="browse_kind_team">团队</string>
+    <string name="browse_kind_location">地点</string>
+    <string name="book_read">阅读</string>
+    <string name="book_peek">隐私阅读</string>
+    <string name="book_view_details">查看详情</string>
+    <string name="library_pin_libraries">钉选书库…</string>
+    <string name="library_title">书库</string>
+    <string name="library_switch_scope">切换书库范围</string>
+    <string name="library_layout_cd">布局：%1$s</string>
+    <string name="library_content_count">%1$s %2$d</string>
+    <string name="library_offline_title">未连接服务器</string>
+    <string name="library_offline_subtitle">登录后浏览书库</string>
+    <string name="library_series_load_failed">系列列表加载失败</string>
+    <string name="library_books_load_failed">书籍列表加载失败</string>
+    <string name="series_delete_files_title">删除系列文件？</string>
+    <string name="series_delete_files_message">将删除服务器上「%1$s」的系列文件，此操作不可撤销。</string>
+    <string name="book_delete_files_title">删除书籍文件？</string>
+    <string name="book_delete_files_message">将删除服务器上「%1$s」的书籍文件，此操作不可撤销。</string>
+    <plurals name="browse_entry_count">
+        <item quantity="other">%1$d 项</item>
+    </plurals>
+    <plurals name="library_scope_libraries">
+        <item quantity="other">%1$s · %2$d 个库</item>
+    </plurals>
+
+    <!-- Book detail actions and status -->
+    <string name="book_add_to_readlist">加入阅读列表</string>
+    <string name="book_analyze">分析</string>
+    <string name="book_delete_title">删除书籍？</string>
+    <string name="book_delete_message">「%1$s」的文件将从服务器删除，此操作不可撤销。</string>
+    <string name="book_downloaded">已下载</string>
+    <string name="book_edit_metadata">编辑元数据</string>
+    <string name="book_mark_read">标记为已读</string>
+    <string name="book_mark_unread">标记为未读</string>
+    <string name="book_media_info">媒体信息</string>
+    <string name="book_page_progress">第 %1$d 页 · %2$d%%</string>
+    <string name="book_progress_pages">读到第 %1$d 页 / 共 %2$d 页</string>
+    <string name="book_refresh_metadata">刷新元数据</string>
+    <string name="book_release_date">发布于 %1$s</string>
+    <string name="book_resume_reading">继续阅读</string>
+    <string name="book_share_chooser">分享书籍链接</string>
+    <string name="book_start_reading">开始阅读</string>
+    <string name="book_summary">简介</string>
+    <string name="book_unavailable">不可用</string>
+    <string name="detail_role_format">角色：%1$s</string>
+
+    <!-- Series detail: menu, status line and confirmation dialogs -->
+    <string name="series_edit_title">编辑系列</string>
+    <string name="series_add_to_collection">加入收藏…</string>
+    <string name="series_download">下载本系列</string>
+    <string name="series_started_year">%1$d 年开始连载</string>
+    <string name="series_status_partial_read">已读 %1$d 册</string>
+    <string name="series_status_reading">阅读中</string>
+    <string name="series_status_all_read">全部已读</string>
+    <string name="series_resume_reading_progress">继续阅读 · 第 %1$d 页 · %2$d%%</string>
+    <string name="detail_delete_menu">删除…</string>
+    <string name="detail_selected">已选中</string>
+    <string name="detail_multi_select">多选</string>
+    <string name="detail_share_failed">分享失败，请稍后重试</string>
+    <string name="detail_analyze_failed">分析失败，请稍后重试</string>
+    <string name="detail_refresh_failed">刷新失败，请稍后重试</string>
+    <string name="detail_delete_failed">删除失败，请稍后重试</string>
+    <string name="detail_save_failed">保存失败，请稍后重试</string>
+    <string name="detail_save_failed_no_server_data">保存失败：无服务器数据</string>
+    <string name="detail_selection_no_data">%1$s 失败：没有可写入的真实书籍数据</string>
+    <string name="series_delete_selected_title">删除所选书籍</string>
+    <plurals name="series_delete_selected_message">
+        <item quantity="other">将删除 %1$d 本书籍的文件。此操作不可撤销。</item>
+    </plurals>
+
+    <!-- Series / book / one-shot metadata edit sheets -->
+    <string name="book_edit_title">编辑书籍</string>
+    <string name="detail_edit_oneshot">编辑单发</string>
+    <string name="detail_basic_info">基本信息</string>
+    <string name="detail_reading_settings">阅读设置</string>
+    <string name="edit_tab_general">通用</string>
+    <string name="edit_tab_title">标题</string>
+    <string name="edit_tab_authors">作者</string>
+    <string name="edit_tab_tags">标签</string>
+    <string name="edit_tab_links">链接</string>
+    <string name="edit_tab_entities">实体</string>
+    <string name="edit_tab_sharing">分享标签</string>
+    <string name="detail_field_status">连载状态</string>
+    <string name="detail_field_reading_direction">阅读方向</string>
+    <string name="detail_field_total_books">总册数</string>
+    <string name="detail_field_title_sort">排序标题</string>
+    <string name="detail_field_number">号码</string>
+    <string name="detail_field_sort_number">排序号</string>
+    <string name="detail_field_release_date">发行日期</string>
+    <string name="detail_field_isbn">ISBN</string>
+    <string name="detail_field_alternate_label">别称</string>
+    <string name="detail_section_alternate_titles">别称</string>
+    <string name="detail_add_alternate_title">添加别称</string>
+    <string name="detail_section_genres">分类</string>
+    <string name="detail_add_genre">添加分类</string>
+    <string name="detail_empty_genres">暂无分类</string>
+    <string name="detail_remove_genre">删除分类</string>
+    <string name="detail_section_tags">标签</string>
+    <string name="detail_add_tag">添加标签</string>
+    <string name="detail_empty_tags">暂无标签</string>
+    <string name="detail_remove_tag">删除标签</string>
+    <string name="detail_section_links">链接</string>
+    <string name="detail_add_link">添加链接</string>
+    <string name="detail_empty_links">暂无链接</string>
+    <string name="detail_remove_link">删除链接</string>
+    <string name="detail_field_link_name">链接名称</string>
+    <string name="detail_field_link_url">链接地址</string>
+    <string name="detail_section_sharing_labels">分享标签</string>
+    <string name="detail_add_sharing_label">添加分享标签</string>
+    <string name="detail_empty_sharing_labels">暂无分享标签</string>
+    <string name="detail_remove_sharing_label">删除分享标签</string>
+    <string name="detail_section_authors">作者</string>
+    <string name="detail_add_author">添加作者</string>
+    <string name="detail_empty_authors">暂无作者</string>
+    <string name="detail_remove_author">删除作者</string>
+    <string name="detail_author_name">作者姓名</string>
+    <string name="detail_custom_role">自定义角色</string>
+    <string name="series_direction_ltr">从左到右</string>
+    <string name="series_direction_rtl">从右到左</string>
+    <string name="series_direction_vertical">纵向</string>
+    <string name="series_direction_webtoon">条漫</string>
+
+    <!-- komf identify sheet, menu items and job notifications -->
+    <string name="komf_identify_title">用 komf 识别</string>
+    <string name="komf_identify_menu">用 komf 识别…</string>
+    <string name="komf_match">匹配 komf</string>
+    <string name="komf_reset">重置 komf</string>
+    <string name="komf_reset_message">将清除该系列的 komf 匹配结果与本地元数据，确认继续？</string>
+    <string name="komf_search_placeholder">搜索 komf provider…</string>
+    <string name="komf_submit_failed">识别提交失败，请重试</string>
+    <string name="komf_provider_links">Provider 链接</string>
+    <string name="komf_aggregate_providers">聚合全部 provider</string>
+    <string name="komf_merge_provider_links">合并 %1$d 个 provider 直链</string>
+    <string name="komf_search_results">搜索结果</string>
+    <string name="komf_search_failed">搜索失败</string>
+    <string name="komf_no_results">无结果</string>
+    <string name="komf_event_match_submitted">komf 匹配任务已提交</string>
+    <string name="komf_event_match_failed">komf 匹配提交失败</string>
+    <string name="komf_event_reset_done">已重置 komf 元数据</string>
+    <string name="komf_event_reset_failed">komf 重置失败</string>
+    <string name="komf_event_job_completed">komf 任务已完成</string>
+    <string name="komf_event_job_failed">komf 任务失败</string>
+    <string name="komf_event_job_failed_with_reason">komf 任务失败：%1$s</string>
+    <string name="komf_event_job_tracking_stopped">komf 任务仍在执行，已停止跟踪</string>
+</resources>

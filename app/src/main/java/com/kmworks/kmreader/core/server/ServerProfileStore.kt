@@ -13,8 +13,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 能力探测基座（对齐 iOS ServerProfileService）：有会话时探测一次 /api/v1/server/info，
- * 404/网络错误一律按 stock Komga 处理（features 空集，不报错）；会话消失时清空。
+ * Capability probing backbone (mirrors iOS ServerProfileService): with a session, probes /api/v1/server/info
+ * once; 404/network errors are treated as stock Komga (empty feature set, no error surfaced); cleared when
+ * the session disappears.
  */
 @Singleton
 class ServerProfileStore @Inject constructor(
@@ -37,14 +38,14 @@ class ServerProfileStore @Inject constructor(
         }
     }
 
-    /** 无 profile（stock Komga 或未探测）→ 全部 false。 */
+    /** No profile (stock Komga or not yet probed) → everything false. */
     fun hasFeature(feature: ServerFeature): Boolean =
         _profile.value?.features?.contains(feature) == true
 
-    /** kmrs 最近阅读窗口的截止时间；stock Komga / 窗口关闭时为 null。 */
+    /** Cutoff of the kmrs recent-reading window; null on stock Komga / when the window is off. */
     fun recentReadingCutoff(): java.time.Instant? = _profile.value?.recentReadingCutoff()
 
-    /** 重新探测一次（对齐 iOS ServerProfileService.refresh()；komf 409 等能力变化场景调用）。 */
+    /** Probe once again (mirrors iOS ServerProfileService.refresh(); called on capability changes such as komf 409). */
     suspend fun refresh() {
         sessionManager.clients.value?.let { probe(it) }
     }
@@ -54,8 +55,8 @@ class ServerProfileStore @Inject constructor(
             val response = clients.serverApi.getServerInfo().execute()
             if (response.isSuccessful) {
                 val info = response.body()
-                // kmrs 设置（skipReadOnNext / recentReadingDays）：失败保留上次值
-                // （对齐 iOS ServerProfileService.fetchSettings 的降级语义）。
+                // kmrs settings (skipReadOnNext / recentReadingDays): on failure keep the previous values
+                // (mirrors the degradation semantics of iOS ServerProfileService.fetchSettings).
                 val previous = _profile.value
                 val settings = runCatching {
                     clients.serverApi.getServerSettings().execute().takeIf { it.isSuccessful }?.body()
@@ -74,7 +75,7 @@ class ServerProfileStore @Inject constructor(
                 stockProfile()
             }
         } catch (_: Exception) {
-            // 网络错误同样按 stock 处理，不向 UI 报错
+            // Network errors are likewise treated as stock; no error surfaces to the UI
             stockProfile()
         }
     }

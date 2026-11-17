@@ -5,8 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.kmworks.kmreader.R
 
-/** 通用删除确认对话框（对齐原作各 destructive alert，删除按钮 error 色）。 */
+/** Generic delete confirmation dialog (mirrors the original destructive alerts; the delete button uses the error color). */
 @Composable
 fun ConfirmDeleteDialog(
     title: String,
@@ -25,11 +27,11 @@ fun ConfirmDeleteDialog(
                     onDismiss()
                 },
             ) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }

@@ -1,10 +1,11 @@
 package com.kmworks.kmreader.data
 
 /**
- * 页面几何：宽高来自 Komga 的 `PageDto.width/height`（可空，未知按竖版处理）。
+ * Page geometry: width/height come from Komga's `PageDto.width/height` (nullable; unknown sizes are
+ * treated as portrait).
  *
- * 原作判定宽图（跨页）的方式：`height > width` 为竖版，否则为横版/跨页
- * （KMReader/Features/Reader/Models/Divina/ReaderViewItemGenerator.swift）。
+ * How the original decides a wide (spread) page: `height > width` is portrait, otherwise landscape /
+ * spread (KMReader/Features/Reader/Models/Divina/ReaderViewItemGenerator.swift).
  */
 data class ReaderPage(
     val id: Int,
@@ -15,43 +16,46 @@ data class ReaderPage(
     val isLandscape: Boolean get() = width > height
 }
 
-/** 阅读器的一个展示单元，对应原作 `ReaderViewItem`。 */
+/** One display cell of the reader, mirroring the original `ReaderViewItem`. */
 sealed interface ReaderViewItem {
-    /** 本单元覆盖的页码（双页=两页）。 */
+    /** Page numbers covered by this cell (a dual pair covers two pages). */
     val pages: List<Int>
 
-    /** 单页。 */
+    /** Single page. */
     data class Single(val page: ReaderPage) : ReaderViewItem {
         override val pages: List<Int> = listOf(page.number)
     }
 
-    /** 双页合幅（左右并排）。 */
+    /** Dual pair shown side by side. */
     data class Dual(val first: ReaderPage, val second: ReaderPage) : ReaderViewItem {
         override val pages: List<Int> = listOf(first.number, second.number)
     }
 
-    /** 跨页宽图整幅展示（可平移，不切开）。 */
+    /** A wide spread page shown whole (pannable, never cut apart). */
     data class Spread(val page: ReaderPage) : ReaderViewItem {
         override val pages: List<Int> = listOf(page.number)
     }
 
-    /** 跨页宽图被切成两半，分别翻页。 */
+    /** A wide spread page cut into two halves, each turned separately. */
     data class Half(val page: ReaderPage, val secondHalf: Boolean) : ReaderViewItem {
         override val pages: List<Int> = listOf(page.number)
     }
 }
 
 /**
- * 展示单元的生成规则，1:1 对齐原作
- * `ReaderViewItemGenerator.generateViewItems`（Models/Divina/ReaderViewItemGenerator.swift）。
+ * Rules for generating display cells, 1:1 with the original
+ * `ReaderViewItemGenerator.generateViewItems` (Models/Divina/ReaderViewItemGenerator.swift).
  *
- * 原作分支（pageCurl 在 Android 不做，视为 false）：
- * - forceDualPairs（页面布局=双页，横屏门控外）：封面竖版→单页；可切宽图→切半/整幅；
- *   横版图→单页；末页/独显页/下一页不可配对→单页；其余→双页。
- * - 非 force（自动布局，allowDualPairs 由横屏门控）：横版不可切→单页；封面非宽→单页；
- *   独显页→单页；末页→单页；allowDualPairs 且下一页竖版且非独显→双页；其余→单页。
- * - 宽图只在「拆分宽页」开启时参与切割：ltr/rtl 切两半，scroll 保留整幅（keepsSplitSpreadsWhole）。
- * - 封面单页（solo cover）只在 soloCover=true 时强制（对齐原作 noCover=!shouldSoloCover）。
+ * Original branches (pageCurl is not implemented on Android, so it counts as false):
+ * - forceDualPairs (page layout = dual, outside the landscape gate): portrait cover → single page;
+ *   splittable wide page → halves / whole spread; landscape page → single page; last page / solo page
+ *   / unpairable next page → single page; otherwise → dual pair.
+ * - not forced (auto layout, allowDualPairs gated by landscape): landscape not splittable → single
+ *   page; non-wide cover → single page; solo page → single page; last page → single page;
+ *   allowDualPairs and the next page is portrait and not solo → dual pair; otherwise → single page.
+ * - Wide pages only participate in splitting when "split wide pages" is on: ltr/rtl cut them in two,
+ *   scroll keeps the whole spread (keepsSplitSpreadsWhole).
+ * - Solo cover is forced only when soloCover=true (mirrors the original noCover=!shouldSoloCover).
  */
 object ReaderViewItemGenerator {
 

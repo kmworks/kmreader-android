@@ -9,10 +9,10 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 
 /**
- * POST books/list 与 series/list 端点（查询体手写 JsonObject）：生成的
- * BookSearch/SeriesSearch 的 condition 字段是全必填 DSL 类型，无法携带手写
- * 条件，故以 JsonObject 直发；响应沿用生成模型。实例经 LocalApiFactory 构建
- * （ApiClients 只读）。
+ * POST books/list and series/list endpoints (query bodies are handwritten JsonObjects): the generated
+ * BookSearch/SeriesSearch condition fields are all-required DSL types and cannot carry a handwritten
+ * condition, so JsonObject is sent directly; responses reuse the generated models. Instances are built
+ * via LocalApiFactory (ApiClients is read-only).
  */
 internal interface ListSearchApi {
 
