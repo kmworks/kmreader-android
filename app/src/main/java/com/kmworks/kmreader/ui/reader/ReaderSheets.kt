@@ -1,10 +1,21 @@
 package com.kmworks.kmreader.ui.reader
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -14,8 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -24,15 +36,33 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** 阅读方向（对齐原作 ReadingDirection：ltr/rtl/vertical/webtoon）。 */
@@ -74,9 +104,13 @@ data class SoloMenuAction(
     val onToggle: () -> Unit,
 )
 
+/** 菜单值选择弹层（对齐 iOS 菜单 picker 的子菜单语义）。 */
+private enum class ReaderMenuPicker { Direction, Layout, Split, Rotation }
+
 /**
  * 阅读器顶栏「更多」菜单（对应 DivinaControlsOverlayView+Menu）：
- * Current Reading Options（方向/布局/拆分宽页/旋转循环）→ 阅读器设置 → 当前页（分享/独显）→ 跳页。
+ * Current Reading Options（方向/布局/拆分宽页/旋转，点开选项弹层，对齐 iOS picker 子菜单）→
+ * 阅读器设置 → 当前页（分享/独显）→ 跳页。
  * 原作菜单里还有目录，但 DIVINA（图片）书籍没有目录数据源，故不显示（对齐 hasTOC 门控）。
  */
 @Composable
@@ -98,19 +132,19 @@ fun ReaderOptionsMenu(
     onOpenPageJump: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var picker by remember { mutableStateOf<ReaderMenuPicker?>(null) }
     androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Current Reading Options（条漫模式只保留阅读方向，对齐原作的门控）
-        MenuCycleItem(
-            label = "阅读方向",
-            value = direction.label,
-            onClick = { onDirectionChange(direction.next) },
-        )
+        MenuSectionHeader("当前阅读选项")
+        MenuValueItem(label = "阅读方向", value = direction.label) {
+            onDismiss()
+            picker = ReaderMenuPicker.Direction
+        }
         if (direction != ReadingDirection.Webtoon) {
-            MenuCycleItem(
-                label = "页面布局",
-                value = pageLayout.label,
-                onClick = { onPageLayoutChange(pageLayout.next) },
-            )
+            MenuValueItem(label = "页面布局", value = pageLayout.label) {
+                onDismiss()
+                picker = ReaderMenuPicker.Layout
+            }
             // 独显封面（对齐原作 Solo Cover Page：仅自动/双页布局且非垂直滚动时可选）
             if (direction != ReadingDirection.Vertical && pageLayout != PageLayout.Single) {
                 androidx.compose.material3.DropdownMenuItem(
@@ -135,16 +169,17 @@ fun ReaderOptionsMenu(
                     },
                 )
             }
-            MenuCycleItem(
-                label = "拆分宽页",
-                value = splitWideMode.label,
-                onClick = { onSplitWideModeChange(splitWideMode.next) },
-            )
-            MenuCycleItem(
+            MenuValueItem(label = "拆分宽页", value = splitWideMode.label) {
+                onDismiss()
+                picker = ReaderMenuPicker.Split
+            }
+            MenuValueItem(
                 label = "页面旋转",
                 value = if (rotationDegrees == 0) "无" else "$rotationDegrees°",
-                onClick = { onRotationChange((rotationDegrees + 90) % 360) },
-            )
+            ) {
+                onDismiss()
+                picker = ReaderMenuPicker.Rotation
+            }
         }
         HorizontalDivider()
         androidx.compose.material3.DropdownMenuItem(
@@ -156,6 +191,7 @@ fun ReaderOptionsMenu(
         )
         HorizontalDivider()
         // Current Page（对齐原作：分享 + 双页时的单页独显切换）
+        MenuSectionHeader("当前页面")
         androidx.compose.material3.DropdownMenuItem(
             text = { Text("分享页面") },
             leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
@@ -178,26 +214,106 @@ fun ReaderOptionsMenu(
                 },
             )
         }
+        HorizontalDivider()
+        MenuSectionHeader("页面导航")
         androidx.compose.material3.DropdownMenuItem(
             text = { Text("跳页") },
+            leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
             onClick = {
                 onDismiss()
                 onOpenPageJump()
             },
         )
     }
+
+    // 选项弹层（对齐 iOS picker 子菜单：全选项 + 当前值勾选）
+    when (picker) {
+        ReaderMenuPicker.Direction -> OptionPickerDialog(
+            title = "阅读方向",
+            options = ReadingDirection.entries.map { it.label },
+            selected = direction.label,
+            onSelect = { label ->
+                ReadingDirection.entries.firstOrNull { it.label == label }?.let(onDirectionChange)
+                picker = null
+            },
+            onDismiss = { picker = null },
+        )
+        ReaderMenuPicker.Layout -> OptionPickerDialog(
+            title = "页面布局",
+            options = PageLayout.entries.map { it.label },
+            selected = pageLayout.label,
+            onSelect = { label ->
+                PageLayout.entries.firstOrNull { it.label == label }?.let(onPageLayoutChange)
+                picker = null
+            },
+            onDismiss = { picker = null },
+        )
+        ReaderMenuPicker.Split -> OptionPickerDialog(
+            title = "拆分宽页",
+            options = SplitWidePageMode.entries.map { it.label },
+            selected = splitWideMode.label,
+            hints = SplitWidePageMode.entries.associate { it.label to it.hint },
+            onSelect = { label ->
+                SplitWidePageMode.entries.firstOrNull { it.label == label }?.let(onSplitWideModeChange)
+                picker = null
+            },
+            onDismiss = { picker = null },
+        )
+        ReaderMenuPicker.Rotation -> {
+            val options = listOf("无", "90°", "180°", "270°")
+            OptionPickerDialog(
+                title = "页面旋转",
+                options = options,
+                selected = if (rotationDegrees == 0) "无" else "$rotationDegrees°",
+                onSelect = { label ->
+                    onRotationChange(
+                        when (label) {
+                            "90°" -> 90
+                            "180°" -> 180
+                            "270°" -> 270
+                            else -> 0
+                        },
+                    )
+                    picker = null
+                },
+                onDismiss = { picker = null },
+            )
+        }
+        null -> Unit
+    }
 }
 
+/** 菜单分节标题（对齐 iOS Menu Section header）。 */
 @Composable
-private fun MenuCycleItem(label: String, value: String, onClick: () -> Unit) {
+private fun MenuSectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+    )
+}
+
+/** 菜单值项：标签 + 当前值 + 箭头（点开选项弹层，对齐 iOS picker 行）。 */
+@Composable
+private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
     androidx.compose.material3.DropdownMenuItem(
         text = {
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(label, modifier = Modifier.weight(1f))
                 Text(
                     value,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         },
@@ -205,58 +321,259 @@ private fun MenuCycleItem(label: String, value: String, onClick: () -> Unit) {
     )
 }
 
-/** 跳页（对应 PageJumpSheetView：预览 + 滑杆 + 页码）。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 选项弹层：全选项单选列表，当前值尾部勾选（对齐 iOS 菜单 picker 子菜单）。 */
 @Composable
-fun ReaderPageJumpSheet(currentPage: Int, pageCount: Int, onJump: (Int) -> Unit, onDismiss: () -> Unit) {
-    var target by remember { mutableIntStateOf(currentPage) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("跳页", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(16.dp))
-            // 页面预览占位（真实实现 = 该页缩略图）
-            Surface(
-                modifier = Modifier
-                    .width(160.dp)
-                    .height(240.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.MenuBook,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "第 $target 页",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+private fun OptionPickerDialog(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+    hints: Map<String, String> = emptyMap(),
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(option) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(option)
+                            hints[option]?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (option == selected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Slider(
-                value = target.toFloat(),
-                onValueChange = { target = it.roundToInt().coerceIn(1, pageCount) },
-                valueRange = 1f..pageCount.toFloat(),
+        },
+    )
+}
+
+/**
+ * 跳页（对齐原作 PageJumpSheetView：横向吸附的大缩略图卡 + 滑杆 + 跳转按钮）：
+ * - 卡片横向滚动、吸附居中（iOS scrollTargetBehavior(.viewAligned)），居中项即目标页；
+ * - 选中卡 scale 1.0 + 描边 + 深阴影，未选 0.9（iOS PageJumpPreviewCard）；
+ * - 滑杆四舍五入同步（iOS sliderBinding），跳转在目标等于当前页时禁用；
+ * - RTL 方向时横向布局镜像（iOS layoutDirection 右到左）。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun ReaderPageJumpSheet(
+    currentPage: Int,
+    pageCount: Int,
+    onJump: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    imageLoader: ImageLoader? = null,
+    isRtl: Boolean = false,
+    pageThumbnailUrl: (Int) -> String? = { null },
+    onShare: ((Int) -> Unit)? = null,
+) {
+    var target by remember { mutableIntStateOf(currentPage) }
+    val scope = rememberCoroutineScope()
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        BoxWithConstraints {
+            // 卡片宽 = 面板宽 0.72（对齐 iOS PageJumpPreviewCard.widthRatio）
+            val cardWidth = this.maxWidth * 0.72f
+            val sidePadding = (this.maxWidth - cardWidth) / 2
+            val listState = rememberLazyListState(
+                initialFirstVisibleItemIndex = (currentPage - 1).coerceAtLeast(0),
             )
-            Text(
-                "$target / $pageCount",
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                androidx.compose.material3.OutlinedButton(onClick = onDismiss) { Text("取消") }
-                androidx.compose.material3.Button(onClick = { onJump(target) }) { Text("跳转") }
+            // 居中项 → 目标页同步（对齐 iOS scrollPosition 绑定）
+            val centeredPage by remember {
+                derivedStateOf {
+                    val info = listState.layoutInfo
+                    val visible = info.visibleItemsInfo
+                    if (visible.isEmpty()) {
+                        target
+                    } else {
+                        val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+                        (visible.minByOrNull { abs(it.offset + it.size / 2 - center) }?.index ?: 0) + 1
+                    }
+                }
+            }
+            LaunchedEffect(centeredPage) {
+                if (centeredPage != target) target = centeredPage
+            }
+            Column(modifier = Modifier.padding(bottom = 28.dp)) {
+                Text(
+                    "跳页",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                CompositionLocalProvider(
+                    LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
+                ) {
+                    Column {
+                        LazyRow(
+                            state = listState,
+                            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+                            contentPadding = PaddingValues(horizontal = sidePadding),
+                        ) {
+                            items(pageCount) { index ->
+                                val pageNumber = index + 1
+                                val selected = pageNumber == target
+                                val scale by animateFloatAsState(
+                                    targetValue = if (selected) 1f else 0.9f,
+                                    label = "jumpCardScale",
+                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .width(cardWidth)
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                        }
+                                        .clickable {
+                                            target = pageNumber
+                                            scope.launch { listState.animateScrollToItem(index) }
+                                        },
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 8.dp)
+                                            .fillMaxWidth()
+                                            .height(300.dp)
+                                            .shadow(
+                                                elevation = if (selected) 8.dp else 4.dp,
+                                                shape = RoundedCornerShape(8.dp),
+                                                ambientColor = Color.Black.copy(alpha = if (selected) 0.3f else 0.15f),
+                                                spotColor = Color.Black.copy(alpha = if (selected) 0.3f else 0.15f),
+                                            )
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .then(
+                                                if (selected) {
+                                                    Modifier.border(
+                                                        3.dp,
+                                                        MaterialTheme.colorScheme.primary,
+                                                        RoundedCornerShape(8.dp),
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        val thumb = pageThumbnailUrl(pageNumber)
+                                        if (thumb != null && imageLoader != null) {
+                                            AsyncImage(
+                                                model = thumb,
+                                                contentDescription = "第 $pageNumber 页",
+                                                imageLoader = imageLoader,
+                                                contentScale = ContentScale.Fit,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        } else {
+                                            Text(
+                                                "$pageNumber",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "$pageNumber",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        modifier = Modifier.padding(top = 6.dp),
+                                    )
+                                }
+                            }
+                        }
+                        // 滑杆（iOS sliderBinding：四舍五入吸附整页）
+                        Slider(
+                            value = target.toFloat(),
+                            onValueChange = {
+                                val next = it.roundToInt().coerceIn(1, pageCount)
+                                if (next != target) {
+                                    target = next
+                                    scope.launch { listState.animateScrollToItem(next - 1) }
+                                }
+                            },
+                            valueRange = 1f..pageCount.coerceAtLeast(2).toFloat(),
+                            enabled = pageCount > 1,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "1",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "$target / $pageCount",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Text(
+                        "$pageCount",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 分享（对齐 iOS 跳页面板 controls 区的分享按钮；无分享通道时不显示）
+                    if (onShare != null) {
+                        androidx.compose.material3.OutlinedButton(onClick = { onShare(target) }) {
+                            Icon(
+                                Icons.Filled.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("分享此页")
+                        }
+                    }
+                    androidx.compose.material3.Button(
+                        onClick = { onJump(target) },
+                        enabled = target != currentPage,
+                    ) { Text("跳转") }
+                }
             }
         }
     }

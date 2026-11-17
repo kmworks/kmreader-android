@@ -716,7 +716,7 @@ fun ReaderScreen(
             }
         }
 
-        // 底栏：缩略图条 + 滑杆 + 页码胶囊
+        // 底栏：页码胶囊 + 胶囊细进度条（对齐 iOS DivinaControlsOverlayView bottomOverlayContent）
         AnimatedVisibility(
             visible = chromeVisible && uiState.status == ReaderPagesStatus.Ready,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -736,75 +736,32 @@ fun ReaderScreen(
                         },
                     ),
             ) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(items.size) { index ->
-                        val item = items[index]
-                        val isCurrent = index == pagerState.currentPage
-                        val thumbUrl = viewModel.pageThumbnailUrl(item.pages.first())
-                        Box(
-                            modifier = Modifier
-                                .width(36.dp)
-                                .height(54.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isCurrent) PageFill else Color(0xFF2A2A2E))
-                                .then(
-                                    if (isCurrent) {
-                                        Modifier.border(2.dp, ChromeText, RoundedCornerShape(4.dp))
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .clickable {
-                                    if (isWebtoon) {
-                                        page = item.pages.first()
-                                    } else {
-                                        scope.launch { pagerState.scrollToPage(index) }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (thumbUrl != null) {
-                                AsyncImage(
-                                    model = thumbUrl,
-                                    contentDescription = null,
-                                    imageLoader = imageLoader,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                Text(
-                                    text = item.pages.joinToString("·"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ChromeText.copy(alpha = 0.55f),
-                                )
-                            }
-                        }
-                    }
-                }
-                Slider(
-                    value = page.toFloat().coerceIn(1f, pageCount.coerceAtLeast(1).toFloat()),
-                    onValueChange = { page = it.roundToInt().coerceIn(1, pageCount) },
-                    valueRange = 1f..pageCount.coerceAtLeast(2).toFloat(),
-                    enabled = pageCount > 1,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = ChromeText,
-                        activeTrackColor = ChromeText,
-                        inactiveTrackColor = ChromeText.copy(alpha = 0.3f),
-                    ),
-                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
+                        .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) {
                     PageJumpCapsule(page = page, pageCount = pageCount, onClick = { showPageJump = true })
+                }
+                // 胶囊细进度条（对齐 iOS ReadingProgressBar：轨道淡色、填充白色、RTL 反向）
+                val fillFraction = if (pageCount > 0) (page.toFloat() / pageCount).coerceIn(0f, 1f) else 0f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 8.dp, bottom = 12.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(ChromeText.copy(alpha = 0.3f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fillFraction)
+                            .align(if (directionNow == ReadingDirection.Rtl) Alignment.CenterEnd else Alignment.CenterStart)
+                            .background(ChromeText),
+                    )
                 }
             }
         }
@@ -822,9 +779,15 @@ fun ReaderScreen(
         ReaderPageJumpSheet(
             currentPage = page,
             pageCount = pageCount,
+            imageLoader = imageLoader,
+            isRtl = directionNow == ReadingDirection.Rtl,
+            pageThumbnailUrl = viewModel::pageThumbnailUrl,
             onJump = {
                 page = it.coerceIn(1, pageCount)
                 showPageJump = false
+            },
+            onShare = { p ->
+                viewModel.pageUrl(p)?.let { url -> sharePageUrl(context, url) }
             },
             onDismiss = { showPageJump = false },
         )
@@ -1116,7 +1079,6 @@ private fun WholeSpreadPage(
             PagePlaceholder(
                 label = "第 ${page.number} 页",
                 ratio = fullRatio,
-                wide = true,
                 contentColor = contentColor,
             )
             return@Box
@@ -1284,7 +1246,7 @@ private fun FitRatioBox(
     ) {
         val safe = if (ratio.isFinite() && ratio > 0f) ratio else 0.7f
         val sizeModifier = if (
-            constraints.maxHeight == Constraints.Infinity ||
+            constraints.maxHeight == androidx.compose.ui.unit.Constraints.Infinity ||
             constraints.maxWidth.toFloat() / constraints.maxHeight.toFloat() < safe
         ) {
             Modifier.fillMaxWidth().aspectRatio(safe)
