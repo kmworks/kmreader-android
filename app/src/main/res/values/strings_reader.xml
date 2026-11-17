@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Reader: settings sheet -->
+    <string name="reader_settings_title">Reader settings</string>
+    <string name="reader_group_appearance">Appearance</string>
+    <string name="reader_background_title">Reader background</string>
+    <string name="reader_background_black">Black</string>
+    <string name="reader_background_white">White</string>
+    <string name="reader_background_gray">Gray</string>
+    <string name="reader_background_sepia">Sepia</string>
+    <string name="reader_background_system">System</string>
+    <string name="reader_show_page_number">Show page number</string>
+    <string name="reader_show_page_shadow">Page shadow</string>
+    <string name="reader_controls_gradient">Control bar gradient</string>
+    <string name="reader_show_progress_bar">Show progress bar while reading</string>
+    <string name="reader_keep_screen_awake">Keep screen awake while reading</string>
+    <string name="reader_webtoon_page_width">Webtoon page width</string>
+    <string name="reader_group_page_turn">Page turn</string>
+    <string name="reader_transition_title">Page turn animation</string>
+    <string name="reader_transition_scroll">Scroll</string>
+    <string name="reader_transition_cover">Cover</string>
+    <string name="reader_animate_tap_turns">Animate tap turns</string>
+    <string name="reader_tap_zone_layout">Tap zone layout</string>
+    <string name="reader_tap_zone_inversion">Mirror tap zones</string>
+    <string name="reader_show_tap_zone_hints">Show tap zone hints</string>
+    <string name="reader_webtoon_tap_scroll_height">Webtoon tap scroll height</string>
+    <string name="reader_group_gestures">Gestures</string>
+    <string name="reader_double_tap_action">Double-tap action</string>
+    <string name="reader_double_tap_zoom_scale">Double-tap zoom scale</string>
+    <string name="reader_long_press_action">Long-press action</string>
+    <string name="reader_group_performance">Performance</string>
+    <string name="reader_preload_title">Image preloading</string>
+    <string name="reader_group_image_processing">Image processing</string>
+    <string name="reader_crop_title">Border cropping</string>
+    <string name="reader_crop_hint">Crops the margins around the page that match the background color; when off, pages are shown as-is.</string>
+
+    <!-- Reader: reading direction -->
+    <string name="reader_direction_ltr">Left to right</string>
+    <string name="reader_direction_rtl">Right to left</string>
+    <string name="reader_direction_vertical">Vertical scroll</string>
+    <string name="reader_direction_webtoon">Webtoon</string>
+
+    <!-- Reader: wide page splitting -->
+    <string name="reader_split_none">Off</string>
+    <string name="reader_split_hint_none">Show wide pages whole, without splitting</string>
+    <string name="reader_split_auto">Auto</string>
+    <string name="reader_split_hint_auto">Detect from page content whether to split</string>
+    <string name="reader_split_ltr">Left to right</string>
+    <string name="reader_split_hint_ltr">Split into two halves, turning left to right</string>
+    <string name="reader_split_rtl">Right to left</string>
+    <string name="reader_split_hint_rtl">Split into two halves, turning right to left</string>
+    <string name="reader_split_scroll">Pan whole spread</string>
+    <string name="reader_split_hint_scroll">Keep the whole spread, draggable horizontally</string>
+
+    <!-- Reader: page layout -->
+    <string name="reader_page_layout_single">Single page</string>
+    <string name="reader_page_layout_auto">Auto</string>
+    <string name="reader_page_layout_dual">Two pages</string>
+
+    <!-- Reader: tap zones / gestures -->
+    <string name="reader_tap_zone_none">Off</string>
+    <string name="reader_tap_zone_default">Default</string>
+    <string name="reader_tap_zone_edge">Edge</string>
+    <string name="reader_tap_zone_kindle">Kindle</string>
+    <string name="reader_tap_zone_l_shape">L-shaped</string>
+    <string name="reader_tap_zone_t_split">Top/bottom split</string>
+    <string name="reader_tap_inversion_normal">Normal</string>
+    <string name="reader_tap_inversion_auto">Auto</string>
+    <string name="reader_tap_inversion_inverted">Inverted</string>
+    <string name="reader_double_tap_zoom">Zoom</string>
+    <string name="reader_off">Off</string>
+    <string name="reader_long_press_menu">Image menu</string>
+    <string name="reader_tap_zone_hint_previous">Previous page</string>
+    <string name="reader_tap_zone_hint_menu">Menu</string>
+    <string name="reader_tap_zone_hint_next">Next page</string>
+
+    <!-- Reader: image preloading -->
+    <string name="reader_preload_low_memory">Low memory</string>
+    <string name="reader_preload_balanced">Balanced</string>
+    <string name="reader_preload_fast_page_turns">Fast page turns</string>
+    <string name="reader_preload_hint_low_memory">Decodes fewer neighboring pages to reduce memory use; page turns may wait for loading more often.</string>
+    <string name="reader_preload_hint_balanced">Uses the default preload window, balancing memory use and turn smoothness.</string>
+    <string name="reader_preload_hint_fast_page_turns">Pre-decodes more neighboring pages for faster turns, at the cost of higher memory use.</string>
+
+    <!-- Reader: border cropping -->
+    <string name="reader_crop_conservative">Conservative</string>
+    <string name="reader_crop_aggressive">Aggressive</string>
+
+    <!-- Reader: in-reader menu -->
+    <string name="reader_menu_current_options">Current reading options</string>
+    <string name="reader_menu_direction">Reading direction</string>
+    <string name="reader_menu_page_layout">Page layout</string>
+    <string name="reader_menu_split_wide">Split wide pages</string>
+    <string name="reader_menu_solo_cover">Solo cover</string>
+    <string name="reader_menu_rotation">Page rotation</string>
+    <string name="reader_menu_current_page">Current page</string>
+    <string name="reader_share_page">Share page</string>
+    <string name="reader_cancel_solo">Exit solo page</string>
+    <string name="reader_show_page_solo">Solo page %1$d</string>
+    <string name="reader_menu_page_nav">Page navigation</string>
+    <string name="reader_jump_to_page">Go to page</string>
+    <string name="reader_go_to_page">Go to page</string>
+    <string name="reader_jump">Go</string>
+    <string name="reader_share_this_page">Share this page</string>
+
+    <!-- Reader: status and errors -->
+    <string name="reader_page_spread">Page %1$d</string>
+    <string name="reader_page_load_failed">Page %1$d failed to load</string>
+    <string name="reader_pages_load_failed">Failed to load pages</string>
+    <string name="reader_page_first_half">First half</string>
+    <string name="reader_page_second_half">Second half</string>
+    <string name="reader_exit_reading">Exit reading</string>
+    <string name="reader_back">Back</string>
+    <string name="reader_incognito">Incognito reading</string>
+    <string name="reader_connection_required">Server connection required</string>
+    <string name="reader_close_search">Close search</string>
+    <string name="reader_search_document">Search document</string>
+    <string name="reader_previous_match">Previous match</string>
+    <string name="reader_next_match">Next match</string>
+    <string name="reader_volume_pdf">Vol. %1$s · PDF</string>
+
+    <!-- Reader: PDF -->
+    <string name="pdf_continuous_scroll">Continuous scroll</string>
+    <string name="pdf_downloading">Downloading PDF…</string>
+    <string name="pdf_downloading_progress">Downloading PDF… %1$d%%</string>
+    <string name="pdf_load_failed">Failed to load PDF</string>
+
+    <!-- Reader: EPUB settings -->
+    <string name="epub_settings_title">EPUB settings</string>
+    <string name="epub_section_theme">Theme</string>
+    <string name="epub_theme_presets">Theme presets</string>
+    <string name="epub_theme_presets_subtitle">Create, edit and delete layout presets</string>
+    <string name="epub_theme_system">System</string>
+    <string name="epub_theme_quiet">Quiet</string>
+    <string name="epub_theme_sepia">Sepia</string>
+    <string name="epub_theme_ink_green">Ink green</string>
+    <string name="epub_section_font">Font</string>
+    <string name="epub_font_size">Font size</string>
+    <string name="epub_font_weight">Font weight</string>
+    <string name="epub_current_font">Current font</string>
+    <string name="fonts_manage">Manage custom fonts</string>
+    <string name="epub_typeface_publisher">Publisher default</string>
+    <string name="epub_typeface_system">System default</string>
+    <string name="epub_section_layout">Layout</string>
+    <string name="epub_page_margins">Page margins</string>
+    <string name="epub_line_height">Line height</string>
+    <string name="epub_publisher_styles">Use publisher styles</string>
+    <string name="epub_flow_style">Flow style</string>
+    <string name="epub_flow_paged">Paged</string>
+    <string name="epub_flow_scrolled">Scrolled</string>
+    <string name="epub_columns_single">Single column</string>
+    <string name="epub_columns_dual">Two columns</string>
+    <string name="epub_animate_page_turns">Page turn animation</string>
+    <string name="epub_apply">Apply</string>
+    <string name="epub_rename">Rename</string>
+    <string name="epub_rename_preset">Rename preset</string>
+    <string name="epub_save_as_preset">Save current as preset</string>
+    <string name="epub_new_preset">New preset %1$d</string>
+    <string name="epub_no_theme_presets">No theme presets yet</string>
+    <string name="epub_toc">Contents</string>
+    <string name="epub_toc_current">Current chapter</string>
+    <string name="epub_expand">Expand</string>
+    <string name="epub_collapse">Collapse</string>
+    <string name="epub_chapter_fallback">Chapter %1$d</string>
+    <string name="epub_volume">Vol. %1$s · EPUB</string>
+    <string name="epub_chapter_progress">Ch. %1$d/%2$d · %3$d%%</string>
+    <string name="epub_error_locate_book">Cannot locate this book</string>
+    <string name="epub_error_load_toc">Cannot load the table of contents</string>
+    <string name="epub_preset_updated_now">Updated just now</string>
+    <plurals name="epub_preset_updated_days">
+        <item quantity="one">Updated %1$d day ago</item>
+        <item quantity="other">Updated %1$d days ago</item>
+    </plurals>
+    <plurals name="epub_preset_updated_weeks">
+        <item quantity="one">Updated %1$d week ago</item>
+        <item quantity="other">Updated %1$d weeks ago</item>
+    </plurals>
+    <plurals name="epub_preset_updated_months">
+        <item quantity="one">Updated %1$d month ago</item>
+        <item quantity="other">Updated %1$d months ago</item>
+    </plurals>
+    <plurals name="epub_preset_updated_years">
+        <item quantity="one">Updated %1$d year ago</item>
+        <item quantity="other">Updated %1$d years ago</item>
+    </plurals>
+
+    <!-- Custom fonts -->
+    <string name="fonts_title">Custom fonts</string>
+    <string name="fonts_downloaded_summary">%1$d fonts downloaded · %2$s available on the server</string>
+    <string name="fonts_loading_list">Loading font list…</string>
+    <string name="fonts_downloading">Downloading…</string>
+    <string name="fonts_downloaded_ready">Downloaded — selectable in the EPUB reader</string>
+    <string name="fonts_not_downloaded">Not downloaded</string>
+    <string name="fonts_downloaded">Downloaded</string>
+    <string name="fonts_server">Server font</string>
+    <string name="fonts_import_button">Import font files (.ttf / .otf)</string>
+    <string name="fonts_imported_installed">Installed custom fonts</string>
+    <string name="fonts_installed_total">%1$d custom fonts installed</string>
+    <string name="fonts_installed_count">%1$d installed</string>
+    <string name="pdf_settings_title">PDF settings</string>
+    <string name="pdf_section_paging">Paging</string>
+    <string name="pdf_continuous_scroll_hint">Turn off to page one at a time</string>
+    <string name="pdf_page_presentation">Page presentation</string>
+    <string name="pdf_presentation_auto">Auto</string>
+    <string name="pdf_presentation_single">Single page</string>
+    <string name="pdf_presentation_single_continuous">Single page continuous</string>
+    <string name="pdf_presentation_dual_continuous">Two-page continuous</string>
+    <string name="pdf_solo_cover">Cover on its own page</string>
+    <string name="pdf_section_appearance">Appearance</string>
+    <string name="pdf_reading_background">Reading background</string>
+    <string name="pdf_section_overlay">Reading overlay</string>
+    <string name="pdf_show_progress">Show progress bar while reading</string>
+</resources>

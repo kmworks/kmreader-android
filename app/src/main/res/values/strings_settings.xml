@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings hub -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_true_black_title">True Black Background</string>
+    <string name="settings_true_black_subtitle">Use a pure black background for the reader and dashboard on OLED screens</string>
+    <string name="settings_appearance_entry_title">Appearance Settings</string>
+    <string name="settings_appearance_entry_subtitle">Theme, true black, and app icon</string>
+    <string name="settings_browse_entry_title">Browse Settings</string>
+    <string name="settings_browse_entry_subtitle">Card styles and grid display options</string>
+    <string name="settings_dashboard_title">Dashboard</string>
+    <string name="settings_dashboard_subtitle">Section visibility, order, and card style</string>
+    <string name="settings_section_reader">Reader</string>
+    <string name="settings_reader_defaults_subtitle">Default preferences for Divina, EPUB, and PDF</string>
+    <string name="settings_section_tracking">Reading Progress Tracking</string>
+    <string name="settings_trackers_title">Tracker Accounts</string>
+    <string name="settings_trackers_subtitle">AniList / MyAnimeList / Bangumi / MangaBaka</string>
+    <string name="settings_trackers_subtitle_requires_kmrs">AniList / MyAnimeList / Bangumi / MangaBaka (requires a kmrs server)</string>
+    <string name="settings_stats_title">Reading Stats</string>
+    <string name="settings_stats_subtitle">Reading history, streaks, and heatmap</string>
+    <string name="settings_stats_subtitle_requires_kmrs">Reading history, streaks, and heatmap (requires a kmrs server)</string>
+    <string name="settings_custom_fonts_title">Custom Fonts</string>
+    <string name="settings_custom_fonts_subtitle">Import and manage EPUB fonts</string>
+    <string name="settings_cache">Cache</string>
+    <string name="settings_cache_subtitle">Image cache usage and cleanup</string>
+    <string name="settings_section_system">System</string>
+    <string name="settings_network">Network</string>
+    <string name="settings_network_subtitle">Timeout and concurrency settings</string>
+    <string name="settings_sse">Real-time Updates</string>
+    <string name="settings_sse_subtitle">Real-time sync connection status</string>
+    <string name="settings_logs">Logs</string>
+    <string name="settings_logs_subtitle">View and share runtime logs</string>
+    <string name="settings_account">Account</string>
+    <string name="settings_current_instance">Current Instance</string>
+    <string name="settings_not_connected">Not Connected</string>
+    <string name="settings_server_accounts_subtitle">Switch and manage multiple servers</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_title">About KMReader</string>
+    <string name="settings_about_subtitle">Version and project links</string>
+    <string name="settings_licenses">Open Source Licenses</string>
+    <string name="settings_licenses_subtitle">Third-party component licenses</string>
+    <string name="settings_progress_immediately">Immediately</string>
+    <string name="settings_time_just_now">Just now</string>
+    <string name="settings_time_minutes_ago">%1$d minutes ago</string>
+    <string name="settings_time_hours_ago">%1$d hours ago</string>
+    <string name="settings_time_days_ago">%1$d days ago</string>
+
+    <!-- Appearance settings -->
+    <string name="appearance_title">Appearance</string>
+    <string name="appearance_theme">Theme</string>
+    <string name="appearance_theme_system">System</string>
+    <string name="appearance_theme_light">Light</string>
+    <string name="appearance_theme_dark">Dark</string>
+    <string name="appearance_true_black_title">True Black</string>
+    <string name="appearance_true_black_subtitle">Use a pure black background in dark mode (saves power on OLED)</string>
+    <string name="appearance_app_icon">App Icon</string>
+    <string name="appearance_icon_default">Default</string>
+    <string name="appearance_icon_classic">Classic</string>
+    <string name="appearance_icon_legacy">Legacy</string>
+
+    <!-- Browse settings -->
+    <string name="browse_settings_title">Browse</string>
+    <string name="browse_settings_preview">Card Preview</string>
+    <string name="browse_settings_preview_hint">The preview renders real card components, so toggles take effect immediately.</string>
+    <string name="browse_settings_cards">Cards</string>
+    <string name="browse_settings_thumbnails">Thumbnails</string>
+    <string name="browse_settings_text_overlay_title">Card Text Overlay</string>
+    <string name="browse_settings_text_overlay_subtitle">Titles and details are overlaid on covers without extra height</string>
+    <string name="browse_settings_cover_only_title">Cover Only Cards</string>
+    <string name="browse_settings_cover_only_subtitle">Hide all text on cards</string>
+    <string name="browse_settings_show_series_title">Show Series Title on Book Cards</string>
+    <string name="browse_settings_show_series_subtitle">Show the book series on the second line of book cards</string>
+    <string name="browse_settings_preserve_aspect_title">Preserve Cover Aspect Ratio</string>
+    <string name="browse_settings_preserve_aspect_subtitle">Covers are cropped square when disabled</string>
+    <string name="browse_settings_shadow_title">Show Cover Shadows</string>
+    <string name="browse_settings_shadow_subtitle">Add a subtle shadow to covers</string>
+    <string name="browse_settings_unread_indicator_title">Unread Indicator</string>
+    <string name="browse_settings_unread_indicator_subtitle">Show a dot on the top-right of unread covers</string>
+    <string name="browse_settings_blur_unread_title">Blur Unread Covers</string>
+    <string name="browse_settings_blur_unread_subtitle">Blur the covers of unread content</string>
+    <string name="browse_settings_progress_bar_title">Show Progress Bar</string>
+    <string name="browse_settings_progress_bar_subtitle">Show reading progress below cards</string>
+
+    <!-- Reader defaults -->
+    <string name="reader_defaults_title">Reader Defaults</string>
+    <string name="reader_defaults_divina_section">Divina (Comics)</string>
+    <string name="reader_defaults_reading_direction">Default Reading Direction</string>
+    <string name="reader_defaults_force_direction">Force Default Reading Direction</string>
+    <string name="reader_defaults_force_direction_hint">Ignore the reading direction provided by the series</string>
+    <string name="reader_defaults_page_layout">Page Layout</string>
+    <string name="reader_defaults_split_wide">Split Wide Pages</string>
+    <string name="reader_defaults_solo_cover">Solo Cover Page in Dual-Page Mode</string>
+    <string name="reader_defaults_progress_section">Reading Progress</string>
+    <string name="reader_defaults_record_after">Record Progress After</string>
+    <string name="reader_defaults_record_after_hint">Unread and finished books record reading progress only after you turn this many pages; books in progress record every page you turn</string>
+
+    <!-- Server accounts -->
+    <string name="server_list_title">Servers</string>
+    <string name="server_list_empty">No servers added yet</string>
+    <string name="server_add">Add Server</string>
+    <string name="server_logout">Logout</string>
+    <string name="server_logout_message">Disconnects the current session; saved server credentials are kept so you can switch back anytime.</string>
+    <string name="server_delete_title">Delete Server</string>
+    <string name="server_delete_active_message">%1$s is the currently connected server. Deleting it will sign you out and remove the locally saved credentials.</string>
+    <string name="server_delete_message">Removes the locally saved credentials for %1$s.</string>
+    <string name="server_active_badge">Active</string>
+    <string name="server_role_admin">Admin Access</string>
+    <string name="server_role_user">User Access</string>
+    <string name="server_auth_username_password">Username &amp; Password</string>
+    <string name="server_last_used_format">Last used %1$s</string>
+    <string name="server_edit_title">Edit Server</string>
+    <string name="server_edit_credentials_changed">The address or credentials changed; validate the connection before saving</string>
+    <string name="server_edit_display_name">Display Name</string>
+    <string name="server_edit_display_name_hint">The server URL is used when left empty</string>
+    <string name="server_edit_server_url">Server URL</string>
+    <string name="server_edit_auth_method">Authentication Method</string>
+    <string name="server_username">Username</string>
+    <string name="server_password">Password</string>
+    <string name="server_validate_connection">Validate Connection</string>
+    <string name="server_verified_format">Validated: %1$s</string>
+    <string name="server_admin_suffix">(Admin)</string>
+    <string name="server_error_invalid_credentials">Invalid credentials</string>
+    <string name="server_error_unreachable">Unable to connect to the server</string>
+
+    <!-- Cache settings -->
+    <string name="settings_cache_image">Image Cache</string>
+    <string name="settings_cache_used_format">Used %1$s / Limit %2$s</string>
+    <string name="settings_cache_limit">Cache Limit</string>
+    <string name="settings_cache_clear">Clear Cache</string>
+    <string name="settings_cache_clear_message">Clears all image caches (memory and disk); covers will be reloaded from the server.</string>
+    <string name="settings_cache_clear_action">Clear</string>
+
+    <!-- Network settings -->
+    <string name="settings_network_requests">Requests</string>
+    <string name="settings_network_timeout">Request Timeout</string>
+    <string name="settings_network_timeout_value">%1$d s</string>
+    <string name="settings_network_concurrency">Download Concurrency</string>
+    <string name="settings_network_concurrency_value">%1$d</string>
+    <string name="settings_network_wifi_only_title">Wi-Fi Only Preload</string>
+    <string name="settings_network_wifi_only_subtitle">Only use Wi-Fi when the reader preloads the next chapter</string>
+
+    <!-- SSE settings -->
+    <string name="settings_sse_status">Status</string>
+    <string name="settings_sse_connected">Connected</string>
+    <string name="settings_sse_connecting">Connecting…</string>
+    <string name="settings_sse_retrying">Retrying in %1$d s</string>
+    <string name="settings_sse_disconnected">Disconnected</string>
+    <string name="settings_sse_last_event">Last event: %1$s</string>
+    <string name="settings_sse_updates_title">Real-time Updates</string>
+    <string name="settings_sse_updates_subtitle">Receive real-time server events; the connection closes when disabled</string>
+    <string name="settings_sse_auto_refresh_title">Auto-refresh Dashboard</string>
+    <string name="settings_sse_auto_refresh_subtitle">Automatically refresh the dashboard when content events arrive</string>
+    <string name="settings_sse_notify_title">Connection Notifications</string>
+    <string name="settings_sse_notify_subtitle">Notify when the connection state changes or tasks finish</string>
+
+    <!-- Logs -->
+    <string name="settings_logs_share">Share Logs</string>
+    <string name="settings_logs_empty">No logs found</string>
+
+    <!-- About & licenses -->
+    <string name="settings_about_version_format">Version %1$s</string>
+    <string name="settings_about_original">Original KMReader</string>
+    <string name="settings_about_komga">Komga Server</string>
+    <string name="settings_about_feedback">Feedback</string>
+    <string name="settings_license_readium">Readium (EPUB engine reference)</string>
+    <string name="settings_license_pdfium">PDFium (PDF engine reference)</string>
+</resources>

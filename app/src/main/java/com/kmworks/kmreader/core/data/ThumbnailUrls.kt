@@ -1,0 +1,19 @@
+package com.kmworks.kmreader.core.data
+
+import com.kmworks.kmreader.core.network.ApiClients
+
+/** Komga thumbnail endpoints (imageLoader carries the same auth as the API client). */
+fun ApiClients.seriesThumbnailUrl(seriesId: String): String =
+    "$baseUrl/api/v1/series/$seriesId/thumbnail"
+
+fun ApiClients.bookThumbnailUrl(bookId: String): String =
+    "$baseUrl/api/v1/books/$bookId/thumbnail"
+
+fun ApiClients.smartListThumbnailUrl(smartListId: String): String =
+    "$baseUrl/api/v1/smart-lists/$smartListId/thumbnail"
+
+fun ApiClients.collectionThumbnailUrl(collectionId: String): String =
+    "$baseUrl/api/v1/collections/$collectionId/thumbnail"
+
+fun ApiClients.readListThumbnailUrl(readListId: String): String =
+    "$baseUrl/api/v1/readlists/$readListId/thumbnail"

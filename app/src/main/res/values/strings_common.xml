@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared strings reused across feature areas. Feature-specific strings live
+     in their own strings_<area>.xml files. -->
+<resources>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_edit">Edit</string>
+    <string name="common_done">Done</string>
+    <string name="common_back">Back</string>
+    <string name="common_close">Close</string>
+    <string name="common_more">More</string>
+    <string name="common_share">Share</string>
+    <string name="common_download">Download</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_all">All</string>
+    <string name="common_search">Search</string>
+    <string name="common_load_failed">Load failed</string>
+    <string name="common_refresh">Refresh</string>
+    <string name="common_add">Add</string>
+    <string name="common_remove">Remove</string>
+    <string name="common_copy">Copy</string>
+    <string name="common_confirm">OK</string>
+    <string name="common_loading">Loading…</string>
+    <string name="common_open">Open</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_name">Name</string>
+    <string name="common_title">Title</string>
+    <string name="common_none">None</string>
+    <string name="common_off">Off</string>
+    <string name="common_on">On</string>
+    <string name="common_load_more_failed">Failed to load more</string>
+    <string name="common_action_failed_retry">%1$s failed, please try again later</string>
+
+    <string name="common_author">Author</string>
+    <string name="common_series">Series</string>
+    <string name="common_book">Book</string>
+    <string name="common_collection">Collection</string>
+    <string name="common_readlist">Read List</string>
+    <string name="common_tag">Tag</string>
+    <string name="common_all_libraries">All Libraries</string>
+    <string name="common_refresh_cover">Refresh Cover</string>
+    <string name="common_unread">Unread</string>
+    <string name="common_completed">Completed</string>
+    <string name="common_unknown">Unknown</string>
+    <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
+    <string name="common_page_number">Page %1$d</string>
+
+    <plurals name="book_pages">
+        <item quantity="one">%1$d page</item>
+        <item quantity="other">%1$d pages</item>
+    </plurals>
+    <plurals name="book_count">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+</resources>
