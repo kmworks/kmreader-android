@@ -983,7 +983,6 @@ private fun WebtoonItem(
             rotationDegrees = rotationDegrees,
             contentColor = contentColor,
             modifier = modifier,
-            wide = true,
         )
 
         is ReaderViewItem.Half -> PageImage(
@@ -1055,7 +1054,7 @@ private fun ViewerPage(
                 settings = settings,
                 rotationDegrees = rotationDegrees,
                 contentColor = contentColor,
-                wide = true,
+                modifier = Modifier.fillMaxSize(),
             )
 
             is ReaderViewItem.Half -> PageImage(
@@ -1176,7 +1175,6 @@ private fun PageImage(
     rotationDegrees: Int,
     contentColor: Color,
     modifier: Modifier = Modifier,
-    wide: Boolean = false,
     half: Int? = null,
 ) {
     val rawRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 0.7f
@@ -1217,63 +1215,83 @@ private fun PageImage(
         }
     }
 
+    // 显示比例：半页模式为整页比的一半（对齐原作半页裁切）
+    val displayRatio = if (half != null) fullRatio / 2f else fullRatio
+
     if (url == null || request == null) {
         PagePlaceholder(
             label = "第 ${page.number} 页",
-            ratio = fullRatio,
+            ratio = displayRatio,
             modifier = modifier.then(rotationModifier),
-            wide = wide,
             half = half,
             contentColor = contentColor,
         )
         return
     }
 
-    if (half != null) {
+    // 容器内按比例适配（对齐 iOS scaleAspectFit：竖屏贴宽、横屏贴高，完整显示不裁切）
+    FitRatioBox(ratio = displayRatio, modifier = modifier) {
         Box(
-            modifier = modifier
-                .fillMaxWidth(0.92f)
-                .aspectRatio(fullRatio / 2f)
-                .clip(RoundedCornerShape(2.dp))
+            modifier = Modifier
+                .fillMaxSize()
                 .then(shadowModifier)
                 .background(PageFill),
         ) {
-            SubcomposeAsyncImage(
-                model = request,
-                contentDescription = "第 ${page.number} 页",
-                imageLoader = imageLoader,
-                contentScale = ContentScale.Fit,
-                colorFilter = blendFilter,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .aspectRatio(fullRatio)
-                    .align(if (half == 1) Alignment.CenterEnd else Alignment.CenterStart)
-                    .then(rotationModifier),
-            ) {
-                PageImageStates(pageNumber = page.number, contentColor = contentColor)
+            if (half != null) {
+                SubcomposeAsyncImage(
+                    model = request,
+                    contentDescription = "第 ${page.number} 页",
+                    imageLoader = imageLoader,
+                    contentScale = ContentScale.Fit,
+                    colorFilter = blendFilter,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(fullRatio)
+                        .align(if (half == 1) Alignment.CenterEnd else Alignment.CenterStart)
+                        .then(rotationModifier),
+                ) {
+                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                }
+            } else {
+                SubcomposeAsyncImage(
+                    model = request,
+                    contentDescription = "第 ${page.number} 页",
+                    imageLoader = imageLoader,
+                    contentScale = ContentScale.Fit,
+                    colorFilter = blendFilter,
+                    modifier = Modifier.fillMaxSize().then(rotationModifier),
+                ) {
+                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                }
             }
         }
-        return
     }
+}
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth(if (wide) 1f else 0.92f)
-            .aspectRatio(fullRatio)
-            .clip(RoundedCornerShape(2.dp))
-            .then(shadowModifier)
-            .background(PageFill),
+/**
+ * 在可用空间内放入一个保持 [ratio] 的最大盒子（对齐 iOS scaleAspectFit 的适配语义）：
+ * 容器更宽时贴高、更高时贴宽；高度无约束（条漫列表）时由宽度推导高度。
+ */
+@Composable
+private fun FitRatioBox(
+    ratio: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
     ) {
-        SubcomposeAsyncImage(
-            model = request,
-            contentDescription = "第 ${page.number} 页",
-            imageLoader = imageLoader,
-            contentScale = ContentScale.Fit,
-            colorFilter = blendFilter,
-            modifier = Modifier.fillMaxSize().then(rotationModifier),
+        val safe = if (ratio.isFinite() && ratio > 0f) ratio else 0.7f
+        val sizeModifier = if (
+            constraints.maxHeight == Constraints.Infinity ||
+            constraints.maxWidth.toFloat() / constraints.maxHeight.toFloat() < safe
         ) {
-            PageImageStates(pageNumber = page.number, contentColor = contentColor)
+            Modifier.fillMaxWidth().aspectRatio(safe)
+        } else {
+            Modifier.fillMaxHeight().aspectRatio(safe)
         }
+        Box(modifier = sizeModifier, content = content)
     }
 }
 
@@ -1317,29 +1335,28 @@ private fun PagePlaceholder(
     label: String,
     ratio: Float,
     modifier: Modifier = Modifier,
-    wide: Boolean = false,
     half: Int? = null,
     contentColor: Color = Color.White,
 ) {
     val safeRatio = if (ratio.isFinite() && ratio > 0f) ratio else 0.7f
-    Box(
-        modifier = modifier
-            .fillMaxWidth(if (wide) 1f else 0.92f)
-            .aspectRatio(safeRatio)
-            .clip(RoundedCornerShape(2.dp))
-            .background(PageFill)
-            .border(1.dp, PageLine, RoundedCornerShape(2.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = label, style = MaterialTheme.typography.titleSmall, color = contentColor.copy(alpha = 0.45f))
-            if (half != null) {
-                Text(
-                    text = if (half == 0) "前半页" else "后半页",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = contentColor.copy(alpha = 0.35f),
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+    FitRatioBox(ratio = safeRatio, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(PageFill)
+                .border(1.dp, PageLine),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(text = label, style = MaterialTheme.typography.titleSmall, color = contentColor.copy(alpha = 0.45f))
+                if (half != null) {
+                    Text(
+                        text = if (half == 0) "前半页" else "后半页",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = contentColor.copy(alpha = 0.35f),
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         }
     }
