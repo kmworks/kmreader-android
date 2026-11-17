@@ -1,35 +1,21 @@
 package com.kmworks.kmreader.ui.dashboard
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kmworks.kmreader.data.ReadListContinuationUi
-import com.kmworks.kmreader.ui.components.CoverArt
-
-private val CardShape = RoundedCornerShape(8.dp)
+import com.kmworks.kmreader.ui.components.HorizontalCardContainer
 
 /**
- * Horizontal card for a read list the user is reading: server thumbnail, list name,
- * "continue with book N" line and progress. Aligned with
- * ReadListContinuationHorizontalCardView / ReadListContinuationCardView.
+ * 阅读列表续读横向卡（对齐 iOS ReadListContinuationHorizontalCardView）：
+ * 列表名（semibold 13，最多 2 行）+ 下一本书名 11 + 进度文本 10，无进度条控件；
+ * 卡面用封面平均色 tint 打底。
  */
 @Composable
 fun ReadListContinuationCard(
@@ -38,55 +24,38 @@ fun ReadListContinuationCard(
     modifier: Modifier = Modifier,
     stableId: Int? = null,
 ) {
-    Row(
-        modifier = modifier
-            .clip(CardShape)
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 封面 = 服务端缩略图 /api/v1/readlists/{id}/thumbnail（无 URL 时 hue 占位）
-        CoverArt(
-            title = continuation.readListName,
-            hue = continuation.hue,
-            stableId = stableId,
-            modifier = Modifier
-                .width(52.dp)
-                .aspectRatio(2f / 3f),
+    HorizontalCardContainer(
+        tintKey = "readList#${stableId ?: continuation.readListId}",
+        coverStableId = stableId,
+        coverTitle = continuation.readListName,
+        hue = continuation.hue,
+        blurUnread = false,
+        onClick = onClick,
+        modifier = modifier,
+    ) { palette ->
+        Text(
+            text = continuation.readListName,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.title,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.width(12.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = continuation.readListName,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "继续阅读 第 ${continuation.nextBookIndex} 本：《${continuation.nextBookTitle}》",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = continuation.progressLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            LinearProgressIndicator(
-                progress = { continuation.bookProgress ?: continuation.listProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp)
-                    .height(3.dp),
-            )
-        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = continuation.nextBookTitle,
+            fontSize = 11.sp,
+            color = palette.series,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = continuation.progressLabel,
+            fontSize = 10.sp,
+            color = palette.meta,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

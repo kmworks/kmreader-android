@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -86,8 +87,10 @@ fun ReaderOptionsMenu(
     splitWideMode: SplitWidePageMode,
     rotationDegrees: Int,
     soloAction: SoloMenuAction?,
+    soloCoverPage: Boolean,
     onDirectionChange: (ReadingDirection) -> Unit,
     onPageLayoutChange: (PageLayout) -> Unit,
+    onToggleSoloCover: () -> Unit,
     onSplitWideModeChange: (SplitWidePageMode) -> Unit,
     onRotationChange: (Int) -> Unit,
     onOpenSettings: () -> Unit,
@@ -108,6 +111,30 @@ fun ReaderOptionsMenu(
                 value = pageLayout.label,
                 onClick = { onPageLayoutChange(pageLayout.next) },
             )
+            // 独显封面（对齐原作 Solo Cover Page：仅自动/双页布局且非垂直滚动时可选）
+            if (direction != ReadingDirection.Vertical && pageLayout != PageLayout.Single) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("独显封面", modifier = Modifier.weight(1f))
+                            if (soloCoverPage) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        onDismiss()
+                        onToggleSoloCover()
+                    },
+                )
+            }
             MenuCycleItem(
                 label = "拆分宽页",
                 value = splitWideMode.label,

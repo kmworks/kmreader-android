@@ -88,6 +88,9 @@ data class Book(
     val progress: Float?,
 ) {
     val pageLabel: String get() = "$pageCount 页"
+
+    /** 对齐 iOS Book.bookTitleLine："number - title"。 */
+    val titleLine: String get() = "$number - $title"
 }
 
 /** 对齐 KMReader LayoutConfig（iPhone 值，对照 Apple Books 校准）：large 152 / medium 116 / small 80 / horizontal 250。 */

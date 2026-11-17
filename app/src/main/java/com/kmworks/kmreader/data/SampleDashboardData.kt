@@ -30,7 +30,7 @@ data class ReadListContinuationUi(
         get() {
             val listLabel = "已读 $booksRead/$bookCount 本"
             val percent = bookProgress?.let { "${(it * 100).toInt()}%" }
-            return if (percent != null) "$percent · $listLabel" else listLabel
+            return if (percent != null) "$percent • $listLabel" else listLabel
         }
 
     val listProgress: Float get() = booksRead.toFloat() / bookCount.coerceAtLeast(1)
