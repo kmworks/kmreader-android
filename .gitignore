@@ -13,6 +13,11 @@ local.properties
 build-out.txt
 *.hprof
 
+# Local signing material
+keystore.properties
+*.jks
+*.keystore
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

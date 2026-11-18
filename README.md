@@ -145,10 +145,20 @@ deterministic post-generation fixes for known kotlin-generator quirks (see
 ## Releases
 
 The version lives in [`app/build.gradle.kts`](app/build.gradle.kts). Bumping `versionName` (and
-`versionCode`) on `main` makes the [`Release`](.github/workflows/release.yml) workflow build
-`kmreader-android-<version>-debug.apk`, add a matching `sha256` file, and publish `v<versionName>`;
-a run for an already published version does nothing. Builds are debug-signed for now: they install
-for testing, but they are not store artifacts.
+`versionCode`) on `main` makes the [`Release`](.github/workflows/release.yml) workflow build the
+APK, add a matching `sha256` file, and publish `v<versionName>`; a run for an already published
+version does nothing.
+
+Release builds are minified with R8 (`isMinifyEnabled` and `isShrinkResources`) and signed with the
+configured keystore. Once the repository secrets `KEYSTORE_BASE64` (base64 of the keystore),
+`KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` are set, the workflow publishes
+`kmreader-android-<version>.apk`. Without them it falls back to a debug-signed
+`kmreader-android-<version>-debug.apk`, so the channel keeps working before the keystore exists —
+such builds are installable but cannot upgrade a properly signed build in place.
+
+For a local release build, put the same values in an untracked `keystore.properties` at the
+repository root (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) and run
+`./gradlew :app:assembleRelease`.
 
 ## Project layout
 

@@ -5,8 +5,10 @@ name: Release
 # already exists, otherwise the release job builds the APK and creates the
 # release. `gh release create` also creates the tag.
 #
-# The APK is debug-signed: it installs fine for testing but is not a store
-# artifact. Wire up a release keystore before distributing through a store.
+# When the KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+# repository secrets are present the APK is a minified, release-signed build;
+# without them the workflow still publishes a debug-signed APK so the release
+# channel keeps working before the keystore is wired up.
 on:
   push:
     branches: [main]
@@ -86,34 +88,80 @@ jobs:
       - name: Install SDK platform
         run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --console=plain
+      # Secrets are not available in `if:` expressions, so the check happens in
+      # the shell and the outcome is forwarded through GITHUB_ENV.
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::notice::KEYSTORE_BASE64 is not configured; publishing a debug-signed APK"
+            echo "SIGNED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/signing/release.jks" >> "$GITHUB_ENV"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
+          echo "::notice::building a release-signed APK"
+
+      - name: Build APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" = "true" ]; then
+            ./gradlew :app:assembleRelease --console=plain
+          else
+            ./gradlew :app:assembleDebug --console=plain
+          fi
 
       - name: Name and checksum the APK
         run: |
           set -euo pipefail
-          SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -n1)
+          if [ "$SIGNED" = "true" ]; then
+            SRC=$(find app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n1)
+            OUT="kmreader-android-$VERSION.apk"
+          else
+            SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -n1)
+            OUT="kmreader-android-$VERSION-debug.apk"
+          fi
           [ -n "$SRC" ] || { echo "::error::no APK produced"; exit 1; }
-          OUT="kmreader-android-$VERSION-debug.apk"
           cp "$SRC" "$OUT"
           sha256sum "$OUT" > "$OUT.sha256"
+          if [ "$SIGNED" = "true" ]; then
+            APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -n1)
+            "$APKSIGNER" verify --print-certs "$OUT"
+          fi
+          echo "ASSET=$OUT" >> "$GITHUB_ENV"
+          echo "ASSET_SUM=$OUT.sha256" >> "$GITHUB_ENV"
           ls -l "$OUT" "$OUT.sha256"
 
       - name: Write release notes
         run: |
           set -euo pipefail
+          if [ "$SIGNED" = "true" ]; then
+            SIGNING_LINE="- Release-signed APK (minified with R8, no debug flag)"
+            UPGRADE_LINE="- Upgrading from v0.1.0 requires uninstalling it first: that build was debug-signed"
+          else
+            SIGNING_LINE="- Debug-signed APK for install testing — not a store artifact yet"
+            UPGRADE_LINE="- Debug-signed by this runner, so it cannot upgrade the previous release in place"
+          fi
           cat > notes.md <<EOF
-          First public build of the KMReader Android client.
+          KMReader for Android $VERSION.
 
           - versionName \`$VERSION\`, versionCode \`$VERSION_CODE\`
           - Package \`com.kmworks.kmreader\`, Android 8.0 (API 28) and newer
           - Komga 1.20.0+; trackers, smart-list editing, client settings sync and
             reading stats additionally need a kmrs server
-          - Debug-signed APK for install testing — not a store artifact yet
+          $SIGNING_LINE
+          $UPGRADE_LINE
 
-          Install with \`adb install kmreader-android-$VERSION-debug.apk\`, or sideload it
-          on the device. Verify the download with
-          \`sha256sum -c kmreader-android-$VERSION-debug.apk.sha256\`.
+          Install with \`adb install $ASSET\`, or sideload it on the device. Verify
+          the download with \`sha256sum -c $ASSET.sha256\`.
           EOF
           cat notes.md
 
@@ -124,5 +172,5 @@ jobs:
             --title "$TAG" \
             --notes-file notes.md \
             --target "$GITHUB_SHA" \
-            "kmreader-android-$VERSION-debug.apk" \
-            "kmreader-android-$VERSION-debug.apk.sha256"
+            "$ASSET" \
+            "$ASSET_SUM"

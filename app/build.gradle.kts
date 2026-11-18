@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -5,6 +7,29 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
+
+/**
+ * Release signing credentials.
+ *
+ * CI decodes the `KEYSTORE_BASE64` secret into a temporary keystore and exports
+ * the four variables below; a local build can instead use an untracked
+ * `keystore.properties` at the repository root. When neither is present the
+ * release variant stays unsigned, and debug builds are unaffected.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingCredential(env: String, property: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingCredential("KEYSTORE_FILE", "storeFile")
+val releaseStorePassword = signingCredential("KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingCredential("KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingCredential("KEY_PASSWORD", "keyPassword") ?: releaseStorePassword
+val hasReleaseSigning = releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null
 
 android {
     namespace = "com.kmworks.kmreader"
@@ -16,13 +41,25 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     buildFeatures {
