@@ -142,6 +142,14 @@ deterministic post-generation fixes for known kotlin-generator quirks (see
 [`core/api/build.gradle.kts`](core/api/build.gradle.kts)). Never hand-edit generated sources; update
 [`api/openapi.json`](api/openapi.json) and its [`sha256`](api/openapi.json.sha256) deliberately.
 
+## Releases
+
+The version lives in [`app/build.gradle.kts`](app/build.gradle.kts). Bumping `versionName` (and
+`versionCode`) on `main` makes the [`Release`](.github/workflows/release.yml) workflow build
+`kmreader-android-<version>-debug.apk`, add a matching `sha256` file, and publish `v<versionName>`;
+a run for an already published version does nothing. Builds are debug-signed for now: they install
+for testing, but they are not store artifacts.
+
 ## Project layout
 
 ```
