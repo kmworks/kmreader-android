@@ -1,0 +1,128 @@
+name: Release
+
+# Publishes a GitHub release whenever the app version in app/build.gradle.kts is
+# bumped on main: the version job computes v<versionName>, skips if that release
+# already exists, otherwise the release job builds the APK and creates the
+# release. `gh release create` also creates the tag.
+#
+# The APK is debug-signed: it installs fine for testing but is not a store
+# artifact. Wire up a release keystore before distributing through a store.
+on:
+  push:
+    branches: [main]
+    paths: [app/build.gradle.kts, .github/workflows/release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      version_code: ${{ steps.v.outputs.version_code }}
+      skip: ${{ steps.v.outputs.skip }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Read version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILE="app/build.gradle.kts"
+          VERSION=$(sed -n 's/^ *versionName = "\(.*\)".*/\1/p' "$FILE" | head -n1)
+          CODE=$(sed -n 's/^ *versionCode = \(.*\)$/\1/p' "$FILE" | head -n1)
+          if [ -z "$VERSION" ] || [ -z "$CODE" ]; then
+            echo "::error::could not read versionName/versionCode from $FILE"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::release v$VERSION already exists, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::releasing v$VERSION (versionCode $CODE)"
+          fi
+
+  release:
+    name: Build and publish
+    needs: version
+    if: needs.version.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      VERSION_CODE: ${{ needs.version.outputs.version_code }}
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install SDK platform
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: Name and checksum the APK
+        run: |
+          set -euo pipefail
+          SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -n1)
+          [ -n "$SRC" ] || { echo "::error::no APK produced"; exit 1; }
+          OUT="kmreader-android-$VERSION-debug.apk"
+          cp "$SRC" "$OUT"
+          sha256sum "$OUT" > "$OUT.sha256"
+          ls -l "$OUT" "$OUT.sha256"
+
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          First public build of the KMReader Android client.
+
+          - versionName \`$VERSION\`, versionCode \`$VERSION_CODE\`
+          - Package \`com.kmworks.kmreader\`, Android 8.0 (API 28) and newer
+          - Komga 1.20.0+; trackers, smart-list editing, client settings sync and
+            reading stats additionally need a kmrs server
+          - Debug-signed APK for install testing — not a store artifact yet
+
+          Install with \`adb install kmreader-android-$VERSION-debug.apk\`, or sideload it
+          on the device. Verify the download with
+          \`sha256sum -c kmreader-android-$VERSION-debug.apk.sha256\`.
+          EOF
+          cat notes.md
+
+      - name: Create release
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            "kmreader-android-$VERSION-debug.apk" \
+            "kmreader-android-$VERSION-debug.apk.sha256"
