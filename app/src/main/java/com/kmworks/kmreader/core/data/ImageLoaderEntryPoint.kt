@@ -6,10 +6,11 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 
-/** Lets plain composables reach singletons (auth-aware ImageLoader, persisted settings). */
+/** Lets plain composables reach singletons (auth-aware image caches, persisted settings). */
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface ImageLoaderEntryPoint {
     fun sessionManager(): SessionManager
+    fun imageCacheStore(): ImageCacheStore
     fun appSettingsStore(): AppSettingsStore
 }

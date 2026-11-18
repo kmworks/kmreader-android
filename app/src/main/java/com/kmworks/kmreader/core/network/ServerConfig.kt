@@ -24,6 +24,12 @@ data class ServerConfig(
 
     /** Normalized base URL (trailing slash removed). */
     val normalizedBaseUrl: String get() = baseUrl.trimEnd('/')
+
+    /**
+     * Stable, non-secret identity of this instance (same key the instance list dedupes on).
+     * Used to namespace on-disk caches per server account, so it must never include credentials.
+     */
+    val cacheNamespace: String get() = "$normalizedBaseUrl#$username"
 }
 
 private val Context.serverConfigStore by preferencesDataStore(name = "server_config")

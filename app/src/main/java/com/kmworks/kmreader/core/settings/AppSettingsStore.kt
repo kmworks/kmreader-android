@@ -320,14 +320,43 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
-    /** Image disk cache limit (MB, design default 2048; consumed by the SessionManager ImageLoader). */
-    val imageCacheLimitMb: Flow<Int> = store.data.map { prefs ->
-        prefs[Keys.IMAGE_CACHE_LIMIT_MB] ?: DEFAULT_IMAGE_CACHE_LIMIT_MB
+    /**
+     * Page-image disk cache limit in MB (mirrors iOS `maxPageCacheSize`, whose slider is 1–20 GB;
+     * default 8 GB). Installs upgrading from the single shared image cache keep their old cap as the
+     * starting value because there is no honest way to split it.
+     */
+    val pageCacheLimitMb: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.PAGE_CACHE_LIMIT_MB]
+            ?: prefs[Keys.IMAGE_CACHE_LIMIT_MB]
+            ?: DEFAULT_PAGE_CACHE_LIMIT_MB
     }
 
-    suspend fun setImageCacheLimitMb(value: Int) {
+    suspend fun setPageCacheLimitMb(value: Int) {
         store.edit { prefs ->
-            prefs[Keys.IMAGE_CACHE_LIMIT_MB] = value.coerceIn(128, 20480)
+            prefs[Keys.PAGE_CACHE_LIMIT_MB] = value.coerceIn(PAGE_CACHE_LIMIT_MIN_MB, PAGE_CACHE_LIMIT_MAX_MB)
+        }
+    }
+
+    /** Cover disk cache limit in MB (mirrors iOS `maxCoverCacheSize`, 128–8192 MB, default 512 MB). */
+    val coverCacheLimitMb: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.COVER_CACHE_LIMIT_MB] ?: DEFAULT_COVER_CACHE_LIMIT_MB
+    }
+
+    suspend fun setCoverCacheLimitMb(value: Int) {
+        store.edit { prefs ->
+            prefs[Keys.COVER_CACHE_LIMIT_MB] = value.coerceIn(COVER_CACHE_LIMIT_MIN_MB, COVER_CACHE_LIMIT_MAX_MB)
+        }
+    }
+
+    /** Days after which a cached cover is refreshed (mirrors iOS `coverCacheExpirationDays`, 1–90, default 7). */
+    val coverCacheExpirationDays: Flow<Int> = store.data.map { prefs ->
+        prefs[Keys.COVER_CACHE_EXPIRATION_DAYS] ?: DEFAULT_COVER_CACHE_EXPIRATION_DAYS
+    }
+
+    suspend fun setCoverCacheExpirationDays(days: Int) {
+        store.edit { prefs ->
+            prefs[Keys.COVER_CACHE_EXPIRATION_DAYS] =
+                days.coerceIn(COVER_CACHE_EXPIRATION_MIN_DAYS, COVER_CACHE_EXPIRATION_MAX_DAYS)
         }
     }
 
@@ -374,7 +403,18 @@ class AppSettingsStore @Inject constructor(
         const val APP_ICON_PRIMARY = "primary"
         const val DEFAULT_NETWORK_TIMEOUT_SECONDS = 30
         const val DEFAULT_DOWNLOAD_CONCURRENCY = 2
-        const val DEFAULT_IMAGE_CACHE_LIMIT_MB = 2048
+
+        // Page / cover cache caps mirror the iOS Cache settings screen (GB slider vs MB slider).
+        const val DEFAULT_PAGE_CACHE_LIMIT_MB = 8 * 1024
+        const val PAGE_CACHE_LIMIT_MIN_MB = 1024
+        const val PAGE_CACHE_LIMIT_MAX_MB = 20 * 1024
+        const val DEFAULT_COVER_CACHE_LIMIT_MB = 512
+        const val COVER_CACHE_LIMIT_MIN_MB = 128
+        const val COVER_CACHE_LIMIT_MAX_MB = 8192
+        const val DEFAULT_COVER_CACHE_EXPIRATION_DAYS = 7
+        const val COVER_CACHE_EXPIRATION_MIN_DAYS = 1
+        const val COVER_CACHE_EXPIRATION_MAX_DAYS = 90
+
         const val DEFAULT_PROGRESS_RECORDING_THRESHOLD = 3
         fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
     }
@@ -409,6 +449,9 @@ class AppSettingsStore @Inject constructor(
         val NETWORK_TIMEOUT_SECONDS = intPreferencesKey("network_timeout_seconds")
         val DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")
         val IMAGE_CACHE_LIMIT_MB = intPreferencesKey("image_cache_limit_mb")
+        val PAGE_CACHE_LIMIT_MB = intPreferencesKey("page_cache_limit_mb")
+        val COVER_CACHE_LIMIT_MB = intPreferencesKey("cover_cache_limit_mb")
+        val COVER_CACHE_EXPIRATION_DAYS = intPreferencesKey("cover_cache_expiration_days")
         val PROGRESS_RECORDING_THRESHOLD = intPreferencesKey("progress_recording_threshold")
         val APP_ICON = stringPreferencesKey("app_icon")
     }

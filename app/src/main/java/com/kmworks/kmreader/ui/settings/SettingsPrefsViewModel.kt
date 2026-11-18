@@ -60,12 +60,28 @@ class SettingsPrefsViewModel @Inject constructor(
             AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY,
         )
 
-    /** Image disk cache limit in MB. */
-    val imageCacheLimitMb: StateFlow<Int> = appSettings.imageCacheLimitMb
+    /** Page-image disk cache limit in MB (default 8 GB, mirrors iOS maxPageCacheSize). */
+    val pageCacheLimitMb: StateFlow<Int> = appSettings.pageCacheLimitMb
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            AppSettingsStore.DEFAULT_IMAGE_CACHE_LIMIT_MB,
+            AppSettingsStore.DEFAULT_PAGE_CACHE_LIMIT_MB,
+        )
+
+    /** Cover disk cache limit in MB (default 512 MB, mirrors iOS maxCoverCacheSize). */
+    val coverCacheLimitMb: StateFlow<Int> = appSettings.coverCacheLimitMb
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_COVER_CACHE_LIMIT_MB,
+        )
+
+    /** Days after which a cached cover is refetched (mirrors iOS coverCacheExpirationDays). */
+    val coverCacheExpirationDays: StateFlow<Int> = appSettings.coverCacheExpirationDays
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppSettingsStore.DEFAULT_COVER_CACHE_EXPIRATION_DAYS,
         )
 
     /** SSE event-driven dashboard auto-refresh (disabled together with the SSE master switch). */
@@ -161,8 +177,16 @@ class SettingsPrefsViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setDownloadConcurrency(value) }
     }
 
-    fun setImageCacheLimitMb(value: Int) {
-        viewModelScope.launch { appSettings.setImageCacheLimitMb(value) }
+    fun setPageCacheLimitMb(value: Int) {
+        viewModelScope.launch { appSettings.setPageCacheLimitMb(value) }
+    }
+
+    fun setCoverCacheLimitMb(value: Int) {
+        viewModelScope.launch { appSettings.setCoverCacheLimitMb(value) }
+    }
+
+    fun setCoverCacheExpirationDays(value: Int) {
+        viewModelScope.launch { appSettings.setCoverCacheExpirationDays(value) }
     }
 
     fun setSseAutoRefresh(enabled: Boolean) {

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SmartListRepository
@@ -61,6 +62,7 @@ class ListsViewModel @Inject constructor(
     private val appSettingsStore: AppSettingsStore,
     private val thumbnailCache: ThumbnailCache,
     private val sessionManager: SessionManager,
+    private val catalogCache: CatalogCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ListsUiState())
@@ -109,6 +111,13 @@ class ListsViewModel @Inject constructor(
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
         collectionsPage = 0
         readListsPage = 0
+        // Data-cache parity: paint the cached Lists rows before the network answers (empty screen only).
+        if (_state.value.collections == null && _state.value.readLists == null) {
+            val cached = runCatching { catalogCache.seedLists() }.getOrNull()
+            if (cached != null) {
+                _state.update { it.copy(collections = cached.first, readLists = cached.second) }
+            }
+        }
         try {
             val (collectionPage, readListPage, smartLists) = coroutineScope {
                 val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE) }
@@ -151,6 +160,8 @@ class ListsViewModel @Inject constructor(
                     readListsHasMore = readListPage.hasMore,
                 )
             }
+            // Persist the Lists rows so the next launch can paint them before the network answers.
+            runCatching { catalogCache.saveLists(collectionEntries, readListEntries) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

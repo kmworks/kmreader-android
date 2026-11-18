@@ -36,6 +36,9 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
     /** Normalized base URL (used to compose direct URLs such as thumbnails). */
     val baseUrl: String = config.normalizedBaseUrl
 
+    /** Identity of the instance this client was built for (namespaces the on-disk image caches). */
+    val cacheNamespace: String = config.cacheNamespace
+
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true

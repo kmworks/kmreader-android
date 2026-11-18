@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ListRepository
@@ -109,6 +111,8 @@ class SeriesDetailViewModel @Inject constructor(
     private val configStore: ServerConfigStore,
     private val sseService: SseService,
     @ApplicationContext private val context: Context,
+    private val imageCacheStore: ImageCacheStore,
+    private val catalogCache: CatalogCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
@@ -369,8 +373,11 @@ class SeriesDetailViewModel @Inject constructor(
         }
         viewModelScope.launch {
             var ok = true
+            // Purge each deleted book's cached pages while its page list still exists.
+            pairs.forEach { (_, dtoId) -> imageCacheStore.clearBookPages(dtoId) }
             pairs.forEach { (_, dtoId) -> ok = actionRepository.deleteBook(dtoId) && ok }
             if (ok) {
+                pairs.forEach { (_, dtoId) -> catalogCache.deleteBook(dtoId) }
                 val removedIds = pairs.map { it.first.id }.toSet()
                 _uiState.update { state ->
                     state.copy(books = state.books?.filterNot { it.id in removedIds })
@@ -531,7 +538,11 @@ class SeriesDetailViewModel @Inject constructor(
     /** Deletes the series files; on success the page navigates back. */
     fun deleteSeries(onDone: (Boolean) -> Unit) {
         val dtoId = dtoId ?: return onDone(false)
-        viewModelScope.launch { onDone(actionRepository.deleteSeries(dtoId)) }
+        viewModelScope.launch {
+            val ok = actionRepository.deleteSeries(dtoId)
+            if (ok) catalogCache.deleteSeries(dtoId)
+            onDone(ok)
+        }
     }
 
     /** Komga web URL of the series (used for sharing). */
@@ -665,8 +676,13 @@ class SeriesDetailViewModel @Inject constructor(
     fun deleteBook(stableId: Int, onDone: (Boolean) -> Unit) {
         val bookDtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
         viewModelScope.launch {
+            // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
+            imageCacheStore.clearBookPages(bookDtoId)
             val ok = actionRepository.deleteBook(bookDtoId)
-            if (ok) reloadBooks()
+            if (ok) {
+                catalogCache.deleteBook(bookDtoId)
+                reloadBooks()
+            }
             onDone(ok)
         }
     }

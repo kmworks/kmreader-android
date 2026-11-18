@@ -123,12 +123,22 @@
     <string name="server_error_unreachable">无法连接服务器</string>
 
     <!-- Cache settings -->
-    <string name="settings_cache_image">图片缓存</string>
-    <string name="settings_cache_used_format">已用 %1$s / 上限 %2$s</string>
-    <string name="settings_cache_limit">缓存上限</string>
-    <string name="settings_cache_clear">清理缓存</string>
-    <string name="settings_cache_clear_message">将清空全部图片缓存（内存与磁盘），封面会重新从服务器加载。</string>
-    <string name="settings_cache_clear_action">清理</string>
+    <string name="settings_cache_page">页面图片</string>
+    <string name="settings_cache_cover">封面</string>
+    <string name="settings_cache_usage_format">已缓存 %1$s · %2$d 张</string>
+    <string name="settings_cache_cover_usage_format">已缓存 %1$s · %2$d 个</string>
+    <string name="settings_cache_limit">容量上限</string>
+    <string name="settings_cache_clear_current">清除当前服务器</string>
+    <string name="settings_cache_clear_all">清除全部服务器</string>
+    <string name="settings_cache_clear_page_current_message">将删除本服务器缓存的页面图片，下次阅读时会重新下载。</string>
+    <string name="settings_cache_clear_page_all_message">将删除所有已保存服务器缓存的页面图片，下次阅读时会重新下载。</string>
+    <string name="settings_cache_clear_cover_current_message">将删除本服务器缓存的封面，再次显示时会重新从服务器加载。</string>
+    <string name="settings_cache_clear_cover_all_message">将删除所有已保存服务器缓存的封面，再次显示时会重新从服务器加载。</string>
+    <string name="settings_cache_cover_expiration_label">封面刷新周期</string>
+    <string name="settings_cache_cover_expiration_value">%1$d 天</string>
+    <string name="settings_cache_pdf">PDF 缓存</string>
+    <string name="settings_cache_clear_pdf_message">将删除已下载的 PDF 文件，再次打开时会重新下载。</string>
+    <string name="settings_cache_clear_action">清除</string>
 
     <!-- Network settings -->
     <string name="settings_network_requests">请求</string>

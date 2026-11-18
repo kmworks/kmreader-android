@@ -34,6 +34,9 @@ class ServerListViewModel @Inject constructor(
         viewModelScope.launch {
             // Stale instance ids must not leak onto another server
             CoverUrlRegistry.clear()
+            // Cached rows are keyed per server instance and deliberately kept: switching back to a
+            // previously used server lets CatalogCache seed the first screen immediately (mirrors
+            // iOS, which keeps a per-instance cache namespace instead of dropping it on switch).
             configStore.save(instance.toConfig())
             configStore.touchInstance(instance.toConfig())
         }

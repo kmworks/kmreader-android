@@ -123,11 +123,21 @@
     <string name="server_error_unreachable">Unable to connect to the server</string>
 
     <!-- Cache settings -->
-    <string name="settings_cache_image">Image Cache</string>
-    <string name="settings_cache_used_format">Used %1$s / Limit %2$s</string>
-    <string name="settings_cache_limit">Cache Limit</string>
-    <string name="settings_cache_clear">Clear Cache</string>
-    <string name="settings_cache_clear_message">Clears all image caches (memory and disk); covers will be reloaded from the server.</string>
+    <string name="settings_cache_page">Page Images</string>
+    <string name="settings_cache_cover">Covers</string>
+    <string name="settings_cache_usage_format">Cached Size %1$s · Cached Images %2$d</string>
+    <string name="settings_cache_cover_usage_format">Cached Size %1$s · Cached Covers %2$d</string>
+    <string name="settings_cache_limit">Maximum Size</string>
+    <string name="settings_cache_clear_current">Clear Current Server</string>
+    <string name="settings_cache_clear_all">Clear All Servers</string>
+    <string name="settings_cache_clear_page_current_message">Removes the page images cached for this server. They are downloaded again the next time those books are read.</string>
+    <string name="settings_cache_clear_page_all_message">Removes the page images cached for every saved server. They are downloaded again the next time those books are read.</string>
+    <string name="settings_cache_clear_cover_current_message">Removes the covers cached for this server. They are loaded again from the server when shown.</string>
+    <string name="settings_cache_clear_cover_all_message">Removes the covers cached for every saved server. They are loaded again from the server when shown.</string>
+    <string name="settings_cache_cover_expiration_label">Refresh Cover After</string>
+    <string name="settings_cache_cover_expiration_value">%1$d days</string>
+    <string name="settings_cache_pdf">PDF Cache</string>
+    <string name="settings_cache_clear_pdf_message">Removes the downloaded PDF files. They are downloaded again when opened.</string>
     <string name="settings_cache_clear_action">Clear</string>
 
     <!-- Network settings -->

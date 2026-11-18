@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.awaitBody
@@ -65,6 +67,8 @@ class BookDetailViewModel @Inject constructor(
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
     private val configStore: ServerConfigStore,
+    private val imageCacheStore: ImageCacheStore,
+    private val catalogCache: CatalogCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BookDetailUiState())
@@ -368,7 +372,10 @@ class BookDetailViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
+            imageCacheStore.clearBookPages(dtoId)
             val ok = clients.books.deleteBookFile(dtoId).awaitBody() != null
+            if (ok) catalogCache.deleteBook(dtoId)
             onDone(ok)
         }
     }

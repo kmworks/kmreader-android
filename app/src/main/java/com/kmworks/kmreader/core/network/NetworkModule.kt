@@ -2,7 +2,6 @@ package com.kmworks.kmreader.core.network
 
 import android.content.Context
 import coil3.ImageLoader
-import coil3.disk.DiskCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import dagger.Module
@@ -17,7 +16,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import okio.Path.Companion.toOkioPath
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,7 +34,7 @@ object NetworkModule {
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 }
 
-/** Current instance session: ApiClients and the authenticated ImageLoader are rebuilt when the configuration changes. */
+/** Current instance session: ApiClients is rebuilt when the configuration changes; image caches live in [com.kmworks.kmreader.core.data.ImageCacheStore]. */
 @Singleton
 class SessionManager @Inject constructor(
     @ApplicationContext context: Context,
@@ -51,26 +49,6 @@ class SessionManager @Inject constructor(
         appSettings.networkTimeoutSeconds,
     ) { config, timeoutSeconds ->
         config?.takeIf { it.isConfigured }?.let { ApiClients(it, timeoutSeconds) }
-    }.stateIn(scope, SharingStarted.Eagerly, null)
-
-    /** Coil ImageLoader sharing the current instance's auth configuration (covers/thumbnails need the auth header); the disk cache follows the settings cap. */
-    val imageLoader: StateFlow<ImageLoader?> = combine(
-        clients,
-        appSettings.imageCacheLimitMb,
-    ) { clients, limitMb ->
-        clients?.let {
-            ImageLoader.Builder(context)
-                .diskCache(
-                    DiskCache.Builder()
-                        .directory(context.cacheDir.resolve("image_cache").toOkioPath())
-                        .maxSizeBytes(limitMb * 1024L * 1024L)
-                        .build(),
-                )
-                .components {
-                    add(OkHttpNetworkFetcherFactory(callFactory = it.okHttpClient))
-                }
-                .build()
-        }
     }.stateIn(scope, SharingStarted.Eagerly, null)
 
     /**

@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -63,9 +62,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.ImageCachePaths
+import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.logging.AppLogLevel
-import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.ui.RootViewModel
 import com.kmworks.kmreader.core.pdf.PdfRepository
@@ -81,41 +82,59 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Image cache usage: real byte count of the Coil3 disk cache + clear action. */
+/** Usage of one image cache kind: bytes on disk + number of cached entries. */
+data class CacheUsage(val bytes: Long = 0L, val count: Int = 0)
+
+/**
+ * Page / cover cache usage and cleanup (mirrors the iOS SettingsCacheView page and cover sections).
+ * The two caches are independent: switching servers namespaces them, and each has its own cap and
+ * clear actions ("current server" keeps the other saved instances' images).
+ */
 @HiltViewModel
 class CacheSettingsViewModel @Inject constructor(
-    private val sessionManager: SessionManager,
+    private val imageCaches: ImageCacheStore,
     private val pdfRepository: PdfRepository,
 ) : ViewModel() {
 
-    private val _cacheBytes = MutableStateFlow(0L)
-    val cacheBytes: StateFlow<Long> = _cacheBytes.asStateFlow()
+    private val _pageUsage = MutableStateFlow(CacheUsage())
+    val pageUsage: StateFlow<CacheUsage> = _pageUsage.asStateFlow()
+
+    private val _coverUsage = MutableStateFlow(CacheUsage())
+    val coverUsage: StateFlow<CacheUsage> = _coverUsage.asStateFlow()
+
+    /** Whole-book PDF downloads share the settings screen but have no dedicated cache kind. */
+    private val _pdfBytes = MutableStateFlow(0L)
+    val pdfBytes: StateFlow<Long> = _pdfBytes.asStateFlow()
 
     init {
         refresh()
     }
 
     fun refresh() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val imageBytes = runCatching {
-                sessionManager.imageLoader.value?.diskCache?.size ?: 0L
-            }.getOrDefault(0L)
-            _cacheBytes.value = imageBytes + pdfRepository.cacheBytes()
+        viewModelScope.launch {
+            _pageUsage.value = usageOf(ImageCachePaths.KIND_PAGES)
+            _coverUsage.value = usageOf(ImageCachePaths.KIND_COVERS)
+            _pdfBytes.value = runCatching { pdfRepository.cacheBytes() }.getOrDefault(0L)
         }
     }
 
-    /** Clears the memory + disk image cache and the PDF cache (mirrors Clear in iOS SettingsCacheView). */
-    fun clear() {
+    private suspend fun usageOf(kind: String): CacheUsage =
+        runCatching { imageCaches.stats(kind) }
+            .map { CacheUsage(it.bytes, it.count) }
+            .getOrDefault(CacheUsage())
+
+    /** Clear one cache kind; [allServers] mirrors the iOS "Clear All" alert. */
+    fun clear(kind: String, allServers: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val loader = sessionManager.imageLoader.value
-                loader?.memoryCache?.clear()
-                loader?.diskCache?.clear()
-            }.onSuccess {
-                AppLog.i("Cache", "image cache cleared")
-            }.onFailure {
-                AppLog.e("Cache", "clear image cache failed", it)
-            }
+            runCatching { imageCaches.clear(kind, allServers) }
+                .onSuccess { AppLog.i("Cache", "cleared $kind cache (allServers=$allServers)") }
+                .onFailure { AppLog.e("Cache", "clear $kind cache failed", it) }
+            refresh()
+        }
+    }
+
+    fun clearPdfCache() {
+        viewModelScope.launch(Dispatchers.IO) {
             runCatching { pdfRepository.clearAll() }
                 .onSuccess { AppLog.i("Cache", "pdf cache cleared") }
                 .onFailure { AppLog.e("Cache", "clear pdf cache failed", it) }
@@ -124,7 +143,13 @@ class CacheSettingsViewModel @Inject constructor(
     }
 }
 
-/** Cache settings (mirrors SettingsCacheView): real usage + persisted limit + clear confirmation. */
+/** Which cache clear the confirmation dialog is asking about. */
+private data class CacheClearRequest(val kind: String, val allServers: Boolean)
+
+/**
+ * Cache settings (mirrors iOS SettingsCacheView): a card per cache kind with its own usage, cap,
+ * clear actions (and, for covers, the refresh interval), plus the downloaded PDF cache.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CacheSettingsScreen(
@@ -132,11 +157,21 @@ fun CacheSettingsScreen(
     viewModel: CacheSettingsViewModel = hiltViewModel(),
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
 ) {
-    val cacheBytes by viewModel.cacheBytes.collectAsStateWithLifecycle()
-    val limitMb by prefsViewModel.imageCacheLimitMb.collectAsStateWithLifecycle()
-    var showClearConfirm by remember { mutableStateOf(false) }
-    // Local drag state of the limit slider; only persisted when the drag ends
-    var limitDraft by rememberSaveable(limitMb) { mutableFloatStateOf(limitMb.toFloat()) }
+    val pageUsage by viewModel.pageUsage.collectAsStateWithLifecycle()
+    val coverUsage by viewModel.coverUsage.collectAsStateWithLifecycle()
+    val pdfBytes by viewModel.pdfBytes.collectAsStateWithLifecycle()
+
+    val pageLimitMb by prefsViewModel.pageCacheLimitMb.collectAsStateWithLifecycle()
+    val coverLimitMb by prefsViewModel.coverCacheLimitMb.collectAsStateWithLifecycle()
+    val expirationDays by prefsViewModel.coverCacheExpirationDays.collectAsStateWithLifecycle()
+
+    // Local drag state of each slider; only persisted when the drag ends.
+    var pageLimitDraft by rememberSaveable(pageLimitMb) { mutableFloatStateOf(pageLimitMb.toFloat()) }
+    var coverLimitDraft by rememberSaveable(coverLimitMb) { mutableFloatStateOf(coverLimitMb.toFloat()) }
+    var expirationDraft by rememberSaveable(expirationDays) { mutableFloatStateOf(expirationDays.toFloat()) }
+
+    var pendingClear by remember { mutableStateOf<CacheClearRequest?>(null) }
+    var pdfClearPending by remember { mutableStateOf(false) }
 
     SystemScaffold(title = stringResource(R.string.settings_cache), onBack = onBack) { padding ->
         LazyColumn(
@@ -146,83 +181,198 @@ fun CacheSettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(stringResource(R.string.settings_cache_image), style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-                        val limitBytes = limitDraft.toLong() * 1024L * 1024L
-                        LinearProgressIndicator(
-                            progress = {
-                                if (limitBytes > 0) {
-                                    (cacheBytes.toFloat() / limitBytes).coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            stringResource(
-                                R.string.settings_cache_used_format,
-                                formatCacheBytes(cacheBytes),
-                                formatCacheMb(limitDraft.roundToInt()),
+                ImageCacheCard(
+                    title = stringResource(R.string.settings_cache_page),
+                    usage = pageUsage,
+                    usageFormat = R.string.settings_cache_usage_format,
+                    limitDraft = pageLimitDraft,
+                    limitRange = AppSettingsStore.PAGE_CACHE_LIMIT_MIN_MB.toFloat()..
+                        AppSettingsStore.PAGE_CACHE_LIMIT_MAX_MB.toFloat(),
+                    onLimitChange = { pageLimitDraft = (it / 1024f).roundToInt() * 1024f },
+                    onLimitChangeFinished = {
+                        prefsViewModel.setPageCacheLimitMb(pageLimitDraft.roundToInt())
+                    },
+                    onClearCurrent = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_PAGES, false) },
+                    onClearAll = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_PAGES, true) },
+                )
+                Spacer(Modifier.height(12.dp))
+                ImageCacheCard(
+                    title = stringResource(R.string.settings_cache_cover),
+                    usage = coverUsage,
+                    usageFormat = R.string.settings_cache_cover_usage_format,
+                    limitDraft = coverLimitDraft,
+                    limitRange = AppSettingsStore.COVER_CACHE_LIMIT_MIN_MB.toFloat()..
+                        AppSettingsStore.COVER_CACHE_LIMIT_MAX_MB.toFloat(),
+                    onLimitChange = { coverLimitDraft = (it / 128f).roundToInt() * 128f },
+                    onLimitChangeFinished = {
+                        prefsViewModel.setCoverCacheLimitMb(coverLimitDraft.roundToInt())
+                    },
+                    onClearCurrent = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_COVERS, false) },
+                    onClearAll = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_COVERS, true) },
+                    extraContent = {
+                        Spacer(Modifier.height(12.dp))
+                        SystemSliderRow(
+                            label = stringResource(R.string.settings_cache_cover_expiration_label),
+                            value = expirationDraft,
+                            valueRange = 1f..90f,
+                            display = stringResource(
+                                R.string.settings_cache_cover_expiration_value,
+                                expirationDraft.roundToInt(),
                             ),
+                            onValueChange = { expirationDraft = it.roundToInt().toFloat() },
+                            onValueChangeFinished = {
+                                prefsViewModel.setCoverCacheExpirationDays(expirationDraft.roundToInt())
+                            },
+                        )
+                    },
+                )
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.settings_cache_pdf),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            formatCacheBytes(pdfBytes),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-                Spacer(Modifier.height(12.dp))
-                SystemSliderRow(
-                    label = stringResource(R.string.settings_cache_limit),
-                    value = limitDraft,
-                    valueRange = 512f..8192f,
-                    display = formatCacheMb(limitDraft.roundToInt()),
-                    onValueChange = { limitDraft = (it / 128f).roundToInt() * 128f },
-                    onValueChangeFinished = {
-                        prefsViewModel.setImageCacheLimitMb(limitDraft.roundToInt())
-                    },
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = { showClearConfirm = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.settings_cache_clear))
+                    TextButton(onClick = { pdfClearPending = true }) {
+                        Text(stringResource(R.string.settings_cache_clear_action))
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
 
-    if (showClearConfirm) {
+    pendingClear?.let { request ->
+        val isPage = request.kind == ImageCachePaths.KIND_PAGES
+        val titleRes = when {
+            isPage && request.allServers -> R.string.settings_cache_clear_all
+            isPage -> R.string.settings_cache_clear_current
+            request.allServers -> R.string.settings_cache_clear_all
+            else -> R.string.settings_cache_clear_current
+        }
+        val messageRes = when {
+            isPage && request.allServers -> R.string.settings_cache_clear_page_all_message
+            isPage -> R.string.settings_cache_clear_page_current_message
+            request.allServers -> R.string.settings_cache_clear_cover_all_message
+            else -> R.string.settings_cache_clear_cover_current_message
+        }
         AlertDialog(
-            onDismissRequest = { showClearConfirm = false },
-            title = { Text(stringResource(R.string.settings_cache_clear)) },
-            text = { Text(stringResource(R.string.settings_cache_clear_message)) },
+            onDismissRequest = { pendingClear = null },
+            title = { Text(stringResource(titleRes)) },
+            text = { Text(stringResource(messageRes)) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showClearConfirm = false
-                        viewModel.clear()
+                        pendingClear = null
+                        viewModel.clear(request.kind, request.allServers)
                     },
                 ) {
                     Text(stringResource(R.string.settings_cache_clear_action))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearConfirm = false }) {
+                TextButton(onClick = { pendingClear = null }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
         )
+    }
+
+    if (pdfClearPending) {
+        AlertDialog(
+            onDismissRequest = { pdfClearPending = false },
+            title = { Text(stringResource(R.string.settings_cache_pdf)) },
+            text = { Text(stringResource(R.string.settings_cache_clear_pdf_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pdfClearPending = false
+                        viewModel.clearPdfCache()
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_cache_clear_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pdfClearPending = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** One cache kind: usage bar, cached size/count, cap slider, optional extra rows and the clear actions. */
+@Composable
+private fun ImageCacheCard(
+    title: String,
+    usage: CacheUsage,
+    usageFormat: Int,
+    limitDraft: Float,
+    limitRange: ClosedFloatingPointRange<Float>,
+    onLimitChange: (Float) -> Unit,
+    onLimitChangeFinished: () -> Unit,
+    onClearCurrent: () -> Unit,
+    onClearAll: () -> Unit,
+    extraContent: (@Composable () -> Unit)? = null,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
+            val limitBytes = limitDraft.toLong() * 1024L * 1024L
+            LinearProgressIndicator(
+                progress = {
+                    if (limitBytes > 0) (usage.bytes.toFloat() / limitBytes).coerceIn(0f, 1f) else 0f
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(usageFormat, formatCacheBytes(usage.bytes), usage.count),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            SystemSliderRow(
+                label = stringResource(R.string.settings_cache_limit),
+                value = limitDraft,
+                valueRange = limitRange,
+                display = formatCacheMb(limitDraft.roundToInt()),
+                onValueChange = onLimitChange,
+                onValueChangeFinished = onLimitChangeFinished,
+            )
+            extraContent?.invoke()
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onClearCurrent, modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.settings_cache_clear_current),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(onClick = onClearAll, modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.settings_cache_clear_all),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 

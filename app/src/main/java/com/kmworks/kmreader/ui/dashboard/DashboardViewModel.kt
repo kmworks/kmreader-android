@@ -11,6 +11,8 @@ import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ImageCacheStore
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
@@ -95,6 +97,8 @@ class DashboardViewModel @Inject constructor(
     private val thumbnailCache: ThumbnailCache,
     private val sessionManager: SessionManager,
     @ApplicationContext private val context: Context,
+    private val imageCacheStore: ImageCacheStore,
+    private val catalogCache: CatalogCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
@@ -212,6 +216,15 @@ class DashboardViewModel @Inject constructor(
 
     private suspend fun load() {
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
+        // Data-cache parity (iOS DashboardSectionCacheStore): paint the cached first page immediately,
+        // then replace it with the server response below. Only seeds an empty screen, never overrides.
+        if (_state.value.sections == null) {
+            val cached = runCatching { catalogCache.seedDashboard() }.getOrDefault(emptyList())
+            if (cached.isNotEmpty()) {
+                rawSections = cached
+                _state.update { it.copy(sections = derivedSections() ?: cached) }
+            }
+        }
         // Read the pinned set straight from DataStore: avoids a startup race where the first load triggered by a ready
         // clients session runs before the first pinnedIds emission and mis-resolves the pinned scope to null (= all libraries).
         val pinned = appSettings.pinnedLibraryIds.first()
@@ -302,6 +315,8 @@ class DashboardViewModel @Inject constructor(
                 sections
             }
             rawSections = allSections
+            // Persist the first page (ids + shaped rows) so the next launch can paint before the network answers.
+            runCatching { catalogCache.saveDashboard(allSections) }
             _state.update {
                 it.copy(
                     loading = false,
@@ -433,7 +448,10 @@ class DashboardViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.deleteSeries(dtoId)
-            if (ok) refresh()
+            if (ok) {
+                catalogCache.deleteSeries(dtoId)
+                refresh()
+            }
             onDone(ok)
         }
     }
@@ -446,8 +464,13 @@ class DashboardViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
+            imageCacheStore.clearBookPages(dtoId)
             val ok = actionRepository.deleteBook(dtoId)
-            if (ok) refresh()
+            if (ok) {
+                catalogCache.deleteBook(dtoId)
+                refresh()
+            }
             onDone(ok)
         }
     }

@@ -224,7 +224,7 @@ fun ReaderScreen(
             ImageLoaderEntryPoint::class.java,
         )
     }
-    val sessionLoader by entryPoint.sessionManager().imageLoader.collectAsState()
+    val sessionLoader by entryPoint.imageCacheStore().pageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

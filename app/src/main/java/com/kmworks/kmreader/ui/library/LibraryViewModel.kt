@@ -10,7 +10,9 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.BookRepository
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SearchRepository
@@ -85,6 +87,8 @@ class LibraryViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val downloadRepository: DownloadRepository,
     private val thumbnailCache: ThumbnailCache,
+    private val imageCacheStore: ImageCacheStore,
+    private val catalogCache: CatalogCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -182,6 +186,10 @@ class LibraryViewModel @Inject constructor(
     private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? =
         resolveLibraryScopeIds(scope, pinned)
 
+    /** Cache key of the current browse query (one row set per scope + filter combination). */
+    private fun listKey(scope: String, options: BookBrowseOptions): String =
+        "library:$scope:${options.hashCode()}"
+
     private suspend fun load(scope: String, pinned: Set<String>, options: BookBrowseOptions) {
         val nextQuery = Query(scope, pinned, options)
         val currentGeneration = ++generation
@@ -192,6 +200,21 @@ class LibraryViewModel @Inject constructor(
         loadingMoreBooks = false
         _state.update {
             it.copy(hasSession = true, loading = true, loadingMore = false, error = null)
+        }
+        // Data-cache parity: paint the cached first page for the same query before the network answers.
+        // Only seeds an empty screen; the response below replaces it.
+        if (_state.value.series == null && _state.value.books == null) {
+            val key = listKey(scope, options)
+            val cachedSeries = runCatching { catalogCache.seedSeries(key) }.getOrDefault(emptyList())
+            val cachedBooks = runCatching { catalogCache.seedBooks(key) }.getOrDefault(emptyList())
+            if (cachedSeries.isNotEmpty() || cachedBooks.isNotEmpty()) {
+                _state.update {
+                    it.copy(
+                        series = cachedSeries.takeIf { cachedSeries.isNotEmpty() },
+                        books = cachedBooks.takeIf { cachedBooks.isNotEmpty() },
+                    )
+                }
+            }
         }
         try {
             val libraryIds = resolveLibraryIds(scope, pinned)
@@ -235,6 +258,13 @@ class LibraryViewModel @Inject constructor(
                     collections = collections,
                     readLists = readLists,
                 )
+            }
+            // Persist the first page for the same query (ids + card rows), plus the Lists rows.
+            val key = listKey(scope, options)
+            runCatching {
+                catalogCache.saveSeries(key, seriesPageResult.items)
+                catalogCache.saveBooks(key, bookPageResult.items)
+                catalogCache.saveLists(collections, readLists)
             }
         } catch (e: CancellationException) {
             throw e
@@ -477,7 +507,10 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.deleteSeries(dtoId)
-            if (ok) refresh()
+            if (ok) {
+                catalogCache.deleteSeries(dtoId)
+                refresh()
+            }
             onDone(ok)
         }
     }
@@ -490,8 +523,13 @@ class LibraryViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
+            imageCacheStore.clearBookPages(dtoId)
             val ok = actionRepository.deleteBook(dtoId)
-            if (ok) refresh()
+            if (ok) {
+                catalogCache.deleteBook(dtoId)
+                refresh()
+            }
             onDone(ok)
         }
     }
