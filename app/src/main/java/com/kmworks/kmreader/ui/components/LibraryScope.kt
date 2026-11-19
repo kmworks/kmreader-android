@@ -27,7 +27,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.settings.AppSettingsStore
+import com.kmworks.kmreader.ui.server.formatBytes
 
 /**
  * Library scope string (pinned/all/library:{id}) → server libraryIds filter list.
@@ -50,8 +52,32 @@ fun libraryScopeLabel(scope: String, libraries: List<LibraryDto>): String = when
     else -> stringResource(R.string.common_all_libraries)
 }
 
-/** Pin-editing sheet (mirrors iOS LibraryPickerSheet: check the libraries to pin; the "Pinned" scope takes effect after saving). */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Volume/count caption for the current scope (mirrors iOS LibraryMetricsText.scopeCaption):
+ * "12.3 GB · 1,234 series · 45,678 books". Returns null when no metric source answered, so the
+ * caller hides the row instead of printing zeros.
+ */
+@Composable
+fun libraryMetricsCaption(
+    scope: String,
+    byLibrary: Map<String, LibraryMetricValues>,
+    total: LibraryMetricValues?,
+): String? {
+    val values = if (scope.startsWith("library:")) {
+        byLibrary[scope.removePrefix("library:")]
+    } else {
+        total
+    }
+    if (values == null || values.isEmpty) return null
+    val parts = buildList {
+        values.fileSize?.let { add(formatBytes(it)) }
+        values.seriesCount?.let { add(stringResource(R.string.library_metrics_series, it)) }
+        values.booksCount?.let { add(stringResource(R.string.library_metrics_books, it)) }
+    }
+    return parts.joinToString(" · ").takeIf { it.isNotEmpty() }
+}
+
+/** Pin-editing sheet (mirrors iOS LibraryPickerSheet: check the libraries to pin; the "Pinned" scope takes effect after saving). */@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryPinSheet(
     libraries: List<LibraryDto>,

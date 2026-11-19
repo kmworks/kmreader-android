@@ -60,9 +60,10 @@
     <string name="server_admin_tasks_cancel_all">取消全部任务</string>
     <string name="server_admin_tasks_cancel_all_confirm">所有排队中的任务都将被丢弃。</string>
     <string name="server_admin_tasks_executed">已执行任务</string>
-    <string name="server_admin_tasks_unavailable">该服务器未提供任务统计。</string>
+    <string name="server_admin_tasks_none">还没有执行过任务。</string>
     <string name="server_admin_tasks_cleared">任务队列已清空</string>
-    <string name="server_admin_task_detail">总耗时 %1$s · 最长 %2$s · 失败 %3$d</string>
+    <string name="server_admin_task_runs_meta">%1$d 次 · 总耗时 %2$s · 最长 %3$s</string>
+    <string name="server_admin_task_failed">失败 %1$d</string>
 
     <string name="server_admin_sessions_own">我的会话</string>
     <string name="server_admin_sessions_all">全部会话</string>

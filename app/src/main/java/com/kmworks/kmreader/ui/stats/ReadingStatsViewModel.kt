@@ -10,6 +10,7 @@ import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
+import com.kmworks.kmreader.core.stats.LocalReadingStats
 import com.kmworks.kmreader.core.stats.ReadingStatsCacheStore
 import com.kmworks.kmreader.core.stats.ReadingStatsItemDto
 import com.kmworks.kmreader.core.stats.ReadingStatsRepository
@@ -48,6 +49,8 @@ data class ReadingStatsUiState(
     val hasSession: Boolean = false,
     /** kmrs capability missing (stock Komga): show a placeholder without an error. */
     val unavailable: Boolean = false,
+    /** True when the numbers were aggregated from the local cache (offline / no server stats). */
+    val local: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
     /** Showing a cached snapshot (stale cache refreshing in background, or fell back after a failed refresh; aligned with iOS "Showing cached data"). */
@@ -83,6 +86,7 @@ data class ReadingStatsUiState(
 @HiltViewModel
 class ReadingStatsViewModel @Inject constructor(
     private val repository: ReadingStatsRepository,
+    private val localStats: LocalReadingStats,
     private val cacheStore: ReadingStatsCacheStore,
     private val libraryRepository: LibraryRepository,
     private val serverProfileStore: ServerProfileStore,
@@ -101,9 +105,10 @@ class ReadingStatsViewModel @Inject constructor(
                 serverProfileStore.profile,
             ) { clients, _ -> clients != null }.collect { hasSession ->
                 when {
-                    !hasSession -> _uiState.value = ReadingStatsUiState()
-                    !serverProfileStore.hasFeature(ServerFeature.ReadingStats) ->
-                        _uiState.value = ReadingStatsUiState(hasSession = true, unavailable = true)
+                    // Offline and capability-less servers both fall back to the local cache
+                    // (mirrors iOS ReadingStatsService: local payload when offline / unsupported).
+                    !hasSession -> loadLocal()
+                    !serverProfileStore.hasFeature(ServerFeature.ReadingStats) -> loadLocal()
                     else -> {
                         if (_uiState.value.libraries.isEmpty()) {
                             val libraries = runCatching { libraryRepository.libraries() }
@@ -118,10 +123,18 @@ class ReadingStatsViewModel @Inject constructor(
     }
 
     /** Manual refresh (toolbar refresh button, aligned with iOS toolbar refresh; ignores cache freshness and force-refetches). */
-    fun refresh() = load(forceNetwork = true)
+    fun refresh() {
+        if (_uiState.value.local) {
+            loadLocal()
+        } else {
+            load(forceNetwork = true)
+        }
+    }
 
     /** Switches the library filter (null = all) and refetches the three endpoints (aligned with the in-page library Picker on iOS). */
     fun setLibrary(libraryId: String?) {
+        // Local aggregation has no library dimension (cached rows carry no libraryId).
+        if (_uiState.value.local) return
         if (_uiState.value.libraryId == libraryId) return
         _uiState.update { it.copy(libraryId = libraryId) }
         load()
@@ -145,6 +158,66 @@ class ReadingStatsViewModel @Inject constructor(
      * use the cache directly within 24h; when stale, show it first and refresh in background;
      * fall back to the cache with a notice when the refresh fails.
      */
+    /**
+     * Local fallback: aggregates the cached catalog into the same response shapes
+     * (mirrors iOS ReadingStatsService.fetchLocalPayload). The library picker is hidden because the
+     * cached rows carry no library dimension.
+     */
+    private fun loadLocal() {
+        val hasSession = sessionManager.clients.value != null
+        _uiState.update {
+            it.copy(
+                hasSession = hasSession,
+                local = true,
+                unavailable = false,
+                loading = true,
+                error = null,
+                showingCachedData = false,
+                libraries = emptyList(),
+                libraryId = null,
+            )
+        }
+        viewModelScope.launch {
+            if (!applyLocalFallback()) {
+                // Nothing cached on this device: keep the honest placeholder instead of zeros.
+                _uiState.value = if (hasSession) {
+                    ReadingStatsUiState(hasSession = true, unavailable = true, local = true)
+                } else {
+                    ReadingStatsUiState()
+                }
+            }
+        }
+    }
+
+    /** Aggregates the local cache into the UI; false when this device has no cached catalog. */
+    private suspend fun applyLocalFallback(): Boolean {
+        val summary = runCatching { localStats.summary() }.getOrNull()
+        val activity = runCatching { localStats.activity() }.getOrNull()
+        if (summary == null && activity == null) return false
+        // First pass without the series-metadata request so the cached numbers render immediately.
+        apply(
+            summaryRes = summary,
+            activityRes = activity,
+            topsRes = runCatching { localStats.tops(withMetadata = false) }.getOrNull(),
+            showingCachedData = false,
+            loading = false,
+            local = true,
+        )
+        // Second pass: genre/tag rankings need series metadata (network). Failures keep them empty.
+        val tops = runCatching { localStats.tops(withMetadata = true) }.getOrNull()
+        if (tops != null) {
+            apply(
+                summaryRes = summary,
+                activityRes = activity,
+                topsRes = tops,
+                showingCachedData = false,
+                loading = false,
+                local = true,
+            )
+        }
+        return true
+    }
+
     private fun load(forceNetwork: Boolean = false) {
         val libraryId = _uiState.value.libraryId
         _uiState.update {
@@ -173,7 +246,7 @@ class ReadingStatsViewModel @Inject constructor(
                     if (cached != null) {
                         // Refresh failed: fall back to the cache (aligned with iOS failure fallback + "Showing cached data")
                         apply(cached.summary, cached.activity, cached.tops, showingCachedData = true, loading = false)
-                    } else {
+                    } else if (!applyLocalFallback()) {
                         _uiState.update {
                             it.copy(loading = false, error = context.getString(R.string.common_load_failed))
                         }
@@ -185,7 +258,7 @@ class ReadingStatsViewModel @Inject constructor(
             } catch (e: Exception) {
                 if (cached != null) {
                     apply(cached.summary, cached.activity, cached.tops, showingCachedData = true, loading = false)
-                } else {
+                } else if (!applyLocalFallback()) {
                     _uiState.update {
                         it.copy(loading = false, error = e.message ?: context.getString(R.string.common_load_failed))
                     }
@@ -201,6 +274,7 @@ class ReadingStatsViewModel @Inject constructor(
         topsRes: com.kmworks.kmreader.core.stats.ReadingStatsTopsResponse?,
         showingCachedData: Boolean,
         loading: Boolean,
+        local: Boolean = false,
     ) {
         val series = activityRes?.readingTimeSeries.orEmpty()
         val pagesByDate = series.mapNotNull { point ->
@@ -227,6 +301,7 @@ class ReadingStatsViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 loading = loading,
+                local = local,
                 showingCachedData = showingCachedData,
                 summary = summary,
                 heatmapWeeks = weeks,

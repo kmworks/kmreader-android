@@ -268,7 +268,10 @@ class ServerAdminViewModel @Inject constructor(
     private suspend fun loadTasks() {
         _state.update { it.copy(tasks = it.tasks.copy(loading = true), messageRes = null) }
         val stats: ServerTaskStatsDto? = repository.serverStats()?.tasks
-        val types = stats?.types.orEmpty().sortedByDescending { it.executions ?: 0L }
+        // Stock Komga: the same numbers come from the komga.tasks.* actuator meters, per type.
+        val types = stats?.types.orEmpty()
+            .ifEmpty { repository.actuatorTaskStats() }
+            .sortedByDescending { it.executions ?: 0L }
         _state.update {
             it.copy(
                 tasks = TasksSnapshot(

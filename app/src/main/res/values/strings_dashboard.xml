@@ -62,6 +62,7 @@
     <string name="stats_updated_at">Updated %1$s</string>
     <string name="stats_cached_refreshing">Showing cached data, refreshing in the background…</string>
     <string name="stats_cached_failed">Refresh failed, showing cached data</string>
+    <string name="stats_local_note">Aggregated from this device\'s cache (offline / server stats unavailable)</string>
     <string name="stats_books_started">Started</string>
     <string name="stats_total_pages">Total Pages</string>
     <string name="stats_reading_days">Reading Days</string>

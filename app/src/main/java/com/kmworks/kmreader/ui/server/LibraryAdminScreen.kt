@@ -62,6 +62,7 @@ import com.kmworks.kmreader.core.api.model.DirectoryListingDto
 import com.kmworks.kmreader.core.api.model.LibraryCreationDto
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.api.model.LibraryUpdateDto
+import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -116,6 +117,8 @@ data class DirectoryBrowseState(
 
 data class LibraryAdminUiState(
     val libraries: List<LibraryDto> = emptyList(),
+    /** Per-library size/count metrics (kmrs stats, else actuator metrics); empty when unavailable. */
+    val metrics: Map<String, LibraryMetricValues> = emptyMap(),
     val loading: Boolean = true,
     val busy: Boolean = false,
     val form: LibraryFormState? = null,
@@ -147,6 +150,11 @@ class LibraryAdminViewModel @Inject constructor(
         viewModelScope.launch {
             val libraries = repository.libraries()
             _state.update { it.copy(libraries = libraries, loading = false) }
+            // Metrics are optional: kmrs stats/libraries when available, else actuator metrics (admin).
+            val metrics = runCatching { repository.libraryMetrics() }.getOrNull()
+            if (metrics != null) {
+                _state.update { it.copy(metrics = metrics.byLibrary) }
+            }
         }
     }
 
@@ -422,6 +430,7 @@ fun LibraryAdminScreen(
                     items(state.libraries, key = { it.id }) { library ->
                         LibraryAdminRow(
                             library = library,
+                            metrics = state.metrics[library.id],
                             enabled = !state.busy,
                             onEdit = { viewModel.startEdit(library) },
                             onDelete = { viewModel.askDelete(library) },
@@ -476,6 +485,7 @@ fun LibraryAdminScreen(
 @Composable
 private fun LibraryAdminRow(
     library: LibraryDto,
+    metrics: LibraryMetricValues?,
     enabled: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -508,6 +518,23 @@ private fun LibraryAdminRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Metrics caption (hidden entirely when neither stats nor actuator metrics exist).
+            metrics?.takeIf { !it.isEmpty }?.let { values ->
+                val caption = buildList {
+                    values.fileSize?.let { add(formatBytes(it)) }
+                    values.seriesCount?.let { add(stringResource(R.string.library_metrics_series, it)) }
+                    values.booksCount?.let { add(stringResource(R.string.library_metrics_books, it)) }
+                }.joinToString(" · ")
+                if (caption.isNotEmpty()) {
+                    Text(
+                        text = caption,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (library.unavailable) {
                 Text(
                     text = stringResource(R.string.server_admin_library_unavailable),

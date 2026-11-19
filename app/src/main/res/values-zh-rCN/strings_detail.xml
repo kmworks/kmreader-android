@@ -29,6 +29,8 @@
     <string name="library_switch_scope">切换书库范围</string>
     <string name="library_layout_cd">布局：%1$s</string>
     <string name="library_content_count">%1$s %2$d</string>
+    <string name="library_metrics_series">%1$d 个系列</string>
+    <string name="library_metrics_books">%1$d 本书</string>
     <string name="library_offline_title">未连接服务器</string>
     <string name="library_offline_subtitle">登录后浏览书库</string>
     <string name="library_series_load_failed">系列列表加载失败</string>

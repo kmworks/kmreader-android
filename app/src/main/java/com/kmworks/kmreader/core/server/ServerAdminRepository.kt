@@ -60,6 +60,24 @@ data class SessionsPage(
     val supported: Boolean = true,
 )
 
+/** Volume/count metrics for one library; null means the source omitted that number. */
+data class LibraryMetricValues(
+    val fileSize: Long? = null,
+    val seriesCount: Long? = null,
+    val booksCount: Long? = null,
+) {
+    val isEmpty: Boolean get() = fileSize == null && seriesCount == null && booksCount == null
+}
+
+/** Per-library metrics plus the server-wide total (mirrors iOS LibraryMetricValues). */
+data class LibraryMetrics(
+    val byLibrary: Map<String, LibraryMetricValues> = emptyMap(),
+    val total: LibraryMetricValues? = null,
+) {
+    /** True when no source answered, so the UI hides the caption instead of showing zeros. */
+    val isEmpty: Boolean get() = byLibrary.values.all { it.isEmpty } && total?.isEmpty != false
+}
+
 /**
  * Server administration data source (mirrors iOS ManagementService + ServerStatsService +
  * HistoryService + FilesystemService + ReleasesService).
@@ -85,6 +103,9 @@ class ServerAdminRepository @Inject constructor(
 
     suspend fun username(): String = configStore.config.first()?.username.orEmpty()
 
+    /** Last library-metric snapshot; avoids re-querying every actuator tag on each reload. */
+    private var metricsCache: Pair<Long, LibraryMetrics>? = null
+
     // region kmrs stats
 
     /** Native server identity (`GET api/v1/server/info`); also the capability probe used for gating. */
@@ -99,6 +120,70 @@ class ServerAdminRepository @Inject constructor(
     suspend fun serverStats(): StatsServerDto? {
         if (!hasFeature(ServerFeature.ServerStats)) return null
         return api()?.statsServer()?.awaitBody()
+    }
+
+    // endregion
+
+    // region library metrics
+
+    /**
+     * Per-library size/series/books metrics (mirrors iOS LibraryMetricsLoader.refreshMetrics):
+     * the kmrs stats endpoint first, then the stock-Komga actuator meters carrying a `library` tag.
+     * Returns an empty snapshot when neither source has numbers.
+     */
+    suspend fun libraryMetrics(): LibraryMetrics {
+        val cached = metricsCache
+        if (cached != null && System.currentTimeMillis() - cached.first < METRICS_TTL_MS) {
+            return cached.second
+        }
+        val metrics = loadLibraryMetrics()
+        metricsCache = System.currentTimeMillis() to metrics
+        return metrics
+    }
+
+    private suspend fun loadLibraryMetrics(): LibraryMetrics {
+        librariesStats()?.let { stats ->
+            val byLibrary = stats.libraries.orEmpty().associate { library ->
+                library.libraryId to LibraryMetricValues(
+                    fileSize = library.fileSize,
+                    seriesCount = library.series,
+                    booksCount = library.books,
+                )
+            }
+            val total = stats.total?.let { value ->
+                LibraryMetricValues(
+                    fileSize = value.fileSize,
+                    seriesCount = value.series,
+                    booksCount = value.books,
+                )
+            }
+            return LibraryMetrics(byLibrary = byLibrary, total = total)
+        }
+        // Stock Komga: the meters exist only for admins and expose library ids as a tag value.
+        if (!isAdmin()) return LibraryMetrics()
+        val filesize = metric(BOOKS_FILESIZE_METRIC) ?: return LibraryMetrics()
+        val libraryIds = filesize.availableTags
+            ?.firstOrNull { it.tag == METRIC_LIBRARY_TAG }
+            ?.values
+            .orEmpty()
+            .filter { it.isNotBlank() }
+        if (libraryIds.isEmpty()) return LibraryMetrics()
+        val byLibrary = libraryIds.associateWith { libraryId ->
+            LibraryMetricValues(
+                fileSize = metric(BOOKS_FILESIZE_METRIC, METRIC_LIBRARY_TAG to libraryId)
+                    .measurement(METRIC_VALUE_STATISTIC)?.toLong(),
+                seriesCount = metric(SERIES_METRIC, METRIC_LIBRARY_TAG to libraryId)
+                    .measurement(METRIC_VALUE_STATISTIC)?.toLong(),
+                booksCount = metric(BOOKS_METRIC, METRIC_LIBRARY_TAG to libraryId)
+                    .measurement(METRIC_VALUE_STATISTIC)?.toLong(),
+            )
+        }
+        val total = LibraryMetricValues(
+            fileSize = byLibrary.values.mapNotNull { it.fileSize }.takeIf { it.isNotEmpty() }?.sum(),
+            seriesCount = byLibrary.values.mapNotNull { it.seriesCount }.takeIf { it.isNotEmpty() }?.sum(),
+            booksCount = byLibrary.values.mapNotNull { it.booksCount }.takeIf { it.isNotEmpty() }?.sum(),
+        )
+        return LibraryMetrics(byLibrary = byLibrary, total = total)
     }
 
     // endregion
@@ -127,6 +212,38 @@ class ServerAdminRepository @Inject constructor(
 
     /** Drops every queued task (the queue itself is pushed over SSE). */
     suspend fun emptyTaskQueue(): Boolean = api()?.emptyTaskQueue()?.awaitSuccess() ?: false
+
+    /**
+     * Stock-Komga fallback for the per-type execution numbers: the untagged `komga.tasks.execution`
+     * meter lists every known type in its `type` tag, then each type's timer and failure counter are
+     * queried with that tag (mirrors iOS ServerTasksView.loadActuatorTaskMetrics).
+     *
+     * Returns the same shape the kmrs stats family uses, so the screen renders one model. Actuator
+     * timer values are seconds, converted to milliseconds here.
+     */
+    suspend fun actuatorTaskStats(): List<TaskTypeStatsDto> {
+        val execution: ActuatorMetricDto = metric(TASK_EXECUTION_METRIC) ?: return emptyList()
+        val types = execution.availableTags.orEmpty()
+            .firstOrNull { it.tag == TASK_TYPE_TAG }?.values.orEmpty()
+            .filter { it.isNotBlank() }
+        if (types.isEmpty()) return emptyList()
+
+        return types.map { type ->
+            val timer = metric(TASK_EXECUTION_METRIC, TASK_TYPE_TAG to type)
+            val failure = metric(TASK_FAILURE_METRIC, TASK_TYPE_TAG to type)
+            TaskTypeStatsDto(
+                type = type,
+                executions = timer.measurement("COUNT")?.toLong(),
+                totalTimeMs = timer.measurement("TOTAL_TIME")?.times(1000)?.toLong(),
+                maxTimeMs = timer.measurement("MAX")?.times(1000)?.toLong(),
+                failures = failure.measurement("COUNT")?.toLong(),
+            )
+        }.sortedByDescending { it.executions ?: 0L }
+    }
+
+    /** Actuator measurement by statistic name ("COUNT", "TOTAL_TIME", "MAX", "VALUE"). */
+    private fun ActuatorMetricDto?.measurement(statistic: String): Double? =
+        this?.measurements?.firstOrNull { it.statistic == statistic }?.value
 
     // endregion
 
@@ -486,5 +603,20 @@ class ServerAdminRepository @Inject constructor(
 
         /** iOS PageHashMatchesView asks for a single page of 100 matches. */
         const val MATCH_PAGE_SIZE = 100
+
+        /** Actuator meters carrying the per-type task numbers on stock Komga. */
+        const val TASK_EXECUTION_METRIC = "komga.tasks.execution"
+        const val TASK_FAILURE_METRIC = "komga.tasks.failure"
+        const val TASK_TYPE_TAG = "type"
+
+        /** Stock-Komga per-library meters (mirrors iOS LibraryMetricsLoader.actuatorFallbackMetrics). */
+        const val BOOKS_FILESIZE_METRIC = "komga.books.filesize"
+        const val SERIES_METRIC = "komga.series"
+        const val BOOKS_METRIC = "komga.books"
+        const val METRIC_LIBRARY_TAG = "library"
+        const val METRIC_VALUE_STATISTIC = "VALUE"
+
+        /** Library metrics change slowly; re-query at most every five minutes. */
+        const val METRICS_TTL_MS = 5 * 60 * 1000L
     }
 }

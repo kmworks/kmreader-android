@@ -20,6 +20,8 @@ import com.kmworks.kmreader.core.data.SeriesRepository
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.LibraryMetricValues
+import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -63,6 +65,10 @@ data class LibraryUiState(
     val hasMore: Boolean = false,
     val libraries: List<LibraryDto> = emptyList(),
     val libraryCount: Int = 0,
+    /** Volume/count metrics keyed by library id (empty = no metric source answered). */
+    val metricsByLibrary: Map<String, LibraryMetricValues> = emptyMap(),
+    /** Server-wide metric totals, used by the all/pinned scopes. */
+    val metricsTotal: LibraryMetricValues? = null,
     /** LibraryBrowseScope rawValue: pinned / all / library:{id}. */
     val scope: String = AppSettingsStore.SCOPE_PINNED,
     val pinnedIds: Set<String> = emptySet(),
@@ -89,6 +95,7 @@ class LibraryViewModel @Inject constructor(
     private val thumbnailCache: ThumbnailCache,
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
+    private val serverAdminRepository: ServerAdminRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -170,6 +177,18 @@ class LibraryViewModel @Inject constructor(
     /** Switch the library scope (pinned/all/library:{id}); the flow re-queries after persistence. */
     fun setScope(scope: String) {
         viewModelScope.launch { appSettings.setLibraryBrowseScope(scope) }
+    }
+
+    /**
+     * Per-library size/count metrics for the scope caption (mirrors iOS LibraryMetricsLoader:
+     * the kmrs stats endpoint first, then the stock-Komga actuator tags). The repository caches
+     * the snapshot, so repeated reloads do not hammer the meter endpoints.
+     */
+    private suspend fun loadLibraryMetrics() {
+        val metrics = runCatching { serverAdminRepository.libraryMetrics() }.getOrNull() ?: return
+        _state.update {
+            it.copy(metricsByLibrary = metrics.byLibrary, metricsTotal = metrics.total)
+        }
     }
 
     /** Replace the pinned set (saved from the pin-editing sheet). */
@@ -266,6 +285,8 @@ class LibraryViewModel @Inject constructor(
                 catalogCache.saveBooks(key, bookPageResult.items)
                 catalogCache.saveLists(collections, readLists)
             }
+            // Volume/count caption for the scope (stats → actuator fallback; empty hides the line).
+            viewModelScope.launch { loadLibraryMetrics() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

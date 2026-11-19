@@ -78,6 +78,7 @@ import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
+import com.kmworks.kmreader.ui.components.libraryMetricsCaption
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
@@ -367,6 +368,15 @@ fun LibraryScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            // Volume/count caption (mirrors iOS LibraryMetricsText); hidden when no source answered.
+            libraryMetricsCaption(state.scope, state.metricsByLibrary, state.metricsTotal)?.let { caption ->
+                Text(
+                    text = caption,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
             // Target of the metadata-chip jumps from detail pages: show the active metadata filter
             // (publisher/author/genre/tag/notable entity)
             activeFilter?.let { filter ->

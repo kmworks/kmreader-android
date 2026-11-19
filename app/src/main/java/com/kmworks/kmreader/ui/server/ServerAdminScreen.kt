@@ -533,7 +533,7 @@ private fun TasksPage(state: ServerAdminUiState, onCancelAll: () -> Unit) {
             item { SectionTitle(stringResource(R.string.server_admin_tasks_executed)) }
             items(tasks.types) { type -> TaskTypeRow(type) }
         } else {
-            item { HintText(stringResource(R.string.server_admin_tasks_unavailable)) }
+            item { HintText(stringResource(R.string.server_admin_tasks_none)) }
         }
     }
 }
@@ -541,29 +541,27 @@ private fun TasksPage(state: ServerAdminUiState, onCancelAll: () -> Unit) {
 @Composable
 private fun TaskTypeRow(type: TaskTypeStatsDto) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(humanizeTaskType(type.type), style = MaterialTheme.typography.bodyLarge)
+        Text(humanizeTaskType(type.type), style = MaterialTheme.typography.bodyLarge)
+        val failures = type.failures ?: 0L
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = (type.executions ?: 0L).toString(),
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(
+                    R.string.server_admin_task_runs_meta,
+                    type.executions ?: 0L,
+                    formatDuration((type.totalTimeMs ?: 0L) / 1000),
+                    formatDuration((type.maxTimeMs ?: 0L) / 1000),
+                ),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (failures > 0L) {
+                Text(
+                    text = stringResource(R.string.server_admin_task_failed, failures),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
-        val failureColor = if ((type.failures ?: 0L) > 0L) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
-        Text(
-            text = stringResource(
-                R.string.server_admin_task_detail,
-                formatDuration((type.totalTimeMs ?: 0L) / 1000),
-                formatDuration((type.maxTimeMs ?: 0L) / 1000),
-                type.failures ?: 0L,
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = failureColor,
-        )
     }
 }
 

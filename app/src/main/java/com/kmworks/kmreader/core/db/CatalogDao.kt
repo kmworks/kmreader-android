@@ -27,6 +27,14 @@ interface CatalogDao {
     @Query("SELECT * FROM cached_books WHERE instanceKey = :instanceKey AND dtoId IN (:ids)")
     suspend fun books(instanceKey: String, ids: List<String>): List<CachedBookEntity>
 
+    /** Whole cached book set of one server instance (offline reading-stats aggregation). */
+    @Query("SELECT * FROM cached_books WHERE instanceKey = :instanceKey")
+    suspend fun allBooks(instanceKey: String): List<CachedBookEntity>
+
+    /** Whole cached series set of one server instance (offline reading-stats aggregation). */
+    @Query("SELECT * FROM cached_series WHERE instanceKey = :instanceKey")
+    suspend fun allSeries(instanceKey: String): List<CachedSeriesEntity>
+
     @Query("SELECT * FROM cached_series WHERE instanceKey = :instanceKey AND dtoId IN (:ids)")
     suspend fun series(instanceKey: String, ids: List<String>): List<CachedSeriesEntity>
 

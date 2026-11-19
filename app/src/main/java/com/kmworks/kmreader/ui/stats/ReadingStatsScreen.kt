@@ -158,10 +158,13 @@ fun ReadingStatsScreen(
                         .padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    LibraryPicker(
-                        state = state,
-                        onSelect = { viewModel.setLibrary(it) },
-                    )
+                    // The local aggregation has no library dimension, so the picker is hidden there.
+                    if (!state.local) {
+                        LibraryPicker(
+                            state = state,
+                            onSelect = { viewModel.setLibrary(it) },
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     state.lastUpdatedLabel?.let {
                         Text(
@@ -189,6 +192,15 @@ fun ReadingStatsScreen(
                                 R.string.stats_cached_failed
                             },
                         ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                // Local-aggregation notice (offline / stock Komga without the readingStats feature)
+                if (state.local) {
+                    Text(
+                        text = stringResource(R.string.stats_local_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
