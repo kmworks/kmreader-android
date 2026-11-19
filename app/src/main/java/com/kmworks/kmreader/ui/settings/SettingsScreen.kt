@@ -77,6 +77,7 @@ fun SettingsScreen(
     onOpenSse: () -> Unit = {},
     onOpenLogs: () -> Unit = {},
     onOpenAccount: () -> Unit = {},
+    onOpenServer: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onOpenLicenses: () -> Unit = {},
     viewModel: SettingsEntryViewModel = hiltViewModel(),
@@ -256,6 +257,13 @@ fun SettingsScreen(
                     title = stringResource(R.string.server_list_title),
                     subtitle = stringResource(R.string.settings_server_accounts_subtitle),
                     onClick = onOpenAccount,
+                )
+            }
+            item {
+                SettingsNavRow(
+                    title = stringResource(R.string.settings_server_title),
+                    subtitle = stringResource(R.string.settings_server_subtitle),
+                    onClick = onOpenServer,
                 )
             }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }

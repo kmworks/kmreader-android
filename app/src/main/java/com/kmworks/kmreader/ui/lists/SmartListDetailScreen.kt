@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -95,6 +96,7 @@ fun SmartListDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var editOpen by remember { mutableStateOf(false) }
+    var shareOpen by remember { mutableStateOf(false) }
     val wideListScrollState = rememberScrollState()
     val narrowListScrollState = rememberScrollState()
     // Cache-busting version for "Refresh Cover": re-requests the server cover after incrementing
@@ -147,6 +149,18 @@ fun SmartListDetailScreen(
                                     coverVersion++
                                 },
                             )
+                            // Sharing (kmrs extension, admin-only): visibility + sharee picker.
+                            // Only server-side real smart lists have a body to update.
+                            if (state.hasRealSmartList) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.smartlist_share_title)) },
+                                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        shareOpen = true
+                                    },
+                                )
+                            }
                             // Only server-side real smart lists can be deleted; the local fallback
                             // data has nothing to delete, so the item is hidden
                             if (state.hasRealSmartList) {
@@ -329,6 +343,13 @@ fun SmartListDetailScreen(
                 viewModel.delete { onBack() }
             },
             onDismiss = { deleteConfirm = false },
+        )
+    }
+    if (shareOpen) {
+        SmartListShareSheet(
+            stableId = smartList.id,
+            onDismiss = { shareOpen = false },
+            onSaved = { shareOpen = false },
         )
     }
     if (editOpen) {

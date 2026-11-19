@@ -82,12 +82,13 @@ import com.kmworks.kmreader.ui.settings.ReaderDefaultsScreen
 import com.kmworks.kmreader.ui.settings.SettingsScreen
 import com.kmworks.kmreader.ui.settings.SseSettingsScreen
 import com.kmworks.kmreader.ui.stats.ReadingStatsScreen
+import com.kmworks.kmreader.ui.server.ServerAdminScreen
 import kotlinx.coroutines.launch
 
 /** Settings sub-page routes (mirrors the section entries of SettingsView). */
 private enum class SettingsPage {
     Appearance, Browse, Dashboard, ReaderDefaults, Stats,
-    CustomFonts, Cache, Network, Sse, Logs, Account, About, Licenses,
+    CustomFonts, Cache, Network, Sse, Logs, Account, Server, About, Licenses,
 }
 
 /** Reader target: a null format means the server mediaType is still being resolved (a loading state is shown until it resolves). */
@@ -427,6 +428,7 @@ fun AppRoot(
                     onOpenSse = { settingsPage = SettingsPage.Sse },
                     onOpenLogs = { settingsPage = SettingsPage.Logs },
                     onOpenAccount = { settingsPage = SettingsPage.Account },
+                    onOpenServer = { settingsPage = SettingsPage.Server },
                     onOpenAbout = { settingsPage = SettingsPage.About },
                     onOpenLicenses = { settingsPage = SettingsPage.Licenses },
                 )
@@ -445,6 +447,7 @@ fun AppRoot(
                 SettingsPage.Sse -> SseSettingsScreen(onBack = { settingsPage = null })
                 SettingsPage.Logs -> LogsScreen(onBack = { settingsPage = null })
                 SettingsPage.Account -> ServerListScreen(onBack = { settingsPage = null })
+                SettingsPage.Server -> ServerAdminScreen(onBack = { settingsPage = null })
                 SettingsPage.About -> AboutScreen(onBack = { settingsPage = null })
                 SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = { settingsPage = null })
             }

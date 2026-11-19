@@ -1,0 +1,818 @@
+package com.kmworks.kmreader.ui.server
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.api.model.DirectoryListingDto
+import com.kmworks.kmreader.core.api.model.LibraryCreationDto
+import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.api.model.LibraryUpdateDto
+import com.kmworks.kmreader.core.server.ServerAdminRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+/** Editable subset of a library: what the iOS LibraryFormSections exposes. */
+data class LibraryFormData(
+    val name: String = "",
+    val root: String = "",
+    val scanInterval: String = SCAN_INTERVAL_DISABLED,
+    val scanOnStartup: Boolean = false,
+    val scanCbx: Boolean = true,
+    val scanPdf: Boolean = true,
+    val scanEpub: Boolean = true,
+    val importComicInfoBook: Boolean = true,
+    val importComicInfoSeries: Boolean = true,
+    val importLocalArtwork: Boolean = true,
+    val analyzeDimensions: Boolean = true,
+) {
+    val isValid: Boolean get() = name.isNotBlank() && root.isNotBlank()
+}
+
+internal const val SCAN_INTERVAL_DISABLED = "DISABLED"
+
+private val SCAN_INTERVALS = listOf(
+    "DISABLED" to R.string.server_admin_interval_disabled,
+    "HOURLY" to R.string.server_admin_interval_hourly,
+    "EVERY_6H" to R.string.server_admin_interval_every_6h,
+    "EVERY_12H" to R.string.server_admin_interval_every_12h,
+    "DAILY" to R.string.server_admin_interval_daily,
+    "WEEKLY" to R.string.server_admin_interval_weekly,
+)
+
+/** What the library form is editing; [editId] null means "create". */
+data class LibraryFormState(
+    val editId: String? = null,
+    val data: LibraryFormData = LibraryFormData(),
+) {
+    val isEdit: Boolean get() = editId != null
+}
+
+/** One directory level shown by the root picker. */
+data class DirectoryBrowseState(
+    val path: String? = null,
+    val listing: DirectoryListingDto? = null,
+    val loading: Boolean = true,
+)
+
+data class LibraryAdminUiState(
+    val libraries: List<LibraryDto> = emptyList(),
+    val loading: Boolean = true,
+    val busy: Boolean = false,
+    val form: LibraryFormState? = null,
+    val pendingDelete: LibraryDto? = null,
+    val messageRes: Int? = null,
+)
+
+/**
+ * Library administration (`/api/v1/libraries` create/update/delete plus the scan/analyze/trash
+ * maintenance actions), mirroring the iOS ServerLibrariesView + LibraryAddSheet/LibraryEditSheet.
+ */
+@HiltViewModel
+class LibraryAdminViewModel @Inject constructor(
+    private val repository: ServerAdminRepository,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(LibraryAdminUiState())
+    val state: StateFlow<LibraryAdminUiState> = _state.asStateFlow()
+
+    private val _browse = MutableStateFlow<DirectoryBrowseState?>(null)
+    val browse: StateFlow<DirectoryBrowseState?> = _browse.asStateFlow()
+
+    init {
+        load()
+    }
+
+    fun load() {
+        _state.update { it.copy(loading = it.libraries.isEmpty()) }
+        viewModelScope.launch {
+            val libraries = repository.libraries()
+            _state.update { it.copy(libraries = libraries, loading = false) }
+        }
+    }
+
+    fun startCreate() {
+        _state.update { it.copy(form = LibraryFormState()) }
+    }
+
+    fun startEdit(library: LibraryDto) {
+        _state.update {
+            it.copy(
+                form = LibraryFormState(
+                    editId = library.id,
+                    data = LibraryFormData(
+                        name = library.name,
+                        root = library.root,
+                        scanInterval = library.scanInterval.value,
+                        scanOnStartup = library.scanOnStartup,
+                        scanCbx = library.scanCbx,
+                        scanPdf = library.scanPdf,
+                        scanEpub = library.scanEpub,
+                        importComicInfoBook = library.importComicInfoBook,
+                        importComicInfoSeries = library.importComicInfoSeries,
+                        importLocalArtwork = library.importLocalArtwork,
+                        analyzeDimensions = library.analyzeDimensions,
+                    ),
+                ),
+            )
+        }
+    }
+
+    fun updateForm(transform: (LibraryFormData) -> LibraryFormData) {
+        _state.update { current ->
+            val form = current.form ?: return@update current
+            current.copy(form = form.copy(data = transform(form.data)))
+        }
+    }
+
+    fun closeForm() {
+        _state.update { it.copy(form = null) }
+        _browse.value = null
+    }
+
+    fun save() {
+        val form = _state.value.form ?: return
+        if (!form.data.isValid || _state.value.busy) return
+        val id = form.editId
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val ok = if (id == null) {
+                repository.createLibrary(creationDto(form.data)) != null
+            } else {
+                val current = _state.value.libraries.firstOrNull { it.id == id }
+                repository.updateLibrary(id, updateDto(form.data, current))
+            }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    form = if (ok) null else it.form,
+                    messageRes = if (ok) {
+                        if (id == null) R.string.server_admin_library_created else R.string.server_admin_library_updated
+                    } else {
+                        R.string.server_admin_action_failed
+                    },
+                )
+            }
+            if (ok) load()
+        }
+    }
+
+    fun askDelete(library: LibraryDto) {
+        _state.update { it.copy(pendingDelete = library) }
+    }
+
+    fun cancelDelete() {
+        _state.update { it.copy(pendingDelete = null) }
+    }
+
+    fun delete(library: LibraryDto) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, pendingDelete = null) }
+        viewModelScope.launch {
+            val ok = repository.deleteLibrary(library.id)
+            _state.update {
+                it.copy(busy = false, messageRes = if (ok) R.string.server_admin_library_deleted else R.string.server_admin_action_failed)
+            }
+            if (ok) load()
+        }
+    }
+
+    fun scan(library: LibraryDto, deep: Boolean) = runAction {
+        repository.scanLibrary(library.id, deep)
+    }
+
+    fun analyze(library: LibraryDto) = runAction {
+        repository.analyzeLibrary(library.id)
+    }
+
+    fun emptyTrash(library: LibraryDto) = runAction {
+        repository.emptyLibraryTrash(library.id)
+    }
+
+    fun refreshMetadata(library: LibraryDto) = runAction {
+        repository.refreshLibraryMetadata(library.id)
+    }
+
+    private fun runAction(block: suspend () -> Boolean) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val ok = block()
+            _state.update {
+                it.copy(
+                    busy = false,
+                    messageRes = if (ok) R.string.server_admin_action_queued else R.string.server_admin_action_failed,
+                )
+            }
+        }
+    }
+
+    fun openBrowse(path: String?) {
+        _browse.value = DirectoryBrowseState(path = path)
+        viewModelScope.launch {
+            val listing = repository.directory(path)
+            _browse.update { current ->
+                current?.copy(listing = listing, loading = false)
+            }
+        }
+    }
+
+    fun closeBrowse() {
+        _browse.value = null
+    }
+
+    fun consumeMessage() {
+        _state.update { it.copy(messageRes = null) }
+    }
+
+    private fun creationDto(data: LibraryFormData): LibraryCreationDto = LibraryCreationDto(
+        analyzeDimensions = data.analyzeDimensions,
+        convertToCbz = false,
+        emptyTrashAfterScan = false,
+        hashFiles = true,
+        hashKoreader = false,
+        hashPages = false,
+        importBarcodeIsbn = false,
+        importComicInfoBook = data.importComicInfoBook,
+        importComicInfoCollection = false,
+        importComicInfoReadList = false,
+        importComicInfoSeries = data.importComicInfoSeries,
+        importComicInfoSeriesAppendVolume = false,
+        importEpubBook = true,
+        importEpubSeries = true,
+        importLocalArtwork = data.importLocalArtwork,
+        importMylarSeries = true,
+        name = data.name.trim(),
+        repairExtensions = false,
+        root = data.root.trim(),
+        scanCbx = data.scanCbx,
+        scanDirectoryExclusions = emptySet(),
+        scanEpub = data.scanEpub,
+        scanForceModifiedTime = false,
+        scanInterval = LibraryCreationDto.ScanInterval.entries.first { it.value == data.scanInterval },
+        scanOnStartup = data.scanOnStartup,
+        scanPdf = data.scanPdf,
+        seriesCover = LibraryCreationDto.SeriesCover.FIRST,
+        oneshotsDirectory = null,
+    )
+
+    /**
+     * Sends the whole configuration back (like the iOS LibraryUpdate.from(library)) so that omitted
+     * fields never silently reset to a server default.
+     */
+    private fun updateDto(data: LibraryFormData, current: LibraryDto?): LibraryUpdateDto = LibraryUpdateDto(
+        analyzeDimensions = data.analyzeDimensions,
+        convertToCbz = current?.convertToCbz ?: false,
+        emptyTrashAfterScan = current?.emptyTrashAfterScan ?: false,
+        hashFiles = current?.hashFiles ?: true,
+        hashKoreader = current?.hashKoreader ?: false,
+        hashPages = current?.hashPages ?: false,
+        importBarcodeIsbn = current?.importBarcodeIsbn ?: false,
+        importComicInfoBook = data.importComicInfoBook,
+        importComicInfoCollection = current?.importComicInfoCollection ?: false,
+        importComicInfoReadList = current?.importComicInfoReadList ?: false,
+        importComicInfoSeries = data.importComicInfoSeries,
+        importComicInfoSeriesAppendVolume = current?.importComicInfoSeriesAppendVolume ?: false,
+        importEpubBook = current?.importEpubBook ?: true,
+        importEpubSeries = current?.importEpubSeries ?: true,
+        importLocalArtwork = data.importLocalArtwork,
+        importMylarSeries = current?.importMylarSeries ?: true,
+        name = data.name.trim(),
+        oneshotsDirectory = current?.oneshotsDirectory,
+        repairExtensions = current?.repairExtensions ?: false,
+        root = data.root.trim(),
+        scanCbx = data.scanCbx,
+        scanDirectoryExclusions = current?.scanDirectoryExclusions ?: emptySet(),
+        scanEpub = data.scanEpub,
+        scanForceModifiedTime = current?.scanForceModifiedTime ?: false,
+        scanInterval = LibraryUpdateDto.ScanInterval.entries.first { it.value == data.scanInterval },
+        scanOnStartup = data.scanOnStartup,
+        scanPdf = data.scanPdf,
+        seriesCover = current?.seriesCover?.let { cover ->
+            LibraryUpdateDto.SeriesCover.entries.firstOrNull { it.value == cover.value }
+        } ?: LibraryUpdateDto.SeriesCover.FIRST,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryAdminScreen(
+    onBack: () -> Unit,
+    viewModel: LibraryAdminViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val browse by viewModel.browse.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    BackHandler(onBack = onBack)
+
+    LaunchedEffect(state.messageRes) {
+        val res = state.messageRes ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(context.getString(res))
+        viewModel.consumeMessage()
+    }
+
+    val form = state.form
+    if (form != null) {
+        LibraryFormScreen(
+            form = form,
+            saving = state.busy,
+            browse = browse,
+            onUpdate = viewModel::updateForm,
+            onBrowse = viewModel::openBrowse,
+            onCloseBrowse = viewModel::closeBrowse,
+            onDismiss = viewModel::closeForm,
+            onSave = viewModel::save,
+        )
+        return
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.server_admin_libraries_manage)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = viewModel::startCreate) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.server_admin_library_add),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                state.loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                state.libraries.isEmpty() -> CenteredMessage(R.string.server_admin_library_empty)
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
+                    items(state.libraries, key = { it.id }) { library ->
+                        LibraryAdminRow(
+                            library = library,
+                            enabled = !state.busy,
+                            onEdit = { viewModel.startEdit(library) },
+                            onDelete = { viewModel.askDelete(library) },
+                            onScan = { viewModel.scan(library, deep = false) },
+                            onDeepScan = { viewModel.scan(library, deep = true) },
+                            onAnalyze = { viewModel.analyze(library) },
+                            onEmptyTrash = { viewModel.emptyTrash(library) },
+                            onRefreshMetadata = { viewModel.refreshMetadata(library) },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    state.pendingDelete?.let { library ->
+        var typed by remember(library.id) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = viewModel::cancelDelete,
+            title = { Text(stringResource(R.string.server_admin_library_delete)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.server_admin_library_delete_confirm, library.name))
+                    OutlinedTextField(
+                        value = typed,
+                        onValueChange = { typed = it },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.server_admin_library_delete_hint)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = typed == library.name,
+                    onClick = { viewModel.delete(library) },
+                ) { Text(stringResource(R.string.server_admin_library_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelDelete) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LibraryAdminRow(
+    library: LibraryDto,
+    enabled: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onScan: () -> Unit,
+    onDeepScan: () -> Unit,
+    onAnalyze: () -> Unit,
+    onEmptyTrash: () -> Unit,
+    onRefreshMetadata: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).clickable(enabled = enabled, onClick = onEdit),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = library.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = library.root,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (library.unavailable) {
+                Text(
+                    text = stringResource(R.string.server_admin_library_unavailable),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        IconButton(onClick = onScan, enabled = enabled) {
+            Icon(
+                Icons.Filled.Bolt,
+                contentDescription = stringResource(R.string.server_admin_library_scan),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }, enabled = enabled) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.server_admin_library_more),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.server_admin_library_edit)) },
+                    onClick = { menuOpen = false; onEdit() },
+                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.server_admin_library_scan_deep)) },
+                    onClick = { menuOpen = false; onDeepScan() },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.server_admin_library_analyze)) },
+                    onClick = { menuOpen = false; onAnalyze() },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.server_admin_library_empty_trash)) },
+                    onClick = { menuOpen = false; onEmptyTrash() },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.server_admin_library_refresh_metadata)) },
+                    onClick = { menuOpen = false; onRefreshMetadata() },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(R.string.server_admin_library_delete),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = { menuOpen = false; onDelete() },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryFormScreen(
+    form: LibraryFormState,
+    saving: Boolean,
+    browse: DirectoryBrowseState?,
+    onUpdate: ((LibraryFormData) -> LibraryFormData) -> Unit,
+    onBrowse: (String?) -> Unit,
+    onCloseBrowse: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+) {
+    val data = form.data
+    BackHandler(onBack = onDismiss)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        stringResource(
+                            if (form.isEdit) {
+                                R.string.server_admin_library_edit_title
+                            } else {
+                                R.string.server_admin_library_add_title
+                            },
+                        ),
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onSave, enabled = !saving && data.isValid) {
+                        Text(stringResource(R.string.server_admin_library_save))
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = data.name,
+                onValueChange = { value -> onUpdate { it.copy(name = value) } },
+                singleLine = true,
+                label = { Text(stringResource(R.string.server_admin_library_name)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = data.root,
+                    onValueChange = { value -> onUpdate { it.copy(root = value) } },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.server_admin_library_root)) },
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { onBrowse(data.root.takeIf { it.isNotBlank() }) }) {
+                    Text(stringResource(R.string.server_admin_library_browse))
+                }
+            }
+            ScanIntervalField(
+                value = data.scanInterval,
+                onChange = { value -> onUpdate { it.copy(scanInterval = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_scan_on_startup),
+                checked = data.scanOnStartup,
+                onChange = { value -> onUpdate { it.copy(scanOnStartup = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_scan_cbx),
+                checked = data.scanCbx,
+                onChange = { value -> onUpdate { it.copy(scanCbx = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_scan_pdf),
+                checked = data.scanPdf,
+                onChange = { value -> onUpdate { it.copy(scanPdf = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_scan_epub),
+                checked = data.scanEpub,
+                onChange = { value -> onUpdate { it.copy(scanEpub = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_import_comic_info),
+                checked = data.importComicInfoBook,
+                onChange = { value -> onUpdate { it.copy(importComicInfoBook = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_import_comic_info_series),
+                checked = data.importComicInfoSeries,
+                onChange = { value -> onUpdate { it.copy(importComicInfoSeries = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_import_local_artwork),
+                checked = data.importLocalArtwork,
+                onChange = { value -> onUpdate { it.copy(importLocalArtwork = value) } },
+            )
+            FormSwitch(
+                label = stringResource(R.string.server_admin_library_analyze_dimensions),
+                checked = data.analyzeDimensions,
+                onChange = { value -> onUpdate { it.copy(analyzeDimensions = value) } },
+            )
+        }
+    }
+
+    if (browse != null) {
+        DirectoryBrowseDialog(
+            browse = browse,
+            onOpen = onBrowse,
+            onDismiss = onCloseBrowse,
+            onPick = { path ->
+                onUpdate { it.copy(root = path) }
+                onCloseBrowse()
+            },
+        )
+    }
+}
+
+@Composable
+private fun ScanIntervalField(value: String, onChange: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val labelRes = SCAN_INTERVALS.firstOrNull { it.first == value }?.second
+        ?: R.string.server_admin_interval_disabled
+    Box {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.server_admin_library_scan_interval) + ": " + stringResource(labelRes),
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            SCAN_INTERVALS.forEach { (raw, res) ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(res)) },
+                    trailingIcon = {
+                        if (raw == value) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                    onClick = {
+                        open = false
+                        onChange(raw)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun DirectoryBrowseDialog(
+    browse: DirectoryBrowseState,
+    onOpen: (String?) -> Unit,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.server_admin_library_browse_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = browse.path?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.server_admin_library_browse_root),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val listing = browse.listing
+                when {
+                    browse.loading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                    listing == null -> Text(stringResource(R.string.server_admin_action_failed))
+                    listing.directories.isEmpty() ->
+                        Text(stringResource(R.string.server_admin_library_browse_empty))
+                    else -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        listing.parent?.let { parent ->
+                            items(listOf(".." to parent)) { (label, path) ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpen(path) }
+                                        .padding(vertical = 8.dp),
+                                )
+                            }
+                        }
+                        items(listing.directories, key = { it.path }) { dir ->
+                            Text(
+                                text = dir.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpen(dir.path) }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !browse.path.isNullOrBlank(),
+                onClick = { browse.path?.takeIf { it.isNotBlank() }?.let(onPick) },
+            ) { Text(stringResource(R.string.server_admin_library_browse_pick)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
+    )
+}

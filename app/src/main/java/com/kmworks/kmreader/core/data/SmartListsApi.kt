@@ -34,13 +34,15 @@ data class SmartListPageDto(
     val content: List<SmartListDto> = emptyList(),
 )
 
-/** Create body (name/summary/target/search; admin fields such as visibility to be wired later). */
+/** Create body (name/summary/target/search + admin-only sharing fields, omitted when null). */
 @Serializable
 data class SmartListCreateDto(
     val name: String,
     val summary: String,
     val target: String,
     val search: JsonObject,
+    val visibility: String? = null,
+    val sharedWithUserIds: List<String>? = null,
 )
 
 /** Update body; when search is null the whole key is omitted, protecting filters the editor cannot express. */
@@ -49,6 +51,17 @@ data class SmartListUpdateDto(
     val name: String,
     val summary: String,
     val search: JsonObject? = null,
+    /** PRIVATE | PUBLIC | SHARED; omitted for non-admins because kmrs rejects them with 403. */
+    val visibility: String? = null,
+    /** Sharee user ids; required (non-empty) when [visibility] is SHARED. */
+    val sharedWithUserIds: List<String>? = null,
+)
+
+/** One pickable share target (kmrs exposes the minimal user directory to admins only). */
+@Serializable
+data class SmartListShareTargetDto(
+    val id: String,
+    val email: String = "",
 )
 
 /**
@@ -66,6 +79,10 @@ interface SmartListsApi {
 
     @GET("api/v1/smart-lists/{id}")
     fun getSmartList(@Path("id") id: String): Call<SmartListDto>
+
+    /** Admins only (403 otherwise): the minimal user directory used to populate the sharing picker. */
+    @GET("api/v1/smart-lists/share-targets")
+    fun getSmartListShareTargets(): Call<List<SmartListShareTargetDto>>
 
     @POST("api/v1/smart-lists")
     fun createSmartList(@Body body: SmartListCreateDto): Call<SmartListDto>

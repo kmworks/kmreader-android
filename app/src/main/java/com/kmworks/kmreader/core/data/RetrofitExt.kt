@@ -6,6 +6,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.Call
 
+/**
+ * Execute a Retrofit [Call] on IO and report whether the server accepted it.
+ * For action endpoints whose success carries no body (DELETE/POST returning 204 or an empty body),
+ * where [awaitBody] cannot distinguish "no content" from "failed".
+ */
+internal suspend fun Call<*>.awaitSuccess(): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val response = execute()
+        if (!response.isSuccessful) {
+            AppLog.w("API", "HTTP ${response.code()} ${request().method} ${request().url}")
+        }
+        response.isSuccessful
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        AppLog.e("API", "${request().method} ${request().url}", e)
+        false
+    }
+}
+
 /** Execute a Retrofit [Call] on IO and return the body, or null on HTTP/decode/network error. */
 internal suspend fun <T> Call<T>.awaitBody(): T? = withContext(Dispatchers.IO) {
     try {

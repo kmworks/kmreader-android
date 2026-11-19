@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="server_admin_title">Server</string>
+    <string name="server_admin_refresh">Refresh</string>
+    <string name="server_admin_admin_required">Administrator access is required to manage the server.</string>
+
+    <string name="server_admin_section_server">Server</string>
+    <string name="server_admin_version">Version</string>
+    <string name="server_admin_commit">Commit</string>
+    <string name="server_admin_os">System</string>
+    <string name="server_admin_health">Health</string>
+    <string name="server_admin_started">Started</string>
+    <string name="server_admin_uptime">Uptime</string>
+    <string name="server_admin_rel_time">%1$s</string>
+
+    <string name="server_admin_section_updates">Updates</string>
+    <string name="server_admin_update_checks">Update checks</string>
+    <string name="server_admin_update_unknown">Unknown</string>
+    <string name="server_admin_update_available">Update available</string>
+    <string name="server_admin_update_disabled">Disabled</string>
+    <string name="server_admin_update_not_checked">Not checked yet</string>
+    <string name="server_admin_update_current">Up to date</string>
+    <string name="server_admin_update_last_checked">Last checked</string>
+    <string name="server_admin_update_unsupported">This server does not expose update checks.</string>
+
+    <string name="server_admin_section_resources">Resources</string>
+    <string name="server_admin_cpu">CPU</string>
+    <string name="server_admin_memory">Memory</string>
+    <string name="server_admin_disk">Disk</string>
+    <string name="server_admin_disk_value">%1$s free of %2$s</string>
+
+    <string name="server_admin_section_content">Content</string>
+    <string name="server_admin_libraries">Libraries</string>
+    <string name="server_admin_series">Series</string>
+    <string name="server_admin_books">Books</string>
+    <string name="server_admin_collections">Collections</string>
+    <string name="server_admin_readlists">Read lists</string>
+    <string name="server_admin_sidecars">Sidecars</string>
+    <string name="server_admin_total_size">Total size</string>
+
+    <string name="server_admin_section_manage">Management</string>
+    <string name="server_admin_tasks">Tasks</string>
+    <string name="server_admin_sessions">Sessions</string>
+    <string name="server_admin_scheduled">Scheduled tasks</string>
+    <string name="server_admin_history">History</string>
+    <string name="server_admin_files">Files</string>
+    <string name="server_admin_log">Server log</string>
+
+    <string name="server_admin_section_maintenance">Maintenance</string>
+    <string name="server_admin_shutdown">Shut down server</string>
+    <string name="server_admin_shutdown_confirm">The server will stop immediately and everyone will be disconnected.</string>
+    <string name="server_admin_shutdown_requested">Shutdown requested</string>
+
+    <string name="server_admin_library_counts">%1$d series · %2$d books</string>
+    <string name="server_admin_total">Total</string>
+    <string name="server_admin_stats_unavailable">This server does not expose library statistics.</string>
+
+    <string name="server_admin_tasks_queue">Task queue</string>
+    <string name="server_admin_tasks_queued">%1$d queued</string>
+    <string name="server_admin_tasks_cancel_all">Cancel all tasks</string>
+    <string name="server_admin_tasks_cancel_all_confirm">Every queued task will be discarded.</string>
+    <string name="server_admin_tasks_executed">Tasks executed</string>
+    <string name="server_admin_tasks_unavailable">Task statistics are not available on this server.</string>
+    <string name="server_admin_tasks_cleared">Task queue cleared</string>
+    <string name="server_admin_task_detail">%1$s total · %2$s longest · %3$d failed</string>
+
+    <string name="server_admin_sessions_own">My sessions</string>
+    <string name="server_admin_sessions_all">All sessions</string>
+    <string name="server_admin_sessions_unavailable">This server does not support managing sessions.</string>
+    <string name="server_admin_sessions_empty">There are no active sessions.</string>
+    <string name="server_admin_sessions_kick">Kick</string>
+    <string name="server_admin_sessions_current">This device</string>
+    <string name="server_admin_sessions_anonymous">Anonymous</string>
+    <string name="server_admin_session_created">Created %1$s</string>
+    <string name="server_admin_session_accessed">Last seen %1$s</string>
+    <string name="server_admin_session_kicked">Session kicked</string>
+
+    <string name="server_admin_scheduled_empty">The server has no scheduled tasks.</string>
+    <string name="server_admin_scheduled_unavailable">Scheduled tasks are not available on this server.</string>
+
+    <string name="server_admin_history_empty">No server activity yet.</string>
+
+    <string name="server_admin_files_unavailable">The server filesystem is not accessible.</string>
+    <string name="server_admin_files_root">Server filesystem</string>
+    <string name="server_admin_files_empty">This directory has no sub folders.</string>
+
+    <string name="server_admin_log_unavailable">The server log is not available.</string>
+    <string name="server_admin_action_failed">Action failed</string>
+    <string name="server_admin_action_queued">Action queued</string>
+    <string name="server_admin_load_more">Load more</string>
+
+    <string name="server_admin_media">Media management</string>
+    <string name="server_admin_media_analysis">Media analysis</string>
+    <string name="server_admin_media_missing_posters">Missing posters</string>
+    <string name="server_admin_media_duplicates">Duplicate files</string>
+    <string name="server_admin_media_known">Known pages</string>
+    <string name="server_admin_media_unknown">Unknown pages</string>
+    <string name="server_admin_media_error">Error</string>
+    <string name="server_admin_media_unsupported">Unsupported</string>
+    <string name="server_admin_media_all_libraries">All libraries</string>
+    <string name="server_admin_media_no_issues">No issues found</string>
+    <string name="server_admin_media_no_duplicates">No duplicate files found</string>
+    <string name="server_admin_media_no_known">No known duplicate pages</string>
+    <string name="server_admin_media_no_unknown">No unknown duplicate pages</string>
+    <string name="server_admin_media_group_files">%1$d files</string>
+    <string name="server_admin_media_auto_delete">Auto delete</string>
+    <string name="server_admin_media_manual_delete">Manual delete</string>
+    <string name="server_admin_media_ignore">Ignore</string>
+    <string name="server_admin_media_delete_matches">Delete matches</string>
+    <string name="server_admin_media_delete_matches_confirm">Delete matches?</string>
+    <string name="server_admin_media_delete_matches_message">This permanently deletes %1$d matched pages from the server. This cannot be undone.</string>
+    <string name="server_admin_media_auto_delete_confirm">Auto delete?</string>
+    <string name="server_admin_media_auto_delete_message">The server will automatically delete every page matching this hash, including pages from files added later. This cannot be undone.</string>
+    <string name="server_admin_media_deleted">Deleted</string>
+    <string name="server_admin_media_size">Size</string>
+    <string name="server_admin_media_matches">Matches</string>
+    <string name="server_admin_media_saved">%1$s saved</string>
+    <string name="server_admin_media_can_save">Can save %1$s</string>
+    <string name="server_admin_media_can_save_short">Can save</string>
+    <string name="server_admin_media_matches_button">%1$d matches</string>
+    <string name="server_admin_media_bulk_actions">Bulk actions</string>
+    <string name="server_admin_media_ignore_remaining">Ignore remaining (%1$d)</string>
+    <string name="server_admin_media_manual_remaining">Manual delete remaining (%1$d)</string>
+    <string name="server_admin_media_auto_remaining">Auto delete remaining (%1$d)</string>
+    <string name="server_admin_media_matches_title">Matching pages</string>
+    <string name="server_admin_media_no_matches">No matching pages found</string>
+    <string name="server_admin_media_matches_deleted">Matched pages deleted</string>
+    <string name="server_admin_media_match_deleted">Page deleted</string>
+    <string name="server_admin_media_page">Page %1$d</string>
+    <string name="server_admin_media_delete_match">Delete page</string>
+    <string name="server_admin_media_unavailable">Unavailable</string>
+
+    <string name="server_admin_api_keys">API keys</string>
+    <string name="server_admin_api_keys_add">Add API key</string>
+    <string name="server_admin_api_keys_empty">No API keys yet.</string>
+    <string name="server_admin_api_keys_comment">Comment</string>
+    <string name="server_admin_api_keys_comment_hint">What this key is used for</string>
+    <string name="server_admin_api_keys_create">Create</string>
+    <string name="server_admin_api_keys_new_title">New API key</string>
+    <string name="server_admin_api_keys_new_hint">This key is shown only once. Copy it now.</string>
+    <string name="server_admin_api_keys_copy">Copy</string>
+    <string name="server_admin_api_keys_delete">Delete</string>
+    <string name="server_admin_api_keys_delete_confirm">Delete API key %1$s?</string>
+    <string name="server_admin_api_keys_created">API key created</string>
+    <string name="server_admin_api_keys_unnamed">Untitled key</string>
+
+    <string name="server_admin_auth_activity">Authentication activity</string>
+    <string name="server_admin_auth_activity_empty">No authentication activity.</string>
+    <string name="server_admin_auth_activity_success">Success</string>
+    <string name="server_admin_auth_activity_failure">Failed</string>
+    <string name="server_admin_auth_activity_source">Source</string>
+    <string name="server_admin_auth_activity_ip">IP address</string>
+    <string name="server_admin_auth_activity_email">Email</string>
+    <string name="server_admin_auth_activity_api_key">API key</string>
+    <string name="server_admin_auth_activity_agent">User agent</string>
+
+    <string name="server_admin_libraries_manage">Manage libraries</string>
+    <string name="server_admin_library_add">Add library</string>
+    <string name="server_admin_library_add_title">New library</string>
+    <string name="server_admin_library_edit">Edit</string>
+    <string name="server_admin_library_edit_title">Edit library</string>
+    <string name="server_admin_library_empty">No libraries.</string>
+    <string name="server_admin_library_name">Name</string>
+    <string name="server_admin_library_root">Root folder</string>
+    <string name="server_admin_library_browse">Browse</string>
+    <string name="server_admin_library_browse_title">Choose root folder</string>
+    <string name="server_admin_library_browse_root">Server filesystem</string>
+    <string name="server_admin_library_browse_empty">No sub folders.</string>
+    <string name="server_admin_library_browse_pick">Use this folder</string>
+    <string name="server_admin_library_scan">Scan</string>
+    <string name="server_admin_library_scan_deep">Deep scan</string>
+    <string name="server_admin_library_analyze">Analyze</string>
+    <string name="server_admin_library_empty_trash">Empty trash</string>
+    <string name="server_admin_library_refresh_metadata">Refresh metadata</string>
+    <string name="server_admin_library_more">More actions</string>
+    <string name="server_admin_library_delete">Delete</string>
+    <string name="server_admin_library_delete_confirm">This permanently deletes %1$s and everything in it.</string>
+    <string name="server_admin_library_delete_hint">Library name</string>
+    <string name="server_admin_library_save">Save</string>
+    <string name="server_admin_library_created">Library created</string>
+    <string name="server_admin_library_updated">Library updated</string>
+    <string name="server_admin_library_deleted">Library deleted</string>
+    <string name="server_admin_library_unavailable">Unavailable</string>
+    <string name="server_admin_library_scan_interval">Scan interval</string>
+    <string name="server_admin_library_scan_on_startup">Scan on startup</string>
+    <string name="server_admin_library_scan_cbx">Scan CBZ/CBR</string>
+    <string name="server_admin_library_scan_pdf">Scan PDF</string>
+    <string name="server_admin_library_scan_epub">Scan EPUB</string>
+    <string name="server_admin_library_import_comic_info">Import ComicInfo.xml</string>
+    <string name="server_admin_library_import_comic_info_series">Import ComicInfo series</string>
+    <string name="server_admin_library_import_local_artwork">Import local artwork</string>
+    <string name="server_admin_library_analyze_dimensions">Analyze page dimensions</string>
+
+    <string name="server_admin_interval_disabled">Disabled</string>
+    <string name="server_admin_interval_hourly">Hourly</string>
+    <string name="server_admin_interval_every_6h">Every 6 hours</string>
+    <string name="server_admin_interval_every_12h">Every 12 hours</string>
+    <string name="server_admin_interval_daily">Daily</string>
+    <string name="server_admin_interval_weekly">Weekly</string>
+</resources>

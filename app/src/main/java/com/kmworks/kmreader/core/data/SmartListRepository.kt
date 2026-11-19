@@ -81,35 +81,58 @@ class SmartListRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
-    /** Create (target: BOOK | SERIES). */
+    /** Create (target: BOOK | SERIES). Sharing fields are admin-only and left null for regular users. */
     suspend fun createSmartList(
         name: String,
         summary: String,
         target: String,
         search: JsonObject,
+        visibility: String? = null,
+        sharedWithUserIds: List<String>? = null,
     ): SmartListDto? {
         val api = sessionManager.clients.value?.smartLists ?: return null
         return api.createSmartList(
-            SmartListCreateDto(name = name, summary = summary, target = target, search = search),
+            SmartListCreateDto(
+                name = name,
+                summary = summary,
+                target = target,
+                search = search,
+                visibility = visibility,
+                sharedWithUserIds = sharedWithUserIds,
+            ),
         ).awaitBody()?.also { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
     }
 
-    /** Update name/summary/criteria; when search is null the key is omitted to protect the existing server-side criteria. */
+    /** Update name/summary/criteria/sharing; null fields are omitted so existing server values survive. */
     suspend fun updateSmartList(
         dtoId: String,
         name: String,
         summary: String,
         search: JsonObject?,
+        visibility: String? = null,
+        sharedWithUserIds: List<String>? = null,
     ): Boolean {
         val api = sessionManager.clients.value?.smartLists ?: return false
         return api.updateSmartList(
             id = dtoId,
-            body = SmartListUpdateDto(name = name, summary = summary, search = search),
-        ).awaitBody() != null
+            body = SmartListUpdateDto(
+                name = name,
+                summary = summary,
+                search = search,
+                visibility = visibility,
+                sharedWithUserIds = sharedWithUserIds,
+            ),
+        ).awaitSuccess()
     }
 
     suspend fun deleteSmartList(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.smartLists ?: return false
-        return api.deleteSmartList(dtoId).awaitBody() != null
+        return api.deleteSmartList(dtoId).awaitSuccess()
+    }
+
+    /** Pickable share targets; empty without a session or for non-admins (the endpoint is admin-only). */
+    suspend fun shareTargets(): List<SmartListShareTargetDto> {
+        val api = sessionManager.clients.value?.smartLists ?: return emptyList()
+        return api.getSmartListShareTargets().awaitBody().orEmpty()
     }
 }

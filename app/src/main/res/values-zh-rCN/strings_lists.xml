@@ -81,4 +81,16 @@
     <plurals name="lists_series_count">
         <item quantity="other">%1$d 部系列</item>
     </plurals>
+
+    <!-- Smart list sharing (kmrs extension: visibility + share targets) -->
+    <string name="smartlist_share_title">共享</string>
+    <string name="smartlist_share_visibility">可见性</string>
+    <string name="smartlist_visibility_private">私有</string>
+    <string name="smartlist_visibility_public">公开</string>
+    <string name="smartlist_visibility_shared">共享给指定用户</string>
+    <string name="smartlist_share_targets">共享给</string>
+    <string name="smartlist_share_no_targets">此服务器没有其他可共享的用户。</string>
+    <string name="smartlist_share_unavailable">共享功能需要启用了智能列表的 kmrs 服务器。</string>
+    <string name="smartlist_share_admin_only">只有管理员可以修改智能列表的可见性。</string>
+    <string name="smartlist_save_failed">保存失败</string>
 </resources>

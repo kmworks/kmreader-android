@@ -82,4 +82,16 @@
         <item quantity="one">%1$d series</item>
         <item quantity="other">%1$d series</item>
     </plurals>
+
+    <!-- Smart list sharing (kmrs extension: visibility + share targets) -->
+    <string name="smartlist_share_title">Sharing</string>
+    <string name="smartlist_share_visibility">Visibility</string>
+    <string name="smartlist_visibility_private">Private</string>
+    <string name="smartlist_visibility_public">Public</string>
+    <string name="smartlist_visibility_shared">Shared</string>
+    <string name="smartlist_share_targets">Shared with</string>
+    <string name="smartlist_share_no_targets">This server has no other users to share with.</string>
+    <string name="smartlist_share_unavailable">Sharing requires a kmrs server with smart lists enabled.</string>
+    <string name="smartlist_share_admin_only">Only administrators can change the visibility of a smart list.</string>
+    <string name="smartlist_save_failed">Could not save changes</string>
 </resources>

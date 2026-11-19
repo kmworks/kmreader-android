@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="server_admin_title">服务器</string>
+    <string name="server_admin_refresh">刷新</string>
+    <string name="server_admin_admin_required">需要管理员权限才能管理服务器。</string>
+
+    <string name="server_admin_section_server">服务器</string>
+    <string name="server_admin_version">版本</string>
+    <string name="server_admin_commit">提交</string>
+    <string name="server_admin_os">系统</string>
+    <string name="server_admin_health">健康状态</string>
+    <string name="server_admin_started">启动时间</string>
+    <string name="server_admin_uptime">运行时长</string>
+    <string name="server_admin_rel_time">%1$s</string>
+
+    <string name="server_admin_section_updates">更新</string>
+    <string name="server_admin_update_checks">更新检查</string>
+    <string name="server_admin_update_unknown">未知</string>
+    <string name="server_admin_update_available">有可用更新</string>
+    <string name="server_admin_update_disabled">已禁用</string>
+    <string name="server_admin_update_not_checked">尚未检查</string>
+    <string name="server_admin_update_current">已是最新</string>
+    <string name="server_admin_update_last_checked">上次检查</string>
+    <string name="server_admin_update_unsupported">该服务器未提供更新检查。</string>
+
+    <string name="server_admin_section_resources">资源</string>
+    <string name="server_admin_cpu">CPU</string>
+    <string name="server_admin_memory">内存</string>
+    <string name="server_admin_disk">磁盘</string>
+    <string name="server_admin_disk_value">剩余 %1$s，共 %2$s</string>
+
+    <string name="server_admin_section_content">内容</string>
+    <string name="server_admin_libraries">书库</string>
+    <string name="server_admin_series">系列</string>
+    <string name="server_admin_books">书籍</string>
+    <string name="server_admin_collections">收藏</string>
+    <string name="server_admin_readlists">书单</string>
+    <string name="server_admin_sidecars">附属文件</string>
+    <string name="server_admin_total_size">总大小</string>
+
+    <string name="server_admin_section_manage">管理</string>
+    <string name="server_admin_tasks">任务</string>
+    <string name="server_admin_sessions">会话</string>
+    <string name="server_admin_scheduled">定时任务</string>
+    <string name="server_admin_history">历史记录</string>
+    <string name="server_admin_files">文件</string>
+    <string name="server_admin_log">服务器日志</string>
+
+    <string name="server_admin_section_maintenance">维护</string>
+    <string name="server_admin_shutdown">关闭服务器</string>
+    <string name="server_admin_shutdown_confirm">服务器将立即停止，所有用户都会断开连接。</string>
+    <string name="server_admin_shutdown_requested">已请求关闭</string>
+
+    <string name="server_admin_library_counts">%1$d 个系列 · %2$d 本书</string>
+    <string name="server_admin_total">汇总</string>
+    <string name="server_admin_stats_unavailable">该服务器未提供书库统计。</string>
+
+    <string name="server_admin_tasks_queue">任务队列</string>
+    <string name="server_admin_tasks_queued">排队 %1$d 个</string>
+    <string name="server_admin_tasks_cancel_all">取消全部任务</string>
+    <string name="server_admin_tasks_cancel_all_confirm">所有排队中的任务都将被丢弃。</string>
+    <string name="server_admin_tasks_executed">已执行任务</string>
+    <string name="server_admin_tasks_unavailable">该服务器未提供任务统计。</string>
+    <string name="server_admin_tasks_cleared">任务队列已清空</string>
+    <string name="server_admin_task_detail">总耗时 %1$s · 最长 %2$s · 失败 %3$d</string>
+
+    <string name="server_admin_sessions_own">我的会话</string>
+    <string name="server_admin_sessions_all">全部会话</string>
+    <string name="server_admin_sessions_unavailable">该服务器不支持会话管理。</string>
+    <string name="server_admin_sessions_empty">当前没有活跃会话。</string>
+    <string name="server_admin_sessions_kick">踢出</string>
+    <string name="server_admin_sessions_current">本设备</string>
+    <string name="server_admin_sessions_anonymous">匿名</string>
+    <string name="server_admin_session_created">创建于 %1$s</string>
+    <string name="server_admin_session_accessed">最后访问 %1$s</string>
+    <string name="server_admin_session_kicked">会话已踢出</string>
+
+    <string name="server_admin_scheduled_empty">该服务器没有定时任务。</string>
+    <string name="server_admin_scheduled_unavailable">该服务器未提供定时任务。</string>
+
+    <string name="server_admin_history_empty">暂无服务器活动记录。</string>
+
+    <string name="server_admin_files_unavailable">无法访问服务器文件系统。</string>
+    <string name="server_admin_files_root">服务器文件系统</string>
+    <string name="server_admin_files_empty">该目录没有子目录。</string>
+
+    <string name="server_admin_log_unavailable">服务器日志不可用。</string>
+    <string name="server_admin_action_failed">操作失败</string>
+    <string name="server_admin_action_queued">操作已加入队列</string>
+    <string name="server_admin_load_more">加载更多</string>
+
+    <string name="server_admin_media">媒体管理</string>
+    <string name="server_admin_media_analysis">媒体分析</string>
+    <string name="server_admin_media_missing_posters">缺失封面</string>
+    <string name="server_admin_media_duplicates">重复文件</string>
+    <string name="server_admin_media_known">已知重复页面</string>
+    <string name="server_admin_media_unknown">未知重复页面</string>
+    <string name="server_admin_media_error">错误</string>
+    <string name="server_admin_media_unsupported">不支持</string>
+    <string name="server_admin_media_all_libraries">全部书库</string>
+    <string name="server_admin_media_no_issues">未发现问题</string>
+    <string name="server_admin_media_no_duplicates">未发现重复文件</string>
+    <string name="server_admin_media_no_known">没有已知的重复页面</string>
+    <string name="server_admin_media_no_unknown">没有未知的重复页面</string>
+    <string name="server_admin_media_group_files">%1$d 个文件</string>
+    <string name="server_admin_media_auto_delete">自动删除</string>
+    <string name="server_admin_media_manual_delete">手动删除</string>
+    <string name="server_admin_media_ignore">忽略</string>
+    <string name="server_admin_media_delete_matches">删除匹配页</string>
+    <string name="server_admin_media_delete_matches_confirm">删除匹配页？</string>
+    <string name="server_admin_media_delete_matches_message">将从服务器永久删除 %1$d 个匹配页面，此操作无法撤销。</string>
+    <string name="server_admin_media_auto_delete_confirm">自动删除？</string>
+    <string name="server_admin_media_auto_delete_message">服务器会自动删除所有与此哈希匹配的页面，包括之后新增文件中的页面。此操作无法撤销。</string>
+    <string name="server_admin_media_deleted">已删除</string>
+    <string name="server_admin_media_size">大小</string>
+    <string name="server_admin_media_matches">匹配数</string>
+    <string name="server_admin_media_saved">已节省 %1$s</string>
+    <string name="server_admin_media_can_save">可节省 %1$s</string>
+    <string name="server_admin_media_can_save_short">可节省</string>
+    <string name="server_admin_media_matches_button">%1$d 个匹配</string>
+    <string name="server_admin_media_bulk_actions">批量操作</string>
+    <string name="server_admin_media_ignore_remaining">忽略剩余（%1$d）</string>
+    <string name="server_admin_media_manual_remaining">手动删除剩余（%1$d）</string>
+    <string name="server_admin_media_auto_remaining">自动删除剩余（%1$d）</string>
+    <string name="server_admin_media_matches_title">匹配页面</string>
+    <string name="server_admin_media_no_matches">未找到匹配页面</string>
+    <string name="server_admin_media_matches_deleted">匹配页面已删除</string>
+    <string name="server_admin_media_match_deleted">页面已删除</string>
+    <string name="server_admin_media_page">第 %1$d 页</string>
+    <string name="server_admin_media_delete_match">删除该页</string>
+    <string name="server_admin_media_unavailable">不可用</string>
+
+    <string name="server_admin_api_keys">API 密钥</string>
+    <string name="server_admin_api_keys_add">添加 API 密钥</string>
+    <string name="server_admin_api_keys_empty">还没有 API 密钥。</string>
+    <string name="server_admin_api_keys_comment">备注</string>
+    <string name="server_admin_api_keys_comment_hint">说明这个密钥的用途</string>
+    <string name="server_admin_api_keys_create">创建</string>
+    <string name="server_admin_api_keys_new_title">新建 API 密钥</string>
+    <string name="server_admin_api_keys_new_hint">密钥只显示这一次，请立即复制。</string>
+    <string name="server_admin_api_keys_copy">复制</string>
+    <string name="server_admin_api_keys_delete">删除</string>
+    <string name="server_admin_api_keys_delete_confirm">删除 API 密钥 %1$s？</string>
+    <string name="server_admin_api_keys_created">API 密钥已创建</string>
+    <string name="server_admin_api_keys_unnamed">未命名密钥</string>
+
+    <string name="server_admin_auth_activity">认证活动</string>
+    <string name="server_admin_auth_activity_empty">暂无认证活动。</string>
+    <string name="server_admin_auth_activity_success">成功</string>
+    <string name="server_admin_auth_activity_failure">失败</string>
+    <string name="server_admin_auth_activity_source">来源</string>
+    <string name="server_admin_auth_activity_ip">IP 地址</string>
+    <string name="server_admin_auth_activity_email">邮箱</string>
+    <string name="server_admin_auth_activity_api_key">API 密钥</string>
+    <string name="server_admin_auth_activity_agent">客户端</string>
+
+    <string name="server_admin_libraries_manage">书库管理</string>
+    <string name="server_admin_library_add">添加书库</string>
+    <string name="server_admin_library_add_title">新建书库</string>
+    <string name="server_admin_library_edit">编辑</string>
+    <string name="server_admin_library_edit_title">编辑书库</string>
+    <string name="server_admin_library_empty">没有书库。</string>
+    <string name="server_admin_library_name">名称</string>
+    <string name="server_admin_library_root">根目录</string>
+    <string name="server_admin_library_browse">浏览</string>
+    <string name="server_admin_library_browse_title">选择根目录</string>
+    <string name="server_admin_library_browse_root">服务器文件系统</string>
+    <string name="server_admin_library_browse_empty">没有子目录。</string>
+    <string name="server_admin_library_browse_pick">使用此目录</string>
+    <string name="server_admin_library_scan">扫描</string>
+    <string name="server_admin_library_scan_deep">深度扫描</string>
+    <string name="server_admin_library_analyze">分析</string>
+    <string name="server_admin_library_empty_trash">清空回收站</string>
+    <string name="server_admin_library_refresh_metadata">刷新元数据</string>
+    <string name="server_admin_library_more">更多操作</string>
+    <string name="server_admin_library_delete">删除</string>
+    <string name="server_admin_library_delete_confirm">这会永久删除 %1$s 及其全部内容。</string>
+    <string name="server_admin_library_delete_hint">书库名称</string>
+    <string name="server_admin_library_save">保存</string>
+    <string name="server_admin_library_created">书库已创建</string>
+    <string name="server_admin_library_updated">书库已更新</string>
+    <string name="server_admin_library_deleted">书库已删除</string>
+    <string name="server_admin_library_unavailable">不可用</string>
+    <string name="server_admin_library_scan_interval">扫描间隔</string>
+    <string name="server_admin_library_scan_on_startup">启动时扫描</string>
+    <string name="server_admin_library_scan_cbx">扫描 CBZ/CBR</string>
+    <string name="server_admin_library_scan_pdf">扫描 PDF</string>
+    <string name="server_admin_library_scan_epub">扫描 EPUB</string>
+    <string name="server_admin_library_import_comic_info">导入 ComicInfo.xml</string>
+    <string name="server_admin_library_import_comic_info_series">导入 ComicInfo 系列</string>
+    <string name="server_admin_library_import_local_artwork">导入本地图片</string>
+    <string name="server_admin_library_analyze_dimensions">分析页面尺寸</string>
+
+    <string name="server_admin_interval_disabled">禁用</string>
+    <string name="server_admin_interval_hourly">每小时</string>
+    <string name="server_admin_interval_every_6h">每 6 小时</string>
+    <string name="server_admin_interval_every_12h">每 12 小时</string>
+    <string name="server_admin_interval_daily">每天</string>
+    <string name="server_admin_interval_weekly">每周</string>
+</resources>

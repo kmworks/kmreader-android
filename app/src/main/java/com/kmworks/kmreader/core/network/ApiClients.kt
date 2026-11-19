@@ -1,9 +1,11 @@
 package com.kmworks.kmreader.core.network
 
+import com.kmworks.kmreader.core.api.APIKeysApi
 import com.kmworks.kmreader.core.api.AnnouncementsApi
 import com.kmworks.kmreader.core.api.BooksApi
 import com.kmworks.kmreader.core.api.CollectionsApi
 import com.kmworks.kmreader.core.api.CurrentUserApi
+import com.kmworks.kmreader.core.api.DuplicatePagesApi
 import com.kmworks.kmreader.core.api.LibrariesApi
 import com.kmworks.kmreader.core.api.ReadlistsApi
 import com.kmworks.kmreader.core.api.ReferentialMetadataApi
@@ -94,6 +96,10 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
     val libraries: LibrariesApi by lazy { retrofit.create(LibrariesApi::class.java) }
     val series: SeriesApi by lazy { retrofit.create(SeriesApi::class.java) }
     val books: BooksApi by lazy { retrofit.create(BooksApi::class.java) }
+
+    val apiKeys: APIKeysApi by lazy { retrofit.create(APIKeysApi::class.java) }
+
+    val duplicatePages: DuplicatePagesApi by lazy { retrofit.create(DuplicatePagesApi::class.java) }
     val collections: CollectionsApi by lazy { retrofit.create(CollectionsApi::class.java) }
     val readlists: ReadlistsApi by lazy { retrofit.create(ReadlistsApi::class.java) }
     val referential: ReferentialMetadataApi by lazy { retrofit.create(ReferentialMetadataApi::class.java) }

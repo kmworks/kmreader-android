@@ -34,6 +34,8 @@
     <string name="settings_current_instance">Current Instance</string>
     <string name="settings_not_connected">Not Connected</string>
     <string name="settings_server_accounts_subtitle">Switch and manage multiple servers</string>
+    <string name="settings_server_title">Server</string>
+    <string name="settings_server_subtitle">Status, tasks, sessions and maintenance</string>
     <string name="settings_about">About</string>
     <string name="settings_about_title">About KMReader</string>
     <string name="settings_about_subtitle">Version and project links</string>
