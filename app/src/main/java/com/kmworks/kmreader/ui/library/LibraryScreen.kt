@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -224,7 +225,10 @@ fun LibraryScreen(
 
     // Content-first page: the bar floats over the content (it reserves no layout height) and only the header rows
     // scroll away with it, so the grid starts right below the bar instead of below four stacked caption rows.
-    Box(modifier = Modifier.fillMaxSize()) {
+    // The page paints its own surface: it is also pushed above another page (a metadata-chip jump), and a stack
+    // slot paints none of its own -- it must not, or a page that fades in (the reader out of black) would lose
+    // that backdrop -- so without this the page the jump started from would show through and both would interleave.
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when {
             !state.hasSession -> Column(modifier = Modifier.fillMaxSize()) {
                 Spacer(Modifier.height(glassTopBarTopPadding()))
