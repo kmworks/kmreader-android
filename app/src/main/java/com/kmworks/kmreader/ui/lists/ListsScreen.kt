@@ -69,6 +69,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.PullRefreshBox
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
@@ -121,6 +122,9 @@ fun ListsScreen(
     // The frosted bar floats over the page: the list groups scroll underneath it.
     val pageListState = rememberLazyListState()
     val hazeState = rememberHazeState()
+    // True while the pull-to-refresh control is up: its own indicator already says a reload is running,
+    // so the list-wide loading bar below would only duplicate it.
+    var pulling by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GlassTopBar(
@@ -158,60 +162,67 @@ fun ListsScreen(
                 }
             },
         )
-        LazyColumn(
-            state = pageListState,
-            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-            contentPadding = PaddingValues(
-                top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
-                bottom = 8.dp + LocalNavOverlaySpace.current,
-            ),
+        PullRefreshBox(
+            onRefresh = { viewModel.refresh().join() },
+            modifier = Modifier.fillMaxSize(),
+            indicatorTopPadding = if (state.hasSession) glassTopBarTopPadding() else 0.dp,
+            onRefreshingChange = { pulling = it },
         ) {
-            if (state.loading) {
-                item(key = "loading") {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            LazyColumn(
+                state = pageListState,
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                contentPadding = PaddingValues(
+                    top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
+                    bottom = 8.dp + LocalNavOverlaySpace.current,
+                ),
+            ) {
+                if (state.loading && !pulling) {
+                    item(key = "loading") {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                 }
-            }
-            state.error?.let { message ->
-                item(key = "error") {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                state.error?.let { message ->
+                    item(key = "error") {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                if (!state.hasSession) {
+                    item(key = "empty") {
+                        EmptyState(
+                            title = stringResource(R.string.lists_no_session_title),
+                            subtitle = stringResource(R.string.lists_no_session_subtitle),
+                            modifier = Modifier.fillParentMaxSize(),
+                        )
+                    }
+                }
+                items(groups, key = { it.title }) { group ->
+                    val onOpenEntry: (ListEntry) -> Unit = when (group.title) {
+                        groupCollectionsLabel -> ({ e -> onOpenCollection(e.id) })
+                        groupReadListsLabel -> ({ e -> onOpenReadList(e.id) })
+                        else -> ({ e -> onOpenSmartList(e.id) })
+                    }
+                    ListStrip(
+                        group = group,
+                        hasMore = when (group.title) {
+                            groupCollectionsLabel -> state.collectionsHasMore
+                            groupReadListsLabel -> state.readListsHasMore
+                            else -> false
+                        },
+                        loadingMore = state.loadingMore,
+                        onLoadMore = when (group.title) {
+                            groupCollectionsLabel -> viewModel::loadMoreCollections
+                            groupReadListsLabel -> viewModel::loadMoreReadLists
+                            else -> ({})
+                        },
+                        onOpenEntry = onOpenEntry,
+                        onEntryMenu = { entry -> menuTarget = group.title to entry },
                     )
                 }
-            }
-            if (!state.hasSession) {
-                item(key = "empty") {
-                    EmptyState(
-                        title = stringResource(R.string.lists_no_session_title),
-                        subtitle = stringResource(R.string.lists_no_session_subtitle),
-                        modifier = Modifier.fillParentMaxSize(),
-                    )
-                }
-            }
-            items(groups, key = { it.title }) { group ->
-                val onOpenEntry: (ListEntry) -> Unit = when (group.title) {
-                    groupCollectionsLabel -> ({ e -> onOpenCollection(e.id) })
-                    groupReadListsLabel -> ({ e -> onOpenReadList(e.id) })
-                    else -> ({ e -> onOpenSmartList(e.id) })
-                }
-                ListStrip(
-                    group = group,
-                    hasMore = when (group.title) {
-                        groupCollectionsLabel -> state.collectionsHasMore
-                        groupReadListsLabel -> state.readListsHasMore
-                        else -> false
-                    },
-                    loadingMore = state.loadingMore,
-                    onLoadMore = when (group.title) {
-                        groupCollectionsLabel -> viewModel::loadMoreCollections
-                        groupReadListsLabel -> viewModel::loadMoreReadLists
-                        else -> ({})
-                    },
-                    onOpenEntry = onOpenEntry,
-                    onEntryMenu = { entry -> menuTarget = group.title to entry },
-                )
             }
         }
         // Snackbars sit above the floating capsule navigation instead of under it

@@ -57,6 +57,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.PullRefreshBox
 import com.kmworks.kmreader.ui.components.SectionHeader
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
@@ -112,6 +113,9 @@ fun DashboardScreen(
     // Backdrop the bar blurs: the list is the haze source, so whatever slides under the bar is what
     // gets blurred (Haze needs to capture the page; a Compose layer cannot blur itself).
     val hazeState = rememberHazeState()
+    // True while the pull-to-refresh control is up: its own indicator already says a reload is running,
+    // so the list-wide loading bar below would only duplicate it.
+    var pulling by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GlassTopBar(
@@ -185,55 +189,62 @@ fun DashboardScreen(
                 }
             },
         )
-        LazyColumn(
-            state = pageListState,
-            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-            // The floating capsule navigation overlays content; reserve bottom space so the last row can
-            // scroll above it. The signed-out state keeps its small inset so it stays centred in the viewport.
-            contentPadding = PaddingValues(
-                top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
-                bottom = 8.dp + LocalNavOverlaySpace.current,
-            ),
+        PullRefreshBox(
+            onRefresh = { if (state.hasSession) viewModel.refresh().join() },
+            modifier = Modifier.fillMaxSize(),
+            indicatorTopPadding = if (state.hasSession) glassTopBarTopPadding() else 0.dp,
+            onRefreshingChange = { pulling = it },
         ) {
-            if (state.loading) {
-                item(key = "loading") {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            LazyColumn(
+                state = pageListState,
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                // The floating capsule navigation overlays content; reserve bottom space so the last row can
+                // scroll above it. The signed-out state keeps its small inset so it stays centred in the viewport.
+                contentPadding = PaddingValues(
+                    top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
+                    bottom = 8.dp + LocalNavOverlaySpace.current,
+                ),
+            ) {
+                if (state.loading && !pulling) {
+                    item(key = "loading") {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                 }
-            }
-            state.error?.let { message ->
-                item(key = "error") {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                state.error?.let { message ->
+                    item(key = "error") {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                if (!state.hasSession) {
+                    item(key = "empty") {
+                        EmptyState(
+                            title = stringResource(R.string.dashboard_not_connected_title),
+                            subtitle = stringResource(R.string.dashboard_not_connected_subtitle),
+                            modifier = Modifier.fillParentMaxSize(),
+                        )
+                    }
+                }
+                items(sections, key = { it.id }) { section ->
+                    DashboardSectionRow(
+                        section = section,
+                        onOpenSeries = onOpenSeries,
+                        onOpenBook = onOpenBook,
+                        onOpenSectionDetail = onOpenSectionDetail,
+                        onOpenContinuation = onOpenContinuation,
+                        onSeriesLongClick = { seriesMenuTarget = it },
+                        onBookLongClick = { bookMenuTarget = it },
+                        onReadBook = { book -> onReadBook(book, false) },
+                        continuations = state.continuations,
+                        kindMenuEnabled = state.kindMenuEnabled,
+                        onKindChange = { kind -> viewModel.setSectionKind(section.id, kind) },
                     )
+                    Spacer(Modifier.height(8.dp))
                 }
-            }
-            if (!state.hasSession) {
-                item(key = "empty") {
-                    EmptyState(
-                        title = stringResource(R.string.dashboard_not_connected_title),
-                        subtitle = stringResource(R.string.dashboard_not_connected_subtitle),
-                        modifier = Modifier.fillParentMaxSize(),
-                    )
-                }
-            }
-            items(sections, key = { it.id }) { section ->
-                DashboardSectionRow(
-                    section = section,
-                    onOpenSeries = onOpenSeries,
-                    onOpenBook = onOpenBook,
-                    onOpenSectionDetail = onOpenSectionDetail,
-                    onOpenContinuation = onOpenContinuation,
-                    onSeriesLongClick = { seriesMenuTarget = it },
-                    onBookLongClick = { bookMenuTarget = it },
-                    onReadBook = { book -> onReadBook(book, false) },
-                    continuations = state.continuations,
-                    kindMenuEnabled = state.kindMenuEnabled,
-                    onKindChange = { kind -> viewModel.setSectionKind(section.id, kind) },
-                )
-                Spacer(Modifier.height(8.dp))
             }
         }
     }

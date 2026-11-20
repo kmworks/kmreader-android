@@ -38,6 +38,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,9 +167,13 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Re-fetch the list content (content sync after a successful action or an SSE event). */
-    fun refresh() {
-        viewModelScope.launch {
+    /**
+     * Re-fetch the list content (content sync after a successful action, an SSE event or a
+     * pull-to-refresh). The returned job completes when the reload landed, so a caller can keep its
+     * refresh indicator up meanwhile while the work itself stays in this view model's scope.
+     */
+    fun refresh(): Job {
+        return viewModelScope.launch {
             val current = query
             if (_state.value.hasSession && current != null) load(current.scope, current.pinned, current.options)
         }

@@ -41,6 +41,7 @@ import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,9 +116,13 @@ class DashboardViewModel @Inject constructor(
     /** Serializes reloads: an SSE burst and a local write can each request one at nearly the same instant. */
     private val loadMutex = Mutex()
 
-    /** Re-fetch the section contents (content sync after a successful action). */
-    fun refresh() {
-        viewModelScope.launch { load() }
+    /**
+     * Re-fetch the section contents (content sync after a successful action, an SSE event or a
+     * pull-to-refresh). The returned job completes when the reload landed, so a caller can keep its
+     * refresh indicator up meanwhile while the work itself stays in this view model's scope.
+     */
+    fun refresh(): Job {
+        return viewModelScope.launch { load() }
     }
 
     init {

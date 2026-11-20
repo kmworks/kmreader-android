@@ -81,6 +81,7 @@ import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.PullRefreshBox
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
@@ -152,6 +153,9 @@ fun LibraryScreen(
     var editBook by remember { mutableStateOf<Book?>(null) }
     var deleteSeriesTarget by remember { mutableStateOf<Series?>(null) }
     var deleteBookTarget by remember { mutableStateOf<Book?>(null) }
+    // True while the pull-to-refresh control is up: its own indicator already says a reload is running,
+    // so the list-wide loading bar below would only duplicate it.
+    var pulling by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val state by viewModel.state.collectAsState()
@@ -230,147 +234,154 @@ fun LibraryScreen(
     // slot paints none of its own -- it must not, or a page that fades in (the reader out of black) would lose
     // that backdrop -- so without this the page the jump started from would show through and both would interleave.
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        when {
-            !state.hasSession -> Column(modifier = Modifier.fillMaxSize()) {
-                Spacer(Modifier.height(glassTopBarTopPadding()))
-                EmptyState(
-                    title = stringResource(R.string.library_offline_title),
-                    subtitle = stringResource(R.string.library_offline_subtitle),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            layout == BrowseLayout.List -> LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-                contentPadding = PaddingValues(
-                    top = glassTopBarTopPadding() + 4.dp,
-                    bottom = 8.dp + LocalNavOverlaySpace.current,
-                ),
-            ) {
-                if (state.loading) {
-                    item(key = "loading") {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                }
-                state.error?.let { message ->
-                    item(key = "error") { LibraryErrorText(message) }
-                }
-                item(key = "library-header") {
-                    LibraryHeader(
-                        contentType = contentType,
-                        onContentTypeChange = { contentType = it },
-                        seriesCount = state.seriesTotal ?: series.size.toLong(),
-                        booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                        caption = headerCaption,
-                        activeFilter = activeFilter?.route,
-                        onClearFilter = {
-                            viewModel.clearMetadataRoute()
-                            activeFilter = null
-                        },
-                        horizontalPadding = 16.dp,
+        PullRefreshBox(
+            onRefresh = { viewModel.refresh().join() },
+            modifier = Modifier.fillMaxSize(),
+            indicatorTopPadding = if (state.hasSession) glassTopBarTopPadding() else 0.dp,
+            onRefreshingChange = { pulling = it },
+        ) {
+            when {
+                !state.hasSession -> Column(modifier = Modifier.fillMaxSize()) {
+                    Spacer(Modifier.height(glassTopBarTopPadding()))
+                    EmptyState(
+                        title = stringResource(R.string.library_offline_title),
+                        subtitle = stringResource(R.string.library_offline_subtitle),
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                when (contentType) {
-                    LibraryContentType.Series -> items(series.size, key = { series[it].id }) { index ->
-                        val item = series[index]
-                        SeriesListRow(
-                            series = item,
-                            onClick = { onOpenSeries(item) },
-                            onLongClick = { menuSeries = item },
+
+                layout == BrowseLayout.List -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                    contentPadding = PaddingValues(
+                        top = glassTopBarTopPadding() + 4.dp,
+                        bottom = 8.dp + LocalNavOverlaySpace.current,
+                    ),
+                ) {
+                    if (state.loading && !pulling) {
+                        item(key = "loading") {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    state.error?.let { message ->
+                        item(key = "error") { LibraryErrorText(message) }
+                    }
+                    item(key = "library-header") {
+                        LibraryHeader(
+                            contentType = contentType,
+                            onContentTypeChange = { contentType = it },
+                            seriesCount = state.seriesTotal ?: series.size.toLong(),
+                            booksCount = state.booksTotal ?: allBooks.size.toLong(),
+                            caption = headerCaption,
+                            activeFilter = activeFilter?.route,
+                            onClearFilter = {
+                                viewModel.clearMetadataRoute()
+                                activeFilter = null
+                            },
+                            horizontalPadding = 16.dp,
                         )
                     }
-                    LibraryContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
-                        val book = allBooks[index]
-                        BookListRow(
-                            book = book,
-                            onClick = { onReadBook(book, false) },
-                            onLongClick = { menuBook = book },
-                        )
+                    when (contentType) {
+                        LibraryContentType.Series -> items(series.size, key = { series[it].id }) { index ->
+                            val item = series[index]
+                            SeriesListRow(
+                                series = item,
+                                onClick = { onOpenSeries(item) },
+                                onLongClick = { menuSeries = item },
+                            )
+                        }
+                        LibraryContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
+                            val book = allBooks[index]
+                            BookListRow(
+                                book = book,
+                                onClick = { onReadBook(book, false) },
+                                onLongClick = { menuBook = book },
+                            )
+                        }
                     }
-                }
-                if (hasMore) {
-                    item(key = "load-more") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    if (hasMore) {
+                        item(key = "load-more") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }
-            }
 
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
-                state = gridState,
-                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    top = glassTopBarTopPadding() + 4.dp,
-                    end = 16.dp,
-                    bottom = 16.dp + LocalNavOverlaySpace.current,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                if (state.loading) {
-                    item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        top = glassTopBarTopPadding() + 4.dp,
+                        end = 16.dp,
+                        bottom = 16.dp + LocalNavOverlaySpace.current,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (state.loading && !pulling) {
+                        item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
-                }
-                state.error?.let { message ->
-                    item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
-                        LibraryErrorText(message, horizontalPadding = 0.dp)
+                    state.error?.let { message ->
+                        item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
+                            LibraryErrorText(message, horizontalPadding = 0.dp)
+                        }
                     }
-                }
-                item(key = "library-header", span = { GridItemSpan(maxLineSpan) }) {
-                    LibraryHeader(
-                        contentType = contentType,
-                        onContentTypeChange = { contentType = it },
-                        seriesCount = state.seriesTotal ?: series.size.toLong(),
-                        booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                        caption = headerCaption,
-                        activeFilter = activeFilter?.route,
-                        onClearFilter = {
-                            viewModel.clearMetadataRoute()
-                            activeFilter = null
-                        },
-                        horizontalPadding = 0.dp,
-                    )
-                }
-                when (contentType) {
-                    LibraryContentType.Series -> items(series, key = { it.id }) { item ->
-                        SeriesGridCard(
-                            series = item,
-                            onClick = { onOpenSeries(item) },
-                            modifier = Modifier.fillMaxWidth(),
-                            onLongClick = { menuSeries = item },
+                    item(key = "library-header", span = { GridItemSpan(maxLineSpan) }) {
+                        LibraryHeader(
+                            contentType = contentType,
+                            onContentTypeChange = { contentType = it },
+                            seriesCount = state.seriesTotal ?: series.size.toLong(),
+                            booksCount = state.booksTotal ?: allBooks.size.toLong(),
+                            caption = headerCaption,
+                            activeFilter = activeFilter?.route,
+                            onClearFilter = {
+                                viewModel.clearMetadataRoute()
+                                activeFilter = null
+                            },
+                            horizontalPadding = 0.dp,
                         )
                     }
-                    LibraryContentType.Books -> items(allBooks, key = { it.id }) { book ->
-                        BookGridCard(
-                            book = book,
-                            onClick = { onReadBook(book, false) },
-                            modifier = Modifier.fillMaxWidth(),
-                            onLongClick = { menuBook = book },
-                        )
+                    when (contentType) {
+                        LibraryContentType.Series -> items(series, key = { it.id }) { item ->
+                            SeriesGridCard(
+                                series = item,
+                                onClick = { onOpenSeries(item) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onLongClick = { menuSeries = item },
+                            )
+                        }
+                        LibraryContentType.Books -> items(allBooks, key = { it.id }) { book ->
+                            BookGridCard(
+                                book = book,
+                                onClick = { onReadBook(book, false) },
+                                modifier = Modifier.fillMaxWidth(),
+                                onLongClick = { menuBook = book },
+                            )
+                        }
                     }
-                }
-                if (hasMore) {
-                    item(
-                        key = "load-more",
-                        span = { GridItemSpan(maxLineSpan) },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
+                    if (hasMore) {
+                        item(
+                            key = "load-more",
+                            span = { GridItemSpan(maxLineSpan) },
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }

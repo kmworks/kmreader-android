@@ -19,6 +19,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,6 +112,9 @@ class ListsViewModel @Inject constructor(
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
         collectionsPage = 0
         readListsPage = 0
+        // The reload replaces both strips wholesale, so the paging request state goes with the pages.
+        loadingMoreCollections = false
+        loadingMoreReadLists = false
         // Data-cache parity: paint the cached Lists rows before the network answers (empty screen only).
         if (_state.value.collections == null && _state.value.readLists == null) {
             val cached = runCatching { catalogCache.seedLists() }.getOrNull()
@@ -174,6 +178,15 @@ class ListsViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Reload the Lists strips from the first page (pull-to-refresh; paging state is reset by [load]).
+     * The returned job completes when the reload landed, so a caller can keep its indicator up
+     * meanwhile while the work itself stays in this view model's scope.
+     */
+    fun refresh(): Job = viewModelScope.launch {
+        if (_state.value.hasSession) load()
     }
 
     /** Load the next page when the collections strip hits bottom. */
