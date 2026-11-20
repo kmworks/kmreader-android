@@ -106,6 +106,7 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.notableEntityIcon
+import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 private val WideLayoutBreakpoint = 960.dp
@@ -1036,44 +1037,26 @@ private fun CollapsibleChipFlow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         visible.forEach { item ->
-            MetaChip(text = item.text, icon = item.icon, onClick = { onClick(item) })
-        }
-        if (!expanded && items.size > limit) {
-            MetaChip(text = "+${items.size - limit}", onClick = { expanded = true })
-        }
-    }
-}
-
-/** Metadata chip: icon + label, optionally tappable (same as the MetaChip of
- *  SeriesDetailScreen). */
-@Composable
-private fun MetaChip(text: String, icon: ImageVector? = null, onClick: (() -> Unit)? = null) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
-        modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick) else Modifier,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(
-                text = text,
+            MetaChip(
+                text = item.text,
+                icon = item.icon,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = { onClick(item) },
+            )
+        }
+        if (!expanded && items.size > limit) {
+            MetaChip(
+                text = "+${items.size - limit}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = { expanded = true },
             )
         }
     }
 }
+
+/** Metadata chip: icon + label, optionally tappable (the shared chip of every page). */
 
 /** Owning read list chips, mirrors BookDetailReadListsView. */
 @Composable

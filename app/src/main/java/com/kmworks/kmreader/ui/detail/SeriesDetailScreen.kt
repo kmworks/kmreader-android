@@ -123,6 +123,7 @@ import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
+import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.tracker.TrackerSection
@@ -1442,31 +1443,6 @@ private fun BooksToolbar(
         }
         IconButton(onClick = onEnterSelection) {
             Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.detail_multi_select))
-        }
-    }
-}
-
-@Composable
-private fun MetaChip(text: String, icon: ImageVector? = null, onClick: (() -> Unit)? = null) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-        ) {
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(text = text, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

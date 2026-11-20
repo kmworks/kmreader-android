@@ -24,11 +24,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.Business
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -52,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -71,6 +78,8 @@ import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.MetaChip
+import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
@@ -698,15 +707,15 @@ private fun LibraryHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp),
         )
-        // Target of the metadata-chip jump: the list shows what it is restricted to, and clearing the chip
-        // drops the condition (the page itself stays, like a browse page whose filter was reset).
+        // Target of the metadata-chip jump. It wears the very chip that was tapped on the detail page (field
+        // icon + value, no close glyph): the condition is metadata, not a text filter, and tapping the chip
+        // drops it again (the page itself stays, like a browse page whose filter was reset).
         activeFilter?.let { filter ->
             val parts = filter.split("·").map { it.trim() }
+            val notableKind = parts.getOrNull(1).takeIf { parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE }
             val chipLabel = when {
-                parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE ->
-                    "${stringResource(R.string.browse_kind_notable)} · " +
-                        "${notableKindLabel(parts[1])} · ${parts[2]}"
-                parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
+                parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE -> parts[2]
+                parts.size == 2 -> parts[1]
                 else -> filter
             }
             Row(
@@ -714,17 +723,11 @@ private fun LibraryHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilterChip(
-                    selected = true,
+                MetaChip(
+                    text = chipLabel,
+                    icon = filterKindIcon(parts.firstOrNull().orEmpty(), notableKind),
+                    onClickLabel = stringResource(R.string.browse_clear_filter),
                     onClick = onClearFilter,
-                    label = { Text(chipLabel) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.browse_clear_filter),
-                            modifier = Modifier.padding(2.dp),
-                        )
-                    },
                 )
             }
         }
@@ -734,25 +737,19 @@ private fun LibraryHeader(
 /** The pin-editing sheet and library-scope resolution/labeling live in
  *  ui/components/LibraryScope.kt (shared by dashboard/search/library). */
 
-/** Localized display label of a metadata-filter route token. */
-@Composable
-private fun filterKindLabel(kind: String): String = when (kind) {
-    FILTER_KIND_AUTHOR -> stringResource(R.string.common_author)
-    FILTER_KIND_TAG -> stringResource(R.string.common_tag)
-    FILTER_KIND_PUBLISHER -> stringResource(R.string.browse_kind_publisher)
-    FILTER_KIND_GENRE -> stringResource(R.string.browse_kind_genre)
-    FILTER_KIND_AGE_RATING -> stringResource(R.string.browse_kind_age_rating)
-    FILTER_KIND_LANGUAGE -> stringResource(R.string.browse_kind_language)
-    FILTER_KIND_RELEASE_YEAR -> stringResource(R.string.browse_kind_release_year)
-    FILTER_KIND_NOTABLE -> stringResource(R.string.browse_kind_notable)
-    else -> kind
-}
-
-/** Localized display label of a notable-entity kind token (mirrors iOS kindDisplayName). */
-@Composable
-private fun notableKindLabel(kind: String): String = when (kind) {
-    "character" -> stringResource(R.string.browse_kind_character)
-    "team" -> stringResource(R.string.browse_kind_team)
-    "location" -> stringResource(R.string.browse_kind_location)
-    else -> kind
+/**
+ * Icon of the injected-filter chip: the same one the detail page puts on the chip of that field, so the jump
+ * reads as "this metadata" rather than as a named filter (publishers are buildings, tags are tags, genres are
+ * masks, notable entities keep their own character/team/location icon).
+ */
+private fun filterKindIcon(kind: String, notableKind: String?): ImageVector = when (kind) {
+    FILTER_KIND_AUTHOR -> Icons.Outlined.Person
+    FILTER_KIND_TAG -> Icons.Outlined.Sell
+    FILTER_KIND_PUBLISHER -> Icons.Outlined.Business
+    FILTER_KIND_GENRE -> Icons.Outlined.TheaterComedy
+    FILTER_KIND_AGE_RATING -> Icons.Outlined.StarBorder
+    FILTER_KIND_LANGUAGE -> Icons.Outlined.Translate
+    FILTER_KIND_RELEASE_YEAR -> Icons.Outlined.CalendarMonth
+    FILTER_KIND_NOTABLE -> notableEntityIcon(notableKind.orEmpty())
+    else -> Icons.Outlined.Sell
 }
