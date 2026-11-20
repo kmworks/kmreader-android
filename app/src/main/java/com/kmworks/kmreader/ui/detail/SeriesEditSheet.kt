@@ -89,8 +89,7 @@ data class SeriesEditValues(
     val locks: SeriesEditLocks = SeriesEditLocks(),
 ) {
     companion object {
-        private fun statusRes(token: String): Int? =
-            SeriesStatus.entries.firstOrNull { it.apiName == token }?.labelRes
+        private fun statusRes(token: String): Int? = SeriesStatus.fromApiName(token)?.labelRes
 
         fun statusLabel(token: String, context: Context): String =
             statusRes(token)?.let { context.getString(it) } ?: token
@@ -104,13 +103,13 @@ data class SeriesEditValues(
         }
 
         /** Fallback when there is no DTO: rebuild the editable fields from the UI model as best we can (no locks set). */
-        fun fromUiSeries(series: Series, context: Context): SeriesEditValues = SeriesEditValues(
+        fun fromUiSeries(series: Series): SeriesEditValues = SeriesEditValues(
             title = series.title,
             titleSort = series.title,
             summary = series.summary.orEmpty(),
-            status = seriesStatusOptions.firstOrNull {
-                statusRes(it)?.let { res -> context.getString(res) } == series.status
-            } ?: "ONGOING",
+            // [Series.status] is the server token, not a display label: resolve it through the enum instead of
+            // comparing the localized label (that comparison always missed and silently fell back to ONGOING).
+            status = series.status?.let { SeriesStatus.fromApiName(it)?.apiName } ?: "ONGOING",
             readingDirection = if (series.directionRtl) "RIGHT_TO_LEFT" else "LEFT_TO_RIGHT",
             language = series.language.orEmpty(),
             publisher = series.publisher.orEmpty(),
@@ -125,7 +124,7 @@ data class SeriesEditValues(
     }
 }
 
-internal val seriesStatusOptions = listOf("ONGOING", "ENDED", "ABANDONED", "HIATUS")
+internal val seriesStatusOptions = SeriesStatus.entries.map { it.apiName }
 internal val seriesDirectionOptions = listOf("LEFT_TO_RIGHT", "RIGHT_TO_LEFT", "VERTICAL", "WEBTOON")
 
 private enum class EditTab(@param:StringRes val labelRes: Int) {
@@ -151,7 +150,7 @@ fun SeriesEditSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val initial = remember(values, series) { values ?: SeriesEditValues.fromUiSeries(series, context) }
+    val initial = remember(values, series) { values ?: SeriesEditValues.fromUiSeries(series) }
     val initialLocks = initial.locks
     var tab by remember { mutableStateOf(EditTab.General) }
 

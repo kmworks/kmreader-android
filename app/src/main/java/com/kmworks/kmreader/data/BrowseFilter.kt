@@ -27,7 +27,12 @@ enum class SeriesStatus(@param:StringRes val labelRes: Int, val apiName: String)
     Ongoing(R.string.series_status_ongoing, "ONGOING"),
     Ended(R.string.series_status_ended, "ENDED"),
     Abandoned(R.string.series_status_abandoned, "ABANDONED"),
-    Hiatus(R.string.series_status_hiatus, "HIATUS"),
+    Hiatus(R.string.series_status_hiatus, "HIATUS");
+
+    companion object {
+        /** Resolve a server status token (ENDED/ONGOING/…) to its enum; custom server statuses return null. */
+        fun fromApiName(token: String): SeriesStatus? = entries.firstOrNull { it.apiName == token }
+    }
 }
 
 /** An activated filter condition (negative = excluded; chips render with the inverted variant). */
