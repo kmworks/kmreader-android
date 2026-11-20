@@ -9,12 +9,17 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.awaitBody
 import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toCreator
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.toUiBook
@@ -69,6 +74,7 @@ class BookDetailViewModel @Inject constructor(
     private val configStore: ServerConfigStore,
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BookDetailUiState())
@@ -90,6 +96,50 @@ class BookDetailViewModel @Inject constructor(
     /** DTO id of the series owning the oneshot book (for combined-edit saving; null when not
      *  oneshot). */
     private var seriesDtoId: String? = null
+    private var contentJob: kotlinx.coroutines.Job? = null
+
+    init {
+        observeContentChanges()
+    }
+
+    /**
+     * Writes issued here or on another screen. This page shows a single book, so only that book's
+     * read state is patched in place; its metadata/existence changes re-read the detail, and any
+     * other entity's change is ignored.
+     */
+    private fun observeContentChanges() {
+        contentJob = viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { if (it is ContentChange.Books) reloadDetail() },
+            )
+        }
+    }
+
+    private fun patchContentChange(change: ContentChange): PatchOutcome =
+        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+
+    private fun patchInPlace(change: ContentChange): Boolean {
+        val stableId = loadedId ?: return true
+        if (stableId !in detailRepository.stableIdsOf(change)) return true
+        return when (change.kind) {
+            ContentChangeKind.ReadStateChanged -> {
+                val read = change.read ?: return true
+                _uiState.update { it.copy(book = it.book?.copy(progress = if (read) 1f else null)) }
+                true
+            }
+            // A reader flushed its page on exit: the book on this page keeps its own fraction.
+            ContentChangeKind.ProgressChanged -> {
+                val progress = change.progress ?: return true
+                _uiState.update { it.copy(book = it.book?.copy(progress = progress)) }
+                true
+            }
+            // This book's own deletion closes the page, so there is nothing left to re-read.
+            ContentChangeKind.Deleted -> change is ContentChange.Books
+            // Renamed or re-analyzed: re-read the detail.
+            else -> false
+        }
+    }
 
     private fun reloadDetail() {
         val stableId = loadedId ?: return
@@ -292,7 +342,6 @@ class BookDetailViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateBookMetadata(dtoId, body)
-            if (ok) reloadDetail()
             onDone(ok)
         }
     }
@@ -329,52 +378,41 @@ class BookDetailViewModel @Inject constructor(
             if (ok && seriesUpdate != null) {
                 ok = sid != null && actionRepository.updateSeriesMetadata(sid, seriesUpdate)
             }
-            if (ok) reloadDetail()
             onDone(ok)
         }
     }
 
-    /** Re-analyze the book (POST /books/{id}/analyze, admin). */
+    /** Re-analyze the book (POST /books/{id}/analyze, admin; goes through ActionRepository so screens hear about it). */
     fun analyze(onDone: (Boolean) -> Unit) {
         val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
-        val clients = sessionManager.clients.value
-        if (dtoId == null || clients == null) {
+        if (dtoId == null) {
             onDone(false)
             return
         }
-        viewModelScope.launch {
-            val ok = clients.books.bookAnalyze(dtoId).awaitBody() != null
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.analyzeBook(dtoId)) }
     }
 
-    /** Refresh the metadata (POST /books/{id}/metadata/refresh, admin). */
+    /** Refresh the metadata (POST /books/{id}/metadata/refresh, admin; the write signal re-reads this page). */
     fun refreshMetadata(onDone: (Boolean) -> Unit) {
         val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
-        val clients = sessionManager.clients.value
-        if (dtoId == null || clients == null) {
+        if (dtoId == null) {
             onDone(false)
             return
         }
-        viewModelScope.launch {
-            val ok = clients.books.bookRefreshMetadata(dtoId).awaitBody() != null
-            if (ok) reloadDetail()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.refreshBookMetadata(dtoId)) }
     }
 
-    /** Delete the book file (DELETE /books/{id}/file, admin). */
+    /** Delete the book file (DELETE /books/{id}/file, admin; goes through ActionRepository so screens hear about it). */
     fun deleteBook(onDone: (Boolean) -> Unit) {
         val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
-        val clients = sessionManager.clients.value
-        if (dtoId == null || clients == null) {
+        if (dtoId == null) {
             onDone(false)
             return
         }
         viewModelScope.launch {
             // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
             imageCacheStore.clearBookPages(dtoId)
-            val ok = clients.books.deleteBookFile(dtoId).awaitBody() != null
+            val ok = actionRepository.deleteBook(dtoId)
             if (ok) catalogCache.deleteBook(dtoId)
             onDone(ok)
         }

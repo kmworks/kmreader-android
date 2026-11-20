@@ -14,6 +14,7 @@ import com.kmworks.kmreader.data.Book
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,8 @@ constructor(
     private val actionRepository: ActionRepository,
     private val sessionManager: SessionManager,
     private val appSettings: AppSettingsStore,
+    /** Application scope: the exit flush must survive this view model being cleared with the page. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PdfReaderUiState())
@@ -148,6 +151,30 @@ constructor(
         viewModelScope.launch {
             val ok = actionRepository.updateBookReadProgress(dtoId, page, completed)
             if (ok) hasRecorded = true
+        }
+    }
+
+    /**
+     * Exit flush: reports the page reached even when the session never crossed the recording threshold, then tells
+     * the screens showing this book so they patch the new progress instead of waiting for SSE.
+     */
+    fun flushProgress(page: Int) {
+        if (incognito) return
+        val dtoId = _uiState.value.bookDtoId ?: return
+        val pageCount = _uiState.value.pageCount
+        if (pageCount <= 0 || page <= 0) return
+        if (page == lastReportedPage) return
+        lastReportedPage = page
+        val completed = page >= pageCount
+        val progress = (page.toFloat() / pageCount).coerceIn(0f, 1f)
+        appScope.launch {
+            runCatching { actionRepository.updateBookReadProgress(dtoId, page, completed) }
+                .onSuccess { ok ->
+                    if (ok) {
+                        hasRecorded = true
+                        actionRepository.announceBookProgress(dtoId, completed, progress)
+                    }
+                }
         }
     }
 

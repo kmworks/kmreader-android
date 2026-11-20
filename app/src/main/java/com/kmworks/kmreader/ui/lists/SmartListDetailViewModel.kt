@@ -3,8 +3,15 @@ package com.kmworks.kmreader.ui.lists
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import android.os.SystemClock
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
+import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.SmartListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.network.SessionManager
@@ -46,6 +53,7 @@ class SmartListDetailViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val smartListRepository: SmartListRepository,
     private val sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SmartListDetailUiState())
@@ -60,6 +68,152 @@ class SmartListDetailViewModel @Inject constructor(
     private var currentTarget: SmartListTarget? = null
     private var nextPage = 0
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var contentJob: kotlinx.coroutines.Job? = null
+
+    /** [SystemClock.elapsedRealtime] of the last read, used to skip a redundant settle re-read. */
+    private var lastLoadAtMs = 0L
+
+    init {
+        observeContentChanges()
+    }
+
+    /**
+     * Writes issued here or on another screen: read state of the hits on screen is patched in place,
+     * and changes this page cannot represent (its own metadata/conditions) re-read the list.
+     */
+    private fun observeContentChanges() {
+        contentJob = viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { reloadDetail() },
+                settle = { settlePage() },
+            )
+        }
+    }
+
+    private fun reloadDetail() {
+        val stableId = loadedId ?: return
+        loadedId = null
+        load(stableId)
+    }
+
+    /**
+     * A smart list is either books or series, never both. On a series list a book write leaves the series rows'
+     * aggregates stale (the server computes them out of the books), so it settles; a books list has nothing above
+     * the row that could go stale.
+     */
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        if (!patchInPlace(change)) return PatchOutcome.Declined
+        val aggregatesMoved = change is ContentChange.Books &&
+            (change.kind == ContentChangeKind.ReadStateChanged ||
+                change.kind == ContentChangeKind.ProgressChanged)
+        return if (aggregatesMoved && currentTarget == SmartListTarget.Series) {
+            PatchOutcome.PendingSettle
+        } else {
+            PatchOutcome.Patched
+        }
+    }
+
+    /**
+     * Re-reads the first page of a series smart list and merges it by id. Merging keeps what a reload would drop:
+     * the pages already loaded and the scroll position.
+     *
+     * Skipped when the page was read just now; that read already saw the post-write numbers.
+     */
+    private fun settlePage() {
+        if (SystemClock.elapsedRealtime() - lastLoadAtMs < SETTLE_SUPPRESS_MILLIS) return
+        if (currentTarget != SmartListTarget.Series) return
+        val dtoId = currentDtoId ?: return
+        val search = currentSearch ?: return
+        viewModelScope.launch {
+            val page = runCatching {
+                smartListRepository.smartListSeries(dtoId, search, page = 0, size = PAGE_SIZE)
+            }.getOrNull() ?: return@launch
+            val byId = page.items.mapNotNull { dto ->
+                DetailIdRegistry.seriesStableId(dto.id)?.let { it to dto.toUiSeries() }
+            }.toMap()
+            lastLoadAtMs = SystemClock.elapsedRealtime()
+            _state.update { st ->
+                st.copy(series = st.series?.map { row -> byId[row.id] ?: row })
+            }
+        }
+    }
+
+    private fun patchInPlace(change: ContentChange): Boolean = when (change) {
+        is ContentChange.Books -> {
+            val ids = change.dtoIds.mapNotNull { DetailIdRegistry.bookStableId(it) }.toSet()
+            when (change.kind) {
+                ContentChangeKind.ReadStateChanged -> patchBooksRead(ids, change.read ?: return true)
+                ContentChangeKind.ProgressChanged -> patchBooksProgress(ids, change.progress ?: return true)
+                // Renamed, deleted or re-analyzed: only the server knows the new rows.
+                else -> !showsAnyBook(ids)
+            }
+        }
+        is ContentChange.Series -> {
+            val ids = change.dtoIds.mapNotNull { DetailIdRegistry.seriesStableId(it) }.toSet()
+            when (change.kind) {
+                ContentChangeKind.ReadStateChanged -> patchSeriesRead(ids, change.read ?: return true)
+                else -> !showsAnySeries(ids)
+            }
+        }
+        is ContentChange.SmartLists -> {
+            // This list's own name/conditions: re-read. Its deletion closes the page,
+            // so there is nothing left to refresh.
+            val dtoId = currentDtoId
+            dtoId == null || dtoId !in change.dtoIds || change.kind == ContentChangeKind.Deleted
+        }
+        // Collections and read lists are not this page's subject.
+        else -> true
+    }
+
+    private fun showsAnyBook(ids: Set<Int>): Boolean =
+        ids.isNotEmpty() && _state.value.books.orEmpty().any { it.id in ids }
+
+    private fun showsAnySeries(ids: Set<Int>): Boolean =
+        ids.isNotEmpty() && _state.value.series.orEmpty().any { it.id in ids }
+
+    private fun patchBooksRead(ids: Set<Int>, read: Boolean): Boolean {
+        if (!showsAnyBook(ids)) return true
+        _state.update { state ->
+            state.copy(
+                books = state.books.orEmpty().map { book ->
+                    if (book.id in ids) book.copy(progress = if (read) 1f else null) else book
+                },
+            )
+        }
+        return true
+    }
+
+    private fun patchBooksProgress(ids: Set<Int>, progress: Float): Boolean {
+        if (!showsAnyBook(ids)) return true
+        _state.update { state ->
+            state.copy(
+                books = state.books.orEmpty().map { book ->
+                    if (book.id in ids) book.copy(progress = progress) else book
+                },
+            )
+        }
+        return true
+    }
+
+    private fun patchSeriesRead(ids: Set<Int>, read: Boolean): Boolean {
+        if (!showsAnySeries(ids)) return true
+        _state.update { state ->
+            state.copy(
+                series = state.series.orEmpty().map { series ->
+                    if (series.id in ids) {
+                        series.copy(
+                            progress = if (read) 1f else null,
+                            unreadCount = if (read) 0 else series.bookCount,
+                        )
+                    } else {
+                        series
+                    }
+                },
+            )
+        }
+        return true
+    }
 
     /** Load once per stable id; no session or unknown id keeps the demo fallback. */
     fun load(stableId: Int) {
@@ -83,6 +237,7 @@ class SmartListDetailViewModel @Inject constructor(
         currentSearch = null
         currentTarget = null
         nextPage = 0
+        lastLoadAtMs = SystemClock.elapsedRealtime()
         loadJob = viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -184,17 +339,12 @@ class SmartListDetailViewModel @Inject constructor(
         }
     }
 
-    /** Update name/summary/conditions; on success the detail and hits are reloaded. */
+    /** Update name/summary/conditions; the write signal re-reads the detail and hits. */
     fun save(name: String, summary: String, search: kotlinx.serialization.json.JsonObject?, onDone: (Boolean) -> Unit) {
         val stableId = loadedId ?: return onDone(false)
         val dtoId = smartListRepository.smartListDtoId(stableId) ?: return onDone(false)
         viewModelScope.launch {
-            val ok = smartListRepository.updateSmartList(dtoId, name, summary, search)
-            if (ok) {
-                loadedId = null
-                load(stableId)
-            }
-            onDone(ok)
+            onDone(smartListRepository.updateSmartList(dtoId, name, summary, search))
         }
     }
 
@@ -208,5 +358,11 @@ class SmartListDetailViewModel @Inject constructor(
 
     private companion object {
         const val PAGE_SIZE = 50
+
+        /**
+         * A settle re-read within this window of the last read is redundant: that read already saw the state the
+         * settle was waiting for.
+         */
+        const val SETTLE_SUPPRESS_MILLIS = 3_000L
     }
 }

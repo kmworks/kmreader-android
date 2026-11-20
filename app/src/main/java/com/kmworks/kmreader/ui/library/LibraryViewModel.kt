@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.library
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
@@ -11,14 +12,19 @@ import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.CatalogCache
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
@@ -87,6 +93,7 @@ class LibraryViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val searchRepository: SearchRepository,
     private val actionRepository: ActionRepository,
+    private val contentChangeBus: ContentChangeBus,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
     private val sseService: SseService,
@@ -118,6 +125,9 @@ class LibraryViewModel @Inject constructor(
     private var booksPage = 0
     private var loadingMoreSeries = false
     private var loadingMoreBooks = false
+
+    /** [SystemClock.elapsedRealtime] of the last load start, used to skip a redundant settle re-read. */
+    private var lastLoadAtMs = 0L
 
     init {
         // Re-query whenever session × scope × pins × filters change (mirrors the original where
@@ -165,6 +175,16 @@ class LibraryViewModel @Inject constructor(
                 .debounce(3_000)
                 .collect { refresh() }
         }
+        // Writes made here or on another screen patch the rows on screen by id; whatever this screen
+        // cannot express (created/deleted rows, metadata fields) falls back to one debounced re-query. A patched
+        // book still leaves its series card's aggregate stale, so those changes schedule one quiet re-read later.
+        viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { refresh() },
+                settle = { settleRefresh() },
+            )
+        }
     }
 
     /**
@@ -177,6 +197,112 @@ class LibraryViewModel @Inject constructor(
             val current = query
             if (_state.value.hasSession && current != null) load(current.scope, current.pinned, current.options)
         }
+    }
+
+    /**
+     * Re-reads the first page and merges it into the rows already on screen, for the fields a patch leaves stale:
+     * a series card's progress and unread count are aggregates the server recomputes out of its books, so a book
+     * change cannot produce them locally.
+     *
+     * Merging by id instead of reloading keeps what a reload would destroy: the loaded pages of the session, the
+     * scroll position and any row the server no longer returns on page one.
+     *
+     * Skipped when a load just ran. SSE already re-reads this screen on its own 3s debounce, and a pull-to-refresh
+     * may have just landed; reading again would be the same request twice. Skipping cannot lose the correction:
+     * a load that recent has already read the post-write numbers.
+     */
+    private fun settleRefresh() {
+        if (SystemClock.elapsedRealtime() - lastLoadAtMs < SETTLE_SUPPRESS_MILLIS) return
+        val current = query ?: return
+        if (!_state.value.hasSession || _state.value.series == null) return
+        viewModelScope.launch {
+            val fresh = runCatching {
+                searchRepository.browseSeriesPage(
+                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
+                    options = current.options,
+                    page = 0,
+                    size = PAGE_SIZE,
+                )
+            }.getOrNull() ?: return@launch
+            val byId = fresh.items.associateBy { it.id }
+            lastLoadAtMs = SystemClock.elapsedRealtime()
+            _state.update { st ->
+                st.copy(series = st.series?.map { row -> byId[row.id] ?: row })
+            }
+            runCatching { catalogCache.saveSeries(listKey(current.scope, current.options), fresh.items) }
+        }
+    }
+
+    /**
+     * Apply a write to the rows on screen without asking the server. Read state and the progress a reader flushed
+     * on its way out are the only things these lists show that a write flips in place; anything else (a created or
+     * deleted row, a renamed or remetadated entity) declines and lets the caller re-query.
+     *
+     * A book's own row is patchable, but a series card's progress and unread count are aggregates over all its
+     * books: those changes report [PatchOutcome.PendingSettle] so the screen re-reads them once the write settled.
+     */
+    private fun patchContentChange(change: ContentChange): PatchOutcome = when (change.kind) {
+        ContentChangeKind.ReadStateChanged -> {
+            val read = change.read ?: return PatchOutcome.Patched
+            val ids = detailRepository.stableIdsOf(change)
+            if (ids.isEmpty()) return PatchOutcome.Patched
+            when (change) {
+                is ContentChange.Series -> patchSeriesRead(ids, read)
+                is ContentChange.Books -> patchBooksRead(ids, read)
+                else -> PatchOutcome.Patched
+            }
+        }
+        // The series cards aggregate their books, so a single book's page cannot be patched into them.
+        ContentChangeKind.ProgressChanged -> {
+            val progress = change.progress ?: return PatchOutcome.Patched
+            val ids = detailRepository.stableIdsOf(change)
+            if (change is ContentChange.Books && ids.isNotEmpty()) patchBooksProgress(ids, progress)
+            settleOrPatched()
+        }
+        else -> PatchOutcome.Declined
+    }
+
+    /** A patched book row is only half the screen while the series cards above it are stale. */
+    private fun settleOrPatched(): PatchOutcome =
+        if (_state.value.series != null) PatchOutcome.PendingSettle else PatchOutcome.Patched
+
+    private fun patchSeriesRead(ids: Set<Int>, read: Boolean): PatchOutcome {
+        if (_state.value.series?.any { it.id in ids } != true) return PatchOutcome.Patched
+        _state.update { st ->
+            st.copy(
+                series = st.series?.map {
+                    if (it.id in ids) {
+                        it.copy(
+                            progress = if (read) 1f else null,
+                            unreadCount = if (read) 0 else it.bookCount,
+                        )
+                    } else {
+                        it
+                    }
+                },
+            )
+        }
+        return PatchOutcome.Patched
+    }
+
+    private fun patchBooksRead(ids: Set<Int>, read: Boolean): PatchOutcome {
+        if (_state.value.books?.any { it.id in ids } != true) return settleOrPatched()
+        _state.update { st ->
+            st.copy(books = st.books?.map {
+                if (it.id in ids) it.copy(progress = if (read) 1f else null) else it
+            })
+        }
+        return settleOrPatched()
+    }
+
+    private fun patchBooksProgress(ids: Set<Int>, progress: Float): PatchOutcome {
+        if (_state.value.books?.any { it.id in ids } != true) return settleOrPatched()
+        _state.update { st ->
+            st.copy(books = st.books?.map {
+                if (it.id in ids) it.copy(progress = progress) else it
+            })
+        }
+        return settleOrPatched()
     }
 
     /** Switch the library scope (pinned/all/library:{id}); the flow re-queries after persistence. */
@@ -251,6 +377,7 @@ class LibraryViewModel @Inject constructor(
         booksPage = 0
         loadingMoreSeries = false
         loadingMoreBooks = false
+        lastLoadAtMs = SystemClock.elapsedRealtime()
         _state.update {
             it.copy(hasSession = true, loading = true, loadingMore = false, error = null)
         }
@@ -499,7 +626,6 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateSeriesMetadata(dtoId, dto)
-            if (ok) refresh()
             onDone(ok)
         }
     }
@@ -519,7 +645,6 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateBookMetadata(dtoId, body)
-            if (ok) refresh()
             onDone(ok)
         }
     }
@@ -539,21 +664,17 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { onDone(actionRepository.analyzeBook(dtoId)) }
     }
 
-    /** Refresh the book metadata; re-queries the current list on success. */
+    /** Refresh the book metadata; the write signal re-queries the current list (or the row in place). */
     fun refreshBookMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.bookDtoId(stableId)
         if (dtoId == null) {
             onDone(false)
             return
         }
-        viewModelScope.launch {
-            val ok = actionRepository.refreshBookMetadata(dtoId)
-            if (ok) refresh()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.refreshBookMetadata(dtoId)) }
     }
 
-    /** Delete the series files; re-queries the current list on success. */
+    /** Delete the series files; the write signal re-queries the current list (or drops the row in place). */
     fun deleteSeries(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.seriesDtoId(stableId)
         if (dtoId == null) {
@@ -562,15 +683,12 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.deleteSeries(dtoId)
-            if (ok) {
-                catalogCache.deleteSeries(dtoId)
-                refresh()
-            }
+            if (ok) catalogCache.deleteSeries(dtoId)
             onDone(ok)
         }
     }
 
-    /** Delete the book files; re-queries the current list on success. */
+    /** Delete the book files; the write signal re-queries the current list (or drops the row in place). */
     fun deleteBook(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.bookDtoId(stableId)
         if (dtoId == null) {
@@ -581,10 +699,7 @@ class LibraryViewModel @Inject constructor(
             // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
             imageCacheStore.clearBookPages(dtoId)
             val ok = actionRepository.deleteBook(dtoId)
-            if (ok) {
-                catalogCache.deleteBook(dtoId)
-                refresh()
-            }
+            if (ok) catalogCache.deleteBook(dtoId)
             onDone(ok)
         }
     }
@@ -655,6 +770,12 @@ class LibraryViewModel @Inject constructor(
     private companion object {
         /** Page size, mirroring pageSize = 50 of the original SeriesViewModel/BookViewModel. */
         const val PAGE_SIZE = 50
+
+        /**
+         * A settle re-read within this window of the last load is redundant: that load already read the state the
+         * settle was waiting for (SSE answers on its own 3s debounce, a pull-to-refresh lands immediately).
+         */
+        const val SETTLE_SUPPRESS_MILLIS = 3_000L
 
         /** Event kinds that trigger a library refresh. */
         val REFRESH_KINDS = setOf(

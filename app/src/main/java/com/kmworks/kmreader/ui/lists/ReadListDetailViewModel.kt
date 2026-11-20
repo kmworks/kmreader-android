@@ -7,11 +7,16 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
@@ -54,6 +59,7 @@ class ReadListDetailViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReadListDetailUiState())
@@ -69,6 +75,79 @@ class ReadListDetailViewModel @Inject constructor(
     private var currentDtoId: String? = null
     private var nextPage = 0
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var contentJob: kotlinx.coroutines.Job? = null
+
+    init {
+        observeContentChanges()
+    }
+
+    /**
+     * Writes issued here or on another screen: read state of the books on screen is patched in place,
+     * and changes this page cannot represent (membership, metadata, deletions of rows it shows)
+     * re-read the list.
+     */
+    private fun observeContentChanges() {
+        contentJob = viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { reloadBooks() },
+            )
+        }
+    }
+
+    private fun patchContentChange(change: ContentChange): PatchOutcome =
+        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+
+    private fun patchInPlace(change: ContentChange): Boolean = when (change) {
+        is ContentChange.Books -> {
+            val ids = detailRepository.stableIdsOf(change)
+            when (change.kind) {
+                ContentChangeKind.ReadStateChanged -> patchBooksRead(ids, change.read ?: return true)
+                ContentChangeKind.ProgressChanged -> patchBooksProgress(ids, change.progress ?: return true)
+                // A member was renamed, moved or deleted: only the server knows the new rows.
+                else -> !showsAny(ids)
+            }
+        }
+        is ContentChange.ReadLists -> {
+            // This list's own membership/metadata: re-read. Its deletion closes the page,
+            // so there is nothing left to refresh.
+            val dtoId = currentDtoId
+            dtoId == null || dtoId !in change.dtoIds || change.kind == ContentChangeKind.Deleted
+        }
+        // Collections and smart lists are not this page's subject.
+        else -> true
+    }
+
+    private fun showsAny(ids: Set<Int>): Boolean =
+        ids.isNotEmpty() && _uiState.value.books.orEmpty().any { it.id in ids }
+
+    private fun patchBooksRead(ids: Set<Int>, read: Boolean): Boolean {
+        if (!showsAny(ids)) return true
+        _uiState.update { state ->
+            state.copy(
+                books = state.books.orEmpty().map { book ->
+                    if (book.id in ids) {
+                        book.copy(progress = if (read) 1f else null)
+                    } else {
+                        book
+                    }
+                },
+            )
+        }
+        return true
+    }
+
+    private fun patchBooksProgress(ids: Set<Int>, progress: Float): Boolean {
+        if (!showsAny(ids)) return true
+        _uiState.update { state ->
+            state.copy(
+                books = state.books.orEmpty().map { book ->
+                    if (book.id in ids) book.copy(progress = progress) else book
+                },
+            )
+        }
+        return true
+    }
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return
@@ -255,14 +334,12 @@ class ReadListDetailViewModel @Inject constructor(
     }
 
     /** Save book metadata (BookEditSheet flow, mirrors BookDetailViewModel.saveMetadata):
-     *  succeeds immediately when nothing changed; on success the list is force-reloaded. */
+     *  succeeds immediately when nothing changed; the write signal re-reads the list. */
     fun saveBookMetadata(stableId: Int, baseTitle: String, draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
         val body = draft.toUpdateDto(baseTitle, null) ?: return onDone(true)
         viewModelScope.launch {
-            val ok = actionRepository.updateBookMetadata(dtoId, body)
-            if (ok) reloadBooks()
-            onDone(ok)
+            onDone(actionRepository.updateBookMetadata(dtoId, body))
         }
     }
 

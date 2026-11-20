@@ -7,8 +7,13 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.download.DownloadRepository
@@ -49,6 +54,7 @@ class CollectionDetailViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CollectionDetailUiState())
@@ -64,6 +70,72 @@ class CollectionDetailViewModel @Inject constructor(
     private var currentDtoId: String? = null
     private var nextPage = 0
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var contentJob: kotlinx.coroutines.Job? = null
+
+    init {
+        observeContentChanges()
+    }
+
+    /**
+     * Writes issued here or on another screen: member read state is patched into the rows on screen,
+     * and changes this page cannot represent (membership, metadata, deletions of members it shows)
+     * re-read the collection.
+     */
+    private fun observeContentChanges() {
+        contentJob = viewModelScope.launch {
+            contentChangeBus.observeChanges(patch = { patchContentChange(it) }, reload = { reloadDetail() })
+        }
+    }
+
+    private fun reloadDetail() {
+        val stableId = loadedId ?: return
+        loadedId = null
+        load(stableId)
+    }
+
+    private fun patchContentChange(change: ContentChange): PatchOutcome =
+        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+
+    private fun patchInPlace(change: ContentChange): Boolean = when (change) {
+        is ContentChange.Series -> {
+            val ids = detailRepository.stableIdsOf(change)
+            when (change.kind) {
+                ContentChangeKind.ReadStateChanged -> patchSeriesRead(ids, change.read ?: return true)
+                // A member was renamed or its files were deleted: only the server knows the new rows.
+                else -> !showsAny(ids)
+            }
+        }
+        is ContentChange.Collections -> {
+            // This collection's own membership/metadata: re-read. Its deletion closes the page,
+            // so there is nothing left to refresh.
+            val dtoId = currentDtoId
+            dtoId == null || dtoId !in change.dtoIds || change.kind == ContentChangeKind.Deleted
+        }
+        // Books and read lists are not this page's subject.
+        else -> true
+    }
+
+    private fun showsAny(ids: Set<Int>): Boolean =
+        ids.isNotEmpty() && _uiState.value.series.orEmpty().any { it.id in ids }
+
+    private fun patchSeriesRead(ids: Set<Int>, read: Boolean): Boolean {
+        if (!showsAny(ids)) return true
+        _uiState.update { state ->
+            state.copy(
+                series = state.series.orEmpty().map { series ->
+                    if (series.id in ids) {
+                        series.copy(
+                            progress = if (read) 1f else null,
+                            unreadCount = if (read) 0 else series.bookCount,
+                        )
+                    } else {
+                        series
+                    }
+                },
+            )
+        }
+        return true
+    }
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return

@@ -1,12 +1,18 @@
 package com.kmworks.kmreader.ui.detail
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
+import com.kmworks.kmreader.core.data.ContentChange
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
+import com.kmworks.kmreader.core.data.PatchOutcome
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
@@ -113,6 +119,7 @@ class SeriesDetailViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
@@ -138,7 +145,11 @@ class SeriesDetailViewModel @Inject constructor(
      *  refresh of the same entry keeps it). */
     private var contentId: Int? = null
     private var sseJob: Job? = null
+    private var contentJob: Job? = null
     private var loadJob: Job? = null
+
+    /** [SystemClock.elapsedRealtime] of the last full read, used to skip a redundant settle re-read. */
+    private var lastReloadAtMs = 0L
 
     /** DTO id of the current detail (used by komf calls and for refreshing after a job completes). */
     private var dtoId: String? = null
@@ -173,6 +184,7 @@ class SeriesDetailViewModel @Inject constructor(
         }
         _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         loadJob = viewModelScope.launch {
+            lastReloadAtMs = SystemClock.elapsedRealtime()
             try {
                 val (seriesDto, bookDtos) = coroutineScope {
                     val s = async { detailRepository.seriesDetail(dtoId) }
@@ -238,6 +250,7 @@ class SeriesDetailViewModel @Inject constructor(
                 autoDownloadUnreadIfEnabled()
                 refreshTrackerLinks()
                 observeReadProgressEvents()
+                observeContentChanges()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -525,14 +538,10 @@ class SeriesDetailViewModel @Inject constructor(
         viewModelScope.launch { onDone(actionRepository.analyzeSeries(dtoId)) }
     }
 
-    /** Refreshes the series metadata; on success the detail is refreshed. */
+    /** Refreshes the series metadata; the write signal re-reads the detail on success. */
     fun refreshSeriesMetadata(onDone: (Boolean) -> Unit) {
         val dtoId = dtoId ?: return onDone(false)
-        viewModelScope.launch {
-            val ok = actionRepository.refreshSeriesMetadata(dtoId)
-            if (ok) reloadDetail()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.refreshSeriesMetadata(dtoId)) }
     }
 
     /** Deletes the series files; on success the page navigates back. */
@@ -588,7 +597,7 @@ class SeriesDetailViewModel @Inject constructor(
 
     /**
      * Saves the series metadata; a null dto means nothing changed (close immediately without a request).
-     * On success the detail is reloaded so the hero/summary/chips immediately reflect the server data.
+     * On success the write signal re-reads the detail so the hero/summary/chips reflect the server data.
      */
     fun saveMetadata(dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {
         val seriesDtoId = dtoId
@@ -603,11 +612,7 @@ class SeriesDetailViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateSeriesMetadata(seriesDtoId, dto)
-            if (ok) {
-                reloadDetail()
-            } else {
-                _komfEvents.tryEmit(context.getString(R.string.detail_save_failed))
-            }
+            if (!ok) _komfEvents.tryEmit(context.getString(R.string.detail_save_failed))
             onDone(ok)
         }
     }
@@ -633,6 +638,7 @@ class SeriesDetailViewModel @Inject constructor(
     /** Reloads only the book list (triggered by SSE; the detail body is unchanged). Covers are resolved through the stableId registry. */
     private fun reloadBooks() {
         val dtoId = dtoId ?: return
+        lastReloadAtMs = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             val bookDtos = detailRepository.seriesBooks(dtoId)
             val books = bookDtos.map { it.toUiBook() }
@@ -641,48 +647,150 @@ class SeriesDetailViewModel @Inject constructor(
         }
     }
 
-    /** Book metadata save (the BookEditSheet flow, mirroring saveMetadata): no changes succeed directly; on success the book list is reloaded. */
+    /**
+     * Writes issued here or on another screen: read state is patched into the rows already on screen,
+     * everything else (a renamed, created or deleted entity) re-reads what it must.
+     *
+     * The header is the one thing a patched book cannot fix: its progress and unread count are aggregates the
+     * server computes over the whole series, so book changes settle into a quiet header re-read.
+     */
+    private fun observeContentChanges() {
+        if (contentJob != null) return
+        contentJob = viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { change ->
+                    when (change) {
+                        is ContentChange.Books -> reloadBooks()
+                        else -> reloadDetail()
+                    }
+                },
+                settle = { settleHeader() },
+            )
+        }
+    }
+
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        val ids = detailRepository.stableIdsOf(change)
+        return when (change.kind) {
+            ContentChangeKind.ReadStateChanged -> {
+                val read = change.read ?: return PatchOutcome.Patched
+                when (change) {
+                    is ContentChange.Series -> patchSeriesRead(ids, read)
+                    is ContentChange.Books -> patchBooksRead(ids, read)
+                    else -> PatchOutcome.Patched
+                }
+            }
+            // A reader flushed its page on exit: the book rows keep their own fraction, the series header would
+            // need the server's aggregate, so it settles into a header re-read.
+            ContentChangeKind.ProgressChanged -> {
+                val progress = change.progress ?: return PatchOutcome.Patched
+                if (change is ContentChange.Books) patchBooksProgress(ids, progress) else PatchOutcome.Patched
+            }
+            // Collection/read-list membership is not mirrored here (the chips are the server's list);
+            // adding this series to a collection never reloaded before, so it still does not.
+            ContentChangeKind.MembershipChanged -> PatchOutcome.Patched
+            // Renamed, re-analyzed or deleted: only the rows this page shows need a re-read. Its own
+            // deletion closes the page, so there is nothing left to refresh.
+            else -> {
+                val touches = touchesThisPage(change, ids)
+                val ownDeletion = change is ContentChange.Series &&
+                    change.kind == ContentChangeKind.Deleted &&
+                    touches
+                if (!touches || ownDeletion) PatchOutcome.Patched else PatchOutcome.Declined
+            }
+        }
+    }
+
+    /**
+     * Re-reads only the series header, for the aggregates a book patch cannot recompute (progress and unread
+     * count). Leaves the book rows, the scroll position and the loading state alone.
+     *
+     * Skipped when the page reloaded just now: SSE re-reads the books on its own 3s debounce and a full load may
+     * have just landed, which already read the post-write aggregates.
+     */
+    private fun settleHeader() {
+        if (SystemClock.elapsedRealtime() - lastReloadAtMs < SETTLE_SUPPRESS_MILLIS) return
+        val seriesDtoId = dtoId ?: return
+        viewModelScope.launch {
+            val dto = runCatching { detailRepository.seriesDetail(seriesDtoId) }.getOrNull() ?: return@launch
+            lastReloadAtMs = SystemClock.elapsedRealtime()
+            _uiState.update { it.copy(series = dto.toUiSeries()) }
+        }
+    }
+
+    private fun touchesThisPage(change: ContentChange, ids: Set<Int>): Boolean = when (change) {
+        is ContentChange.Series -> _uiState.value.series?.id?.let { it in ids } == true
+        is ContentChange.Books -> {
+            val shown = _uiState.value.books.orEmpty().map { it.id }
+            ids.any { it in shown }
+        }
+        else -> false
+    }
+
+    private fun patchSeriesRead(ids: Set<Int>, read: Boolean): PatchOutcome {
+        val series = _uiState.value.series
+        if (series?.id?.let { it in ids } != true) return PatchOutcome.Patched
+        _uiState.update {
+            it.copy(
+                series = series.copy(
+                    progress = if (read) 1f else null,
+                    unreadCount = if (read) 0 else series.bookCount,
+                ),
+                // "Mark series read" also completes every book on the server.
+                books = it.books?.map { book -> book.copy(progress = if (read) 1f else 0f) },
+            )
+        }
+        return PatchOutcome.Patched
+    }
+
+    private fun patchBooksRead(ids: Set<Int>, read: Boolean): PatchOutcome {
+        if (_uiState.value.books?.any { it.id in ids } != true) return PatchOutcome.Patched
+        _uiState.update {
+            it.copy(books = it.books?.map { book ->
+                if (book.id in ids) book.copy(progress = if (read) 1f else 0f) else book
+            })
+        }
+        return PatchOutcome.PendingSettle
+    }
+
+    private fun patchBooksProgress(ids: Set<Int>, progress: Float): PatchOutcome {
+        if (_uiState.value.books?.any { it.id in ids } != true) return PatchOutcome.Patched
+        _uiState.update {
+            it.copy(books = it.books?.map { book ->
+                if (book.id in ids) book.copy(progress = progress) else book
+            })
+        }
+        return PatchOutcome.PendingSettle
+    }
+
+    /** Book metadata save (the BookEditSheet flow, mirroring saveMetadata): no changes succeed directly. */
     fun saveBookMetadata(stableId: Int, baseTitle: String, draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {
         val bookDtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
         val body = draft.toUpdateDto(baseTitle, null) ?: return onDone(true)
-        viewModelScope.launch {
-            val ok = actionRepository.updateBookMetadata(bookDtoId, body)
-            if (ok) reloadBooks()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.updateBookMetadata(bookDtoId, body)) }
     }
 
-    /** Re-analyzes a book (thin wrapper: dtoId lookup + ActionRepository; on success the book list is reloaded). */
+    /** Re-analyzes a book (thin wrapper: dtoId lookup + ActionRepository). */
     fun analyzeBook(stableId: Int, onDone: (Boolean) -> Unit) {
         val bookDtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
-        viewModelScope.launch {
-            val ok = actionRepository.analyzeBook(bookDtoId)
-            if (ok) reloadBooks()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.analyzeBook(bookDtoId)) }
     }
 
-    /** Refreshes the book metadata (thin wrapper; on success the book list is reloaded). */
+    /** Refreshes the book metadata (thin wrapper). */
     fun refreshBookMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
         val bookDtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
-        viewModelScope.launch {
-            val ok = actionRepository.refreshBookMetadata(bookDtoId)
-            if (ok) reloadBooks()
-            onDone(ok)
-        }
+        viewModelScope.launch { onDone(actionRepository.refreshBookMetadata(bookDtoId)) }
     }
 
-    /** Deletes the book files (Komga book deletion = DELETE books/{id}/file; on success the book list is reloaded). */
+    /** Deletes the book files (Komga book deletion = DELETE books/{id}/file; the write signal re-reads the list). */
     fun deleteBook(stableId: Int, onDone: (Boolean) -> Unit) {
         val bookDtoId = detailRepository.bookDtoId(stableId) ?: return onDone(false)
         viewModelScope.launch {
             // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
             imageCacheStore.clearBookPages(bookDtoId)
             val ok = actionRepository.deleteBook(bookDtoId)
-            if (ok) {
-                catalogCache.deleteBook(bookDtoId)
-                reloadBooks()
-            }
+            if (ok) catalogCache.deleteBook(bookDtoId)
             onDone(ok)
         }
     }
@@ -704,3 +812,9 @@ class SeriesDetailViewModel @Inject constructor(
         viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
     }
 }
+
+/**
+ * A settle re-read within this window of the last read is redundant: SSE re-reads the book list on its own 3s
+ * debounce, and a full load may have just landed, which already read the post-write aggregates.
+ */
+private const val SETTLE_SUPPRESS_MILLIS = 3_000L

@@ -79,6 +79,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.epub.EpubChapter
 import com.kmworks.kmreader.core.epub.EpubJs
@@ -102,6 +103,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -129,6 +131,9 @@ class EpubReaderViewModel @Inject constructor(
     private val fontRepository: FontRepository,
     private val appSettings: AppSettingsStore,
     @ApplicationContext private val context: Context,
+    private val actionRepository: ActionRepository,
+    /** Application scope: the exit flush must survive this view model being cleared with the page. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -299,7 +304,7 @@ class EpubReaderViewModel @Inject constructor(
     fun flushReport() {
         reportJob?.cancel()
         reportJob = null
-        doReport()
+        doReport(force = true)
     }
 
     /** Forwards resource interception (called synchronously on the WebViewClient thread). */
@@ -343,7 +348,12 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
-    private fun doReport() {
+    /**
+     * Reports the current position. Scheduled reports go through the recording gate; [force] is the exit flush,
+     * which skips the gate so a short session still leaves its position, survives this view model being cleared,
+     * and announces the new progress so the screens showing this book do not wait for SSE.
+     */
+    private fun doReport(force: Boolean = false) {
         // Incognito: skip progress reporting (restoring is still kept)
         if (incognito) return
         val state = _uiState.value
@@ -354,8 +364,9 @@ class EpubReaderViewModel @Inject constructor(
         // Completed = last chapter scrolled to its end (approximates the original reachedLastPage:
         // Android only knows the in-chapter fraction)
         val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
-        if (!admitsRecording(total, completed)) return
-        viewModelScope.launch {
+        if (!force && !admitsRecording(total, completed)) return
+        val launchScope = if (force) appScope else viewModelScope
+        launchScope.launch {
             val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
                 href = chapter.href,
@@ -364,7 +375,10 @@ class EpubReaderViewModel @Inject constructor(
                 deviceId = deviceId,
                 deviceName = deviceName,
             )
-            if (ok) hasRecorded = true
+            if (ok) {
+                hasRecorded = true
+                if (force) actionRepository.announceBookProgress(dtoId, completed, total)
+            }
         }
     }
 

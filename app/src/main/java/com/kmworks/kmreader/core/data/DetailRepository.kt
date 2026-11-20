@@ -31,9 +31,15 @@ object DetailIdRegistry {
     fun readListDtoId(stableId: Int): String? = readLists[stableId]
     fun smartListDtoId(stableId: Int): String? = smartLists[stableId]
 
-    /** Reverse: find the registered stableId from a series DTO id (null when absent). */
-    fun seriesStableId(dtoId: String): Int? =
-        series.entries.firstOrNull { it.value == dtoId }?.key
+    /** Reverse: find the registered stableId from a DTO id (null when absent). */
+    private fun stableId(map: ConcurrentHashMap<Int, String>, dtoId: String): Int? =
+        map.entries.firstOrNull { it.value == dtoId }?.key
+
+    fun seriesStableId(dtoId: String): Int? = stableId(series, dtoId)
+    fun bookStableId(dtoId: String): Int? = stableId(books, dtoId)
+    fun collectionStableId(dtoId: String): Int? = stableId(collections, dtoId)
+    fun readListStableId(dtoId: String): Int? = stableId(readLists, dtoId)
+    fun smartListStableId(dtoId: String): Int? = stableId(smartLists, dtoId)
 }
 
 /** Single-entity fetches for detail screens; resolves DTO ids through DetailIdRegistry. */
@@ -61,6 +67,20 @@ class DetailRepository @Inject constructor(
     fun collectionDtoId(stableId: Int): String? = DetailIdRegistry.collectionDtoId(stableId)
 
     fun readListDtoId(stableId: Int): String? = DetailIdRegistry.readListDtoId(stableId)
+
+    /**
+     * The stable ids a content change refers to, resolved through the registry. Empty when none of the
+     * entities was ever displayed (then a screen has nothing to patch and reloads instead).
+     */
+    fun stableIdsOf(change: ContentChange): Set<Int> = change.dtoIds.mapNotNull { dtoId ->
+        when (change) {
+            is ContentChange.Books -> DetailIdRegistry.bookStableId(dtoId)
+            is ContentChange.Series -> DetailIdRegistry.seriesStableId(dtoId)
+            is ContentChange.Collections -> DetailIdRegistry.collectionStableId(dtoId)
+            is ContentChange.ReadLists -> DetailIdRegistry.readListStableId(dtoId)
+            is ContentChange.SmartLists -> DetailIdRegistry.smartListStableId(dtoId)
+        }
+    }.toSet()
 
     suspend fun seriesDetail(dtoId: String): SeriesDto? {
         val api = sessionManager.clients.value?.series ?: return null

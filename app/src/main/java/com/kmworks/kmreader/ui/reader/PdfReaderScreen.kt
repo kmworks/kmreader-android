@@ -150,7 +150,7 @@ fun PdfReaderScreen(
         }
     }
     DisposableEffect(Unit) {
-        onDispose { if (initialPageApplied) viewModel.reportProgress(currentPage) }
+        onDispose { if (initialPageApplied) viewModel.flushProgress(currentPage) }
     }
 
     // Immersive mode: hide system bars while the chrome is hidden, restore them when the

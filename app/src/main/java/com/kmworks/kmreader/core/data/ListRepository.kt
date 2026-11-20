@@ -71,7 +71,7 @@ class ListRepository @Inject constructor(
         ).awaitBody()?.also {
             DetailIdRegistry.registerCollection(StableIds.collection(it.id), it.id)
             CoverUrlRegistry.registerCollection(StableIds.collection(it.id), it.id)
-            contentChangeBus.notifyChanged()
+            contentChangeBus.notify(collectionsChanged(listOf(it.id), ContentChangeKind.Created))
         }
     }
 
@@ -83,40 +83,41 @@ class ListRepository @Inject constructor(
         ).awaitBody()?.also {
             DetailIdRegistry.registerReadList(StableIds.readList(it.id), it.id)
             CoverUrlRegistry.registerReadList(StableIds.readList(it.id), it.id)
-            contentChangeBus.notifyChanged()
+            contentChangeBus.notify(readListsChanged(listOf(it.id), ContentChangeKind.Created))
         }
     }
 
     suspend fun updateCollection(dtoId: String, name: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
-        return notifyOn(
-            api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered)).awaitBody() != null,
-        )
+        val ok = api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered))
+            .awaitBody() != null
+        return notifyOn(ok) { collectionsChanged(listOf(dtoId), ContentChangeKind.MetadataChanged) }
     }
 
     suspend fun deleteCollection(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
-        return notifyOn(api.deleteCollectionById(dtoId).awaitBody() != null)
+        val ok = api.deleteCollectionById(dtoId).awaitBody() != null
+        return notifyOn(ok) { collectionsChanged(listOf(dtoId), ContentChangeKind.Deleted) }
     }
 
     suspend fun updateReadList(dtoId: String, name: String, summary: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
-        return notifyOn(
-            api.updateReadListById(
-                dtoId,
-                ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
-            ).awaitBody() != null,
-        )
+        val ok = api.updateReadListById(
+            dtoId,
+            ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
+        ).awaitBody() != null
+        return notifyOn(ok) { readListsChanged(listOf(dtoId), ContentChangeKind.MetadataChanged) }
     }
 
     suspend fun deleteReadList(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
-        return notifyOn(api.deleteReadListById(dtoId).awaitBody() != null)
+        val ok = api.deleteReadListById(dtoId).awaitBody() != null
+        return notifyOn(ok) { readListsChanged(listOf(dtoId), ContentChangeKind.Deleted) }
     }
 
-    /** Propagate successful writes to listeners (dashboard) that would otherwise wait for an SSE round trip. */
-    private fun notifyOn(ok: Boolean): Boolean {
-        if (ok) contentChangeBus.notifyChanged()
+    /** Propagate a successful write to the screens showing that list; the change is built only on success. */
+    private inline fun notifyOn(ok: Boolean, change: () -> ContentChange): Boolean {
+        if (ok) contentChangeBus.notify(change())
         return ok
     }
 }

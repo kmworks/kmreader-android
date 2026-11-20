@@ -15,6 +15,7 @@ import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.min
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -51,6 +52,8 @@ class ReaderViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val settingsStore: DivinaSettingsStore,
     private val appSettings: AppSettingsStore,
+    /** Application scope: the exit flush must survive this view model being cleared with the page. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -194,9 +197,28 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /** Flush on exit (mirrors the original flushProgress()=enqueue(from:current,to:nil), also gated). */
+    /**
+     * Flush on exit (mirrors the original flushProgress()=enqueue(from:current,to:nil)), but without the gate: a
+     * session that never crossed the three-page threshold still leaves the page it reached, and the screens that
+     * show this book are told about it so they do not wait for SSE to catch up.
+     */
     fun flushProgress(currentPage: Int) {
-        reportProgress(currentPage)
+        if (incognito) return
+        val state = _uiState.value
+        val dtoId = state.bookDtoId ?: return
+        val pageCount = state.pages.size
+        if (pageCount <= 0 || currentPage <= 0) return
+        if (currentPage == lastReportedPage) return
+        lastReportedPage = currentPage
+        val completed = currentPage >= pageCount
+        val progress = (currentPage.toFloat() / pageCount).coerceIn(0f, 1f)
+        appScope.launch {
+            runCatching { actionRepository.updateBookReadProgress(dtoId, currentPage, completed) }
+                .onSuccess { ok ->
+                    if (ok) actionRepository.announceBookProgress(dtoId, completed, progress)
+                }
+                .onFailure { AppLog.w("ReaderVM", "final progress PUT failed page=$currentPage: ${it.message}") }
+        }
     }
 }
 

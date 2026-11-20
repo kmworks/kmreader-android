@@ -5,10 +5,14 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.CatalogCache
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.SmartListRepository
 import com.kmworks.kmreader.core.data.ThumbnailCache
+import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -58,6 +62,7 @@ private val REFRESH_KINDS = setOf(
 class ListsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val listRepository: ListRepository,
+    private val contentChangeBus: ContentChangeBus,
     private val smartListRepository: SmartListRepository,
     private val sseService: SseService,
     private val appSettingsStore: AppSettingsStore,
@@ -105,6 +110,23 @@ class ListsViewModel @Inject constructor(
                 .collect {
                     if (_state.value.hasSession) load()
                 }
+        }
+        // These strips only show names, counts and covers, so a list write (here or on another screen)
+        // re-reads once instead of patching: same cost as before, one shared debounce. Read-state
+        // writes are ignored: they change no name, count or cover.
+        viewModelScope.launch {
+            contentChangeBus.observeChanges(
+                patch = {
+                    if (it.kind == ContentChangeKind.ReadStateChanged ||
+                        it.kind == ContentChangeKind.ProgressChanged
+                    ) {
+                        PatchOutcome.Patched
+                    } else {
+                        PatchOutcome.Declined
+                    }
+                },
+                reload = { refresh() },
+            )
         }
     }
 
@@ -274,7 +296,6 @@ class ListsViewModel @Inject constructor(
         val dtoId = DetailIdRegistry.collectionDtoId(entry.id) ?: return onDone(false)
         viewModelScope.launch {
             val ok = listRepository.updateCollection(dtoId, name, ordered)
-            if (ok) load()
             onDone(ok)
         }
     }
@@ -283,7 +304,6 @@ class ListsViewModel @Inject constructor(
         val dtoId = DetailIdRegistry.collectionDtoId(entry.id) ?: return onDone(false)
         viewModelScope.launch {
             val ok = listRepository.deleteCollection(dtoId)
-            if (ok) load()
             onDone(ok)
         }
     }
@@ -292,7 +312,6 @@ class ListsViewModel @Inject constructor(
         val dtoId = DetailIdRegistry.readListDtoId(entry.id) ?: return onDone(false)
         viewModelScope.launch {
             val ok = listRepository.updateReadList(dtoId, name, summary, ordered)
-            if (ok) load()
             onDone(ok)
         }
     }
@@ -301,7 +320,6 @@ class ListsViewModel @Inject constructor(
         val dtoId = DetailIdRegistry.readListDtoId(entry.id) ?: return onDone(false)
         viewModelScope.launch {
             val ok = listRepository.deleteReadList(dtoId)
-            if (ok) load()
             onDone(ok)
         }
     }
@@ -321,7 +339,6 @@ class ListsViewModel @Inject constructor(
                 summary = entry.summary.orEmpty(),
                 search = buildSmartListSearchDocument(matchAll, rules),
             )
-            if (ok) load()
             onDone(ok)
         }
     }
@@ -330,7 +347,6 @@ class ListsViewModel @Inject constructor(
         val dtoId = DetailIdRegistry.smartListDtoId(entry.id) ?: return onDone(false)
         viewModelScope.launch {
             val ok = smartListRepository.deleteSmartList(dtoId)
-            if (ok) load()
             onDone(ok)
         }
     }

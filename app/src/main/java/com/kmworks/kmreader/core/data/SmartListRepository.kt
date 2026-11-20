@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 @Singleton
 class SmartListRepository @Inject constructor(
     private val sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
 ) {
 
     fun smartListDtoId(stableId: Int): String? = DetailIdRegistry.smartListDtoId(stableId)
@@ -100,7 +101,10 @@ class SmartListRepository @Inject constructor(
                 visibility = visibility,
                 sharedWithUserIds = sharedWithUserIds,
             ),
-        ).awaitBody()?.also { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
+        ).awaitBody()?.also {
+            DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id)
+            contentChangeBus.notify(smartListsChanged(listOf(it.id), ContentChangeKind.Created))
+        }
     }
 
     /** Update name/summary/criteria/sharing; null fields are omitted so existing server values survive. */
@@ -113,7 +117,7 @@ class SmartListRepository @Inject constructor(
         sharedWithUserIds: List<String>? = null,
     ): Boolean {
         val api = sessionManager.clients.value?.smartLists ?: return false
-        return api.updateSmartList(
+        val ok = api.updateSmartList(
             id = dtoId,
             body = SmartListUpdateDto(
                 name = name,
@@ -123,11 +127,15 @@ class SmartListRepository @Inject constructor(
                 sharedWithUserIds = sharedWithUserIds,
             ),
         ).awaitSuccess()
+        if (ok) contentChangeBus.notify(smartListsChanged(listOf(dtoId), ContentChangeKind.MetadataChanged))
+        return ok
     }
 
     suspend fun deleteSmartList(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.smartLists ?: return false
-        return api.deleteSmartList(dtoId).awaitSuccess()
+        val ok = api.deleteSmartList(dtoId).awaitSuccess()
+        if (ok) contentChangeBus.notify(smartListsChanged(listOf(dtoId), ContentChangeKind.Deleted))
+        return ok
     }
 
     /** Pickable share targets; empty without a session or for non-admins (the endpoint is admin-only). */
