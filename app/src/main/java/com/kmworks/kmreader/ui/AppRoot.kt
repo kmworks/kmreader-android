@@ -197,11 +197,20 @@ private val NavOverlaySpace = 76.dp
 fun AppRoot(
     rootViewModel: RootViewModel = hiltViewModel(),
 ) {
-    // Session gating: render only the login page while no instance is configured
-    val hasSession by rootViewModel.hasSession.collectAsStateWithLifecycle()
-    if (!hasSession) {
-        LoginScreen()
-        return
+    // Session gating: render only the login page while no instance is configured. The config is read
+    // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
+    // (page background only) instead of flashing the login page before the saved session arrives.
+    val sessionGate by rootViewModel.sessionGate.collectAsStateWithLifecycle()
+    when (sessionGate) {
+        SessionGate.Loading -> {
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+            return
+        }
+        SessionGate.SignedOut -> {
+            LoginScreen()
+            return
+        }
+        SessionGate.SignedIn -> Unit
     }
 
     var tab by remember { mutableStateOf(AppTab.Home) }

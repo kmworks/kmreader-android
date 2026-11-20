@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -29,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -45,11 +46,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -711,6 +714,10 @@ private val HorizontalCardShape = RoundedCornerShape(12.dp)
  * Horizontal card skeleton (mirrors iOS HorizontalCardSkeleton): corner radius 12, average cover color as the
  * background (falling back to surface without a tint), padding 8, a 43dp-wide cover cropped to the √2 slot, and a
  * text column with the same height as the cover (≈60.8dp).
+ *
+ * The card height is fixed — exactly the cover slot — so every card in a row is the same size. [status] owns the
+ * bottom of the text column, [block] (title + series) gets everything above it and is clipped to that space, so no
+ * amount of text or font scaling can draw the progress line on top of the series line.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -723,7 +730,8 @@ internal fun HorizontalCardContainer(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
-    text: @Composable BoxScope.(HorizontalCardPalette) -> Unit,
+    block: @Composable ColumnScope.(HorizontalCardPalette) -> Unit,
+    status: @Composable (HorizontalCardPalette) -> Unit,
 ) {
     var tint by remember(tintKey) { mutableStateOf(CoverTintCache.get(tintKey)) }
     val reportTint: (Bitmap) -> Unit = remember(tintKey) {
@@ -765,15 +773,27 @@ internal fun HorizontalCardContainer(
             onCoverBitmap = reportTint,
         )
         Spacer(Modifier.width(8.dp))
-        // The text column is fixed to the cover height (√2 slot ≈60.8dp, mirroring iOS HorizontalCardSkeleton):
-        // cards in the same row always share one height; with the tight line height (includeFontPadding=false)
-        // 4 lines fit exactly, and only very large system font sizes clip the bottom progress line — same as iOS.
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(HorizontalCardCoverWidth / Sqrt2CoverAspect),
-        ) {
-            text(palette)
+        // The four design text lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) already fill the √2 slot,
+        // so the card text is pinned to at most the design's own font scale: following a larger system font size
+        // would need a taller card, and cards in the same row must not differ in height.
+        val density = LocalDensity.current
+        val cardTextDensity = remember(density) {
+            Density(density.density, density.fontScale.coerceAtMost(1f))
+        }
+        CompositionLocalProvider(LocalDensity provides cardTextDensity) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(HorizontalCardCoverWidth / Sqrt2CoverAspect),
+            ) {
+                // The status line keeps its own height at the bottom edge; the block above it is clipped so a
+                // rounding remainder can never be drawn over the status line.
+                Column(
+                    modifier = Modifier.weight(1f).clipToBounds(),
+                    content = { block(palette) },
+                )
+                status(palette)
+            }
         }
     }
 }
@@ -817,13 +837,12 @@ fun BookHorizontalCard(
         onClick = onClick,
         modifier = modifier,
         onLongClick = onLongClick,
-    ) { palette ->
-        val titleColor = when {
-            completed && palette.tinted -> Color.White.copy(alpha = 0.7f)
-            completed -> palette.meta
-            else -> palette.title
-        }
-        Column(modifier = Modifier.align(Alignment.TopStart)) {
+        block = { palette ->
+            val titleColor = when {
+                completed && palette.tinted -> Color.White.copy(alpha = 0.7f)
+                completed -> palette.meta
+                else -> palette.title
+            }
             Text(
                 text = book.titleLine,
                 fontSize = 13.sp,
@@ -834,7 +853,7 @@ fun BookHorizontalCard(
                 overflow = TextOverflow.Ellipsis,
                 style = TightTextStyle, // includeFontPadding=false, otherwise the extra padding of the first/last lines pushes the bottom progress out of the column height
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             if (book.oneshot) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -865,18 +884,19 @@ fun BookHorizontalCard(
                     style = TightTextStyle,
                 )
             }
-        }
-        Text(
-            text = metaText,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            color = metaStatusColor ?: palette.meta,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = TightTextStyle,
-            modifier = Modifier.align(Alignment.BottomStart),
-        )
-    }
+        },
+        status = { palette ->
+            Text(
+                text = metaText,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                color = metaStatusColor ?: palette.meta,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TightTextStyle,
+            )
+        },
+    )
 }
 
 /** Book list row (used on detail pages). */

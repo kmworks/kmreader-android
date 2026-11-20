@@ -23,6 +23,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/**
+ * Startup session gate.
+ *
+ * The saved server config lives in DataStore, so its first value only arrives after the disk read.
+ * Starting the gate at "signed out" would therefore flash the login page for a frame on every cold
+ * start (and, on a slow device, for long enough to see); [Loading] keeps that frame empty instead.
+ */
+enum class SessionGate { Loading, SignedIn, SignedOut }
+
 /** Session gating: any configured instance counts as signed in; also drives SSE long-connection start/stop. */
 @HiltViewModel
 class RootViewModel @Inject constructor(
@@ -36,9 +45,10 @@ class RootViewModel @Inject constructor(
     val config: StateFlow<ServerConfig?> = configStore.config
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val hasSession: StateFlow<Boolean> = configStore.config
-        .map { it?.isConfigured == true }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** Eagerly collected so the gate is already resolved when the first frame is drawn. */
+    val sessionGate: StateFlow<SessionGate> = configStore.config
+        .map { config -> if (config?.isConfigured == true) SessionGate.SignedIn else SessionGate.SignedOut }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SessionGate.Loading)
 
     val sseConnectionState: StateFlow<SseConnectionState> = sseService.connectionState
 

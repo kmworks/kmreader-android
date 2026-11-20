@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,7 +44,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,6 +62,13 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
+import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
@@ -145,12 +152,37 @@ fun ReadListDetailScreen(
         .let { if (it < 0) null else it }
     val heroFirst = visible.firstOrNull()
 
+    // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
+    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    val barHazeState = rememberHazeState()
+    val railScrollState = rememberScrollState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = {
+            if (railScrollState.value > 0 || wideListScrollState.value > 0 || narrowListScrollState.value > 0) 1 else 0
+        },
+        firstVisibleItemScrollOffset = {
+            maxOf(railScrollState.value, wideListScrollState.value, narrowListScrollState.value)
+        },
+    )
+
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {},
+    ) { padding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            // Offset by the status bar inset: the box starts below it, the bar has to cover it too.
+            GlassTopBar(
+                title = "",
+                progress = barProgress,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = -glassTopBarStatusInset())
+                    .zIndex(2f),
+                hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
@@ -204,13 +236,6 @@ fun ReadListDetailScreen(
                     }
                 },
             )
-        },
-    ) { padding ->
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-        ) {
             if (maxWidth >= WideLayoutBreakpoint) {
                 // Wide layout: left info column (maxOf(maxWidth*0.382f, 340.dp)) + right
                 // book list, scrolling independently
@@ -219,8 +244,14 @@ fun ReadListDetailScreen(
                         modifier = Modifier
                             .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                            .verticalScroll(railScrollState)
+                            .hazeSource(barHazeState)
+                            .padding(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = GlassTopBarContentHeight + 16.dp,
+                                bottom = 16.dp,
+                            ),
                     ) {
                         ReadListHero(
                             displayReadList,
@@ -236,7 +267,8 @@ fun ReadListDetailScreen(
                             .weight(1f)
                             .fillMaxHeight()
                             .verticalScroll(wideListScrollState)
-                            .padding(vertical = 8.dp),
+                            .hazeSource(barHazeState)
+                            .padding(top = GlassTopBarContentHeight + 8.dp, bottom = 8.dp),
                     ) {
                         if (continuation != null) {
                             ContinuationHintCard(
@@ -325,7 +357,8 @@ fun ReadListDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(narrowListScrollState)
-                        .padding(vertical = 16.dp),
+                        .hazeSource(barHazeState)
+                        .padding(top = GlassTopBarContentHeight + 16.dp, bottom = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         ReadListHero(

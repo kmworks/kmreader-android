@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -13,9 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -58,10 +61,15 @@ fun glassTopBarTopPadding(): Dp = glassTopBarStatusInset() + GlassTopBarContentH
 private val GlassFadeDistance: Dp = 48.dp
 
 /** Backdrop blur radius behind the bar. */
-private val GlassBlurRadius: Dp = 24.dp
+private val GlassBlurRadius: Dp = 32.dp
 
-/** How much of the surface color the blurred backdrop is tinted with (real blur path). */
-private const val GlassBlurTintAlpha = 0.34f
+/**
+ * How much of the surface color the blurred backdrop is tinted with (real blur path).
+ *
+ * Kept high on purpose: below roughly 0.5 the blurred backdrop still reads as the shapes under it
+ * (headlines behind the bar stay legible), which defeats the point of a frosted bar.
+ */
+private const val GlassBlurTintAlpha = 0.62f
 
 /** Sheet alpha used when the platform cannot blur (Android 12+ has RenderEffect, older ones do not). */
 private const val GlassFallbackTintAlpha = 0.92f
@@ -120,69 +128,95 @@ fun GlassTopBar(
         label = "glassTopBarAlpha",
     )
     val colors = MaterialTheme.colorScheme
-    val blurStyle = remember(colors.surface) {
-        HazeStyle(
-            backgroundColor = Color.Transparent,
-            tint = HazeTint(colors.surface.copy(alpha = GlassBlurTintAlpha)),
-            blurRadius = GlassBlurRadius,
-            noiseFactor = 0f,
-            fallbackTint = HazeTint(colors.surface.copy(alpha = GlassFallbackTintAlpha)),
-        )
-    }
 
     Box(modifier = modifier.fillMaxWidth()) {
-        if (hazeState != null) {
-            // Blur (or the tint fallback below Android 12) fades with the scroll offset.
-            Box(
+        GlassPlate(glass = glass, hazeState = hazeState, blurStyle = rememberGlassBlurStyle())
+        // The bar floats over the page instead of a Material Surface, so nothing provides a content
+        // color here: without this the action icons (IconButton defaults to LocalContentColor) would
+        // keep the black default and disappear on a dark bar.
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            Row(
                 modifier = Modifier
-                    .matchParentSize()
-                    .hazeEffect(state = hazeState, style = blurStyle) {
-                        alpha = glass
-                    },
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                colors.surface.copy(alpha = 0.97f * glass),
-                                colors.surface.copy(alpha = 0.90f * glass),
-                            ),
-                        ),
-                    ),
-            )
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(GlassTopBarContentHeight),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (navigationIcon != null) {
+                    navigationIcon()
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = if (navigationIcon == null) 16.dp else 0.dp, end = 4.dp),
+                )
+                actions()
+            }
         }
-        // Hairline that appears only once content is actually behind the bar.
+    }
+}
+
+/** Blur (or the pre-Android 12 tint fallback) plus the hairline, filling the bar it backs. */
+@Composable
+private fun BoxScope.GlassPlate(
+    glass: Float,
+    hazeState: HazeState?,
+    blurStyle: HazeStyle,
+) {
+    val colors = MaterialTheme.colorScheme
+    if (hazeState != null) {
+        // Blur (or the tint fallback below Android 12) fades with the scroll offset.
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(0.5.dp)
-                .background(colors.outlineVariant.copy(alpha = 0.55f * glass)),
+                .matchParentSize()
+                .hazeEffect(state = hazeState, style = blurStyle) {
+                    // The layer is only partially transparent while the bar fades in, and a partial
+                    // layer shows the sharp, unblurred backdrop at full strength underneath. Ramp it
+                    // up faster than the scroll offset so the backdrop is fully frosted within the
+                    // first part of the fade.
+                    alpha = (glass * 2f).coerceIn(0f, 1f)
+                },
         )
-        Row(
+    } else {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(GlassTopBarContentHeight),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (navigationIcon != null) {
-                navigationIcon()
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = if (navigationIcon == null) 16.dp else 0.dp, end = 4.dp),
-            )
-            actions()
-        }
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            colors.surface.copy(alpha = 0.97f * glass),
+                            colors.surface.copy(alpha = 0.90f * glass),
+                        ),
+                    ),
+                ),
+        )
+    }
+    // Hairline that appears only once content is actually behind the bar.
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .height(0.5.dp)
+            .background(colors.outlineVariant.copy(alpha = 0.55f * glass)),
+    )
+}
+
+/** The blur style is pure theme data, so it is shared by every glass surface. */
+@Composable
+private fun rememberGlassBlurStyle(): HazeStyle {
+    val surface = MaterialTheme.colorScheme.surface
+    return remember(surface) {
+        HazeStyle(
+            backgroundColor = Color.Transparent,
+            tint = HazeTint(surface.copy(alpha = GlassBlurTintAlpha)),
+            blurRadius = GlassBlurRadius,
+            noiseFactor = 0f,
+            fallbackTint = HazeTint(surface.copy(alpha = GlassFallbackTintAlpha)),
+        )
     }
 }

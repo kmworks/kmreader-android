@@ -1,11 +1,9 @@
 package com.kmworks.kmreader.ui.dashboard
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -39,8 +37,7 @@ fun ReadListContinuationCard(
         blurUnread = false,
         onClick = onClick,
         modifier = modifier,
-    ) { palette ->
-        Column(modifier = Modifier.align(Alignment.TopStart)) {
+        block = { palette ->
             Text(
                 text = continuation.readListName,
                 fontSize = 13.sp,
@@ -51,7 +48,7 @@ fun ReadListContinuationCard(
                 overflow = TextOverflow.Ellipsis,
                 style = TightTextStyle, // disables includeFontPadding so first/last-line padding cannot push the bottom progress out of the column height
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 text = continuation.nextBookTitle,
                 fontSize = 11.sp,
@@ -61,24 +58,25 @@ fun ReadListContinuationCard(
                 overflow = TextOverflow.Ellipsis,
                 style = TightTextStyle,
             )
-        }
-        // Progress line: book % while in progress, then list counts (aligned with ReadListContinuationProgressText).
-        val listLabel = stringResource(
-            R.string.dashboard_continuation_read_count,
-            continuation.booksRead,
-            continuation.bookCount,
-        )
-        val progressText = continuation.bookProgress?.let { "${(it * 100).toInt()}% • $listLabel" }
-            ?: listLabel
-        Text(
-            text = progressText,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            color = palette.meta,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = TightTextStyle,
-            modifier = Modifier.align(Alignment.BottomStart),
-        )
-    }
+        },
+        status = { palette ->
+            // Progress line: book % while in progress, then list counts (aligned with ReadListContinuationProgressText).
+            val listLabel = stringResource(
+                R.string.dashboard_continuation_read_count,
+                continuation.booksRead,
+                continuation.bookCount,
+            )
+            val progressText = continuation.bookProgress?.let { "${(it * 100).toInt()}% • $listLabel" }
+                ?: listLabel
+            Text(
+                text = progressText,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                color = palette.meta,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TightTextStyle,
+            )
+        },
+    )
 }

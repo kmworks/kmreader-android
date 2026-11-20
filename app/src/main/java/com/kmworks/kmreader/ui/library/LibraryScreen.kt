@@ -56,6 +56,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
@@ -459,6 +460,10 @@ fun LibraryScreen(
         GlassTopBar(
             title = stringResource(R.string.library_title),
             progress = barProgress,
+            modifier = Modifier.zIndex(1f),
+            // Same real backdrop blur as the dashboard/list tab roots: the scrolling grid or list feeds
+            // this state, so content sliding under the bar is blurred instead of hidden by a solid sheet.
+            hazeState = hazeState,
             actions = {
                 TextButton(onClick = { scopeMenuOpen = true }) {
                     Text(scopeLabel)

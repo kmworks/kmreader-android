@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,7 +67,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -86,6 +86,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.AuthorRole
@@ -200,11 +207,36 @@ internal fun BookDetailBody(
     }
     val displayed = baseBook.copy(progress = progress)
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = {},
+    // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
+    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    val barHazeState = rememberHazeState()
+    val railScrollState = rememberScrollState()
+    val detailScrollState = rememberScrollState()
+    val narrowScrollState = rememberScrollState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = {
+            if (railScrollState.value > 0 || detailScrollState.value > 0 || narrowScrollState.value > 0) 1 else 0
+        },
+        firstVisibleItemScrollOffset = {
+            maxOf(railScrollState.value, detailScrollState.value, narrowScrollState.value)
+        },
+    )
+
+    Scaffold(modifier = modifier) { padding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            // Offset by the status bar inset: the box starts below it, the bar has to cover it too.
+            GlassTopBar(
+                title = "",
+                progress = barProgress,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = -glassTopBarStatusInset())
+                    .zIndex(2f),
+                hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -340,13 +372,6 @@ internal fun BookDetailBody(
                     }
                 },
             )
-        },
-    ) { padding ->
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-        ) {
             if (maxWidth >= WideLayoutBreakpoint) {
                 // Wide golden split: info column maxOf(maxWidth*0.382f, 340.dp), both columns
                 // scroll independently
@@ -355,8 +380,14 @@ internal fun BookDetailBody(
                         modifier = Modifier
                             .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                            .verticalScroll(railScrollState)
+                            .hazeSource(barHazeState)
+                            .padding(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = GlassTopBarContentHeight + 16.dp,
+                                bottom = 16.dp,
+                            ),
                     ) {
                         BookHero(
                             displayed,
@@ -385,8 +416,14 @@ internal fun BookDetailBody(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                            .verticalScroll(detailScrollState)
+                            .hazeSource(barHazeState)
+                            .padding(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = GlassTopBarContentHeight + 16.dp,
+                                bottom = 16.dp,
+                            ),
                     ) {
                         meta?.let {
                             BookSecondaryContent(
@@ -409,8 +446,9 @@ internal fun BookDetailBody(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 16.dp),
+                        .verticalScroll(narrowScrollState)
+                        .hazeSource(barHazeState)
+                        .padding(top = GlassTopBarContentHeight + 16.dp, bottom = 16.dp),
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp),
