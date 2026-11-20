@@ -49,8 +49,6 @@
     <string name="reader_split_hint_ltr">切成前后两半，按从左到右翻</string>
     <string name="reader_split_rtl">从右到左</string>
     <string name="reader_split_hint_rtl">切成前后两半，按从右到左翻</string>
-    <string name="reader_split_scroll">整幅平移</string>
-    <string name="reader_split_hint_scroll">保留整幅跨页图，可左右拖动</string>
 
     <!-- Reader: page layout -->
     <string name="reader_page_layout_single">单页</string>
@@ -104,7 +102,6 @@
     <string name="reader_share_this_page">分享此页</string>
 
     <!-- Reader: status and errors -->
-    <string name="reader_page_spread">第 %1$d 页</string>
     <string name="reader_page_load_failed">第 %1$d 页加载失败</string>
     <string name="reader_pages_load_failed">页面加载失败</string>
     <string name="reader_page_first_half">前半页</string>

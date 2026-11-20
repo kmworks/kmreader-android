@@ -71,6 +71,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
@@ -94,7 +95,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
-import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
@@ -136,8 +136,10 @@ private val ChromeText = Color.White
  *   SESSION-scoped state — changes never write back to the defaults (mirrors @State + reset semantics)
  * - Dual page only in landscape (shouldUseDualPage: width > height && layout != single && direction
  *   not vertical/webtoon); layout == dual forces dual pages (same landscape gating)
- * - Split wide pages: none keeps pages whole / auto·ltr·rtl split into halves / scroll keeps the
- *   whole spread — tapping first pans between the two spread anchors, then turns the page
+ * - Split wide pages: none keeps pages whole / auto·ltr·rtl split into halves. Splitting
+ *   only applies on a portrait screen (landscape already shows the spread at full size) and only on
+ *   an upright page (a 90°/270° rotation makes the page portrait, so nothing is split); each half is a
+ *   crop of one side of the page, never a scaled-down whole spread
  * - ltr / rtl: horizontal paging; vertical: vertical paging; webtoon: continuous vertical scroll
  *   (page width and tap-scroll height are adjustable)
  * - Gestures: tap zones (six layouts + inversion), double-tap zoom (can be disabled), pinch
@@ -192,9 +194,6 @@ fun ReaderScreen(
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
-
-    // Pan anchors for the whole spread (scroll mode): 0f = leading edge (ltr left / rtl right), 1f = trailing edge
-    var spreadPan by remember { mutableFloatStateOf(0f) }
 
     // Keep the screen awake while reading (mirrors the original keepScreenAwakeWhileReading, default false)
     val view = LocalView.current
@@ -280,6 +279,18 @@ fun ReaderScreen(
     val forceDualPairs = allowDualPairs && pageLayoutNow == PageLayout.Dual
     val noCover = !(soloCoverNow && allowDualPairs)
 
+    // Split wide pages only applies in portrait: a landscape screen already shows the spread at full
+    // size, so cutting it in half there only squeezes the page. A 90°/270° page rotation turns a wide
+    // page into a portrait one, which the original does not split either (its effectiveOrientation is
+    // portrait, so the wide-page split eligibility check fails).
+    val splitWideApplies = splitWideNow.isEnabled &&
+        !isWebtoon &&
+        !isLandscapeScreen &&
+        rotationDegrees % 180 == 0
+    // The first half is the left half of the spread, unless the split mode or the reading direction
+    // reads right to left (mirrors isLeftSplitHalf)
+    val firstHalfOnLeft = splitWideNow.effectiveReadingDirection(directionNow) != ReadingDirection.Rtl
+
     val items = remember(
         readerPages,
         allowDualPairs,
@@ -287,13 +298,15 @@ fun ReaderScreen(
         splitWideNow,
         soloPages,
         noCover,
+        isLandscapeScreen,
+        rotationDegrees,
+        directionNow,
     ) {
         ReaderViewItemGenerator.generate(
             pages = readerPages,
             allowDualPairs = allowDualPairs,
             forceDualPairs = forceDualPairs,
-            splitWidePages = splitWideNow.isEnabled && !isWebtoon,
-            keepsSplitSpreadsWhole = splitWideNow.keepsWholeSpread,
+            splitWidePages = splitWideApplies,
             soloPages = soloPages,
             noCover = noCover,
         )
@@ -348,16 +361,28 @@ fun ReaderScreen(
             if (target >= 0 && target != webtoonState.firstVisibleItemIndex) webtoonState.scrollToItem(target)
             return@LaunchedEffect
         }
+        // A wide page cut in half is two cells that both report the same page number: only seek when
+        // the cell on screen does not already show this page, otherwise arriving on the second half
+        // would be undone by a snap back to the first half (and going back would skip it entirely)
+        if (items.getOrNull(pagerState.currentPage)?.pages?.contains(page) == true) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0 && target != pagerState.currentPage) pagerState.scrollToPage(target)
     }
     // After switching layout/split-wide/direction, land on the cell holding the current page
     // (mirrors regenerateViewStatePreservingCurrentPosition)
-    LaunchedEffect(allowDualPairs, forceDualPairs, splitWideNow, directionNow, soloPages, noCover) {
+    LaunchedEffect(
+        allowDualPairs,
+        forceDualPairs,
+        splitWideNow,
+        directionNow,
+        soloPages,
+        noCover,
+        isLandscapeScreen,
+        rotationDegrees,
+    ) {
         if (!pageInitialized || isWebtoon) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
         if (target >= 0) pagerState.scrollToPage(target)
-        spreadPan = 0f
     }
 
     // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate)
@@ -414,28 +439,11 @@ fun ReaderScreen(
             else pagerState.scrollToPage(clamped)
         }
     }
-    // Two-phase tap on a whole spread (mirrors the original requestPagedStep wholeSpread behavior:
-    // pan to the departure edge first; only the next tap turns the page)
+    // Tap-zone navigation: one page per tap
     fun tapNext() {
-        val item = items.getOrNull(pagerState.currentPage)
-        if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
-            val departureEdge = if (directionNow == ReadingDirection.Rtl) 0f else 1f
-            if (spreadPan != departureEdge) {
-                spreadPan = departureEdge
-                return
-            }
-        }
         stepPage(pagerState.currentPage + 1)
     }
     fun tapPrevious() {
-        val item = items.getOrNull(pagerState.currentPage)
-        if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
-            val arrivalEdge = if (directionNow == ReadingDirection.Rtl) 1f else 0f
-            if (spreadPan != arrivalEdge) {
-                spreadPan = arrivalEdge
-                return
-            }
-        }
         stepPage(pagerState.currentPage - 1)
     }
     val gestureModifier = Modifier.pointerInput(
@@ -447,8 +455,7 @@ fun ReaderScreen(
         settings.animateTapTurns,
         isWebtoon,
         directionNow,
-        splitWideNow,
-        items.size,
+        items,
     ) {
         val viewSize = size
         coroutineScope {
@@ -611,6 +618,7 @@ fun ReaderScreen(
                             rotationDegrees = rotationDegrees,
                             contentColor = pageContentColor,
                             pageUrl = viewModel::pageUrl,
+                            firstHalfOnLeft = firstHalfOnLeft,
                         )
                     }
 
@@ -640,27 +648,15 @@ fun ReaderScreen(
                                     }
                                 },
                         ) {
-                            if (splitWideNow.keepsWholeSpread && item is ReaderViewItem.Spread) {
-                                WholeSpreadPage(
-                                    page = item.page,
-                                    url = viewModel.pageUrl(item.page.number),
-                                    imageLoader = imageLoader,
-                                    settings = settings,
-                                    rotationDegrees = rotationDegrees,
-                                    contentColor = pageContentColor,
-                                    panFraction = if (index == pagerState.currentPage) spreadPan else 0f,
-                                    isRtl = directionNow == ReadingDirection.Rtl,
-                                )
-                            } else {
-                                ViewerPage(
-                                    item = item,
-                                    imageLoader = imageLoader,
-                                    settings = settings,
-                                    rotationDegrees = rotationDegrees,
-                                    contentColor = pageContentColor,
-                                    pageUrl = viewModel::pageUrl,
-                                )
-                            }
+                            ViewerPage(
+                                item = item,
+                                imageLoader = imageLoader,
+                                settings = settings,
+                                rotationDegrees = rotationDegrees,
+                                contentColor = pageContentColor,
+                                pageUrl = viewModel::pageUrl,
+                                firstHalfOnLeft = firstHalfOnLeft,
+                            )
                             if (cover) {
                                 // The shadow between pages gives the cover effect depth
                                 Box(
@@ -1060,16 +1056,6 @@ private fun WebtoonItem(
             )
         }
 
-        is ReaderViewItem.Spread -> PageImage(
-            page = item.page,
-            url = pageUrl(item.page.number),
-            imageLoader = imageLoader,
-            settings = settings,
-            rotationDegrees = rotationDegrees,
-            contentColor = contentColor,
-            modifier = modifier,
-        )
-
         is ReaderViewItem.Half -> PageImage(
             page = item.page,
             url = pageUrl(item.page.number),
@@ -1083,7 +1069,7 @@ private fun WebtoonItem(
     }
 }
 
-/** A single display cell: single page / dual pair / whole spread / spread half. */
+/** A single display cell: single page / dual pair / spread half. */
 @Composable
 private fun ViewerPage(
     item: ReaderViewItem,
@@ -1092,6 +1078,7 @@ private fun ViewerPage(
     rotationDegrees: Int,
     contentColor: Color,
     pageUrl: (Int) -> String?,
+    firstHalfOnLeft: Boolean = true,
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -1134,16 +1121,6 @@ private fun ViewerPage(
                 )
             }
 
-            is ReaderViewItem.Spread -> PageImage(
-                page = item.page,
-                url = pageUrl(item.page.number),
-                imageLoader = imageLoader,
-                settings = settings,
-                rotationDegrees = rotationDegrees,
-                contentColor = contentColor,
-                modifier = Modifier.fillMaxSize(),
-            )
-
             is ReaderViewItem.Half -> PageImage(
                 page = item.page,
                 url = pageUrl(item.page.number),
@@ -1152,104 +1129,10 @@ private fun ViewerPage(
                 rotationDegrees = rotationDegrees,
                 contentColor = contentColor,
                 half = if (item.secondHalf) 1 else 0,
+                firstHalfOnLeft = firstHalfOnLeft,
             )
         }
     }
-}
-
-/**
- * Whole spread (scroll split mode): fills the height and overflows the width, panning between the
- * two anchors "leading edge → trailing edge" (mirrors the original keepsSplitSpreadsWhole
- * wholeSpread: two anchors; a tap pans first, then turns the page).
- * panFraction: 0f = leading edge (ltr left / rtl right), 1f = trailing edge.
- */
-@Composable
-private fun WholeSpreadPage(
-    page: ReaderPage,
-    url: String?,
-    imageLoader: ImageLoader,
-    settings: DivinaSettings,
-    rotationDegrees: Int,
-    contentColor: Color,
-    panFraction: Float,
-    isRtl: Boolean,
-) {
-    val rawRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 1.4f
-    val fullRatio = if (rawRatio.isFinite() && rawRatio > 0f) rawRatio else 1.4f
-    val context = LocalContext.current
-    val crop = settings.borderCrop
-    // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
-    // into the page image
-    val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
-        ColorFilter.tint(ReaderBackground.SepiaPaper, BlendMode.Multiply)
-    } else {
-        null
-    }
-    val request = remember(context, url, crop) {
-        url?.let {
-            ImageRequest.Builder(context).data(it).apply {
-                if (crop != BorderCropMode.Disabled) {
-                    transformations(BorderCropTransformation(crop))
-                }
-            }.build()
-        }
-    }
-    val animatedPan by animateFloatAsState(panFraction, label = "spreadPan")
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(2.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (request == null) {
-            PagePlaceholder(
-                label = stringResource(R.string.common_page_number, page.number),
-                ratio = fullRatio,
-                contentColor = contentColor,
-            )
-            return@Box
-        }
-        BoxWithConstraintsCompat {
-            val containerW = maxWidth
-            val containerH = maxHeight
-            // The image fills the height; width = height * aspect ratio (usually wider than the
-            // container, overflowing left and right)
-            val overflowPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-                (containerH.toPx() * fullRatio - containerW.toPx()).coerceAtLeast(0f)
-            }
-            SubcomposeAsyncImage(
-                model = request,
-                contentDescription = stringResource(R.string.reader_page_spread, page.number),
-                imageLoader = imageLoader,
-                contentScale = ContentScale.FillHeight,
-                colorFilter = blendFilter,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .aspectRatio(fullRatio)
-                    .graphicsLayer {
-                        // Centered, the image overflows by overflow/2 on both sides;
-                        // ltr: 0 = left edge (+overflow/2), 1 = right edge (-overflow/2); rtl is reversed
-                        translationX = if (isRtl) {
-                            (animatedPan - 0.5f) * overflowPx
-                        } else {
-                            (0.5f - animatedPan) * overflowPx
-                        }
-                        if (rotationDegrees != 0) rotationZ = rotationDegrees.toFloat()
-                    },
-            ) {
-                PageImageStates(pageNumber = page.number, contentColor = contentColor)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BoxWithConstraintsCompat(content: @Composable androidx.compose.foundation.layout.BoxWithConstraintsScope.() -> Unit) {
-    androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-        content = content,
-    )
 }
 
 /**
@@ -1266,6 +1149,8 @@ private fun PageImage(
     contentColor: Color,
     modifier: Modifier = Modifier,
     half: Int? = null,
+    /** In half mode: the first half is the left side of the spread unless the reading direction is right-to-left. */
+    firstHalfOnLeft: Boolean = true,
     /** Content alignment inside the cell (toward the gutter in dual pairs; mirrors the original trailing/leading). */
     alignment: Alignment = Alignment.Center,
 ) {
@@ -1311,6 +1196,13 @@ private fun PageImage(
 
     // Display ratio: in half mode it is half of the full-page ratio (mirrors the original half-page crop)
     val displayRatio = if (half != null) fullRatio / 2f else fullRatio
+    // Which side of the spread this cell shows (mirrors isLeftSplitHalf: the first half is the left
+    // half of the page unless the reading direction runs right-to-left)
+    val halfAnchorLeft = when (half) {
+        null -> true
+        0 -> firstHalfOnLeft
+        else -> !firstHalfOnLeft
+    }
 
     // The page container stays transparent (mirrors the original backgroundColor=.clear: the reader
     // background shows through while loading); the shadow is applied only after the image loads
@@ -1331,25 +1223,31 @@ private fun PageImage(
 
     // Fit the ratio inside the container (mirrors iOS scaleAspectFit: hugs the width in portrait,
     // the height in landscape, showing the whole page uncropped)
+    val cellModifier = Modifier
+        .fillMaxSize()
+        .then(if (pageLoaded) shadowModifier else Modifier)
+        // In half mode the cell is a crop of the spread: the clip belongs on the cell, outside the
+        // (wider than the cell) page image it cuts apart
+        .then(if (half != null) Modifier.clipToBounds() else Modifier)
+        // A half cell rotates as a whole, so a 180° rotation keeps showing the same side of the page
+        // instead of mirroring the crop
+        .then(if (half != null) rotationModifier else Modifier)
+
     FitRatioBox(ratio = displayRatio, modifier = modifier, contentAlignment = alignment) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (pageLoaded) shadowModifier else Modifier),
-        ) {
+        Box(modifier = cellModifier) {
             if (half != null) {
+                // One half of the spread, cropped exactly like the original cropImageForSplitMode: the
+                // cell keeps half the spread's ratio, the crop scale fits the page to the cell height
+                // (twice the cell width) and the alignment chooses which side stays inside the clip
                 SubcomposeAsyncImage(
                     model = request,
                     contentDescription = stringResource(R.string.common_page_number, page.number),
                     imageLoader = imageLoader,
-                    contentScale = ContentScale.Fit,
+                    alignment = if (halfAnchorLeft) Alignment.CenterStart else Alignment.CenterEnd,
+                    contentScale = ContentScale.Crop,
                     colorFilter = blendFilter,
                     onState = { imageState = it },
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .aspectRatio(fullRatio)
-                        .align(if (half == 1) Alignment.CenterEnd else Alignment.CenterStart)
-                        .then(rotationModifier),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     PageImageStates(pageNumber = page.number, contentColor = contentColor)
                 }
@@ -1404,42 +1302,51 @@ private fun FitRatioBox(
 private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(pageNumber: Int, contentColor: Color) {
     val state by painter.state.collectAsState()
     when (state) {
-        is AsyncImagePainter.State.Loading -> {
-            // Mirrors the iOS NativePageItem loading indicator: in-page spinner + page-number placeholder
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp),
-                        strokeWidth = 2.dp,
-                        color = contentColor.copy(alpha = 0.45f),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = stringResource(R.string.common_page_number, pageNumber),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = contentColor.copy(alpha = 0.45f),
-                    )
-                }
-            }
-        }
-
-        is AsyncImagePainter.State.Error -> {
-            val retryPainter = painter
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.reader_page_load_failed, pageNumber),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = contentColor.copy(alpha = 0.45f),
-                    )
-                    TextButton(onClick = { retryPainter.restart() }) {
-                        Text(stringResource(R.string.common_retry), color = contentColor)
-                    }
-                }
-            }
-        }
+        is AsyncImagePainter.State.Loading -> PageLoadingIndicator(pageNumber = pageNumber, contentColor = contentColor)
+        is AsyncImagePainter.State.Error -> PageErrorIndicator(
+            pageNumber = pageNumber,
+            contentColor = contentColor,
+            onRetry = { painter.restart() },
+        )
 
         else -> SubcomposeAsyncImageContent()
+    }
+}
+
+/** Mirrors the iOS NativePageItem loading indicator: in-page spinner + page-number placeholder. */
+@Composable
+private fun PageLoadingIndicator(pageNumber: Int, contentColor: Color) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                strokeWidth = 2.dp,
+                color = contentColor.copy(alpha = 0.45f),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.common_page_number, pageNumber),
+                style = MaterialTheme.typography.titleSmall,
+                color = contentColor.copy(alpha = 0.45f),
+            )
+        }
+    }
+}
+
+/** Load failure placeholder with a retry action. */
+@Composable
+private fun PageErrorIndicator(pageNumber: Int, contentColor: Color, onRetry: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = stringResource(R.string.reader_page_load_failed, pageNumber),
+                style = MaterialTheme.typography.titleSmall,
+                color = contentColor.copy(alpha = 0.45f),
+            )
+            TextButton(onClick = onRetry) {
+                Text(stringResource(R.string.common_retry), color = contentColor)
+            }
+        }
     }
 }
 
@@ -1531,7 +1438,7 @@ private fun ReaderPageMenuSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val pageLabel = stringResource(R.string.reader_page_spread, page.number)
+    val pageLabel = stringResource(R.string.common_page_number, page.number)
     val shareLabel = stringResource(R.string.reader_share_page)
     AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 24.dp)) {

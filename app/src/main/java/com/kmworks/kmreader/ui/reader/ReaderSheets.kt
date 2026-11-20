@@ -77,19 +77,28 @@ enum class ReadingDirection(@StringRes val labelRes: Int) {
 }
 
 /**
- * Wide-page (spread) handling, mirroring the original SplitWidePageMode (Models/SplitWidePageMode.swift):
- * none = no split / auto = automatic / ltr·rtl = split into two halves by direction / scroll = keep the whole spread and pan horizontally.
+ * Wide-page (spread) handling, mirroring the original SplitWidePageMode (Models/SplitWidePageMode.swift),
+ * minus its `scroll` mode: none = no split / auto = automatic / ltr·rtl = split into two halves by
+ * direction. Whole-spread panning was removed because it never rendered reliably on Android.
  */
 enum class SplitWidePageMode(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
     None(R.string.reader_split_none, R.string.reader_split_hint_none),
     Auto(R.string.reader_split_auto, R.string.reader_split_hint_auto),
     Ltr(R.string.reader_split_ltr, R.string.reader_split_hint_ltr),
-    Rtl(R.string.reader_split_rtl, R.string.reader_split_hint_rtl),
-    Scroll(R.string.reader_split_scroll, R.string.reader_split_hint_scroll);
+    Rtl(R.string.reader_split_rtl, R.string.reader_split_hint_rtl);
 
     val isEnabled: Boolean get() = this != None
-    val keepsWholeSpread: Boolean get() = this == Scroll
     val next: SplitWidePageMode get() = entries[(ordinal + 1) % entries.size]
+
+    /**
+     * Reading direction the halves follow (mirrors the original `effectiveReadingDirection`): ltr/rtl
+     * override the reader direction, every other mode follows it.
+     */
+    fun effectiveReadingDirection(readingDirection: ReadingDirection): ReadingDirection = when (this) {
+        None, Auto -> readingDirection
+        Ltr -> ReadingDirection.Ltr
+        Rtl -> ReadingDirection.Rtl
+    }
 }
 
 /** Page layout (mirrors the original PageLayout: single/auto/dual-forced; dual pages only take effect in landscape, gated by the reader based on screen orientation). */

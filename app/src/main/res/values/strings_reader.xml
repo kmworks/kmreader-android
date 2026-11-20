@@ -49,8 +49,6 @@
     <string name="reader_split_hint_ltr">Split into two halves, turning left to right</string>
     <string name="reader_split_rtl">Right to left</string>
     <string name="reader_split_hint_rtl">Split into two halves, turning right to left</string>
-    <string name="reader_split_scroll">Pan whole spread</string>
-    <string name="reader_split_hint_scroll">Keep the whole spread, draggable horizontally</string>
 
     <!-- Reader: page layout -->
     <string name="reader_page_layout_single">Single page</string>
@@ -104,7 +102,6 @@
     <string name="reader_share_this_page">Share this page</string>
 
     <!-- Reader: status and errors -->
-    <string name="reader_page_spread">Page %1$d</string>
     <string name="reader_page_load_failed">Page %1$d failed to load</string>
     <string name="reader_pages_load_failed">Failed to load pages</string>
     <string name="reader_page_first_half">First half</string>

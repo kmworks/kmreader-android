@@ -31,11 +31,6 @@ sealed interface ReaderViewItem {
         override val pages: List<Int> = listOf(first.number, second.number)
     }
 
-    /** A wide spread page shown whole (pannable, never cut apart). */
-    data class Spread(val page: ReaderPage) : ReaderViewItem {
-        override val pages: List<Int> = listOf(page.number)
-    }
-
     /** A wide spread page cut into two halves, each turned separately. */
     data class Half(val page: ReaderPage, val secondHalf: Boolean) : ReaderViewItem {
         override val pages: List<Int> = listOf(page.number)
@@ -48,13 +43,14 @@ sealed interface ReaderViewItem {
  *
  * Original branches (pageCurl is not implemented on Android, so it counts as false):
  * - forceDualPairs (page layout = dual, outside the landscape gate): portrait cover → single page;
- *   splittable wide page → halves / whole spread; landscape page → single page; last page / solo page
- *   / unpairable next page → single page; otherwise → dual pair.
+ *   splittable wide page → halves; landscape page → single page; last page / solo page /
+ *   unpairable next page → single page; otherwise → dual pair.
  * - not forced (auto layout, allowDualPairs gated by landscape): landscape not splittable → single
  *   page; non-wide cover → single page; solo page → single page; last page → single page;
  *   allowDualPairs and the next page is portrait and not solo → dual pair; otherwise → single page.
- * - Wide pages only participate in splitting when "split wide pages" is on: ltr/rtl cut them in two,
- *   scroll keeps the whole spread (keepsSplitSpreadsWhole).
+ * - Wide pages only participate in splitting when "split wide pages" is on: ltr/rtl cut them in two
+ *   halves. The caller gates this on a portrait screen and an upright page, so a landscape screen or
+ *   a 90°/270° rotation yields a single page.
  * - Solo cover is forced only when soloCover=true (mirrors the original noCover=!shouldSoloCover).
  */
 object ReaderViewItemGenerator {
@@ -65,7 +61,6 @@ object ReaderViewItemGenerator {
         allowDualPairs: Boolean,
         forceDualPairs: Boolean,
         splitWidePages: Boolean,
-        keepsSplitSpreadsWhole: Boolean,
         soloPages: Set<Int> = emptySet(),
     ): List<ReaderViewItem> {
         if (pages.isEmpty()) return emptyList()
@@ -92,12 +87,8 @@ object ReaderViewItemGenerator {
                         index += 1
                     }
                     wideEligibleForSplit -> {
-                        if (keepsSplitSpreadsWhole) {
-                            items += ReaderViewItem.Spread(page)
-                        } else {
-                            items += ReaderViewItem.Half(page, secondHalf = false)
-                            items += ReaderViewItem.Half(page, secondHalf = true)
-                        }
+                        items += ReaderViewItem.Half(page, secondHalf = false)
+                        items += ReaderViewItem.Half(page, secondHalf = true)
                         index += 1
                     }
                     page.isLandscape -> {
@@ -118,12 +109,8 @@ object ReaderViewItemGenerator {
 
             when {
                 wideEligibleForSplit -> {
-                    if (keepsSplitSpreadsWhole) {
-                        items += ReaderViewItem.Spread(page)
-                    } else {
-                        items += ReaderViewItem.Half(page, secondHalf = false)
-                        items += ReaderViewItem.Half(page, secondHalf = true)
-                    }
+                    items += ReaderViewItem.Half(page, secondHalf = false)
+                    items += ReaderViewItem.Half(page, secondHalf = true)
                     index += 1
                 }
                 page.isLandscape -> {

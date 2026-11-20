@@ -127,7 +127,8 @@ fun ReaderDefaultsScreen(
                         }
                     },
                 )
-                // Mirrors DivinaPreferencesView: split wide pages is a 5-option picker (none/auto/ltr/rtl/scroll), not a switch
+                // Split wide pages is a 4-option picker (none/auto/ltr/rtl), not a switch (the
+                // original's scroll mode was removed: whole-spread panning does not render reliably)
                 val splitModeLabels = mutableListOf<String>()
                 for (mode in SplitWidePageMode.entries) splitModeLabels.add(stringResource(mode.labelRes))
                 DefaultsChipRow(
