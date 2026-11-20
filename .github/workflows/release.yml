@@ -174,3 +174,9 @@ jobs:
             --target "$GITHUB_SHA" \
             "$ASSET" \
             "$ASSET_SUM"
+
+      # `gh release create` does not guarantee the new release becomes "Latest"
+      # (v0.1.2 was published as a prerelease, leaving /releases/latest on 404),
+      # so pin both flags explicitly after the fact.
+      - name: Mark the release as latest
+        run: gh release edit "$TAG" --prerelease=false --latest
