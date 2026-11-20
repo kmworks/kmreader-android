@@ -337,8 +337,8 @@ fun SmartListDetailScreen(
 
     if (optionsOpen) {
         BrowseOptionsSheet(
-            options = options,
-            onOptionsChange = { options = it },
+            initialOptions = options,
+            onConfirm = { options = it },
             onDismiss = { optionsOpen = false },
         )
     }

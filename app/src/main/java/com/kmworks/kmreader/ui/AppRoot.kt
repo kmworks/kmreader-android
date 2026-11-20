@@ -39,8 +39,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,7 +57,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CollectionDetail
@@ -105,103 +114,63 @@ private enum class SettingsPage {
     CustomFonts, Cache, Network, Sse, Logs, Account, Server, About, Licenses,
 }
 
-/** Reader target: a null format means the server mediaType is still being resolved (a loading state is shown until it resolves). */
-private data class ReaderTarget(
-    val book: Book,
-    val format: String?,
-    val incognito: Boolean,
-)
-
 /**
- * The page a library metadata filter was jumped from.
+ * One full-screen page pushed above the tab skeleton.
  *
- * A metadata chip on a detail page (author/tag/publisher/genre/notable entity) opens the filtered library
- * list; the original app pushes that list on top of the detail page, so going back returns to the detail
- * page. Here the list is the library tab, so the page the chip was tapped on is snapshotted and restored by
- * the next back gesture/button (one step) instead of leaving the app.
- */
-private data class BrowseReturn(
-    val tab: AppTab,
-    val detail: Series?,
-    val bookDetail: Book?,
-    val collectionDetailId: Int?,
-    val readListDetailId: Int?,
-    val smartListDetailId: Int?,
-    val dashboardSection: DashboardSection<out Any>?,
-    val showSettings: Boolean,
-    val settingsPage: SettingsPage?,
-    val readerTarget: ReaderTarget?,
-)
-
-/**
- * One full-screen overlay pushed above the tab skeleton.
- *
- * [depth] is the visual stacking rank (1 sits directly above the tabs, larger is higher) and [key] is the
- * stable identity of the page: two routes with the same key are the same layer, so the page beneath keeps
- * its composition (scroll position, open sheets) while the page above slides in.
+ * [key] is the stable identity of the page: pushing a route that is already on top is a no-op, so the same
+ * entry is never stacked twice. Pages live in a real stack, so back always returns to the page the current
+ * one was opened from — including the filtered library list a metadata chip pushes.
  */
 private sealed interface Route {
     val key: String
-    val depth: Int
-}
-
-/** Stacking rank of every overlay kind (mirrors the order of the old hand-written layers). */
-private object LayerDepth {
-    const val SeriesDetail = 1
-    const val BookDetail = 2
-    const val CollectionDetail = 3
-    const val ReadListDetail = 4
-    const val SmartListDetail = 5
-    const val DashboardSection = 6
-    const val Settings = 7
-    const val SettingsPage = 8
-    const val Reader = 9
-    const val Max = Reader
 }
 
 private data class SeriesDetailRoute(val series: Series) : Route {
     override val key: String get() = "series:${series.id}"
-    override val depth: Int get() = LayerDepth.SeriesDetail
 }
 
 private data class BookDetailRoute(val book: Book) : Route {
     override val key: String get() = "book:${book.id}"
-    override val depth: Int get() = LayerDepth.BookDetail
 }
 
 private data class CollectionDetailRoute(val id: Int) : Route {
     override val key: String get() = "collection:$id"
-    override val depth: Int get() = LayerDepth.CollectionDetail
 }
 
 private data class ReadListDetailRoute(val id: Int) : Route {
     override val key: String get() = "readList:$id"
-    override val depth: Int get() = LayerDepth.ReadListDetail
 }
 
 private data class SmartListDetailRoute(val id: Int) : Route {
     override val key: String get() = "smartList:$id"
-    override val depth: Int get() = LayerDepth.SmartListDetail
 }
 
 private data class DashboardSectionRoute(val section: DashboardSection<out Any>) : Route {
     override val key: String get() = "dashboardSection:${section.id}"
-    override val depth: Int get() = LayerDepth.DashboardSection
 }
 
 private data object SettingsRoute : Route {
     override val key: String get() = "settings"
-    override val depth: Int get() = LayerDepth.Settings
 }
 
 private data class SettingsPageRoute(val page: SettingsPage) : Route {
     override val key: String get() = "settings:${page.name}"
-    override val depth: Int get() = LayerDepth.SettingsPage
 }
 
 private data class ReaderRoute(val book: Book, val format: String, val incognito: Boolean) : Route {
     override val key: String get() = "reader:${book.id}:$incognito"
-    override val depth: Int get() = LayerDepth.Reader
+}
+
+/**
+ * A library list restricted to one metadata route, pushed above the page the chip was tapped on.
+ *
+ * It is a page of its own (the original app pushes the same list above the detail page), so the library tab
+ * keeps whatever the user set up there, back returns to the page the chip was tapped on, and the page can be
+ * left by clearing its filter chip.
+ */
+private data class FilteredLibraryRoute(val request: LibraryFilterRequest) : Route {
+    // The route and the list it applies to, so a repeated tap on the same chip does not stack a second copy
+    override val key: String get() = "library:${request.contentType}:${request.route}"
 }
 
 /**
@@ -237,130 +206,87 @@ fun AppRoot(
     }
 
     var tab by remember { mutableStateOf(AppTab.Home) }
-    var detail by remember { mutableStateOf<Series?>(null) }
-    var bookDetail by remember { mutableStateOf<Book?>(null) }
-    var collectionDetailId by remember { mutableStateOf<Int?>(null) }
-    var readListDetailId by remember { mutableStateOf<Int?>(null) }
-    var smartListDetailId by remember { mutableStateOf<Int?>(null) }
-    var dashboardSection by remember { mutableStateOf<DashboardSection<out Any>?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
-    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
-    var readerTarget by remember { mutableStateOf<ReaderTarget?>(null) }
-    // Detail-page metadata chip targets (publisher/author/genre/tag/known entity), landing on the library browse tab
-    var browseFilter by remember { mutableStateOf<LibraryFilterRequest?>(null) }
-    // Page the current browse filter was jumped from, restored by the next back gesture (see BrowseReturn)
-    var browseReturn by remember { mutableStateOf<BrowseReturn?>(null) }
-    // Bumped on every jump so that tapping the same chip twice re-applies the filter
-    var browseRequestSeq by remember { mutableStateOf(0L) }
+    // The real page stack: index 0 is the first page above the tabs. Pages are appended when something is
+    // opened and removed from the end by back, so back always returns to the page the current one was opened
+    // from (a detail page, a filtered list, a list detail) instead of leaving the app.
+    val pages = remember { mutableStateListOf<Route>() }
+    // Keeps every metadata-chip jump a distinct request (so a second jump re-applies the filter instead of
+    // being treated as unchanged)
+    var filterSequence by remember { mutableStateOf(0L) }
 
     val scope = rememberCoroutineScope()
-    // Metadata chip jump: snapshot the page the chip was tapped on (so back returns to it), leave the overlay
-    // stack and show the library list filtered by the route. A series-detail chip lands on the series list, a
-    // book-detail chip on the book list, mirroring the iOS per-origin browse destinations.
-    val showBrowseFilter: (String, LibraryContentType) -> Unit = { route, contentType ->
-        browseReturn = BrowseReturn(
-            tab = tab,
-            detail = detail,
-            bookDetail = bookDetail,
-            collectionDetailId = collectionDetailId,
-            readListDetailId = readListDetailId,
-            smartListDetailId = smartListDetailId,
-            dashboardSection = dashboardSection,
-            showSettings = showSettings,
-            settingsPage = settingsPage,
-            readerTarget = readerTarget,
-        )
-        browseRequestSeq += 1
-        browseFilter = LibraryFilterRequest(
-            route = route,
-            contentType = contentType,
-            requestId = browseRequestSeq,
-        )
-        detail = null
-        bookDetail = null
-        collectionDetailId = null
-        readListDetailId = null
-        smartListDetailId = null
-        dashboardSection = null
-        showSettings = false
-        settingsPage = null
-        readerTarget = null
-        tab = AppTab.Library
+    // Pushes a page. The page on top is never stacked twice, so tapping the same entry twice does nothing.
+    val push: (Route) -> Unit = { route ->
+        if (pages.lastOrNull()?.key != route.key) pages.add(route)
     }
-    // Put the page a browse-filter jump started from back on screen (the filtered list's one-step return).
-    // The filter itself stays applied, so going back to the library tab later shows the same list.
-    val restoreBrowseReturn: (BrowseReturn) -> Unit = { back ->
-        browseReturn = null
-        tab = back.tab
-        detail = back.detail
-        bookDetail = back.bookDetail
-        collectionDetailId = back.collectionDetailId
-        readListDetailId = back.readListDetailId
-        smartListDetailId = back.smartListDetailId
-        dashboardSection = back.dashboardSection
-        showSettings = back.showSettings
-        settingsPage = back.settingsPage
-        readerTarget = back.readerTarget
+    // Leaves the front-most page: a page's own back arrow, the back key and the gesture all run this, so
+    // they can never disagree about which page leaves.
+    val pop: () -> Unit = { if (pages.isNotEmpty()) pages.removeAt(pages.lastIndex) }
+    // The filtered library list a metadata chip opens: a page of its own, so the library tab keeps whatever
+    // the user set up there. The jumping page decides which list it shows (a series-detail chip opens the
+    // series list, a book-detail chip the book list), mirroring the iOS per-origin browse destinations.
+    val pushFilteredLibrary: (String, LibraryContentType) -> Unit = { route, contentType ->
+        filterSequence += 1
+        push(
+            FilteredLibraryRoute(
+                LibraryFilterRequest(
+                    route = route,
+                    contentType = contentType,
+                    requestId = filterSequence,
+                ),
+            ),
+        )
     }
     // Oneshot series click -> single-book detail (mirrors iOS NavDestination.oneshotDetail); fall back to regular series detail when the lookup fails
     val openSeries: (Series) -> Unit = { series ->
         if (series.oneshot) {
             scope.launch {
                 val book = rootViewModel.oneshotBookForSeries(series.id)
-                if (book != null) bookDetail = book else detail = series
+                if (book != null) push(BookDetailRoute(book)) else push(SeriesDetailRoute(series))
             }
         } else {
-            detail = series
+            push(SeriesDetailRoute(series))
         }
     }
-    val openBook: (Book) -> Unit = { bookDetail = it }
+    val openBook: (Book) -> Unit = { push(BookDetailRoute(it)) }
     // Book context menu "Visit Series": resolve the owning series from the registry (an empty-shell Series; the detail VM loads the real data)
     val visitSeriesOfBook: (Book) -> Unit = { book ->
         scope.launch {
             rootViewModel.seriesStableIdForBook(book.id)?.let { seriesId ->
-                detail = Series(
-                    id = seriesId,
-                    title = "",
-                    author = "",
-                    hue = 0f,
-                    bookCount = 0,
-                    unreadCount = 0,
-                    progress = null,
+                push(
+                    SeriesDetailRoute(
+                        Series(
+                            id = seriesId,
+                            title = "",
+                            author = "",
+                            hue = 0f,
+                            bookCount = 0,
+                            unreadCount = 0,
+                            progress = null,
+                        ),
+                    ),
                 )
             }
         }
     }
+    // The reader stacks like any page, but only once the server said which reader to open: until the media
+    // type arrives a black cover with a spinner holds the screen (see the loading layer below), so opening a
+    // book never shows the wrong reader sliding in.
+    var resolvingReader by remember { mutableStateOf(false) }
     val openReader: (Book, Boolean) -> Unit = { book, incognito ->
-        readerTarget = ReaderTarget(book = book, format = null, incognito = incognito)
         scope.launch {
-            val format = rootViewModel.resolveBookFormat(book.id) ?: "CBZ"
-            readerTarget = readerTarget
-                ?.takeIf { it.book.id == book.id && it.format == null }
-                ?.copy(format = format)
+            resolvingReader = true
+            try {
+                val format = rootViewModel.resolveBookFormat(book.id) ?: "CBZ"
+                push(ReaderRoute(book = book, format = format, incognito = incognito))
+            } finally {
+                resolvingReader = false
+            }
         }
     }
 
-    // Back gesture: collapse overlays in reverse visual order; then, on a library list opened from a detail
-    // page, return to that page; hand back to the system (exit) only when neither remains
-    val hasOverlay = readerTarget != null || settingsPage != null || showSettings ||
-        dashboardSection != null || smartListDetailId != null || readListDetailId != null ||
-        collectionDetailId != null || bookDetail != null || detail != null
-    BackHandler(enabled = hasOverlay || browseReturn != null) {
-        val back = browseReturn
-        when {
-            readerTarget != null -> readerTarget = null
-            settingsPage != null -> settingsPage = null
-            showSettings -> showSettings = false
-            dashboardSection != null -> dashboardSection = null
-            smartListDetailId != null -> smartListDetailId = null
-            readListDetailId != null -> readListDetailId = null
-            collectionDetailId != null -> collectionDetailId = null
-            bookDetail != null -> bookDetail = null
-            detail != null -> detail = null
-            // The filtered list replaces the page it was jumped from: restore it (and its tab) one step back
-            back != null -> restoreBrowseReturn(back)
-        }
-    }
+    // Back: the front-most page leaves. With nothing pushed no handler runs, so the system leaves the app.
+    BackHandler(enabled = pages.isNotEmpty()) { pop() }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // Overlay navigation on every form factor: the tab bar floats above the pages, so their content keeps the full
@@ -374,23 +300,15 @@ fun AppRoot(
                 when (tab) {
                     AppTab.Home -> DashboardScreen(
                         onOpenSeries = openSeries,
-                        onOpenSettings = { showSettings = true },
+                        onOpenSettings = { push(SettingsRoute) },
                         onOpenBook = openBook,
-                        onOpenSectionDetail = { dashboardSection = it },
-                        onOpenContinuation = { readListDetailId = it.readListId },
+                        onOpenSectionDetail = { push(DashboardSectionRoute(it)) },
+                        onOpenContinuation = { push(ReadListDetailRoute(it.readListId)) },
                         onVisitSeries = visitSeriesOfBook,
                         onReadBook = openReader,
                     )
 
                     AppTab.Library -> LibraryScreen(
-                        filterRequest = browseFilter,
-                        // Clearing the chip drops both the filter and the page it was jumped from
-                        onClearFilter = {
-                            browseFilter = null
-                            browseReturn = null
-                        },
-                        // Only offered while the jump's origin page is still pending
-                        onBackToOrigin = browseReturn?.let { back -> { restoreBrowseReturn(back) } },
                         onOpenSeries = openSeries,
                         onOpenBook = openBook,
                         onVisitSeries = visitSeriesOfBook,
@@ -398,9 +316,9 @@ fun AppRoot(
                     )
 
                     AppTab.Lists -> ListsScreen(
-                        onOpenCollection = { collectionDetailId = it },
-                        onOpenReadList = { readListDetailId = it },
-                        onOpenSmartList = { smartListDetailId = it },
+                        onOpenCollection = { push(CollectionDetailRoute(it)) },
+                        onOpenReadList = { push(ReadListDetailRoute(it)) },
+                        onOpenSmartList = { push(SmartListDetailRoute(it)) },
                     )
 
                     AppTab.Offline -> OfflineScreen()
@@ -408,8 +326,8 @@ fun AppRoot(
                     AppTab.Browse -> BrowseScreen(
                         onOpenSeries = openSeries,
                         onOpenBook = openBook,
-                        onOpenReadList = { readListDetailId = it },
-                        onOpenCollection = { collectionDetailId = it },
+                        onOpenReadList = { push(ReadListDetailRoute(it)) },
+                        onOpenCollection = { push(CollectionDetailRoute(it)) },
                         onReadBook = openReader,
                     )
                 }
@@ -426,35 +344,33 @@ fun AppRoot(
                 ) {
                     FloatingNavBar(
                         selected = tab,
-                        onSelect = { next ->
-                            tab = next
-                            // Leaving the filtered list deliberately drops the jump's return page; the filter
-                            // chip itself stays until cleared
-                            if (next != AppTab.Library) browseReturn = null
-                        },
+                        // Switching tabs leaves the pages of the previous tab on the stack; the reader is
+                        // the one page that keeps the screen (a backgrounded read is a phone call away).
+                        onSelect = { next -> tab = next },
                     )
                 }
             }
         }
 
-        // Full-screen overlays, one animated slot per depth: the tab skeleton is depth 0 and every page above
-        // it (detail -> book -> list detail -> section -> settings -> reader) owns its own slot, so the pages
-        // beneath keep their composition (scroll position, open sheets) while the page above slides in.
-        val routeStack: List<Route> = buildList {
-            detail?.let { add(SeriesDetailRoute(it)) }
-            bookDetail?.let { add(BookDetailRoute(it)) }
-            collectionDetailId?.let { add(CollectionDetailRoute(it)) }
-            readListDetailId?.let { add(ReadListDetailRoute(it)) }
-            smartListDetailId?.let { add(SmartListDetailRoute(it)) }
-            dashboardSection?.let { add(DashboardSectionRoute(it)) }
-            if (showSettings) add(SettingsRoute)
-            settingsPage?.let { add(SettingsPageRoute(it)) }
-            val reader = readerTarget
-            val readerFormat = reader?.format
-            if (reader != null && readerFormat != null) add(ReaderRoute(reader.book, readerFormat, reader.incognito))
+        // The reader's media type is still in flight: hold the screen with the black the readers open on, so
+        // the page slides in over the same black instead of a cover handing over to a page.
+        AnimatedVisibility(
+            visible = resolvingReader,
+            enter = fadeIn(tween(80)),
+            exit = fadeOut(tween(200)),
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = Color.White)
+            }
         }
 
-        OverlayStack(stack = routeStack) { route ->
+        // Pages above the tab skeleton, drawn one animated slot per stack position: the tab skeleton is the
+        // page below index 0 and every pushed page owns its slot, so the pages beneath keep their
+        // composition (scroll position, open sheets) while the page above slides in.
+        OverlayStack(stack = pages) { route ->
             when (route) {
                 is SeriesDetailRoute -> {
                     val series = route.series
@@ -462,15 +378,15 @@ fun AppRoot(
                     key(series.id) {
                         SeriesDetailScreen(
                             series = series,
-                            onBack = { detail = null },
+                            onBack = pop,
                             onRead = { book -> openReader(book, false) },
                             onReadIncognito = { book -> openReader(book, true) },
-                            onDeleted = { detail = null },
+                            onDeleted = pop,
                             onBrowseFilter = { filter ->
-                                showBrowseFilter(filter, LibraryContentType.Series)
+                                pushFilteredLibrary(filter, LibraryContentType.Series)
                             },
                             onOpenBook = openBook,
-                            onOpenCollection = { collectionDetailId = it },
+                            onOpenCollection = { push(CollectionDetailRoute(it)) },
                         )
                     }
                 }
@@ -482,29 +398,32 @@ fun AppRoot(
                             book = book,
                             // Oneshot detail shape (mirrors OneShotDetailContentView): no series row, no volume number
                             seriesTitle = if (book.oneshot) null else book.seriesTitle,
-                            onBack = { bookDetail = null },
+                            onBack = pop,
                             onRead = { openReader(book, false) },
                             onReadIncognito = { openReader(book, true) },
                             onOpenReadList = {
                                 // Read list detail stacks above book detail; back returns to book detail
-                                readListDetailId = it
+                                push(ReadListDetailRoute(it))
                             },
                             onBrowseFilter = { filter ->
                                 // Same as series detail, but the book author/tag chips land on the book list
-                                showBrowseFilter(filter, LibraryContentType.Books)
+                                pushFilteredLibrary(filter, LibraryContentType.Books)
                             },
                             onOpenSeries = {
                                 scope.launch {
                                     rootViewModel.seriesStableIdForBook(book.id)?.let { seriesId ->
-                                        bookDetail = null
-                                        detail = Series(
-                                            id = seriesId,
-                                            title = "",
-                                            author = "",
-                                            hue = 0f,
-                                            bookCount = 0,
-                                            unreadCount = 0,
-                                            progress = null,
+                                        push(
+                                            SeriesDetailRoute(
+                                                Series(
+                                                    id = seriesId,
+                                                    title = "",
+                                                    author = "",
+                                                    hue = 0f,
+                                                    bookCount = 0,
+                                                    unreadCount = 0,
+                                                    progress = null,
+                                                ),
+                                            ),
                                         )
                                     }
                                 }
@@ -520,11 +439,9 @@ fun AppRoot(
                     key(id) {
                         CollectionDetailScreen(
                             collection = collection,
-                            onBack = { collectionDetailId = null },
-                            onOpenSeries = {
-                                collectionDetailId = null
-                                detail = it
-                            },
+                            onBack = pop,
+                            // The series list stacks above the collection; back returns to the collection
+                            onOpenSeries = { push(SeriesDetailRoute(it)) },
                         )
                     }
                 }
@@ -535,24 +452,24 @@ fun AppRoot(
                     key(id) {
                         ReadListDetailScreen(
                             readList = readList,
-                            onBack = { readListDetailId = null },
+                            onBack = pop,
                             // Mirrors the original app: tapping a book reads it directly (details go through the "View Details" menu item)
                             onRead = { openReader(it, false) },
                             onReadIncognito = { openReader(it, true) },
-                            onOpenBook = {
-                                readListDetailId = null
-                                bookDetail = it
-                            },
+                            onOpenBook = { push(BookDetailRoute(it)) },
                             onOpenSeries = { seriesStableId ->
-                                readListDetailId = null
-                                detail = Series(
-                                    id = seriesStableId,
-                                    title = "",
-                                    author = "",
-                                    hue = 0f,
-                                    bookCount = 0,
-                                    unreadCount = 0,
-                                    progress = null,
+                                push(
+                                    SeriesDetailRoute(
+                                        Series(
+                                            id = seriesStableId,
+                                            title = "",
+                                            author = "",
+                                            hue = 0f,
+                                            bookCount = 0,
+                                            unreadCount = 0,
+                                            progress = null,
+                                        ),
+                                    ),
                                 )
                             },
                         )
@@ -574,15 +491,9 @@ fun AppRoot(
                     key(id) {
                         SmartListDetailScreen(
                             smartList = smartList,
-                            onBack = { smartListDetailId = null },
-                            onOpenBook = {
-                                smartListDetailId = null
-                                bookDetail = it
-                            },
-                            onOpenSeries = {
-                                smartListDetailId = null
-                                detail = it
-                            },
+                            onBack = pop,
+                            onOpenBook = { push(BookDetailRoute(it)) },
+                            onOpenSeries = { push(SeriesDetailRoute(it)) },
                             onRead = { openReader(it, false) },
                             onReadIncognito = { openReader(it, true) },
                         )
@@ -593,168 +504,186 @@ fun AppRoot(
                     val section = route.section
                     DashboardSectionDetailScreen(
                         section = section,
-                        onBack = { dashboardSection = null },
-                        onOpenSeries = {
-                            dashboardSection = null
-                            detail = it
-                        },
-                        onOpenBook = {
-                            dashboardSection = null
-                            bookDetail = it
-                        },
+                        onBack = pop,
+                        onOpenSeries = { push(SeriesDetailRoute(it)) },
+                        onOpenBook = { push(BookDetailRoute(it)) },
                         onReadBook = { book, incognito -> openReader(book, incognito) },
                     )
                 }
 
                 is SettingsRoute -> SettingsScreen(
-                    onBack = { showSettings = false },
-                    onOpenAppearance = { settingsPage = SettingsPage.Appearance },
-                    onOpenBrowse = { settingsPage = SettingsPage.Browse },
-                    onOpenDashboard = { settingsPage = SettingsPage.Dashboard },
-                    onOpenReaderDefaults = { settingsPage = SettingsPage.ReaderDefaults },
-                    onOpenStats = { settingsPage = SettingsPage.Stats },
-                    onOpenCustomFonts = { settingsPage = SettingsPage.CustomFonts },
-                    onOpenCache = { settingsPage = SettingsPage.Cache },
-                    onOpenNetwork = { settingsPage = SettingsPage.Network },
-                    onOpenSse = { settingsPage = SettingsPage.Sse },
-                    onOpenLogs = { settingsPage = SettingsPage.Logs },
-                    onOpenAccount = { settingsPage = SettingsPage.Account },
-                    onOpenServer = { settingsPage = SettingsPage.Server },
-                    onOpenAbout = { settingsPage = SettingsPage.About },
-                    onOpenLicenses = { settingsPage = SettingsPage.Licenses },
+                    onBack = pop,
+                    onOpenAppearance = { push(SettingsPageRoute(SettingsPage.Appearance)) },
+                    onOpenBrowse = { push(SettingsPageRoute(SettingsPage.Browse)) },
+                    onOpenDashboard = { push(SettingsPageRoute(SettingsPage.Dashboard)) },
+                    onOpenReaderDefaults = { push(SettingsPageRoute(SettingsPage.ReaderDefaults)) },
+                    onOpenStats = { push(SettingsPageRoute(SettingsPage.Stats)) },
+                    onOpenCustomFonts = { push(SettingsPageRoute(SettingsPage.CustomFonts)) },
+                    onOpenCache = { push(SettingsPageRoute(SettingsPage.Cache)) },
+                    onOpenNetwork = { push(SettingsPageRoute(SettingsPage.Network)) },
+                    onOpenSse = { push(SettingsPageRoute(SettingsPage.Sse)) },
+                    onOpenLogs = { push(SettingsPageRoute(SettingsPage.Logs)) },
+                    onOpenAccount = { push(SettingsPageRoute(SettingsPage.Account)) },
+                    onOpenServer = { push(SettingsPageRoute(SettingsPage.Server)) },
+                    onOpenAbout = { push(SettingsPageRoute(SettingsPage.About)) },
+                    onOpenLicenses = { push(SettingsPageRoute(SettingsPage.Licenses)) },
                 )
 
                 is SettingsPageRoute -> when (route.page) {
-                    SettingsPage.Appearance -> AppearanceSettingsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Browse -> BrowseSettingsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Dashboard -> SettingsDashboardScreen(onBack = { settingsPage = null })
+                    SettingsPage.Appearance -> AppearanceSettingsScreen(onBack = pop)
+                    SettingsPage.Browse -> BrowseSettingsScreen(onBack = pop)
+                    SettingsPage.Dashboard -> SettingsDashboardScreen(onBack = pop)
                     SettingsPage.ReaderDefaults -> ReaderDefaultsScreen(
-                        onBack = { settingsPage = null },
-                        onOpenCustomFonts = { settingsPage = SettingsPage.CustomFonts },
+                        onBack = pop,
+                        onOpenCustomFonts = { push(SettingsPageRoute(SettingsPage.CustomFonts)) },
                     )
-                    SettingsPage.Stats -> ReadingStatsScreen(onBack = { settingsPage = null })
-                    SettingsPage.CustomFonts -> CustomFontsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Cache -> CacheSettingsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Network -> NetworkSettingsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Sse -> SseSettingsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Logs -> LogsScreen(onBack = { settingsPage = null })
-                    SettingsPage.Account -> ServerListScreen(onBack = { settingsPage = null })
-                    SettingsPage.Server -> ServerAdminScreen(onBack = { settingsPage = null })
-                    SettingsPage.About -> AboutScreen(onBack = { settingsPage = null })
-                    SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = { settingsPage = null })
+                    SettingsPage.Stats -> ReadingStatsScreen(onBack = pop)
+                    SettingsPage.CustomFonts -> CustomFontsScreen(onBack = pop)
+                    SettingsPage.Cache -> CacheSettingsScreen(onBack = pop)
+                    SettingsPage.Network -> NetworkSettingsScreen(onBack = pop)
+                    SettingsPage.Sse -> SseSettingsScreen(onBack = pop)
+                    SettingsPage.Logs -> LogsScreen(onBack = pop)
+                    SettingsPage.Account -> ServerListScreen(onBack = pop)
+                    SettingsPage.Server -> ServerAdminScreen(onBack = pop)
+                    SettingsPage.About -> AboutScreen(onBack = pop)
+                    SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = pop)
+                }
+
+                // The filtered library list a metadata chip pushed: a page of its own, so the library tab
+                // keeps its own conditions and back returns to the page the chip was tapped on.
+                is FilteredLibraryRoute -> key(route.key) {
+                    LibraryScreen(
+                        initialFilter = route.request,
+                        onBack = pop,
+                        onOpenSeries = openSeries,
+                        onOpenBook = openBook,
+                        onVisitSeries = visitSeriesOfBook,
+                        onReadBook = openReader,
+                    )
                 }
 
                 // Route the reader by real format (server mediaType): CBZ/CBR -> Divina, EPUB -> EPUB, PDF -> PDF.
-                // The route joins the stack only once the format resolved, so the loading cover below never takes
-                // part in a transition.
+                // The format was resolved before the page was pushed, so this layer only picks the reader.
                 is ReaderRoute -> when (route.format) {
-                    // Cross-page navigation actions from the in-reader detail sheet: close the reader and open the target page
-                    // (iOS can push in place inside the reader's NavigationStack; the Android reader is a top-layer overlay)
+                    // Cross-page navigation actions from the in-reader detail sheet push the target page
+                    // above the reader, so back returns into the book being read.
                     "EPUB" -> EpubReaderScreen(
                         book = route.book,
-                        onBack = { readerTarget = null },
+                        onBack = pop,
                         incognito = route.incognito,
                         onVisitSeries = {
-                            readerTarget = null
+                            pop()
                             visitSeriesOfBook(it)
                         },
-                        onOpenReadList = {
-                            readerTarget = null
-                            readListDetailId = it
-                        },
+                        onOpenReadList = { push(ReadListDetailRoute(it)) },
                         onBrowseFilter = { filter ->
-                            // The reader stays in the back snapshot, so back from the filtered list returns here
-                            showBrowseFilter(filter, LibraryContentType.Books)
+                            pushFilteredLibrary(filter, LibraryContentType.Books)
                         },
                     )
 
                     "PDF" -> PdfReaderScreen(
                         book = route.book,
-                        onBack = { readerTarget = null },
+                        onBack = pop,
                         incognito = route.incognito,
                         onVisitSeries = {
-                            readerTarget = null
+                            pop()
                             visitSeriesOfBook(it)
                         },
-                        onOpenReadList = {
-                            readerTarget = null
-                            readListDetailId = it
-                        },
+                        onOpenReadList = { push(ReadListDetailRoute(it)) },
                         onBrowseFilter = { filter ->
-                            // The reader stays in the back snapshot, so back from the filtered list returns here
-                            showBrowseFilter(filter, LibraryContentType.Books)
+                            pushFilteredLibrary(filter, LibraryContentType.Books)
                         },
                     )
 
                     else -> ReaderScreen(
                         book = route.book,
-                        onBack = { readerTarget = null },
+                        onBack = pop,
                         incognito = route.incognito,
                         onVisitSeries = {
-                            readerTarget = null
+                            pop()
                             visitSeriesOfBook(it)
                         },
-                        onOpenReadList = {
-                            readerTarget = null
-                            readListDetailId = it
-                        },
+                        onOpenReadList = { push(ReadListDetailRoute(it)) },
                         onBrowseFilter = { filter ->
-                            // The reader stays in the back snapshot, so back from the filtered list returns here
-                            showBrowseFilter(filter, LibraryContentType.Books)
+                            pushFilteredLibrary(filter, LibraryContentType.Books)
                         },
                     )
                 }
-            }
-        }
-
-        // Reader entry: the server mediaType is resolved before the reader route joins the stack, so the waiting
-        // state is a plain black cover above everything; it fades out under the entering page.
-        AnimatedVisibility(
-            visible = readerTarget != null && readerTarget?.format == null,
-            enter = fadeIn(animationSpec = tween(durationMillis = 80)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 200)),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
             }
         }
     }
 }
 
 /**
- * Renders the overlay stack above the tab skeleton, one fixed slot per [LayerDepth] rank.
+ * A view model store that lives exactly as long as the page composed in it.
  *
- * Every slot stays composed (an empty slot just draws nothing), so the page underneath an entering page keeps
- * its composition and its state; only the page that is actually pushed or popped takes part in a transition.
- * A page enters from the right, a page popped from the top slides back out to the right, and the page left
- * underneath recedes a little (slide left + dim) while anything covers it.
+ * A pushed page owns its state the way a navigation entry does: the root hands it its own store, so its view
+ * model -- and anything the page installed on it, such as the browse condition a metadata-chip jump applies --
+ * is cleared when the page leaves instead of lingering in the activity-wide store. Factories and extras are
+ * forwarded to the host, so the page still gets its dependencies injected exactly as before.
+ */
+private class PageViewModelStoreOwner(
+    private val host: HasDefaultViewModelProviderFactory,
+) : ViewModelStoreOwner, HasDefaultViewModelProviderFactory {
+    override val viewModelStore = ViewModelStore()
+    override val defaultViewModelProviderFactory: ViewModelProvider.Factory
+        get() = host.defaultViewModelProviderFactory
+    override val defaultViewModelCreationExtras: CreationExtras
+        get() = host.defaultViewModelCreationExtras
+}
+
+/**
+ * Gives the page composed here its own view models, identified by [key].
+ *
+ * Two pages of the same kind can stand in the stack at once (a series opened from a book of another series),
+ * and each has to keep its own state instead of sharing one screen's; a page that leaves also takes its view
+ * models with it.
+ */
+@Composable
+private fun PageScope(key: String, content: @Composable () -> Unit) {
+    val host = LocalViewModelStoreOwner.current as? HasDefaultViewModelProviderFactory
+    val owner = remember(key, host) { host?.let { PageViewModelStoreOwner(it) } }
+    DisposableEffect(owner) {
+        onDispose { owner?.viewModelStore?.clear() }
+    }
+    if (owner != null) {
+        CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
+    } else {
+        content()
+    }
+}
+
+/**
+ * Renders the pushed pages above the tab skeleton, one slot per stack position.
+ *
+ * Every slot stays composed (an empty slot draws nothing), so the page underneath an entering page keeps its
+ * composition and its state; only the page that is pushed or popped takes part in a transition.
  */
 @Composable
 private fun OverlayStack(
     stack: List<Route>,
     content: @Composable (Route) -> Unit,
 ) {
-    val byDepth = stack.associateBy { it.depth }
     Box(modifier = Modifier.fillMaxSize()) {
-        for (depth in 1..LayerDepth.Max) {
-            val route = byDepth[depth]
-            LayerSlot(
-                route = route,
-                covered = route != null && (depth + 1..LayerDepth.Max).any { byDepth[it] != null },
-                content = content,
-            )
+        // One slot past the top: the page that was just popped is still drawn there while it leaves.
+        for (index in 0..stack.size) {
+            key(index) {
+                LayerSlot(
+                    route = stack.getOrNull(index),
+                    covered = index < stack.lastIndex,
+                    content = content,
+                )
+            }
         }
     }
 }
 
 /**
- * One depth slot: the page currently living at that depth plus its enter and exit transition.
+ * One stack position: the page living there plus the motion that brings it in and takes it away.
  *
- * [content] draws whichever route it is handed, so an exiting page is still drawn from its own route instead
- * of the nullable state that has already been cleared.
+ * A page that is covered drifts left and dims a little, and the sliver its drift uncovers is filled with the
+ * page surface instead of the tab skeleton behind the stack. A page swapped at the same position (the series
+ * of the book already open) is replaced in place rather than pushed.
  */
 @Composable
 private fun LayerSlot(
@@ -762,44 +691,47 @@ private fun LayerSlot(
     covered: Boolean,
     content: @Composable (Route) -> Unit,
 ) {
-    val recede = animateFloatAsState(
+    val recede by animateFloatAsState(
         targetValue = if (covered) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
-        label = "layerRecede",
+        label = "layerSlot",
     )
     Box(modifier = Modifier.fillMaxSize()) {
-        // The covered page drifts left, so the sliver it uncovers is filled with the page surface instead of the
-        // tab skeleton behind the stack; it fades with the drift, so nothing snaps while a page settles back.
+        // A covered page drifts left, so the sliver it uncovers is filled with the page surface instead of
+        // the tab skeleton behind the stack; it fades in with the drift, so nothing snaps while a page
+        // settles.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background.copy(alpha = recede.value)),
+                .background(MaterialTheme.colorScheme.background.copy(alpha = recede)),
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    // Parallax: the covered page drifts left while the new page slides in over it.
-                    translationX = -size.width * 0.08f * recede.value
-                },
+                .graphicsLayer { translationX = -size.width * 0.08f * recede },
         ) {
             AnimatedContent(
                 targetState = route,
                 transitionSpec = {
                     if (initialState != null && targetState != null) {
-                        // The same depth swapped pages in place (book detail jumping to its series, a read list
-                        // opening a series): the page above is the one that animates out, so the new page is
-                        // simply in place by the time it is revealed instead of sliding in underneath.
+                        // Same stack position, different page: it replaces the page in place instead of
+                        // claiming a place in the hierarchy it does not have.
                         EnterTransition.None togetherWith ExitTransition.None
                     } else {
                         (
                             slideInHorizontally(
-                                animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
                                 initialOffsetX = { width -> width },
-                            ) + fadeIn(animationSpec = tween(durationMillis = 150))
-                        ).togetherWith(
+                            ) + fadeIn(tween(150))
+                            ).togetherWith(
                             slideOutHorizontally(
-                                animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
                                 targetOffsetX = { width -> width },
                             ),
                         )
@@ -807,14 +739,16 @@ private fun LayerSlot(
                 },
                 contentKey = { it?.key },
                 label = "layerSlot",
-                modifier = Modifier.fillMaxSize(),
             ) { target ->
-                if (target != null) content(target)
+                if (target != null) {
+                    PageScope(key = target.key) { content(target) }
+                }
             }
+            // A covered page dims a little: enough depth to read the stack, not enough to hide the page.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.10f * recede.value)),
+                    .background(Color.Black.copy(alpha = 0.10f * recede)),
             )
         }
     }

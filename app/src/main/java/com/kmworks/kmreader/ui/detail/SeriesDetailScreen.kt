@@ -605,8 +605,8 @@ fun SeriesDetailScreen(
 
     if (showOptionsSheet) {
         BrowseOptionsSheet(
-            options = browseOptions,
-            onOptionsChange = { browseOptions = it },
+            initialOptions = browseOptions,
+            onConfirm = { browseOptions = it },
             onDismiss = { showOptionsSheet = false },
             suggestionSeriesStableId = series.id,
         )

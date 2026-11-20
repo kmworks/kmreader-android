@@ -199,8 +199,8 @@ fun BrowseScreen(
 
             if (showFilterSheet) {
                 BrowseOptionsSheet(
-                    options = browseOptions,
-                    onOptionsChange = viewModel::setBrowseOptions,
+                    initialOptions = browseOptions,
+                    onConfirm = viewModel::setBrowseOptions,
                     onDismiss = { showFilterSheet = false },
                     // The search tab's series search supports metadata dimensions (book search ignores inapplicable keys)
                     showSeriesFilters = true,

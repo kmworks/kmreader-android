@@ -201,6 +201,35 @@ class LibraryViewModel @Inject constructor(
         browseOptionsFlow.value = options
     }
 
+    /** Condition injected by the last metadata-chip jump; null = the list is not filtered by a chip. */
+    private var appliedMetadataRoute: AppliedMetadataRoute? = null
+
+    /**
+     * Replaces the metadata-chip condition of the list with the one encoded in [route] (mirrors the iOS
+     * metadataFilter: switching chips replaces the previous condition instead of accumulating).
+     *
+     * The injected condition is tracked here rather than in the screen, so that it stays revocable after the
+     * screen left composition (back to the origin page, a tab switch): a remember-based record would be lost
+     * there, leaving the filter applied with nothing left to undo it.
+     */
+    fun applyMetadataRoute(route: String) {
+        var base = browseOptionsFlow.value
+        appliedMetadataRoute?.let { previous ->
+            base = revokeFilterRoute(base, previous)
+            appliedMetadataRoute = null
+        }
+        val (next, applied) = applyFilterRoute(base, route) ?: return
+        appliedMetadataRoute = applied
+        if (next != base) browseOptionsFlow.value = next
+    }
+
+    /** Drops the metadata-chip condition again: the chip's clear button, or back to the page it came from. */
+    fun clearMetadataRoute() {
+        val applied = appliedMetadataRoute ?: return
+        appliedMetadataRoute = null
+        browseOptionsFlow.value = revokeFilterRoute(browseOptionsFlow.value, applied)
+    }
+
     /** Resolve the scope to library ids (mirrors iOS resolvedIds: all → no filter, empty pinned → no filter). */
     private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? =
         resolveLibraryScopeIds(scope, pinned)

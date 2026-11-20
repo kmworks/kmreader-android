@@ -461,8 +461,8 @@ fun ReadListDetailScreen(
 
     if (optionsOpen) {
         BrowseOptionsSheet(
-            options = options,
-            onOptionsChange = { options = it },
+            initialOptions = options,
+            onConfirm = { options = it },
             onDismiss = { optionsOpen = false },
             suggestionReadListStableId = readList.id,
         )

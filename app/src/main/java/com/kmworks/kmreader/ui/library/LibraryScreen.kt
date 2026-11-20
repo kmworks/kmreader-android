@@ -62,10 +62,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
-import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.Series
-import com.kmworks.kmreader.data.filterKey
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BookGridCard
@@ -94,17 +91,6 @@ import com.kmworks.kmreader.ui.util.shareText
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
-/** Wire tokens of the metadata-filter route shared with the detail screens (they emit, this
- *  screen consumes). Internal routing values only; display labels are localized at render time. */
-private const val FILTER_KIND_AUTHOR = "author"
-private const val FILTER_KIND_TAG = "tag"
-private const val FILTER_KIND_PUBLISHER = "publisher"
-private const val FILTER_KIND_GENRE = "genre"
-private const val FILTER_KIND_AGE_RATING = "ageRating"
-private const val FILTER_KIND_LANGUAGE = "language"
-private const val FILTER_KIND_RELEASE_YEAR = "releaseYear"
-private const val FILTER_KIND_NOTABLE = "notable"
-
 /** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
  *  with counts), below it the scope summary (scope title + size caption); the scope
  *  (all/pinned/single library) is switched in place from the toolbar menu and defaults to pinned.
@@ -112,16 +98,29 @@ private const val FILTER_KIND_NOTABLE = "notable"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
-    filterRequest: LibraryFilterRequest? = null,
-    onClearFilter: () -> Unit = {},
-    // Present while this list was opened from a detail page by a metadata chip: returns to that page
-    onBackToOrigin: (() -> Unit)? = null,
+    // Set when this list was pushed by a metadata chip: the page opens already filtered by that route and
+    // keeps its own view model, so the library tab's own conditions are never touched.
+    initialFilter: LibraryFilterRequest? = null,
+    // Pops this page; the header shows a back arrow exactly when the page was pushed (null on the tab).
+    onBack: (() -> Unit)? = null,
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
     onVisitSeries: (Book) -> Unit = {},
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
+    // A pushed filtered list gets a page-scoped view model from the AppRoot; the library tab keeps its own
+    viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    var contentType by remember { mutableStateOf(LibraryContentType.Series) }
+    var contentType by remember { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
+    // The route restricting this page (null = none). The applied condition lives in the view model, so it
+    // survives this screen leaving composition and can always be taken back -- both when the page is popped
+    // and when the chip is cleared.
+    var activeFilter by remember { mutableStateOf(initialFilter) }
+    LaunchedEffect(initialFilter?.route) {
+        val request = initialFilter ?: return@LaunchedEffect
+        viewModel.applyMetadataRoute(request.route)
+        contentType = request.contentType
+        activeFilter = request
+    }
     // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout,
     // default grid)
     val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.Grid)
@@ -145,112 +144,12 @@ fun LibraryScreen(
     var deleteBookTarget by remember { mutableStateOf<Book?>(null) }
     val context = LocalContext.current
 
-    val viewModel: LibraryViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
     // real content only; empty state when there is no session or nothing loaded
     val series = state.series ?: emptyList()
     val allBooks = state.books ?: emptyList()
     // Display name of the current scope (mirrors iOS LibraryScopeMenu)
     val scopeLabel = libraryScopeLabel(state.scope, state.libraries)
-
-    // Target of the metadata-chip jumps from detail pages: routes like "author · X" and
-    // "notable · kind · X" are translated into real browse filters applied to the query.
-    // Mirrors iOS NavDestination.metadataFilter: switching chips replaces the previous condition
-    // wholesale (revoke first, then add) instead of accumulating.
-    var appliedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
-    LaunchedEffect(filterRequest) {
-        val applied = appliedFilter
-        var current = state.browseOptions
-        if (applied != null) {
-            // Revoke the previously applied condition (notable entities are stored as filterKey,
-            // other dimensions store the value itself)
-            current = when (applied.first) {
-                FILTER_KIND_AUTHOR -> current.copy(authors = current.authors - applied.second)
-                FILTER_KIND_TAG -> current.copy(tags = current.tags - applied.second)
-                FILTER_KIND_PUBLISHER -> current.copy(publishers = current.publishers - applied.second)
-                FILTER_KIND_GENRE -> current.copy(genres = current.genres - applied.second)
-                FILTER_KIND_AGE_RATING -> current.copy(ageRatings = current.ageRatings - applied.second)
-                FILTER_KIND_LANGUAGE -> current.copy(languages = current.languages - applied.second)
-                FILTER_KIND_RELEASE_YEAR -> current.copy(releaseYears = current.releaseYears - applied.second)
-                FILTER_KIND_NOTABLE -> current.copy(
-                    notableEntities = current.notableEntities
-                        .filterNot { it.filterKey == applied.second },
-                )
-                else -> current
-            }
-            appliedFilter = null
-        }
-        // The jumping page decides which list the filter applies to (a series-detail chip opens the
-        // series list, a book-detail chip the book list), mirroring the iOS fixedContent of the
-        // pushed BrowseView.
-        filterRequest?.let { contentType = it.contentType }
-        val parts = filterRequest?.route?.split("·")?.map { it.trim() }.orEmpty()
-        val kind = parts.getOrNull(0).orEmpty()
-        // Two-part: "author · X" etc.; three-part: "notable · kind · X" (kind = entity kind token)
-        val value: String
-        val next: BookBrowseOptions
-        when {
-            parts.size == 3 && kind == FILTER_KIND_NOTABLE && parts[2].isNotBlank() -> {
-                val entity = NotableEntity(
-                    name = parts[2],
-                    kind = parts[1],
-                )
-                value = entity.filterKey
-                next = if (entity !in current.notableEntities) {
-                    current.copy(notableEntities = current.notableEntities + entity)
-                } else {
-                    current
-                }
-            }
-            parts.size == 2 && parts[1].isNotBlank() -> {
-                value = parts[1]
-                next = when (kind) {
-                    FILTER_KIND_AUTHOR -> if (value !in current.authors) {
-                        current.copy(authors = current.authors + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_TAG -> if (value !in current.tags) {
-                        current.copy(tags = current.tags + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_PUBLISHER -> if (value !in current.publishers) {
-                        current.copy(publishers = current.publishers + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_GENRE -> if (value !in current.genres) {
-                        current.copy(genres = current.genres + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_AGE_RATING -> if (value !in current.ageRatings) {
-                        current.copy(ageRatings = current.ageRatings + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_LANGUAGE -> if (value !in current.languages) {
-                        current.copy(languages = current.languages + value)
-                    } else {
-                        current
-                    }
-                    FILTER_KIND_RELEASE_YEAR -> if (value !in current.releaseYears) {
-                        current.copy(releaseYears = current.releaseYears + value)
-                    } else {
-                        current
-                    }
-                    else -> current
-                }
-            }
-            else -> {
-                if (applied != null) viewModel.setBrowseOptions(current)
-                return@LaunchedEffect
-            }
-        }
-        if (next != current || applied != null) viewModel.setBrowseOptions(next)
-        appliedFilter = kind to value
-    }
 
     // Series/books keep independent scroll positions; the frosted bar fades in with the active scroller.
     val seriesGridState = rememberLazyGridState()
@@ -259,10 +158,10 @@ fun LibraryScreen(
     val seriesListState = rememberLazyListState()
     val booksListState = rememberLazyListState()
     val listState = if (contentType == LibraryContentType.Series) seriesListState else booksListState
-    // A metadata-chip jump opens a filtered list: start it from the top instead of wherever the shared
-    // library scrollers happened to rest (the old content is gone, so the saved index means nothing).
-    LaunchedEffect(filterRequest?.requestId) {
-        if (filterRequest == null) return@LaunchedEffect
+    // A pushed filtered list starts from the top instead of wherever the library scrollers happened to rest
+    // (the old content is gone, so the saved index means nothing).
+    LaunchedEffect(initialFilter?.requestId) {
+        if (initialFilter == null) return@LaunchedEffect
         seriesGridState.scrollToItem(0)
         booksGridState.scrollToItem(0)
         seriesListState.scrollToItem(0)
@@ -359,9 +258,11 @@ fun LibraryScreen(
                         seriesCount = state.seriesTotal ?: series.size.toLong(),
                         booksCount = state.booksTotal ?: allBooks.size.toLong(),
                         caption = headerCaption,
-                        activeFilter = filterRequest?.route,
-                        onClearFilter = onClearFilter,
-                        onBackToOrigin = onBackToOrigin,
+                        activeFilter = activeFilter?.route,
+                        onClearFilter = {
+                            viewModel.clearMetadataRoute()
+                            activeFilter = null
+                        },
                         horizontalPadding = 16.dp,
                     )
                 }
@@ -427,9 +328,11 @@ fun LibraryScreen(
                         seriesCount = state.seriesTotal ?: series.size.toLong(),
                         booksCount = state.booksTotal ?: allBooks.size.toLong(),
                         caption = headerCaption,
-                        activeFilter = filterRequest?.route,
-                        onClearFilter = onClearFilter,
-                        onBackToOrigin = onBackToOrigin,
+                        activeFilter = activeFilter?.route,
+                        onClearFilter = {
+                            viewModel.clearMetadataRoute()
+                            activeFilter = null
+                        },
                         horizontalPadding = 0.dp,
                     )
                 }
@@ -476,6 +379,17 @@ fun LibraryScreen(
             // Same real backdrop blur as the dashboard/list tab roots: the scrolling grid or list feeds
             // this state, so content sliding under the bar is blurred instead of hidden by a solid sheet.
             hazeState = hazeState,
+            // Only a pushed list (a metadata-chip jump) leaves somewhere: the tab root has no predecessor.
+            navigationIcon = onBack?.let { back ->
+                {
+                    IconButton(onClick = back) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                }
+            },
             actions = {
                 // The menu must live inside the same Box as its anchor button: a DropdownMenu placed directly in
                 // the actions Row anchors its popup to that full-width Row and opens against the screen's left edge.
@@ -549,8 +463,8 @@ fun LibraryScreen(
 
     if (showOptionsSheet) {
         BrowseOptionsSheet(
-            options = state.browseOptions,
-            onOptionsChange = viewModel::setBrowseOptions,
+            initialOptions = state.browseOptions,
+            onConfirm = viewModel::setBrowseOptions,
             onDismiss = { showOptionsSheet = false },
             showSeriesFilters = true,
             suggestionLibraryIds = resolveLibraryScopeIds(state.scope, state.pinnedIds),
@@ -750,7 +664,6 @@ private fun LibraryHeader(
     caption: String,
     activeFilter: String?,
     onClearFilter: () -> Unit,
-    onBackToOrigin: (() -> Unit)?,
     horizontalPadding: Dp,
 ) {
     Column(modifier = Modifier.padding(horizontal = horizontalPadding)) {
@@ -781,12 +694,14 @@ private fun LibraryHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp),
         )
-        // Target of the metadata-chip jumps of the detail pages ("kind · value" / "notable · kind · value")
+        // Target of the metadata-chip jump: the list shows what it is restricted to, and clearing the chip
+        // drops the condition (the page itself stays, like a browse page whose filter was reset).
         activeFilter?.let { filter ->
             val parts = filter.split("·").map { it.trim() }
             val chipLabel = when {
                 parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE ->
-                    "${stringResource(R.string.browse_kind_notable)} · ${notableKindLabel(parts[1])} · ${parts[2]}"
+                    "${stringResource(R.string.browse_kind_notable)} · " +
+                        "${notableKindLabel(parts[1])} · ${parts[2]}"
                 parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
                 else -> filter
             }
@@ -795,16 +710,6 @@ private fun LibraryHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // The filtered list was opened from a detail page: offer the same one-step return the back
-                // gesture performs (the detail pages show a back arrow for the same reason)
-                onBackToOrigin?.let { back ->
-                    IconButton(onClick = back) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.common_back),
-                        )
-                    }
-                }
                 FilterChip(
                     selected = true,
                     onClick = onClearFilter,

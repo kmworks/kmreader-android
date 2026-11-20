@@ -292,8 +292,8 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BrowseOptionsSheet(
-    options: BookBrowseOptions,
-    onOptionsChange: (BookBrowseOptions) -> Unit,
+    initialOptions: BookBrowseOptions,
+    onConfirm: (BookBrowseOptions) -> Unit,
     onDismiss: () -> Unit,
     // Series-only metadata dimensions (mirrors the original SeriesSearch condition groups; only the series browse page passes true)
     showSeriesFilters: Boolean = false,
@@ -303,6 +303,11 @@ fun BrowseOptionsSheet(
     suggestionCollectionStableId: Int? = null,
     suggestionReadListStableId: Int? = null,
 ) {
+    // The sheet edits a draft: a condition is queried only once the user confirms with Done, so
+    // ticking several dimensions does not fire one request per tap, and closing without confirming
+    // leaves the list exactly as it was (mirrors the original BrowseFilterSheet).
+    var options by remember { mutableStateOf(initialOptions) }
+    val onOptionsChange: (BookBrowseOptions) -> Unit = { updated -> options = updated }
     val browseSuggestions = rememberBrowseFilterSuggestions(
         libraryIds = suggestionLibraryIds,
         seriesStableId = suggestionSeriesStableId,
@@ -542,7 +547,10 @@ fun BrowseOptionsSheet(
                     Spacer(Modifier.padding(2.dp))
                     Text(stringResource(R.string.filter_save_preset))
                 }
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.common_done)) }
+                Button(
+                    onClick = { onConfirm(options); onDismiss() },
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.common_done)) }
             }
         }
     }
