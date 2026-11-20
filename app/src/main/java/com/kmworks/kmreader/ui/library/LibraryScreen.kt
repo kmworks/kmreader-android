@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -40,7 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -94,11 +94,6 @@ import com.kmworks.kmreader.ui.util.shareText
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
-private enum class ContentType(@param:StringRes val labelRes: Int) {
-    Series(R.string.common_series),
-    Books(R.string.browse_scope_books),
-}
-
 /** Wire tokens of the metadata-filter route shared with the detail screens (they emit, this
  *  screen consumes). Internal routing values only; display labels are localized at render time. */
 private const val FILTER_KIND_AUTHOR = "author"
@@ -117,20 +112,22 @@ private const val FILTER_KIND_NOTABLE = "notable"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
-    activeFilter: String? = null,
+    filterRequest: LibraryFilterRequest? = null,
     onClearFilter: () -> Unit = {},
+    // Present while this list was opened from a detail page by a metadata chip: returns to that page
+    onBackToOrigin: (() -> Unit)? = null,
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
     onVisitSeries: (Book) -> Unit = {},
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
 ) {
-    var contentType by remember { mutableStateOf(ContentType.Series) }
+    var contentType by remember { mutableStateOf(LibraryContentType.Series) }
     // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout,
     // default grid)
     val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.Grid)
     val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.Grid)
-    val layout = if (contentType == ContentType.Series) seriesLayout else booksLayout
-    val setLayout = if (contentType == ContentType.Series) setSeriesLayout else setBooksLayout
+    val layout = if (contentType == LibraryContentType.Series) seriesLayout else booksLayout
+    val setLayout = if (contentType == LibraryContentType.Series) setSeriesLayout else setBooksLayout
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     // Target of the "Add to Collection/Read List" sheet
@@ -161,7 +158,7 @@ fun LibraryScreen(
     // Mirrors iOS NavDestination.metadataFilter: switching chips replaces the previous condition
     // wholesale (revoke first, then add) instead of accumulating.
     var appliedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
-    LaunchedEffect(activeFilter) {
+    LaunchedEffect(filterRequest) {
         val applied = appliedFilter
         var current = state.browseOptions
         if (applied != null) {
@@ -183,7 +180,11 @@ fun LibraryScreen(
             }
             appliedFilter = null
         }
-        val parts = activeFilter?.split("·")?.map { it.trim() }.orEmpty()
+        // The jumping page decides which list the filter applies to (a series-detail chip opens the
+        // series list, a book-detail chip the book list), mirroring the iOS fixedContent of the
+        // pushed BrowseView.
+        filterRequest?.let { contentType = it.contentType }
+        val parts = filterRequest?.route?.split("·")?.map { it.trim() }.orEmpty()
         val kind = parts.getOrNull(0).orEmpty()
         // Two-part: "author · X" etc.; three-part: "notable · kind · X" (kind = entity kind token)
         val value: String
@@ -254,10 +255,19 @@ fun LibraryScreen(
     // Series/books keep independent scroll positions; the frosted bar fades in with the active scroller.
     val seriesGridState = rememberLazyGridState()
     val booksGridState = rememberLazyGridState()
-    val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
+    val gridState = if (contentType == LibraryContentType.Series) seriesGridState else booksGridState
     val seriesListState = rememberLazyListState()
     val booksListState = rememberLazyListState()
-    val listState = if (contentType == ContentType.Series) seriesListState else booksListState
+    val listState = if (contentType == LibraryContentType.Series) seriesListState else booksListState
+    // A metadata-chip jump opens a filtered list: start it from the top instead of wherever the shared
+    // library scrollers happened to rest (the old content is gone, so the saved index means nothing).
+    LaunchedEffect(filterRequest?.requestId) {
+        if (filterRequest == null) return@LaunchedEffect
+        seriesGridState.scrollToItem(0)
+        booksGridState.scrollToItem(0)
+        seriesListState.scrollToItem(0)
+        booksListState.scrollToItem(0)
+    }
     val barProgress = rememberGlassBarProgress(
         firstVisibleItemIndex = {
             if (layout == BrowseLayout.List) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
@@ -287,16 +297,16 @@ fun LibraryScreen(
     }
     val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
     val hasMore = when (contentType) {
-        ContentType.Series -> state.seriesHasMore
-        ContentType.Books -> state.booksHasMore
+        LibraryContentType.Series -> state.seriesHasMore
+        LibraryContentType.Books -> state.booksHasMore
     }
     // loadedCount joins the key: keep requesting pages while still at the bottom after a page was appended
-    val loadedCount = if (contentType == ContentType.Series) series.size else allBooks.size
+    val loadedCount = if (contentType == LibraryContentType.Series) series.size else allBooks.size
     LaunchedEffect(shouldLoadMore, contentType, hasMore, loadedCount) {
         if (!shouldLoadMore || !hasMore) return@LaunchedEffect
         when (contentType) {
-            ContentType.Series -> viewModel.loadMoreSeries()
-            ContentType.Books -> viewModel.loadMoreBooks()
+            LibraryContentType.Series -> viewModel.loadMoreSeries()
+            LibraryContentType.Books -> viewModel.loadMoreBooks()
         }
     }
 
@@ -349,13 +359,14 @@ fun LibraryScreen(
                         seriesCount = state.seriesTotal ?: series.size.toLong(),
                         booksCount = state.booksTotal ?: allBooks.size.toLong(),
                         caption = headerCaption,
-                        activeFilter = activeFilter,
+                        activeFilter = filterRequest?.route,
                         onClearFilter = onClearFilter,
+                        onBackToOrigin = onBackToOrigin,
                         horizontalPadding = 16.dp,
                     )
                 }
                 when (contentType) {
-                    ContentType.Series -> items(series.size, key = { series[it].id }) { index ->
+                    LibraryContentType.Series -> items(series.size, key = { series[it].id }) { index ->
                         val item = series[index]
                         SeriesListRow(
                             series = item,
@@ -363,7 +374,7 @@ fun LibraryScreen(
                             onLongClick = { menuSeries = item },
                         )
                     }
-                    ContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
+                    LibraryContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
                         val book = allBooks[index]
                         BookListRow(
                             book = book,
@@ -416,13 +427,14 @@ fun LibraryScreen(
                         seriesCount = state.seriesTotal ?: series.size.toLong(),
                         booksCount = state.booksTotal ?: allBooks.size.toLong(),
                         caption = headerCaption,
-                        activeFilter = activeFilter,
+                        activeFilter = filterRequest?.route,
                         onClearFilter = onClearFilter,
+                        onBackToOrigin = onBackToOrigin,
                         horizontalPadding = 0.dp,
                     )
                 }
                 when (contentType) {
-                    ContentType.Series -> items(series, key = { it.id }) { item ->
+                    LibraryContentType.Series -> items(series, key = { it.id }) { item ->
                         SeriesGridCard(
                             series = item,
                             onClick = { onOpenSeries(item) },
@@ -430,7 +442,7 @@ fun LibraryScreen(
                             onLongClick = { menuSeries = item },
                         )
                     }
-                    ContentType.Books -> items(allBooks, key = { it.id }) { book ->
+                    LibraryContentType.Books -> items(allBooks, key = { it.id }) { book ->
                         BookGridCard(
                             book = book,
                             onClick = { onReadBook(book, false) },
@@ -731,13 +743,14 @@ private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
  */
 @Composable
 private fun LibraryHeader(
-    contentType: ContentType,
-    onContentTypeChange: (ContentType) -> Unit,
+    contentType: LibraryContentType,
+    onContentTypeChange: (LibraryContentType) -> Unit,
     seriesCount: Long,
     booksCount: Long,
     caption: String,
     activeFilter: String?,
     onClearFilter: () -> Unit,
+    onBackToOrigin: (() -> Unit)?,
     horizontalPadding: Dp,
 ) {
     Column(modifier = Modifier.padding(horizontal = horizontalPadding)) {
@@ -746,7 +759,7 @@ private fun LibraryHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ContentType.entries.forEach { type ->
+            LibraryContentType.entries.forEach { type ->
                 FilterChip(
                     selected = contentType == type,
                     onClick = { onContentTypeChange(type) },
@@ -755,7 +768,7 @@ private fun LibraryHeader(
                             stringResource(
                                 R.string.library_content_count,
                                 stringResource(type.labelRes),
-                                if (type == ContentType.Series) seriesCount else booksCount,
+                                if (type == LibraryContentType.Series) seriesCount else booksCount,
                             ),
                         )
                     },
@@ -777,7 +790,21 @@ private fun LibraryHeader(
                 parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
                 else -> filter
             }
-            Row(modifier = Modifier.padding(bottom = 4.dp)) {
+            Row(
+                modifier = Modifier.padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The filtered list was opened from a detail page: offer the same one-step return the back
+                // gesture performs (the detail pages show a back arrow for the same reason)
+                onBackToOrigin?.let { back ->
+                    IconButton(onClick = back) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                }
                 FilterChip(
                     selected = true,
                     onClick = onClearFilter,

@@ -331,7 +331,9 @@ class SearchRepository @Inject constructor(
         return conditions
     }
 
-    /** Series filter conditions (the author condition does not apply to series; other keys match the book ones; series-specific metadata dimensions mirror the original SeriesSearch). */
+    /** Series filter conditions (the author key matches series too: author is both a book and a
+     *  series condition on the server; other keys match the book ones; series-specific metadata
+     *  dimensions mirror the original SeriesSearch). */
     private fun seriesConditions(
         libraryIds: List<String>?,
         options: BookBrowseOptions,
@@ -350,6 +352,14 @@ class SearchRepository @Inject constructor(
         }
         if (options.deleted == TriState.Exclude) {
             conditions += flagLeafCondition("deleted", "isFalse")
+        }
+        if (options.authors.isNotEmpty()) {
+            val authorLeaves = options.authors.map(::authorCondition)
+            conditions += if (options.authorLogicAnd) {
+                allOfCondition(authorLeaves)
+            } else {
+                anyOfCondition(authorLeaves)
+            }
         }
         tagCondition(options)?.let { conditions += it }
         // Series metadata dimensions: multiple values in one dimension become anyOf is (mirrors the original publisher/genre/… branches)

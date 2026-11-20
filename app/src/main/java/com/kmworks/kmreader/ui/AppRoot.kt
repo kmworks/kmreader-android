@@ -71,6 +71,8 @@ import com.kmworks.kmreader.ui.dashboard.DashboardSectionDetailScreen
 import com.kmworks.kmreader.ui.dashboard.SettingsDashboardScreen
 import com.kmworks.kmreader.ui.detail.BookDetailScreen
 import com.kmworks.kmreader.ui.detail.SeriesDetailScreen
+import com.kmworks.kmreader.ui.library.LibraryContentType
+import com.kmworks.kmreader.ui.library.LibraryFilterRequest
 import com.kmworks.kmreader.ui.library.LibraryScreen
 import com.kmworks.kmreader.ui.lists.CollectionDetailScreen
 import com.kmworks.kmreader.ui.lists.ListsScreen
@@ -108,6 +110,27 @@ private data class ReaderTarget(
     val book: Book,
     val format: String?,
     val incognito: Boolean,
+)
+
+/**
+ * The page a library metadata filter was jumped from.
+ *
+ * A metadata chip on a detail page (author/tag/publisher/genre/notable entity) opens the filtered library
+ * list; the original app pushes that list on top of the detail page, so going back returns to the detail
+ * page. Here the list is the library tab, so the page the chip was tapped on is snapshotted and restored by
+ * the next back gesture/button (one step) instead of leaving the app.
+ */
+private data class BrowseReturn(
+    val tab: AppTab,
+    val detail: Series?,
+    val bookDetail: Book?,
+    val collectionDetailId: Int?,
+    val readListDetailId: Int?,
+    val smartListDetailId: Int?,
+    val dashboardSection: DashboardSection<out Any>?,
+    val showSettings: Boolean,
+    val settingsPage: SettingsPage?,
+    val readerTarget: ReaderTarget?,
 )
 
 /**
@@ -224,9 +247,61 @@ fun AppRoot(
     var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
     var readerTarget by remember { mutableStateOf<ReaderTarget?>(null) }
     // Detail-page metadata chip targets (publisher/author/genre/tag/known entity), landing on the library browse tab
-    var browseFilter by remember { mutableStateOf<String?>(null) }
+    var browseFilter by remember { mutableStateOf<LibraryFilterRequest?>(null) }
+    // Page the current browse filter was jumped from, restored by the next back gesture (see BrowseReturn)
+    var browseReturn by remember { mutableStateOf<BrowseReturn?>(null) }
+    // Bumped on every jump so that tapping the same chip twice re-applies the filter
+    var browseRequestSeq by remember { mutableStateOf(0L) }
 
     val scope = rememberCoroutineScope()
+    // Metadata chip jump: snapshot the page the chip was tapped on (so back returns to it), leave the overlay
+    // stack and show the library list filtered by the route. A series-detail chip lands on the series list, a
+    // book-detail chip on the book list, mirroring the iOS per-origin browse destinations.
+    val showBrowseFilter: (String, LibraryContentType) -> Unit = { route, contentType ->
+        browseReturn = BrowseReturn(
+            tab = tab,
+            detail = detail,
+            bookDetail = bookDetail,
+            collectionDetailId = collectionDetailId,
+            readListDetailId = readListDetailId,
+            smartListDetailId = smartListDetailId,
+            dashboardSection = dashboardSection,
+            showSettings = showSettings,
+            settingsPage = settingsPage,
+            readerTarget = readerTarget,
+        )
+        browseRequestSeq += 1
+        browseFilter = LibraryFilterRequest(
+            route = route,
+            contentType = contentType,
+            requestId = browseRequestSeq,
+        )
+        detail = null
+        bookDetail = null
+        collectionDetailId = null
+        readListDetailId = null
+        smartListDetailId = null
+        dashboardSection = null
+        showSettings = false
+        settingsPage = null
+        readerTarget = null
+        tab = AppTab.Library
+    }
+    // Put the page a browse-filter jump started from back on screen (the filtered list's one-step return).
+    // The filter itself stays applied, so going back to the library tab later shows the same list.
+    val restoreBrowseReturn: (BrowseReturn) -> Unit = { back ->
+        browseReturn = null
+        tab = back.tab
+        detail = back.detail
+        bookDetail = back.bookDetail
+        collectionDetailId = back.collectionDetailId
+        readListDetailId = back.readListDetailId
+        smartListDetailId = back.smartListDetailId
+        dashboardSection = back.dashboardSection
+        showSettings = back.showSettings
+        settingsPage = back.settingsPage
+        readerTarget = back.readerTarget
+    }
     // Oneshot series click -> single-book detail (mirrors iOS NavDestination.oneshotDetail); fall back to regular series detail when the lookup fails
     val openSeries: (Series) -> Unit = { series ->
         if (series.oneshot) {
@@ -265,11 +340,13 @@ fun AppRoot(
         }
     }
 
-    // Back gesture: collapse overlays in reverse visual order; hand back to the system (exit) when none remain
+    // Back gesture: collapse overlays in reverse visual order; then, on a library list opened from a detail
+    // page, return to that page; hand back to the system (exit) only when neither remains
     val hasOverlay = readerTarget != null || settingsPage != null || showSettings ||
         dashboardSection != null || smartListDetailId != null || readListDetailId != null ||
         collectionDetailId != null || bookDetail != null || detail != null
-    BackHandler(enabled = hasOverlay) {
+    BackHandler(enabled = hasOverlay || browseReturn != null) {
+        val back = browseReturn
         when {
             readerTarget != null -> readerTarget = null
             settingsPage != null -> settingsPage = null
@@ -280,6 +357,8 @@ fun AppRoot(
             collectionDetailId != null -> collectionDetailId = null
             bookDetail != null -> bookDetail = null
             detail != null -> detail = null
+            // The filtered list replaces the page it was jumped from: restore it (and its tab) one step back
+            back != null -> restoreBrowseReturn(back)
         }
     }
 
@@ -304,8 +383,14 @@ fun AppRoot(
                     )
 
                     AppTab.Library -> LibraryScreen(
-                        activeFilter = browseFilter,
-                        onClearFilter = { browseFilter = null },
+                        filterRequest = browseFilter,
+                        // Clearing the chip drops both the filter and the page it was jumped from
+                        onClearFilter = {
+                            browseFilter = null
+                            browseReturn = null
+                        },
+                        // Only offered while the jump's origin page is still pending
+                        onBackToOrigin = browseReturn?.let { back -> { restoreBrowseReturn(back) } },
                         onOpenSeries = openSeries,
                         onOpenBook = openBook,
                         onVisitSeries = visitSeriesOfBook,
@@ -339,7 +424,15 @@ fun AppRoot(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    FloatingNavBar(selected = tab, onSelect = { tab = it })
+                    FloatingNavBar(
+                        selected = tab,
+                        onSelect = { next ->
+                            tab = next
+                            // Leaving the filtered list deliberately drops the jump's return page; the filter
+                            // chip itself stays until cleared
+                            if (next != AppTab.Library) browseReturn = null
+                        },
+                    )
                 }
             }
         }
@@ -374,9 +467,7 @@ fun AppRoot(
                             onReadIncognito = { book -> openReader(book, true) },
                             onDeleted = { detail = null },
                             onBrowseFilter = { filter ->
-                                browseFilter = filter
-                                detail = null
-                                tab = AppTab.Library
+                                showBrowseFilter(filter, LibraryContentType.Series)
                             },
                             onOpenBook = openBook,
                             onOpenCollection = { collectionDetailId = it },
@@ -399,10 +490,8 @@ fun AppRoot(
                                 readListDetailId = it
                             },
                             onBrowseFilter = { filter ->
-                                // Same as series detail: author/tag chips jump to the library browse tab with the filter
-                                browseFilter = filter
-                                bookDetail = null
-                                tab = AppTab.Library
+                                // Same as series detail, but the book author/tag chips land on the book list
+                                showBrowseFilter(filter, LibraryContentType.Books)
                             },
                             onOpenSeries = {
                                 scope.launch {
@@ -574,9 +663,8 @@ fun AppRoot(
                             readListDetailId = it
                         },
                         onBrowseFilter = { filter ->
-                            readerTarget = null
-                            browseFilter = filter
-                            tab = AppTab.Library
+                            // The reader stays in the back snapshot, so back from the filtered list returns here
+                            showBrowseFilter(filter, LibraryContentType.Books)
                         },
                     )
 
@@ -593,9 +681,8 @@ fun AppRoot(
                             readListDetailId = it
                         },
                         onBrowseFilter = { filter ->
-                            readerTarget = null
-                            browseFilter = filter
-                            tab = AppTab.Library
+                            // The reader stays in the back snapshot, so back from the filtered list returns here
+                            showBrowseFilter(filter, LibraryContentType.Books)
                         },
                     )
 
@@ -612,9 +699,8 @@ fun AppRoot(
                             readListDetailId = it
                         },
                         onBrowseFilter = { filter ->
-                            readerTarget = null
-                            browseFilter = filter
-                            tab = AppTab.Library
+                            // The reader stays in the back snapshot, so back from the filtered list returns here
+                            showBrowseFilter(filter, LibraryContentType.Books)
                         },
                     )
                 }

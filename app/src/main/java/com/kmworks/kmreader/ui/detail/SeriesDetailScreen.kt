@@ -106,12 +106,10 @@ import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
-import com.kmworks.kmreader.ui.components.kindLabel
 import com.kmworks.kmreader.ui.components.bookCountLineText
 import com.kmworks.kmreader.ui.components.completedLastReadText
 import com.kmworks.kmreader.ui.components.oneshotLineText
 import com.kmworks.kmreader.ui.components.pageLabelText
-import com.kmworks.kmreader.ui.components.roleLabelText
 import com.kmworks.kmreader.ui.components.subtitleText
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
@@ -137,6 +135,14 @@ private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
 private val ActionCardMaxWidth = 480.dp
 private val ActionCardShape = RoundedCornerShape(16.dp)
+
+/** Wire tokens of the metadata-filter route shared with the library screen (this screen emits, it
+ *  consumes). Internal routing values only; display labels are localized at render time. */
+private const val FILTER_KIND_AUTHOR = "author"
+private const val FILTER_KIND_TAG = "tag"
+private const val FILTER_KIND_PUBLISHER = "publisher"
+private const val FILTER_KIND_GENRE = "genre"
+private const val FILTER_KIND_NOTABLE = "notable"
 
 /** Series detail, mirrors KMReader SeriesDetailView / SeriesDetailContentView:
  *  Hero (large cover + centered info) → DetailActionCard (book-count row + continue-reading capsule +
@@ -916,13 +922,13 @@ private fun DetailHero(
         Spacer(Modifier.height(12.dp))
         // SeriesHeroInfoView.creatorItems: publisher (building.2) + authors sorted by role (role.icon),
         // all tappable and navigating to the series browse page filtered by that metadata;
-        // long flows collapse behind "+N" and expand in place (limit 4)
-        val localContext = LocalContext.current
-        val publisherLabel = localContext.getString(R.string.browse_kind_publisher)
+        // long flows collapse behind "+N" and expand in place (limit 4).
+        // The chip label is the name; the pair's first element is the internal route token, so the
+        // emitted route stays language independent ("author · X", "publisher · X").
         val creatorChips = buildList {
-            series.publisher?.let { add(Icons.Outlined.Business to (publisherLabel to it)) }
+            series.publisher?.let { add(Icons.Outlined.Business to (FILTER_KIND_PUBLISHER to it)) }
             series.creators.sortedBy { it.role.ordinal }.forEach { creator ->
-                add(creator.role.icon() to (creator.roleLabelText(localContext) to creator.name))
+                add(creator.role.icon() to (FILTER_KIND_AUTHOR to creator.name))
             }
         }
         CollapsibleMetaChipFlow(
@@ -1129,10 +1135,6 @@ private fun DetailChips(
         series.tags.isEmpty() && series.links.isEmpty()
     ) return
     val uriHandler = LocalUriHandler.current
-    val localContext = LocalContext.current
-    val notableKindLabel = stringResource(R.string.browse_kind_notable)
-    val genreKindLabel = stringResource(R.string.browse_kind_genre)
-    val tagKindLabel = stringResource(R.string.common_tag)
     Column(
         modifier = Modifier
             // Fill the width when left aligned so the flows start at the content edge even inside a centered
@@ -1144,17 +1146,18 @@ private fun DetailChips(
         if (series.notableEntities.isNotEmpty()) {
             CollapsibleMetaChipFlow(
                 items = series.notableEntities.map { e ->
-                    notableEntityIcon(e.kind) to (e.kindLabel(localContext) to e.name)
+                    notableEntityIcon(e.kind) to (e.kind to e.name)
                 },
                 limit = 6,
                 centered = centered,
-                // Three-part route format "notable · kindLabel · name" (same as the book detail; LibraryScreen parses by prefix)
-                onClick = { (kind, value) -> onBrowseFilter("$notableKindLabel · $kind · $value") },
+                // Three-part route format "notable · kind · name" (same as the book detail; LibraryScreen
+                // parses by prefix and localizes the kind for display)
+                onClick = { (kind, value) -> onBrowseFilter("$FILTER_KIND_NOTABLE · $kind · $value") },
             )
         }
         if (series.genres.isNotEmpty()) {
             CollapsibleMetaChipFlow(
-                items = series.genres.map { Icons.Outlined.TheaterComedy to (genreKindLabel to it) },
+                items = series.genres.map { Icons.Outlined.TheaterComedy to (FILTER_KIND_GENRE to it) },
                 limit = 6,
                 centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
@@ -1162,7 +1165,7 @@ private fun DetailChips(
         }
         if (series.tags.isNotEmpty()) {
             CollapsibleMetaChipFlow(
-                items = series.tags.map { Icons.Outlined.Sell to (tagKindLabel to it) },
+                items = series.tags.map { Icons.Outlined.Sell to (FILTER_KIND_TAG to it) },
                 limit = 6,
                 centered = centered,
                 onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
