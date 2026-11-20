@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,8 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
-import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
-import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -142,7 +141,9 @@ fun DashboardSectionDetailScreen(
         },
     )
 
-    Scaffold { padding ->
+    // The content box has to start under the status bar: if the Scaffold insets it instead, the
+    // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
+    Scaffold(contentWindowInsets = glassPageContentWindowInsets()) { padding ->
         BoxWithConstraints(
             modifier = Modifier
                 .padding(padding)
@@ -153,7 +154,6 @@ fun DashboardSectionDetailScreen(
                 progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = -glassTopBarStatusInset())
                     .zIndex(2f),
                 hazeState = barHazeState,
                 navigationIcon = {
@@ -255,7 +255,7 @@ fun DashboardSectionDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .hazeSource(barHazeState),
-                    contentPadding = PaddingValues(top = GlassTopBarContentHeight + 8.dp, bottom = 8.dp),
+                    contentPadding = PaddingValues(top = glassTopBarTopPadding() + 8.dp, bottom = 8.dp),
                 ) {
                     items(books, key = { it.id }) { book ->
                         BookListRow(
@@ -279,7 +279,7 @@ fun DashboardSectionDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .hazeSource(barHazeState),
-                    contentPadding = PaddingValues(start = 16.dp, top = GlassTopBarContentHeight + 16.dp, end = 16.dp, bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = glassTopBarTopPadding() + 16.dp, end = 16.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {

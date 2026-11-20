@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -87,9 +86,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
 import com.kmworks.kmreader.ui.components.GlassTopBar
-import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -222,19 +221,19 @@ internal fun BookDetailBody(
         },
     )
 
-    Scaffold(modifier = modifier) { padding ->
+    // The content box has to start under the status bar: if the Scaffold insets it instead, the
+    // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
+    Scaffold(modifier = modifier, contentWindowInsets = glassPageContentWindowInsets()) { padding ->
         BoxWithConstraints(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            // Offset by the status bar inset: the box starts below it, the bar has to cover it too.
             GlassTopBar(
                 title = "",
                 progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = -glassTopBarStatusInset())
                     .zIndex(2f),
                 hazeState = barHazeState,
                 navigationIcon = {
@@ -375,17 +374,19 @@ internal fun BookDetailBody(
             if (maxWidth >= WideLayoutBreakpoint) {
                 // Wide golden split: info column maxOf(maxWidth*0.382f, 340.dp), both columns
                 // scroll independently
-                Row(modifier = Modifier.fillMaxSize()) {
+                // One haze source over the whole split instead of one per pane: the bar's backdrop has to
+                // be the full width of the page, and a scroller that is only as tall as its own pane
+                // leaves the strip behind the bar empty whenever the other pane is the one scrolling.
+                Row(modifier = Modifier.fillMaxSize().hazeSource(barHazeState)) {
                     Column(
                         modifier = Modifier
                             .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
                             .verticalScroll(railScrollState)
-                            .hazeSource(barHazeState)
                             .padding(
                                 start = 24.dp,
                                 end = 24.dp,
-                                top = GlassTopBarContentHeight + 16.dp,
+                                top = glassTopBarTopPadding() + 16.dp,
                                 bottom = 16.dp,
                             ),
                     ) {
@@ -417,11 +418,10 @@ internal fun BookDetailBody(
                             .weight(1f)
                             .fillMaxHeight()
                             .verticalScroll(detailScrollState)
-                            .hazeSource(barHazeState)
                             .padding(
                                 start = 24.dp,
                                 end = 24.dp,
-                                top = GlassTopBarContentHeight + 16.dp,
+                                top = glassTopBarTopPadding() + 16.dp,
                                 bottom = 16.dp,
                             ),
                     ) {
@@ -448,7 +448,7 @@ internal fun BookDetailBody(
                         .fillMaxSize()
                         .verticalScroll(narrowScrollState)
                         .hazeSource(barHazeState)
-                        .padding(top = GlassTopBarContentHeight + 16.dp, bottom = 16.dp),
+                        .padding(top = glassTopBarTopPadding() + 16.dp, bottom = 16.dp),
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp),

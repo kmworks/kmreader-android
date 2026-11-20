@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,8 +63,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
-import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
-import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -168,19 +167,20 @@ fun ReadListDetailScreen(
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Keep the page under the status bar: the Scaffold inset would clip every scroller at the
+        // status bar and leave the bar's top strip without a backdrop (a hard seam).
+        contentWindowInsets = glassPageContentWindowInsets(),
     ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            // Offset by the status bar inset: the box starts below it, the bar has to cover it too.
             GlassTopBar(
                 title = "",
                 progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = -glassTopBarStatusInset())
                     .zIndex(2f),
                 hazeState = barHazeState,
                 navigationIcon = {
@@ -239,17 +239,19 @@ fun ReadListDetailScreen(
             if (maxWidth >= WideLayoutBreakpoint) {
                 // Wide layout: left info column (maxOf(maxWidth*0.382f, 340.dp)) + right
                 // book list, scrolling independently
-                Row(modifier = Modifier.fillMaxSize()) {
+                // One haze source over the whole split instead of one per pane: the bar's backdrop has to
+                // be the full width of the page, and a scroller that is only as tall as its own pane
+                // leaves the strip behind the bar empty whenever the other pane is the one scrolling.
+                Row(modifier = Modifier.fillMaxSize().hazeSource(barHazeState)) {
                     Column(
                         modifier = Modifier
                             .width(maxOf(this@BoxWithConstraints.maxWidth * 0.382f, 340.dp))
                             .fillMaxHeight()
                             .verticalScroll(railScrollState)
-                            .hazeSource(barHazeState)
                             .padding(
                                 start = 24.dp,
                                 end = 24.dp,
-                                top = GlassTopBarContentHeight + 16.dp,
+                                top = glassTopBarTopPadding() + 16.dp,
                                 bottom = 16.dp,
                             ),
                     ) {
@@ -267,8 +269,7 @@ fun ReadListDetailScreen(
                             .weight(1f)
                             .fillMaxHeight()
                             .verticalScroll(wideListScrollState)
-                            .hazeSource(barHazeState)
-                            .padding(top = GlassTopBarContentHeight + 8.dp, bottom = 8.dp),
+                            .padding(top = glassTopBarTopPadding() + 8.dp, bottom = 8.dp),
                     ) {
                         if (continuation != null) {
                             ContinuationHintCard(
@@ -358,7 +359,7 @@ fun ReadListDetailScreen(
                         .fillMaxSize()
                         .verticalScroll(narrowListScrollState)
                         .hazeSource(barHazeState)
-                        .padding(top = GlassTopBarContentHeight + 16.dp, bottom = 16.dp),
+                        .padding(top = glassTopBarTopPadding() + 16.dp, bottom = 16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         ReadListHero(

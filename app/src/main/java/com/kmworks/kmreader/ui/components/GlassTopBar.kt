@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.LocalContentColor
@@ -56,6 +59,21 @@ fun glassTopBarStatusInset(): Dp = WindowInsets.statusBars.asPaddingValues().cal
  */
 @Composable
 fun glassTopBarTopPadding(): Dp = glassTopBarStatusInset() + GlassTopBarContentHeight
+
+/**
+ * Window insets a frosted-bar page hands to its `Scaffold`.
+ *
+ * The status bar is deliberately left out: the page content then starts at the very top of the
+ * screen and scrolls underneath the status bar strip, which is exactly the strip the bar has to
+ * take over once the glass fades in. Keeping the status bar in the padding instead clips every
+ * scroller below the strip, so the bar sits on a hole and a hard seam shows up along the status bar.
+ *
+ * The navigation bar and any display cutout still inset the page, so its last row and the snackbar
+ * stay clear of the system gesture area.
+ */
+@Composable
+fun glassPageContentWindowInsets(): WindowInsets =
+    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
 
 /** Scroll distance (in content pixels) over which the glass fades in once content slides under the bar. */
 private val GlassFadeDistance: Dp = 48.dp
@@ -112,6 +130,14 @@ fun rememberGlassBarProgress(
  * Pass a [HazeState] that the scrolling page feeds through `Modifier.hazeSource` to get a real
  * backdrop blur (Haze). Without a state the bar keeps the older translucent-surface look: blur needs
  * Haze to capture the backdrop, because a Compose graphics layer cannot both be replayed and blurred.
+ *
+ * The page contract that makes the glass cover the status bar instead of ending on a seam:
+ * - the bar is the first child of a full-screen [Box] and is not offset;
+ * - the `Scaffold` of the page passes [glassPageContentWindowInsets] as its `contentWindowInsets`, so
+ *   the content box starts under the status bar instead of below it;
+ * - the scrolling element (or the `Row`/`Column` wrapping the panes of a wide layout) is
+ *   `Modifier.hazeSource(state)` and fills the whole content box, and it reserves
+ *   [glassTopBarTopPadding] as its top content padding.
  */
 @Composable
 fun GlassTopBar(
