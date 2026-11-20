@@ -104,6 +104,7 @@ import coil3.size.Size
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.image.BorderCropTransformation
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
 import com.kmworks.kmreader.data.ReaderViewItem
@@ -236,6 +237,13 @@ fun ReaderScreen(
     DisposableEffect(Unit) {
         onDispose { viewModel.flushProgress(page) }
     }
+    // Diagnostic trail: every reader open/close goes into the app log with the heap in use, so a death
+    // between two entries can be attributed to this screen and a memory blow-up is visible right before
+    // the process disappears (the log file survives the crash).
+    DisposableEffect(book.id) {
+        AppLog.i("Reader", "open book=${book.id} incognito=$incognito ${heapFootprint()}")
+        onDispose { AppLog.i("Reader", "close book=${book.id} ${heapFootprint()}") }
+    }
     val readerPages = uiState.pages
     val soloPages by viewModel.soloPages.collectAsStateWithLifecycle()
     val pageCount = readerPages.size
@@ -295,6 +303,15 @@ fun ReaderScreen(
     ) { items.size.coerceAtLeast(1) }
     val webtoonState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // Page-load lifecycle in the trail: a death before Ready (or right after it) reads very differently
+    // from one while paging through already decoded images.
+    LaunchedEffect(uiState.status, items.size, uiState.bookDtoId) {
+        AppLog.i(
+            "Reader",
+            "status=${uiState.status} items=${items.size} dtoId=${uiState.bookDtoId} ${heapFootprint()}",
+        )
+    }
 
     // First entry (including restored progress): scroll to the cell holding the initial page;
     // progress reporting is armed only once it is in place
@@ -1565,4 +1582,17 @@ private fun ReaderPageMenuSheet(
             }
         }
     }
+}
+
+/**
+ * Current Java heap usage as `used/total/max` MB, for the reader's diagnostic log trail: a process that
+ * dies from memory pressure right after a page turn shows an almost saturated heap in its last line.
+ */
+private fun heapFootprint(): String {
+    val runtime = Runtime.getRuntime()
+    val mb = 1024L * 1024L
+    val used = (runtime.totalMemory() - runtime.freeMemory()) / mb
+    val total = runtime.totalMemory() / mb
+    val max = runtime.maxMemory() / mb
+    return "heap=${used}/${total}/${max}MB"
 }

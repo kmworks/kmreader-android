@@ -72,7 +72,18 @@ object AppLog {
         trimIfNeeded(file)
         logFile = file
         loadPreviousTail(file)
-        i("AppLog", "log file ready: ${file.absolutePath}")
+        i("AppLog", "log file ready: ${file.absolutePath} heapMax=${Runtime.getRuntime().maxMemory() / (1024 * 1024)}MB")
+        // Surface the previous session's last line as the newest entry: after a silent death the newest
+        // lines on the logs page are this startup's, and the interesting one (the last thing that happened
+        // before the process disappeared) would otherwise be buried at the bottom of the list.
+        entries.value.lastOrNull()?.let { previous ->
+            val head = previous.message.lineSequence().firstOrNull().orEmpty().take(400)
+            i(
+                "AppLog",
+                "prev session (${entries.value.size} entries) last: ${previous.timeLabel} " +
+                    "${previous.level.label} [${previous.tag}] $head",
+            )
+        }
     }
 
     /**
@@ -146,17 +157,29 @@ object AppLog {
      * uncaught-exception handler.
      */
     fun fatal(tag: String, message: String) {
-        append(AppLogLevel.ERROR, tag, message)
+        // Writes once, synchronously: queueing it on the async writer as well used to put every crash
+        // stack in the file twice.
+        append(AppLogLevel.ERROR, tag, message, synchronousFileWrite = true)
+    }
+
+    /**
+     * Crash-path write without the ring-buffer copy and the formatter used by [fatal]: under memory
+     * pressure those allocations are exactly what fails, and a crash that cannot describe itself is lost.
+     * Kept deliberately small so it still fits when the heap is exhausted.
+     */
+    fun fatalMinimal(tag: String, message: String) {
         val file = logFile ?: return
         runCatching {
-            trimIfNeeded(file)
-            file.appendText(
-                AppLogEntry(System.currentTimeMillis(), AppLogLevel.ERROR, tag, message).line + "\n",
-            )
+            file.appendText("${System.currentTimeMillis()} FATAL [$tag] $message\n")
         }
     }
 
-    private fun append(level: AppLogLevel, tag: String, message: String) {
+    private fun append(
+        level: AppLogLevel,
+        tag: String,
+        message: String,
+        synchronousFileWrite: Boolean = false,
+    ) {
         val entry = AppLogEntry(System.currentTimeMillis(), level, tag, message)
         val snapshot: List<AppLogEntry>
         synchronized(lock) {
@@ -172,10 +195,17 @@ object AppLog {
             AppLogLevel.ERROR -> Log.e(tag, message)
         }
         val file = logFile ?: return
-        fileWriter.execute {
+        if (synchronousFileWrite) {
             runCatching {
                 trimIfNeeded(file)
                 file.appendText(entry.line + "\n")
+            }
+        } else {
+            fileWriter.execute {
+                runCatching {
+                    trimIfNeeded(file)
+                    file.appendText(entry.line + "\n")
+                }
             }
         }
     }

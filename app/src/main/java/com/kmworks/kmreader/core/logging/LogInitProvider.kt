@@ -9,6 +9,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.util.Log
 import java.io.File
+import java.time.Instant
 import com.kmworks.kmreader.core.download.AutoDownloadUnreadTrigger
 import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.EntryPoint
@@ -38,11 +39,21 @@ class LogInitProvider : ContentProvider() {
         // Uncaught exceptions go to the app log (a stack survives the crash, visible on the in-app logs page/export — helps locating crashes)
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            runCatching {
+            val logged = runCatching {
                 AppLog.fatal(
                     "Crash",
                     "uncaught on ${thread.name}: ${Log.getStackTraceString(error)}",
                 )
+            }.isSuccess
+            if (!logged) {
+                // Formatting/copying the trace allocates; under an OutOfMemoryError death that is what
+                // fails first, which used to leave no evidence at all. Leave a minimal marker instead.
+                runCatching {
+                    AppLog.fatalMinimal(
+                        "Crash",
+                        "logging failed; ${error.javaClass.name}: ${error.message?.take(200)}",
+                    )
+                }
             }
             previousHandler?.uncaughtException(thread, error)
         }
@@ -73,15 +84,17 @@ class LogInitProvider : ContentProvider() {
 
     /**
      * Read back the system-recorded historical exit reasons (ApplicationExitInfo): Java/Kotlin crashes are
-     * covered by the uncaught handler, but native crashes (graphics stack / native OOM) bypass the Java layer
-     * entirely — only this API sees them.
+     * covered by the uncaught handler, but a process can also die without any Java exception reaching the
+     * handler — a native crash, a low-memory kill, or a kill by the system/user. Those leave no trace in the
+     * app log, so every recorded exit is reported here, whatever its reason: a missing log line after a
+     * "crash" is itself the diagnostic (it rules the Java-layer path out).
      * The tombstone trace is truncated to the first 16KB (crash signal, backtrace head). Already-reported
      * entries are deduplicated by timestamp.
      */
     private fun reportHistoricalCrashes(context: Context) {
         runCatching {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val exits = am.getHistoricalProcessExitReasons(context.packageName, 0, 5)
+            val exits = am.getHistoricalProcessExitReasons(context.packageName, 0, 8)
             val marker = File(context.filesDir, "logs/last_exit_report.txt")
             val lastReported = marker.takeIf { it.isFile }
                 ?.runCatching { readText().trim().toLongOrNull() }?.getOrNull() ?: 0L
@@ -90,25 +103,17 @@ class LogInitProvider : ContentProvider() {
                 .sortedBy { it.timestamp }
                 .forEach { info ->
                     newest = maxOf(newest, info.timestamp)
-                    val reasonName = when (info.reason) {
-                        ApplicationExitInfo.REASON_CRASH -> "CRASH (Java/Kotlin exception)"
-                        ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE (native crash)"
-                        ApplicationExitInfo.REASON_ANR -> "ANR (application not responding)"
-                        ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY (killed under memory pressure)"
-                        else -> "reason=${info.reason}"
-                    }
-                    if (info.reason != ApplicationExitInfo.REASON_CRASH &&
-                        info.reason != ApplicationExitInfo.REASON_CRASH_NATIVE &&
-                        info.reason != ApplicationExitInfo.REASON_ANR
-                    ) {
-                        return@forEach
-                    }
+                    // Report every reason: silently skipping the non-crash ones is what hides an OS kill.
                     val trace = runCatching {
                         info.traceInputStream?.bufferedReader()?.use { it.readText().take(16 * 1024) }
                     }.getOrNull()
+                    val when_ = runCatching { Instant.ofEpochMilli(info.timestamp).toString() }.getOrNull()
                     AppLog.fatal(
                         "Crash",
-                        "last exit: $reasonName ${info.description ?: ""}\n${trace ?: "(no trace; for Java crashes see the uncaught log above)"}",
+                        "last exit: ${describeExit(info)} " +
+                            "process=${info.processName} at=$when_ " +
+                            "description=${info.description ?: "-"}\n" +
+                            (trace ?: "(no trace; a Java exception would have been logged by the uncaught handler)"),
                     )
                 }
             if (newest > lastReported) {
@@ -116,6 +121,24 @@ class LogInitProvider : ContentProvider() {
                 marker.writeText(newest.toString())
             }
         }.onFailure { AppLog.w("AppLog", "exit-info read failed: ${it.message}") }
+    }
+
+    /** Human-readable name for an [ApplicationExitInfo] reason, including the ones that are not crashes. */
+    private fun describeExit(info: ApplicationExitInfo): String = when (info.reason) {
+        ApplicationExitInfo.REASON_CRASH -> "CRASH (Java/Kotlin exception)"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE (native crash)"
+        ApplicationExitInfo.REASON_ANR -> "ANR (application not responding)"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY (killed by the OS under memory pressure)"
+        ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED (killed by signal ${info.status})"
+        ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF (System.exit)"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED (swiped away)"
+        ApplicationExitInfo.REASON_OTHER -> "OTHER"
+        else -> "reason=${info.reason}"
     }
 
     override fun query(

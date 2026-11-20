@@ -28,6 +28,16 @@ class DivinaSettingsViewModel @Inject constructor(
     private val _settings = MutableStateFlow(DivinaSettings())
     val settings: StateFlow<DivinaSettings> = _settings.asStateFlow()
 
+    // EPUB/PDF reader preferences (persisted globally, mirrors the original @AppStorage semantics).
+    // These MUST be declared before the init block below: those collectors run on Dispatchers.Main.immediate
+    // and DataStore re-emits its already loaded value synchronously during launch, so on the second visit
+    // (settings cache warm) the emit used to run while this field was still null → NPE on the main thread.
+    private val _epubSettings = MutableStateFlow(EpubReaderSettings())
+    val epubSettings: StateFlow<EpubReaderSettings> = _epubSettings.asStateFlow()
+
+    private val _pdfSettings = MutableStateFlow(PdfReaderSettings())
+    val pdfSettings: StateFlow<PdfReaderSettings> = _pdfSettings.asStateFlow()
+
     /** Default reading direction saved in settings (divinaDefaultDirection persisted under Settings - Reader Defaults). */
     val defaultDirection: StateFlow<ReadingDirection> = appSettings.divinaDefaultDirection
         .map { raw -> ReadingDirection.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: ReadingDirection.Ltr }
@@ -54,14 +64,6 @@ class DivinaSettingsViewModel @Inject constructor(
         _settings.value = transform(_settings.value)
         viewModelScope.launch { store.update(transform) }
     }
-
-    // ---- EPUB / PDF reader preferences (persisted globally, mirrors the original @AppStorage semantics) ----
-
-    private val _epubSettings = MutableStateFlow(EpubReaderSettings())
-    val epubSettings: StateFlow<EpubReaderSettings> = _epubSettings.asStateFlow()
-
-    private val _pdfSettings = MutableStateFlow(PdfReaderSettings())
-    val pdfSettings: StateFlow<PdfReaderSettings> = _pdfSettings.asStateFlow()
 
     fun updateEpub(transform: (EpubReaderSettings) -> EpubReaderSettings) {
         _epubSettings.value = transform(_epubSettings.value)
