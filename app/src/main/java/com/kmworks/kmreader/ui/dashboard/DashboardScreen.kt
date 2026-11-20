@@ -64,7 +64,7 @@ import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.detail.BookEditSheet
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
@@ -109,10 +109,6 @@ fun DashboardScreen(
     // The frosted bar floats over the page: the sections scroll underneath it instead of below a
     // full-width toolbar, so the dashboard keeps its content-first density.
     val pageListState = rememberLazyListState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
-        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
-    )
     // Backdrop the bar blurs: the list is the haze source, so whatever slides under the bar is what
     // gets blurred (Haze needs to capture the page; a Compose layer cannot blur itself).
     val hazeState = rememberHazeState()
@@ -120,8 +116,8 @@ fun DashboardScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         GlassTopBar(
             title = stringResource(R.string.dashboard_title),
-            progress = barProgress,
             modifier = Modifier.zIndex(1f),
+            sheetVisible = pageListState.hasScrolled(),
             hazeState = hazeState,
             actions = {
                 // Visibility-scope switch matching the library/list pages: text button + dropdown

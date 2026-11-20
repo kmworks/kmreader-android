@@ -57,7 +57,7 @@ import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -130,16 +130,8 @@ fun DashboardSectionDetailScreen(
     }
 
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
-    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
     val barHazeState = rememberHazeState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = {
-            if (listState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemIndex > 0) 1 else 0
-        },
-        firstVisibleItemScrollOffset = {
-            maxOf(listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemScrollOffset)
-        },
-    )
 
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
@@ -151,10 +143,10 @@ fun DashboardSectionDetailScreen(
         ) {
             GlassTopBar(
                 title = section.title,
-                progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .zIndex(2f),
+                sheetVisible = listState.hasScrolled() || gridState.hasScrolled(),
                 hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {

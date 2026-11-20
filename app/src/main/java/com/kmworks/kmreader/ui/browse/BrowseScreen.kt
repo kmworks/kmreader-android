@@ -211,10 +211,10 @@ fun BrowseScreen(
 
         GlassTopBar(
             title = stringResource(R.string.common_search),
-            // The query field and filter chips are a fixed header here, so nothing ever slides under the bar:
-            // keep the glass at rest (progress 0 = transparent) and the title simply floats over the page
-            // background, exactly like the other tab roots before their first row scrolls up.
-            progress = 0f,
+            // The query field and filter chips are a fixed header here, so nothing ever slides under the
+            // bar: there would be nothing to frost, so this page keeps the bare title floating over the
+            // page background.
+            sheetVisible = false,
             modifier = Modifier.zIndex(1f),
             actions = {
                 // Same visibility-scope switch as the library/list pages: text button + dropdown

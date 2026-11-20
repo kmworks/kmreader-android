@@ -82,7 +82,7 @@ import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
@@ -161,7 +161,7 @@ fun LibraryScreen(
     // Display name of the current scope (mirrors iOS LibraryScopeMenu)
     val scopeLabel = libraryScopeLabel(state.scope, state.libraries)
 
-    // Series/books keep independent scroll positions; the frosted bar fades in with the active scroller.
+    // Series/books keep independent scroll positions, so both grids feed the same haze state for the bar.
     val seriesGridState = rememberLazyGridState()
     val booksGridState = rememberLazyGridState()
     val gridState = if (contentType == LibraryContentType.Series) seriesGridState else booksGridState
@@ -177,14 +177,6 @@ fun LibraryScreen(
         seriesListState.scrollToItem(0)
         booksListState.scrollToItem(0)
     }
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = {
-            if (layout == BrowseLayout.List) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
-        },
-        firstVisibleItemScrollOffset = {
-            if (layout == BrowseLayout.List) listState.firstVisibleItemScrollOffset else gridState.firstVisibleItemScrollOffset
-        },
-    )
     // Backdrop the bar blurs: whichever scroll container is showing feeds the haze state.
     val hazeState = rememberHazeState()
     // Load the next page when the last row comes into reach
@@ -387,10 +379,10 @@ fun LibraryScreen(
 
         GlassTopBar(
             title = stringResource(R.string.library_title),
-            progress = barProgress,
             modifier = Modifier.zIndex(1f),
             // Same real backdrop blur as the dashboard/list tab roots: the scrolling grid or list feeds
             // this state, so content sliding under the bar is blurred instead of hidden by a solid sheet.
+            sheetVisible = seriesGridState.hasScrolled() || booksGridState.hasScrolled() || seriesListState.hasScrolled() || booksListState.hasScrolled(),
             hazeState = hazeState,
             // Only a pushed list (a metadata-chip jump) leaves somewhere: the tab root has no predecessor.
             navigationIcon = onBack?.let { back ->

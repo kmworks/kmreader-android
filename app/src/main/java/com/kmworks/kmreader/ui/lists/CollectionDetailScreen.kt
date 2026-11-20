@@ -59,7 +59,7 @@ import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.kmworks.kmreader.R
@@ -154,17 +154,9 @@ fun CollectionDetailScreen(
     val heroHue = visible.firstOrNull()?.hue ?: 210f
 
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
-    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
     val barHazeState = rememberHazeState()
     val railScrollState = rememberScrollState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = {
-            if (railScrollState.value > 0 || wideListScrollState.value > 0 || narrowListScrollState.value > 0) 1 else 0
-        },
-        firstVisibleItemScrollOffset = {
-            maxOf(railScrollState.value, wideListScrollState.value, narrowListScrollState.value)
-        },
-    )
 
     Scaffold(
         modifier = modifier,
@@ -180,10 +172,10 @@ fun CollectionDetailScreen(
         ) {
             GlassTopBar(
                 title = "",
-                progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .zIndex(2f),
+                sheetVisible = railScrollState.hasScrolled() || wideListScrollState.hasScrolled() || narrowListScrollState.hasScrolled(),
                 hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {

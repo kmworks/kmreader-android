@@ -96,7 +96,7 @@ import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -106,6 +106,7 @@ import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.SeriesStatus
 import com.kmworks.kmreader.ui.components.bookCountLineText
 import com.kmworks.kmreader.ui.components.completedLastReadText
 import com.kmworks.kmreader.ui.components.oneshotLineText
@@ -273,25 +274,11 @@ fun SeriesDetailScreen(
     }
 
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
-    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
     val barHazeState = rememberHazeState()
     val railScrollState = rememberScrollState()
     val narrowScrollState = rememberScrollState()
     val booksListState = rememberLazyListState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = {
-            if (booksListState.firstVisibleItemIndex > 0 || railScrollState.value > 0 || narrowScrollState.value > 0) {
-                1
-            } else {
-                0
-            }
-        },
-        firstVisibleItemScrollOffset = {
-            // The wide layout scrolls the rail and the book list independently; both have to fade the
-            // glass in, so fold the list offset in as well instead of only the rail's scroll state.
-            maxOf(railScrollState.value, narrowScrollState.value, booksListState.firstVisibleItemScrollOffset)
-        },
-    )
 
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
@@ -306,10 +293,10 @@ fun SeriesDetailScreen(
         ) {
             GlassTopBar(
                 title = displaySeries.title,
-                progress = barProgress,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .zIndex(2f),
+                sheetVisible = railScrollState.hasScrolled() || narrowScrollState.hasScrolled() || booksListState.hasScrolled(),
                 hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -967,17 +954,28 @@ private fun DetailHero(
     }
 }
 
+/** Localized publication-status label; unknown/custom server statuses are shown verbatim. */
+@Composable
+private fun seriesStatusLabel(token: String): String =
+    SeriesStatus.fromApiName(token)?.let { stringResource(it.labelRes) } ?: token
+
 @Composable
 private fun HeroMetaItems(series: Series) {
-    val endedLabel = stringResource(R.string.series_status_ended)
     series.releaseYear?.let {
         MetaRow(
             icon = Icons.Filled.DateRange,
             text = stringResource(R.string.series_started_year, it),
         )
     }
-    series.status?.let {
-        MetaRow(icon = null, text = it, tint = if (it == endedLabel) Color(0xFF4CAF50) else Color(0xFFFFA726))
+    series.status?.let { token ->
+        // [Series.status] carries the server token (ENDED/ONGOING/…) or a custom status, never a display
+        // label, so it has to go through the resource table here; hiding the raw token is what made the hero
+        // show English "ONGOING" in every locale. The tint keys off the token for the same reason.
+        MetaRow(
+            icon = null,
+            text = seriesStatusLabel(token),
+            tint = if (token == SeriesStatus.Ended.apiName) Color(0xFF4CAF50) else Color(0xFFFFA726),
+        )
     }
     series.language?.let { MetaRow(icon = Icons.Filled.Public, text = it) }
     MetaRow(

@@ -50,7 +50,7 @@ import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
@@ -71,17 +71,13 @@ fun OfflineScreen(
 
     // The frosted bar floats over the page: the download list scrolls underneath it.
     val pageListState = rememberLazyListState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
-        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
-    )
     val hazeState = rememberHazeState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         GlassTopBar(
             title = stringResource(R.string.offline_title),
-            progress = barProgress,
             modifier = Modifier.zIndex(1f),
+            sheetVisible = pageListState.hasScrolled(),
             hazeState = hazeState,
             actions = {
                 // Library scope (mirrors LibraryScopeMenu): real library list filtering queue and downloads

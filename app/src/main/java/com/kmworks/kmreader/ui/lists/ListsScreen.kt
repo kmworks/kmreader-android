@@ -73,7 +73,7 @@ import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
-import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
 import dev.chrisbanes.haze.hazeSource
@@ -120,17 +120,13 @@ fun ListsScreen(
 
     // The frosted bar floats over the page: the list groups scroll underneath it.
     val pageListState = rememberLazyListState()
-    val barProgress = rememberGlassBarProgress(
-        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
-        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
-    )
     val hazeState = rememberHazeState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         GlassTopBar(
             title = stringResource(R.string.lists_tab_title),
-            progress = barProgress,
             modifier = Modifier.zIndex(1f),
+            sheetVisible = pageListState.hasScrolled(),
             hazeState = hazeState,
             actions = {
                 // LibraryScopeMenu: all libraries / pinned / single library
