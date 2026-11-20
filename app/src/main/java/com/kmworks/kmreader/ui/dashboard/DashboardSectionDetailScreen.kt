@@ -3,12 +3,14 @@ package com.kmworks.kmreader.ui.dashboard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,7 +42,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -53,6 +54,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
+import com.kmworks.kmreader.ui.components.glassTopBarStatusInset
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
@@ -122,10 +130,32 @@ fun DashboardSectionDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(section.title) },
+    // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
+    // scrolls underneath it and the glass fades in with the scroll offset (same as the tab roots).
+    val barHazeState = rememberHazeState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = {
+            if (listState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemIndex > 0) 1 else 0
+        },
+        firstVisibleItemScrollOffset = {
+            maxOf(listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemScrollOffset)
+        },
+    )
+
+    Scaffold { padding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            GlassTopBar(
+                title = section.title,
+                progress = barProgress,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = -glassTopBarStatusInset())
+                    .zIndex(2f),
+                hazeState = barHazeState,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -217,79 +247,78 @@ fun DashboardSectionDetailScreen(
                     }
                 },
             )
-        },
-    ) { padding ->
-        val books = detail.items.filterIsInstance<Book>()
-        val seriesItems = detail.items.filterIsInstance<Series>()
-        when (layout) {
-            BrowseLayout.List -> LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(vertical = 8.dp),
-            ) {
-                items(books, key = { it.id }) { book ->
-                    BookListRow(
-                        book = book,
-                        onClick = { onReadBook(book, false) },
-                        onLongClick = { menuBook = book },
-                    )
+            val books = detail.items.filterIsInstance<Book>()
+            val seriesItems = detail.items.filterIsInstance<Series>()
+            when (layout) {
+                BrowseLayout.List -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .hazeSource(barHazeState),
+                    contentPadding = PaddingValues(top = GlassTopBarContentHeight + 8.dp, bottom = 8.dp),
+                ) {
+                    items(books, key = { it.id }) { book ->
+                        BookListRow(
+                            book = book,
+                            onClick = { onReadBook(book, false) },
+                            onLongClick = { menuBook = book },
+                        )
+                    }
+                    items(seriesItems, key = { it.id }) { series ->
+                        SeriesListRow(series = series, onClick = { onOpenSeries(series) })
+                    }
+                    if (detail.hasMore) {
+                        item(key = "load-more") { LoadMoreRow() }
+                    }
                 }
-                items(seriesItems, key = { it.id }) { series ->
-                    SeriesListRow(series = series, onClick = { onOpenSeries(series) })
-                }
-                if (detail.hasMore) {
-                    item(key = "load-more") { LoadMoreRow() }
-                }
-            }
 
-            else -> LazyVerticalGrid(
-                // grid / largeGrid: adaptive columns sized from the layout card width
-                columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
-                state = gridState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                // horizontal sections degrade to grid cards on this page
-                items(books, key = { it.id }) { book ->
-                    BookGridCard(
-                        book = book,
-                        onClick = { onReadBook(book, false) },
-                        onLongClick = { menuBook = book },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                items(seriesItems, key = { it.id }) { series ->
-                    SeriesGridCard(
-                        series = series,
-                        onClick = { onOpenSeries(series) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (detail.hasMore) {
-                    item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) { LoadMoreRow() }
+                else -> LazyVerticalGrid(
+                    // grid / largeGrid: adaptive columns sized from the layout card width
+                    columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
+                    state = gridState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .hazeSource(barHazeState),
+                    contentPadding = PaddingValues(start = 16.dp, top = GlassTopBarContentHeight + 16.dp, end = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    // horizontal sections degrade to grid cards on this page
+                    items(books, key = { it.id }) { book ->
+                        BookGridCard(
+                            book = book,
+                            onClick = { onReadBook(book, false) },
+                            onLongClick = { menuBook = book },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    items(seriesItems, key = { it.id }) { series ->
+                        SeriesGridCard(
+                            series = series,
+                            onClick = { onOpenSeries(series) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (detail.hasMore) {
+                        item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) { LoadMoreRow() }
+                    }
                 }
             }
-        }
-        // initial page spinner / error hint (both layouts)
-        if (detail.loading && detail.items.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.size(28.dp))
+            // initial page spinner / error hint (both layouts)
+            if (detail.loading && detail.items.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
             }
-        }
-        detail.error?.let { message ->
-            if (detail.items.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            detail.error?.let { message ->
+                if (detail.items.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -297,8 +326,8 @@ fun DashboardSectionDetailScreen(
 
     if (showOptions) {
         BrowseOptionsSheet(
-            options = options,
-            onOptionsChange = { options = it },
+            initialOptions = options,
+            onConfirm = { options = it },
             onDismiss = { showOptions = false },
             suggestionLibraryIds = resolveLibraryScopeIds(detail.libraryScope, detail.pinnedIds),
         )
