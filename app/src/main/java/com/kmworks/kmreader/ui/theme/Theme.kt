@@ -1,10 +1,13 @@
 package com.kmworks.kmreader.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 // KMReader accent colors from the original: pure black in light mode / pure white in dark mode (monochrome scheme), with no brand color and no gradients.
@@ -72,12 +75,22 @@ fun KMReaderTheme(
     trueBlack: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = when {
-            !darkTheme -> LightColors
-            trueBlack -> DarkColors
-            else -> DarkSoftColors
-        },
-        content = content,
-    )
+    val colorScheme = when {
+        !darkTheme -> LightColors
+        trueBlack -> DarkColors
+        else -> DarkSoftColors
+    }
+    MaterialTheme(colorScheme = colorScheme) {
+        // Material3 only derives LocalContentColor from a Surface/Scaffold. This app paints the window background
+        // itself (edge-to-edge root + pages that own no Scaffold), so any Text without an explicit color used to
+        // fall back to Compose's default black content color and disappear against a dark background. Painting the
+        // background here and providing its matching content color makes every page - including future ones - get
+        // readable text for free instead of repeating `color = onBackground` at each call site.
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = colorScheme.background,
+            contentColor = colorScheme.onBackground,
+            content = content,
+        )
+    }
 }
