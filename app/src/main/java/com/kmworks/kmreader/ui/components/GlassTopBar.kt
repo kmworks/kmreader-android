@@ -79,15 +79,41 @@ fun glassPageContentWindowInsets(): WindowInsets =
 private val GlassFadeDistance: Dp = 48.dp
 
 /** Backdrop blur radius behind the bar. */
-private val GlassBlurRadius: Dp = 32.dp
+private val GlassBlurRadius: Dp = 40.dp
 
 /**
- * How much of the surface color the blurred backdrop is tinted with (real blur path).
+ * Tint alphas of the real blur path: the sheet is thickest behind the status bar and thins out
+ * towards the bottom edge.
  *
- * Kept high on purpose: below roughly 0.5 the blurred backdrop still reads as the shapes under it
- * (headlines behind the bar stay legible), which defeats the point of a frosted bar.
+ * The ramp is what makes the bar read as smoked glass instead of a flat band: a single alpha lets
+ * the blurred shapes stay recognisable everywhere (they only get darker), while a descending one
+ * keeps the top opaque enough to sit on and lets the hue of the page glow through lower down.
+ * Keep the middle stop at 0.5 or above — below that the blurred headlines behind the bar become
+ * legible again, which defeats the point of a frosted bar.
  */
-private const val GlassBlurTintAlpha = 0.62f
+private const val GlassBlurTintAlphaTop = 0.80f
+private const val GlassBlurTintAlphaMid = 0.68f
+private const val GlassBlurTintAlphaBottom = 0.55f
+
+/** Position (fraction of the bar's height) where the tint has thinned to [GlassBlurTintAlphaMid]. */
+private const val GlassTintMidStop = 0.55f
+
+/**
+ * Fraction of the bar's height where the glass starts dissolving into the page.
+ *
+ * A rectangular blur layer ends on a razor-sharp edge, which cuts whatever artwork is sliding under
+ * it in half and is what makes a frosted bar look like a pasted-on band. Fading the effect out over
+ * the last stretch lets the sheet melt into the content instead.
+ */
+private const val GlassEdgeFadeStart = 0.80f
+
+/** Opaque-white to transparent mask that drives [GlassEdgeFadeStart]. */
+private val GlassEdgeFadeMask: Brush = Brush.verticalGradient(
+    0f to Color.White,
+    GlassEdgeFadeStart to Color.White,
+    0.94f to Color.White.copy(alpha = 0.55f),
+    1f to Color.White.copy(alpha = 0f),
+)
 
 /** Sheet alpha used when the platform cannot blur (Android 12+ has RenderEffect, older ones do not). */
 private const val GlassFallbackTintAlpha = 0.92f
@@ -125,7 +151,9 @@ fun rememberGlassBarProgress(
  *
  * It draws over the page content instead of reserving layout space, so pages scroll underneath it and
  * the glass only fades in with [progress] — at rest the page looks full-bleed with just the title
- * floating over it. A hairline separator appears together with the sheet.
+ * floating over it. The sheet has no hard lower edge: it is darkest behind the status bar, thins out
+ * downwards and dissolves into the page over its last stretch, so scrolling artwork slides under a
+ * smoked panel rather than under a pasted-on band with a visible seam.
  *
  * Pass a [HazeState] that the scrolling page feeds through `Modifier.hazeSource` to get a real
  * backdrop blur (Haze). Without a state the bar keeps the older translucent-surface look: blur needs
@@ -187,7 +215,7 @@ fun GlassTopBar(
     }
 }
 
-/** Blur (or the pre-Android 12 tint fallback) plus the hairline, filling the bar it backs. */
+/** Blur (or the pre-Android 12 tint fallback), filling the bar and dissolving at its lower edge. */
 @Composable
 private fun BoxScope.GlassPlate(
     glass: Float,
@@ -206,6 +234,9 @@ private fun BoxScope.GlassPlate(
                     // up faster than the scroll offset so the backdrop is fully frosted within the
                     // first part of the fade.
                     alpha = (glass * 2f).coerceIn(0f, 1f)
+                    // Melt the sheet into the page instead of ending on a hard edge that cuts the
+                    // artwork scrolling under the bar in half.
+                    mask = GlassEdgeFadeMask
                 },
         )
     } else {
@@ -214,23 +245,22 @@ private fun BoxScope.GlassPlate(
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(
-                            colors.surface.copy(alpha = 0.97f * glass),
-                            colors.surface.copy(alpha = 0.90f * glass),
-                        ),
+                        0f to colors.surface.copy(alpha = 0.97f * glass),
+                        GlassEdgeFadeStart to colors.surface.copy(alpha = 0.90f * glass),
+                        0.94f to colors.surface.copy(alpha = 0.55f * glass),
+                        1f to colors.surface.copy(alpha = 0f * glass),
                     ),
                 ),
         )
     }
-    // Hairline that appears only once content is actually behind the bar.
-    Box(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .height(0.5.dp)
-            .background(colors.outlineVariant.copy(alpha = 0.55f * glass)),
-    )
 }
+
+/** Vertical ramp of [surface] used as the sheet tint: thick behind the status bar, thinner below. */
+private fun glassTintBrush(surface: Color): Brush = Brush.verticalGradient(
+    0f to surface.copy(alpha = GlassBlurTintAlphaTop),
+    GlassTintMidStop to surface.copy(alpha = GlassBlurTintAlphaMid),
+    1f to surface.copy(alpha = GlassBlurTintAlphaBottom),
+)
 
 /** The blur style is pure theme data, so it is shared by every glass surface. */
 @Composable
@@ -239,7 +269,7 @@ private fun rememberGlassBlurStyle(): HazeStyle {
     return remember(surface) {
         HazeStyle(
             backgroundColor = Color.Transparent,
-            tint = HazeTint(surface.copy(alpha = GlassBlurTintAlpha)),
+            tints = listOf(HazeTint(glassTintBrush(surface))),
             blurRadius = GlassBlurRadius,
             noiseFactor = 0f,
             fallbackTint = HazeTint(surface.copy(alpha = GlassFallbackTintAlpha)),
