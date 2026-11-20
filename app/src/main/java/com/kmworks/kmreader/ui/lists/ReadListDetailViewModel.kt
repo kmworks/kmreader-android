@@ -9,6 +9,7 @@ import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
@@ -60,6 +61,7 @@ class ReadListDetailViewModel @Inject constructor(
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
     private val contentChangeBus: ContentChangeBus,
+    private val contentRowRefresher: ContentRowRefresher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReadListDetailUiState())
@@ -82,21 +84,53 @@ class ReadListDetailViewModel @Inject constructor(
     }
 
     /**
-     * Writes issued here or on another screen: read state of the books on screen is patched in place,
-     * and changes this page cannot represent (membership, metadata, deletions of rows it shows)
-     * re-read the list.
+     * Writes issued here or on another screen, plus server-side changes forwarded from SSE. Read state of the books
+     * on screen is patched in place; a server-side change to a shown book re-reads just that row (the payload
+     * carries ids only); everything else re-reads the list.
      */
     private fun observeContentChanges() {
         contentJob = viewModelScope.launch {
             contentChangeBus.observeChanges(
                 patch = { patchContentChange(it) },
-                reload = { reloadBooks() },
+                reload = { change ->
+                    if (change.kind == ContentChangeKind.Touched && change is ContentChange.Books) {
+                        applyTouchedBooks(change)
+                    } else {
+                        reloadBooks()
+                    }
+                },
             )
         }
     }
 
-    private fun patchContentChange(change: ContentChange): PatchOutcome =
-        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    /** Fetch the touched book rows on screen and swap them in; ids not shown cost nothing. */
+    private suspend fun applyTouchedBooks(change: ContentChange) {
+        if (!showsAny(detailRepository.stableIdsOf(change))) return
+        val rows = contentRowRefresher.books(change.dtoIds)
+        if (rows.isEmpty()) return
+        _uiState.update { state ->
+            state.copy(books = state.books.orEmpty().map { row -> rows[row.id] ?: row })
+        }
+    }
+
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        // Ids without values: a shown book costs one row fetch, this list's own change a reload,
+        // anything else is not this page's business.
+        if (change.kind == ContentChangeKind.Touched) {
+            return when {
+                change is ContentChange.Books ->
+                    if (showsAny(detailRepository.stableIdsOf(change))) {
+                        PatchOutcome.Declined
+                    } else {
+                        PatchOutcome.Patched
+                    }
+
+                change is ContentChange.ReadLists -> PatchOutcome.Declined
+                else -> PatchOutcome.Patched
+            }
+        }
+        return if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    }
 
     private fun patchInPlace(change: ContentChange): Boolean = when (change) {
         is ContentChange.Books -> {

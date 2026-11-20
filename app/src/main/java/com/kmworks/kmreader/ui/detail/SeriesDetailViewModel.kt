@@ -10,6 +10,7 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.observeChanges
@@ -45,8 +46,6 @@ import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
-import com.kmworks.kmreader.core.sse.SseEventKind
-import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
@@ -115,11 +114,11 @@ class SeriesDetailViewModel @Inject constructor(
     private val trackerRepository: TrackerRepository,
     private val serverProfileStore: ServerProfileStore,
     private val configStore: ServerConfigStore,
-    private val sseService: SseService,
     @ApplicationContext private val context: Context,
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
     private val contentChangeBus: ContentChangeBus,
+    private val contentRowRefresher: ContentRowRefresher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
@@ -144,7 +143,6 @@ class SeriesDetailViewModel @Inject constructor(
     /** The entry the current state content belongs to (content resets when the entry changes, but a forced
      *  refresh of the same entry keeps it). */
     private var contentId: Int? = null
-    private var sseJob: Job? = null
     private var contentJob: Job? = null
     private var loadJob: Job? = null
 
@@ -249,7 +247,6 @@ class SeriesDetailViewModel @Inject constructor(
                 refreshDownloaded()
                 autoDownloadUnreadIfEnabled()
                 refreshTrackerLinks()
-                observeReadProgressEvents()
                 observeContentChanges()
             } catch (e: CancellationException) {
                 throw e
@@ -617,25 +614,7 @@ class SeriesDetailViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Read-progress events: the tracker advancement for finished books happens on the server (mirroring the
-     * original app, the client pushes nothing); ReadProgress/Book SSE events are subscribed and, after a
-     * debounce, the book list and tracker bindings are reloaded to reflect the server-side progress.
-     */
-    private fun observeReadProgressEvents() {
-        if (sseJob != null) return
-        sseJob = viewModelScope.launch {
-            sseService.events
-                .filter { it.kind in setOf(SseEventKind.ReadProgress, SseEventKind.Book) }
-                .debounce(3_000)
-                .collect {
-                    reloadBooks()
-                    refreshTrackerLinks()
-                }
-        }
-    }
-
-    /** Reloads only the book list (triggered by SSE; the detail body is unchanged). Covers are resolved through the stableId registry. */
+    /** Reloads only the book list (the detail body is unchanged). Covers are resolved through the stableId registry. */
     private fun reloadBooks() {
         val dtoId = dtoId ?: return
         lastReloadAtMs = SystemClock.elapsedRealtime()
@@ -653,6 +632,9 @@ class SeriesDetailViewModel @Inject constructor(
      *
      * The header is the one thing a patched book cannot fix: its progress and unread count are aggregates the
      * server computes over the whole series, so book changes settle into a quiet header re-read.
+     *
+     * Server-side changes (SSE) arrive as [ContentChangeKind.Touched]: ids only, so the reload path fetches those
+     * rows and then settles the header, which is what the old 3s "reload the whole book list" timer did.
      */
     private fun observeContentChanges() {
         if (contentJob != null) return
@@ -660,8 +642,9 @@ class SeriesDetailViewModel @Inject constructor(
             contentChangeBus.observeChanges(
                 patch = { patchContentChange(it) },
                 reload = { change ->
-                    when (change) {
-                        is ContentChange.Books -> reloadBooks()
+                    when {
+                        change.kind == ContentChangeKind.Touched -> applyTouched(change)
+                        change is ContentChange.Books -> reloadBooks()
                         else -> reloadDetail()
                     }
                 },
@@ -670,9 +653,30 @@ class SeriesDetailViewModel @Inject constructor(
         }
     }
 
+    /** Fetch the touched rows these pages show and swap them in; ids nothing here displays cost nothing. */
+    private suspend fun applyTouched(change: ContentChange) {
+        val ids = detailRepository.stableIdsOf(change)
+        if (ids.isEmpty() || !touchesThisPage(change, ids)) return
+        when (change) {
+            is ContentChange.Books -> {
+                val rows = contentRowRefresher.books(change.dtoIds)
+                if (rows.isEmpty()) return
+                _uiState.update { st -> st.copy(books = st.books?.map { row -> rows[row.id] ?: row }) }
+                reloadHeader()
+                refreshTrackerLinks()
+            }
+
+            is ContentChange.Series -> reloadHeader()
+
+            else -> Unit
+        }
+    }
+
     private fun patchContentChange(change: ContentChange): PatchOutcome {
         val ids = detailRepository.stableIdsOf(change)
         return when (change.kind) {
+            // Ids without values: the reload path fetches these rows and patches them.
+            ContentChangeKind.Touched -> PatchOutcome.Declined
             ContentChangeKind.ReadStateChanged -> {
                 val read = change.read ?: return PatchOutcome.Patched
                 when (change) {
@@ -711,6 +715,11 @@ class SeriesDetailViewModel @Inject constructor(
      */
     private fun settleHeader() {
         if (SystemClock.elapsedRealtime() - lastReloadAtMs < SETTLE_SUPPRESS_MILLIS) return
+        reloadHeader()
+    }
+
+    /** Re-reads the header now: used by the settle path and by a server-side change that has already settled. */
+    private fun reloadHeader() {
         val seriesDtoId = dtoId ?: return
         viewModelScope.launch {
             val dto = runCatching { detailRepository.seriesDetail(seriesDtoId) }.getOrNull() ?: return@launch

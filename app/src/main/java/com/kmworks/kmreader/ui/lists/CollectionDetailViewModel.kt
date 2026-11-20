@@ -9,6 +9,7 @@ import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
@@ -55,6 +56,7 @@ class CollectionDetailViewModel @Inject constructor(
     private val listRepository: ListRepository,
     private val downloadRepository: DownloadRepository,
     private val contentChangeBus: ContentChangeBus,
+    private val contentRowRefresher: ContentRowRefresher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CollectionDetailUiState())
@@ -77,13 +79,33 @@ class CollectionDetailViewModel @Inject constructor(
     }
 
     /**
-     * Writes issued here or on another screen: member read state is patched into the rows on screen,
-     * and changes this page cannot represent (membership, metadata, deletions of members it shows)
-     * re-read the collection.
+     * Writes issued here or on another screen, plus server-side changes forwarded from SSE. Member read state is
+     * patched into the rows on screen; a server-side change to a shown member re-reads just that row (the payload
+     * carries ids only); everything else re-reads the collection.
      */
     private fun observeContentChanges() {
         contentJob = viewModelScope.launch {
-            contentChangeBus.observeChanges(patch = { patchContentChange(it) }, reload = { reloadDetail() })
+            contentChangeBus.observeChanges(
+                patch = { patchContentChange(it) },
+                reload = { change ->
+                    if (change.kind == ContentChangeKind.Touched && change is ContentChange.Series) {
+                        applyTouchedSeries(change)
+                    } else {
+                        reloadDetail()
+                    }
+                },
+            )
+        }
+    }
+
+    /** Fetch the touched member rows on screen and swap them in; ids not shown cost nothing. */
+    private suspend fun applyTouchedSeries(change: ContentChange) {
+        val ids = detailRepository.stableIdsOf(change)
+        if (!showsAny(ids)) return
+        val rows = contentRowRefresher.series(change.dtoIds)
+        if (rows.isEmpty()) return
+        _uiState.update { state ->
+            state.copy(series = state.series.orEmpty().map { row -> rows[row.id] ?: row })
         }
     }
 
@@ -93,8 +115,24 @@ class CollectionDetailViewModel @Inject constructor(
         load(stableId)
     }
 
-    private fun patchContentChange(change: ContentChange): PatchOutcome =
-        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        // Ids without values: a shown member costs one row fetch, this collection's own change a reload,
+        // anything else is not this page's business.
+        if (change.kind == ContentChangeKind.Touched) {
+            return when {
+                change is ContentChange.Series ->
+                    if (showsAny(detailRepository.stableIdsOf(change))) {
+                        PatchOutcome.Declined
+                    } else {
+                        PatchOutcome.Patched
+                    }
+
+                change is ContentChange.Collections -> PatchOutcome.Declined
+                else -> PatchOutcome.Patched
+            }
+        }
+        return if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    }
 
     private fun patchInPlace(change: ContentChange): Boolean = when (change) {
         is ContentChange.Series -> {

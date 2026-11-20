@@ -103,21 +103,30 @@ class BookDetailViewModel @Inject constructor(
     }
 
     /**
-     * Writes issued here or on another screen. This page shows a single book, so only that book's
-     * read state is patched in place; its metadata/existence changes re-read the detail, and any
-     * other entity's change is ignored.
+     * Writes issued here or on another screen, and server-side changes forwarded from SSE. This page shows a
+     * single book, so only that book's read state and flushed progress are patched in place; a server-side change
+     * to it (ids without values) re-reads that one row, and any other entity's change is ignored.
      */
     private fun observeContentChanges() {
         contentJob = viewModelScope.launch {
             contentChangeBus.observeChanges(
                 patch = { patchContentChange(it) },
-                reload = { if (it is ContentChange.Books) reloadDetail() },
+                reload = { change ->
+                    if (change is ContentChange.Books || change is ContentChange.Unknown) reloadDetail()
+                },
             )
         }
     }
 
-    private fun patchContentChange(change: ContentChange): PatchOutcome =
-        if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        if (change.kind == ContentChangeKind.Touched) {
+            // Nothing to patch with: fetch the row if this page shows it, ignore it otherwise.
+            val stableId = loadedId ?: return PatchOutcome.Patched
+            val touches = stableId in detailRepository.stableIdsOf(change)
+            return if (touches && change is ContentChange.Books) PatchOutcome.Declined else PatchOutcome.Patched
+        }
+        return if (patchInPlace(change)) PatchOutcome.Patched else PatchOutcome.Declined
+    }
 
     private fun patchInPlace(change: ContentChange): Boolean {
         val stableId = loadedId ?: return true

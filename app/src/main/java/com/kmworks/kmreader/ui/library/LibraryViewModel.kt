@@ -15,6 +15,7 @@ import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ContentChangeKind
+import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.LibraryRepository
@@ -31,8 +32,6 @@ import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
-import com.kmworks.kmreader.core.sse.SseEventKind
-import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
 import com.kmworks.kmreader.data.SampleData.ListEntry
@@ -96,7 +95,7 @@ class LibraryViewModel @Inject constructor(
     private val contentChangeBus: ContentChangeBus,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
-    private val sseService: SseService,
+    private val contentRowRefresher: ContentRowRefresher,
     private val appSettings: AppSettingsStore,
     private val sessionManager: SessionManager,
     private val downloadRepository: DownloadRepository,
@@ -168,20 +167,13 @@ class LibraryViewModel @Inject constructor(
                     }
                 }
         }
-        // Aggregate SSE content-change events for 3s before refreshing
-        viewModelScope.launch {
-            sseService.events
-                .filter { it.kind in REFRESH_KINDS }
-                .debounce(3_000)
-                .collect { refresh() }
-        }
         // Writes made here or on another screen patch the rows on screen by id; whatever this screen
         // cannot express (created/deleted rows, metadata fields) falls back to one debounced re-query. A patched
         // book still leaves its series card's aggregate stale, so those changes schedule one quiet re-read later.
         viewModelScope.launch {
             contentChangeBus.observeChanges(
                 patch = { patchContentChange(it) },
-                reload = { refresh() },
+                reload = { applyReload(it) },
                 settle = { settleRefresh() },
             )
         }
@@ -234,6 +226,47 @@ class LibraryViewModel @Inject constructor(
     }
 
     /**
+     * The path for a change this screen could not apply itself. A [ContentChangeKind.Touched] change (the server
+     * announced an id but sent no values) is turned into fresh rows, one request per row on screen.
+     */
+    private suspend fun applyReload(change: ContentChange) {
+        if (change.kind == ContentChangeKind.Touched) {
+            applyTouched(change)
+            return
+        }
+        refresh()
+    }
+
+    /** Fetch the touched rows and swap them in; ids this screen does not show cost nothing. */
+    private suspend fun applyTouched(change: ContentChange) {
+        val ids = detailRepository.stableIdsOf(change)
+        if (ids.isEmpty() || !showsAny(ids)) return
+        when (change) {
+            is ContentChange.Series -> {
+                val rows = contentRowRefresher.series(change.dtoIds)
+                if (rows.isEmpty()) return
+                _state.update { st ->
+                    st.copy(series = st.series?.map { row -> rows[row.id] ?: row })
+                }
+                // The fresh row carries the server's aggregates, so nothing is left stale here.
+            }
+
+            is ContentChange.Books -> {
+                val rows = contentRowRefresher.books(change.dtoIds)
+                if (rows.isEmpty()) return
+                _state.update { st ->
+                    st.copy(books = st.books?.map { row -> rows[row.id] ?: row })
+                }
+            }
+
+            else -> Unit
+        }
+    }
+
+    private fun showsAny(ids: Set<Int>): Boolean =
+        _state.value.series?.any { it.id in ids } == true || _state.value.books?.any { it.id in ids } == true
+
+    /**
      * Apply a write to the rows on screen without asking the server. Read state and the progress a reader flushed
      * on its way out are the only things these lists show that a write flips in place; anything else (a created or
      * deleted row, a renamed or remetadated entity) declines and lets the caller re-query.
@@ -242,6 +275,8 @@ class LibraryViewModel @Inject constructor(
      * books: those changes report [PatchOutcome.PendingSettle] so the screen re-reads them once the write settled.
      */
     private fun patchContentChange(change: ContentChange): PatchOutcome = when (change.kind) {
+        // Ids without values: the reload path fetches these rows and patches them.
+        ContentChangeKind.Touched -> PatchOutcome.Declined
         ContentChangeKind.ReadStateChanged -> {
             val read = change.read ?: return PatchOutcome.Patched
             val ids = detailRepository.stableIdsOf(change)
@@ -773,16 +808,8 @@ class LibraryViewModel @Inject constructor(
 
         /**
          * A settle re-read within this window of the last load is redundant: that load already read the state the
-         * settle was waiting for (SSE answers on its own 3s debounce, a pull-to-refresh lands immediately).
+         * settle was waiting for.
          */
         const val SETTLE_SUPPRESS_MILLIS = 3_000L
-
-        /** Event kinds that trigger a library refresh. */
-        val REFRESH_KINDS = setOf(
-            SseEventKind.Book,
-            SseEventKind.Series,
-            SseEventKind.ReadProgress,
-            SseEventKind.Library,
-        )
     }
 }

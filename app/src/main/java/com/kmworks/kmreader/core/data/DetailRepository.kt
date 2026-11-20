@@ -69,8 +69,8 @@ class DetailRepository @Inject constructor(
     fun readListDtoId(stableId: Int): String? = DetailIdRegistry.readListDtoId(stableId)
 
     /**
-     * The stable ids a content change refers to, resolved through the registry. Empty when none of the
-     * entities was ever displayed (then a screen has nothing to patch and reloads instead).
+     * The stable ids a content change refers to, resolved through the registry. Empty when the change names no
+     * entities or none of them was ever displayed; such a screen has nothing to patch and ignores the change.
      */
     fun stableIdsOf(change: ContentChange): Set<Int> = change.dtoIds.mapNotNull { dtoId ->
         when (change) {
@@ -79,6 +79,7 @@ class DetailRepository @Inject constructor(
             is ContentChange.Collections -> DetailIdRegistry.collectionStableId(dtoId)
             is ContentChange.ReadLists -> DetailIdRegistry.readListStableId(dtoId)
             is ContentChange.SmartLists -> DetailIdRegistry.smartListStableId(dtoId)
+            ContentChange.Unknown -> null
         }
     }.toSet()
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.CatalogCache
+import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailIdRegistry
@@ -16,8 +17,6 @@ import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
-import com.kmworks.kmreader.core.sse.SseEventKind
-import com.kmworks.kmreader.core.sse.SseService
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -48,15 +47,6 @@ data class ListsUiState(
     val readListsHasMore: Boolean = true,
 )
 
-/** SSE kinds that trigger a full refresh (mirrors the DashboardViewModel pattern). */
-private val REFRESH_KINDS = setOf(
-    SseEventKind.Book,
-    SseEventKind.Series,
-    SseEventKind.ReadList,
-    SseEventKind.Collection,
-    SseEventKind.SmartList,
-)
-
 /** Real collections / read lists / smart lists (a failing smart list hides its whole group, no error). */
 @HiltViewModel
 class ListsViewModel @Inject constructor(
@@ -64,7 +54,6 @@ class ListsViewModel @Inject constructor(
     private val listRepository: ListRepository,
     private val contentChangeBus: ContentChangeBus,
     private val smartListRepository: SmartListRepository,
-    private val sseService: SseService,
     private val appSettingsStore: AppSettingsStore,
     private val thumbnailCache: ThumbnailCache,
     private val sessionManager: SessionManager,
@@ -102,27 +91,24 @@ class ListsViewModel @Inject constructor(
                 }
             }
         }
-        // SSE-driven debounced refresh (mirrors DashboardViewModel)
-        viewModelScope.launch {
-            sseService.events
-                .filter { it.kind in REFRESH_KINDS }
-                .debounce(3_000)
-                .collect {
-                    if (_state.value.hasSession) load()
-                }
-        }
         // These strips only show names, counts and covers, so a list write (here or on another screen)
-        // re-reads once instead of patching: same cost as before, one shared debounce. Read-state
-        // writes are ignored: they change no name, count or cover.
+        // re-reads once instead of patching: same cost as before, one shared debounce. Book and series
+        // events are ignored: they change no name, count or cover on this screen.
         viewModelScope.launch {
             contentChangeBus.observeChanges(
-                patch = {
-                    if (it.kind == ContentChangeKind.ReadStateChanged ||
-                        it.kind == ContentChangeKind.ProgressChanged
-                    ) {
-                        PatchOutcome.Patched
-                    } else {
-                        PatchOutcome.Declined
+                patch = { change ->
+                    when {
+                        change.kind == ContentChangeKind.Touched ->
+                            if (change is ContentChange.Books || change is ContentChange.Series) {
+                                PatchOutcome.Patched
+                            } else {
+                                PatchOutcome.Declined
+                            }
+
+                        change.kind == ContentChangeKind.ReadStateChanged ||
+                            change.kind == ContentChangeKind.ProgressChanged -> PatchOutcome.Patched
+
+                        else -> PatchOutcome.Declined
                     }
                 },
                 reload = { refresh() },

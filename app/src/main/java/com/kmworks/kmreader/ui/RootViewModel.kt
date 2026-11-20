@@ -10,6 +10,7 @@ import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
+import com.kmworks.kmreader.core.sse.SseContentSync
 import com.kmworks.kmreader.core.sse.SseEventKind
 import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,6 +39,7 @@ class RootViewModel @Inject constructor(
     private val configStore: ServerConfigStore,
     private val appSettings: AppSettingsStore,
     private val sseService: SseService,
+    private val sseContentSync: SseContentSync,
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
 ) : ViewModel() {
@@ -68,6 +70,8 @@ class RootViewModel @Inject constructor(
                     if (clients != null && enabled) sseService.start(clients) else sseService.stop()
                 }
         }
+        // Turn the events on that connection into row-level changes for the screens that show those rows
+        sseContentSync.start()
         // SessionExpired event -> automatic logout (logout is idempotent: SSE stops along with it)
         viewModelScope.launch {
             sseService.events.collect { event ->

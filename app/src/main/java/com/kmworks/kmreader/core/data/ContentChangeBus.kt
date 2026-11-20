@@ -34,6 +34,12 @@ enum class ContentChangeKind {
 
     /** The entity no longer exists; a screen cannot patch that away either, it reloads. */
     Deleted,
+
+    /**
+     * The server announced a change but sends only ids (SSE payloads carry no values), so a screen has to
+     * re-read the rows it shows by id before patching them.
+     */
+    Touched,
 }
 
 /**
@@ -86,6 +92,16 @@ sealed interface ContentChange {
         override val dtoIds: Set<String>,
         override val kind: ContentChangeKind,
     ) : ContentChange
+
+    /**
+     * Something changed that cannot be expressed as a patch: an SSE payload that failed to decode, an event kind
+     * this app does not model yet, or a change touching more ids than a screen should re-read one by one. Screens
+     * never patch it; [observeChanges] routes it straight to their reload path.
+     */
+    data object Unknown : ContentChange {
+        override val dtoIds: Set<String> get() = emptySet()
+        override val kind: ContentChangeKind get() = ContentChangeKind.Touched
+    }
 }
 
 /** Shorthand for the write call sites, which all start from a single DTO id or a batch of them. */
@@ -166,17 +182,20 @@ enum class PatchOutcome {
 }
 
 /**
- * Feeds one screen from the local write signal.
+ * Feeds one screen from the change signal (local writes and forwarded SSE events).
  *
  * [patch] applies what the screen can represent in place. A [PatchOutcome.Declined] change is coalesced into a
  * single [reload] half a second after the last one, so a batch delete of ten books still re-reads the screen once.
  * A [PatchOutcome.PendingSettle] change is coalesced into [settle] [settleDebounceMillis] later, giving the server's
  * aggregates a moment to catch up before the screen asks for them.
+ *
+ * [reload] and [settle] suspend because a screen may have to fetch the touched rows before it can patch them (see
+ * [ContentChangeKind.Touched]); the reload path is where that fetch happens.
  */
 suspend fun ContentChangeBus.observeChanges(
     patch: (ContentChange) -> PatchOutcome,
-    reload: (ContentChange) -> Unit,
-    settle: (ContentChange) -> Unit = {},
+    reload: suspend (ContentChange) -> Unit,
+    settle: suspend (ContentChange) -> Unit = {},
     reloadDebounceMillis: Long = RELOAD_DEBOUNCE_MILLIS,
     settleDebounceMillis: Long = SETTLE_DEBOUNCE_MILLIS,
 ) {
@@ -185,6 +204,11 @@ suspend fun ContentChangeBus.observeChanges(
         val settles = Channel<ContentChange>(Channel.CONFLATED)
         launch {
             changes.collect { change ->
+                // An unclassifiable change cannot be patched; it can only cost one reload.
+                if (change is ContentChange.Unknown) {
+                    reloads.trySend(change)
+                    return@collect
+                }
                 when (patch(change)) {
                     PatchOutcome.Patched -> Unit
                     PatchOutcome.PendingSettle -> settles.trySend(change)
