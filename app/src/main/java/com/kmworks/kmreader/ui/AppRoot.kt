@@ -1,20 +1,16 @@
 package com.kmworks.kmreader.ui
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
+import android.os.Handler
+import android.os.Looper
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -51,6 +48,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
@@ -106,6 +107,8 @@ import com.kmworks.kmreader.ui.settings.SettingsScreen
 import com.kmworks.kmreader.ui.settings.SseSettingsScreen
 import com.kmworks.kmreader.ui.stats.ReadingStatsScreen
 import com.kmworks.kmreader.ui.server.ServerAdminScreen
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Settings sub-page routes (mirrors the section entries of SettingsView). */
@@ -174,11 +177,57 @@ private data class FilteredLibraryRoute(val request: LibraryFilterRequest) : Rou
 }
 
 /**
+ * One page in the stack.
+ *
+ * [id] belongs to this appearance of the page, not to the page: closing a page and opening it again is two
+ * appearances, and each one gets its own motion, because a page that is still travelling out and one that is
+ * travelling in must not share a position.
+ */
+private class PageEntry(val id: Long, val route: Route)
+
+/** Where a page is between its own place and one full width off the right edge: 0 in place, 1 fully out. */
+private typealias PageMotion = Animatable<Float, AnimationVector1D>
+
+/**
  * Bottom space the floating navigation capsule occupies above the navigation-bar inset: item row (icon +
  * label, ~44dp) plus the capsule and outer paddings. Pages reserve it as list content padding so the last
  * row can scroll clear of the bar; the system bar inset is added on top at the call site.
  */
 private val NavOverlaySpace = 76.dp
+
+/**
+ * The page a system back gesture drags.
+ *
+ * The root owns the gesture -- it is the handler the system talks to -- while the stack owns the motion, so
+ * the stack publishes which page is in front and the gesture writes its progress straight into that page's
+ * animation. A frame of the drag therefore costs one draw instead of a recomposition of the whole stack, and
+ * letting go continues from the finger instead of restarting the travel.
+ */
+private class BackDrag {
+    /** The page in front, the one a completed gesture would pop. */
+    var page: PageMotion? = null
+}
+
+/** How long a page takes to slide in over the one below (full width, from the right edge). */
+private const val PushMillis = 300
+
+/** How long a page takes to slide out when it is popped, starting from rest. */
+private const val PopMillis = 250
+
+/** How long a page takes to settle back when a back gesture is abandoned short of the edge. */
+private const val BackSettleMillis = 200
+
+/** How far the page below drifts left while it is covered, as a fraction of its width. */
+private const val RecedeDrift = 0.08f
+
+/** How much the page below dims while it is covered. */
+private const val RecedeDim = 0.10f
+
+/** Width of the shadow the page above casts over the page below, at its left edge. */
+private val PageShadowWidth = 24.dp
+
+/** Strength of that shadow where it meets the page. */
+private const val PageShadowAlpha = 0.32f
 
 /**
  * App root (design spec): a single bottom-center floating capsule navigation bar on every form factor
@@ -209,7 +258,13 @@ fun AppRoot(
     // The real page stack: index 0 is the first page above the tabs. Pages are appended when something is
     // opened and removed from the end by back, so back always returns to the page the current one was opened
     // from (a detail page, a filtered list, a list detail) instead of leaving the app.
-    val pages = remember { mutableStateListOf<Route>() }
+    val pages = remember { mutableStateListOf<PageEntry>() }
+    // Pages that were just popped and are still travelling out. They hold their own motion until they are
+    // gone, and the page they uncover reads it, so a page is never left standing at a half-covered position.
+    val leaving = remember { mutableStateListOf<PageEntry>() }
+    // Identifies this appearance of a page rather than the page itself: the same route can be opened again
+    // after it was closed, and the motion that slides a page in has to belong to the appearance.
+    var pageSequence by remember { mutableStateOf(0L) }
     // Keeps every metadata-chip jump a distinct request (so a second jump re-applies the filter instead of
     // being treated as unchanged)
     var filterSequence by remember { mutableStateOf(0L) }
@@ -217,11 +272,13 @@ fun AppRoot(
     val scope = rememberCoroutineScope()
     // Pushes a page. The page on top is never stacked twice, so tapping the same entry twice does nothing.
     val push: (Route) -> Unit = { route ->
-        if (pages.lastOrNull()?.key != route.key) pages.add(route)
+        if (pages.lastOrNull()?.route?.key != route.key) {
+            pages.add(PageEntry(id = pageSequence++, route = route))
+        }
     }
     // Leaves the front-most page: a page's own back arrow, the back key and the gesture all run this, so
     // they can never disagree about which page leaves.
-    val pop: () -> Unit = { if (pages.isNotEmpty()) pages.removeAt(pages.lastIndex) }
+    val pop: () -> Unit = { if (pages.isNotEmpty()) leaving.add(pages.removeAt(pages.lastIndex)) }
     // The filtered library list a metadata chip opens: a page of its own, so the library tab keeps whatever
     // the user set up there. The jumping page decides which list it shows (a series-detail chip opens the
     // series list, a book-detail chip the book list), mirroring the iOS per-origin browse destinations.
@@ -285,8 +342,36 @@ fun AppRoot(
         }
     }
 
-    // Back: the front-most page leaves. With nothing pushed no handler runs, so the system leaves the app.
-    BackHandler(enabled = pages.isNotEmpty()) { pop() }
+    // The page the system back gesture drags: the stack keeps it pointing at the page in front, and the
+    // gesture below writes the drag straight into that page's motion, so the page follows the finger.
+    val backDrag = remember { BackDrag() }
+
+    // Back: the front-most page leaves, following the predictive gesture when the system sends one. With
+    // nothing pushed no handler runs, so the system leaves the app. This has to stay registered before the
+    // pages themselves: a page that handles back on its own (the server admin screens) registers later and
+    // therefore wins.
+    PredictiveBackHandler(enabled = pages.isNotEmpty()) { events ->
+        val page = backDrag.page
+        if (page == null) {
+            events.collect { }
+            pop()
+        } else {
+            // The drag continues from wherever the page happens to be (a page can still be sliding in when
+            // the gesture starts), so the finger always picks the page up where it is drawn.
+            val from = page.value
+            try {
+                events.collect { event -> page.snapTo(from + (1f - from) * event.progress) }
+                pop()
+            } catch (cancelled: CancellationException) {
+                // The gesture was let go short: the page travels back to where it came from. The handler's
+                // own job is already cancelled here, so the way back has to run on the composition's scope.
+                scope.launch {
+                    page.animateTo(0f, tween(durationMillis = BackSettleMillis, easing = FastOutSlowInEasing))
+                }
+                throw cancelled
+            }
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // Overlay navigation on every form factor: the tab bar floats above the pages, so their content keeps the full
@@ -367,10 +452,15 @@ fun AppRoot(
             }
         }
 
-        // Pages above the tab skeleton, drawn one animated slot per stack position: the tab skeleton is the
-        // page below index 0 and every pushed page owns its slot, so the pages beneath keep their
-        // composition (scroll position, open sheets) while the page above slides in.
-        OverlayStack(stack = pages) { route ->
+        // Pages above the tab skeleton, drawn one layer per page: the tab skeleton is the page below index 0
+        // and every pushed page owns its layer, so the pages beneath keep their composition (scroll position,
+        // open sheets) while the page above slides in.
+        OverlayStack(
+            stack = pages,
+            leaving = leaving,
+            backDrag = backDrag,
+            onLeaveFinished = { leaving.remove(it) },
+        ) { route ->
             when (route) {
                 is SeriesDetailRoute -> {
                     val series = route.series
@@ -643,8 +733,13 @@ private class PageViewModelStoreOwner(
 private fun PageScope(key: String, content: @Composable () -> Unit) {
     val host = LocalViewModelStoreOwner.current as? HasDefaultViewModelProviderFactory
     val owner = remember(key, host) { host?.let { PageViewModelStoreOwner(it) } }
+    // The page's view models are cleared one main-thread message after the page is gone instead of inside the
+    // frame that also removes it: the teardown then happens outside the frame that is still drawing the page.
+    val mainThread = remember { Handler(Looper.getMainLooper()) }
     DisposableEffect(owner) {
-        onDispose { owner?.viewModelStore?.clear() }
+        onDispose {
+            owner?.let { gone -> mainThread.post { gone.viewModelStore.clear() } }
+        }
     }
     if (owner != null) {
         CompositionLocalProvider(LocalViewModelStoreOwner provides owner) { content() }
@@ -654,23 +749,45 @@ private fun PageScope(key: String, content: @Composable () -> Unit) {
 }
 
 /**
- * Renders the pushed pages above the tab skeleton, one slot per stack position.
+ * Renders the pushed pages above the tab skeleton, one layer per page.
  *
- * Every slot stays composed (an empty slot draws nothing), so the page underneath an entering page keeps its
- * composition and its state; only the page that is pushed or popped takes part in a transition.
+ * Each page owns one motion value: 0 while it sits in place, 1 once it is off the screen to the right. Being
+ * pushed and being popped animate that same value, the page underneath reads it to drift left and dim by
+ * exactly as much, and a back gesture writes the finger straight into it -- so the travel, the parallax and the
+ * dim cannot drift apart, however a page is left.
+ *
+ * A page that was popped stays in the tree until its motion finishes ([leaving]) and is drawn above the stack,
+ * so the page it uncovers keeps its composition and its state all the way through.
  */
 @Composable
 private fun OverlayStack(
-    stack: List<Route>,
+    stack: List<PageEntry>,
+    leaving: List<PageEntry>,
+    backDrag: BackDrag,
+    onLeaveFinished: (PageEntry) -> Unit,
     content: @Composable (Route) -> Unit,
 ) {
+    // One motion per page appearance. They exist before the layers compose, so a layer can read the value of
+    // the page above it, and a page drops its own once it is gone.
+    val motions = remember { mutableMapOf<Long, PageMotion>() }
+    val drawn = stack + leaving
+    drawn.forEach { page -> motions.getOrPut(page.id) { Animatable(1f) } }
+    // The gesture drags the page in front; with an empty stack there is nothing to drag.
+    SideEffect { backDrag.page = stack.lastOrNull()?.let { motions[it.id] } }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // One slot past the top: the page that was just popped is still drawn there while it leaves.
-        for (index in 0..stack.size) {
-            key(index) {
+        drawn.forEachIndexed { index, page ->
+            key(page.id) {
                 LayerSlot(
-                    route = stack.getOrNull(index),
-                    covered = index < stack.lastIndex,
+                    route = page.route,
+                    motion = motions.getValue(page.id),
+                    // The page drawn directly above this one, in drawing order.
+                    above = drawn.getOrNull(index + 1)?.let { motions[it.id] },
+                    leaving = index >= stack.size,
+                    onLeaveFinished = {
+                        motions.remove(page.id)
+                        onLeaveFinished(page)
+                    },
                     content = content,
                 )
             }
@@ -679,76 +796,89 @@ private fun OverlayStack(
 }
 
 /**
- * One stack position: the page living there plus the motion that brings it in and takes it away.
+ * One page: its motion, the room it makes for the page above, and the shadow it casts while it travels.
  *
- * A page that is covered drifts left and dims a little, and the sliver its drift uncovers is filled with the
- * page surface instead of the tab skeleton behind the stack. A page swapped at the same position (the series
- * of the book already open) is replaced in place rather than pushed.
+ * The page below a moving page is not animated on its own: it reads the motion of the page above it while it
+ * draws, so being covered is one motion instead of two that have to be kept in step.
  */
 @Composable
 private fun LayerSlot(
-    route: Route?,
-    covered: Boolean,
+    route: Route,
+    motion: PageMotion,
+    above: PageMotion?,
+    leaving: Boolean,
+    onLeaveFinished: () -> Unit,
     content: @Composable (Route) -> Unit,
 ) {
-    val recede by animateFloatAsState(
-        targetValue = if (covered) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
-        label = "layerSlot",
-    )
+    // A page that leaves finishes the travel it was dragged into -- from wherever the drag or an earlier
+    // animation left it, so letting go near the edge does not make the last stretch crawl -- and a page that
+    // arrives comes in from the right edge.
+    LaunchedEffect(motion, leaving) {
+        if (leaving) {
+            val remaining = (1f - motion.value).coerceIn(0f, 1f)
+            motion.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = (PopMillis * remaining).roundToInt().coerceIn(0, PopMillis),
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            onLeaveFinished()
+        } else {
+            motion.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = PushMillis, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+
+    val surface = MaterialTheme.colorScheme.background
+    val shadow = Color.Black
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // A covered page drifts left, so the sliver it uncovers is filled with the page surface instead of
-        // the tab skeleton behind the stack; it fades in with the drift, so nothing snaps while a page
-        // settles.
+        // A covered page drifts left, so the sliver it uncovers is filled with the page surface instead of the
+        // tab skeleton behind the stack; it fades in with the drift, so nothing snaps while a page settles.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background.copy(alpha = recede)),
+                .graphicsLayer { alpha = above?.let { 1f - it.value } ?: 0f }
+                .background(surface),
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { translationX = -size.width * 0.08f * recede },
-        ) {
-            AnimatedContent(
-                targetState = route,
-                transitionSpec = {
-                    if (initialState != null && targetState != null) {
-                        // Same stack position, different page: it replaces the page in place instead of
-                        // claiming a place in the hierarchy it does not have.
-                        EnterTransition.None togetherWith ExitTransition.None
-                    } else {
-                        (
-                            slideInHorizontally(
-                                animationSpec = spring(
-                                    dampingRatio = 0.9f,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                                initialOffsetX = { width -> width },
-                            ) + fadeIn(tween(150))
-                            ).togetherWith(
-                            slideOutHorizontally(
-                                animationSpec = spring(
-                                    dampingRatio = 0.9f,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                                targetOffsetX = { width -> width },
-                            ),
-                        )
-                    }
-                },
-                contentKey = { it?.key },
-                label = "layerSlot",
-            ) { target ->
-                if (target != null) {
-                    PageScope(key = target.key) { content(target) }
+                .graphicsLayer {
+                    // The page's own travel across the screen, plus the little drift a covered page makes
+                    // room with. Both read their animation while drawing, so a page in motion costs a draw
+                    // instead of a recomposition of everything below it.
+                    val recede = above?.let { 1f - it.value } ?: 0f
+                    translationX = size.width * (motion.value - RecedeDrift * recede)
                 }
-            }
-            // A covered page dims a little: enough depth to read the stack, not enough to hide the page.
+                // The page casts a shadow over the one it uncovers. It is strongest mid-travel and gone at
+                // both ends, so no dark line is left against the screen edge while a page sits still.
+                .drawBehind {
+                    val weight = minOf(motion.value, 1f - motion.value) * 2f
+                    if (weight <= 0f) return@drawBehind
+                    val width = PageShadowWidth.toPx()
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, shadow),
+                            startX = -width,
+                            endX = 0f,
+                        ),
+                        topLeft = Offset(-width, 0f),
+                        size = Size(width, size.height),
+                        alpha = weight * PageShadowAlpha,
+                    )
+                },
+        ) {
+            PageScope(key = route.key) { content(route) }
+            // A covered page dims by exactly as much as the page above has moved in.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.10f * recede)),
+                    .graphicsLayer { alpha = RecedeDim * (above?.let { 1f - it.value } ?: 0f) }
+                    .background(Color.Black),
             )
         }
     }
