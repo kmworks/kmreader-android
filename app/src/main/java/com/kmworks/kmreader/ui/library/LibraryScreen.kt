@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,10 +38,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
@@ -70,7 +71,10 @@ import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
@@ -86,6 +90,8 @@ import com.kmworks.kmreader.ui.detail.BookEditSheet
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.util.shareText
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 private enum class ContentType(@param:StringRes val labelRes: Int) {
     Series(R.string.common_series),
@@ -244,297 +250,280 @@ fun LibraryScreen(
         appliedFilter = kind to value
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.library_title)) },
-                actions = {
-                    TextButton(onClick = { scopeMenuOpen = true }) {
-                        Text(scopeLabel)
-                        Icon(
-                            Icons.Filled.ArrowDropDown,
-                            contentDescription = stringResource(R.string.library_switch_scope),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = scopeMenuOpen,
-                        onDismissRequest = { scopeMenuOpen = false },
-                    ) {
-                        // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries /
-                        // single libraries / pin editing
-                        if (state.pinnedIds.isNotEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_scope_pinned)) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.PushPin, contentDescription = null)
-                                },
-                                onClick = {
-                                    viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
-                                    scopeMenuOpen = false
-                                },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.common_all_libraries)) },
-                            onClick = {
-                                viewModel.setScope(AppSettingsStore.SCOPE_ALL)
-                                scopeMenuOpen = false
-                            },
-                        )
-                        state.libraries.forEach { library ->
-                            DropdownMenuItem(
-                                text = { Text(library.name) },
-                                onClick = {
-                                    viewModel.setScope(AppSettingsStore.scopeForLibrary(library.id))
-                                    scopeMenuOpen = false
-                                },
-                            )
-                        }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.library_pin_libraries)) },
-                            onClick = {
-                                scopeMenuOpen = false
-                                showPinSheet = true
-                            },
-                        )
-                    }
-                    IconButton(onClick = { setLayout(layout.next) }) {
-                        Icon(
-                            Icons.Filled.GridView,
-                            contentDescription = stringResource(R.string.library_layout_cd, stringResource(layout.labelRes)),
-                        )
-                    }
-                    IconButton(onClick = { showOptionsSheet = true }) {
-                        Icon(
-                            Icons.Filled.FilterList,
-                            contentDescription = stringResource(R.string.browse_filter),
-                        )
-                    }
-                },
-            )
+    // Series/books keep independent scroll positions; the frosted bar fades in with the active scroller.
+    val seriesGridState = rememberLazyGridState()
+    val booksGridState = rememberLazyGridState()
+    val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
+    val seriesListState = rememberLazyListState()
+    val booksListState = rememberLazyListState()
+    val listState = if (contentType == ContentType.Series) seriesListState else booksListState
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = {
+            if (layout == BrowseLayout.List) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
         },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            if (state.loading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-            state.error?.let { message ->
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ContentType.entries.forEach { type ->
-                    // Mirrors the iOS library titles: show the server-side totals, falling back to
-                    // the loaded count before paged data arrives
-                    val count = if (type == ContentType.Series) {
-                        state.seriesTotal ?: series.size.toLong()
-                    } else {
-                        state.booksTotal ?: allBooks.size.toLong()
-                    }
-                    FilterChip(
-                        selected = contentType == type,
-                        onClick = { contentType = type },
-                        label = {
-                            Text(stringResource(R.string.library_content_count, stringResource(type.labelRes), count))
-                        },
-                    )
-                }
-            }
-            Text(
-                text = if (state.hasSession) {
-                    pluralStringResource(
-                        R.plurals.library_scope_libraries,
-                        state.libraryCount,
-                        scopeLabel,
-                        state.libraryCount,
-                    )
-                } else {
-                    scopeLabel
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        firstVisibleItemScrollOffset = {
+            if (layout == BrowseLayout.List) listState.firstVisibleItemScrollOffset else gridState.firstVisibleItemScrollOffset
+        },
+    )
+    // Backdrop the bar blurs: whichever scroll container is showing feeds the haze state.
+    val hazeState = rememberHazeState()
+    // Load the next page when the last row comes into reach
+    val gridShouldLoadMore by remember(contentType, gridState) {
+        derivedStateOf {
+            val info = gridState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+        }
+    }
+    val listShouldLoadMore by remember(contentType, listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
+        }
+    }
+    val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
+    val hasMore = when (contentType) {
+        ContentType.Series -> state.seriesHasMore
+        ContentType.Books -> state.booksHasMore
+    }
+    // loadedCount joins the key: keep requesting pages while still at the bottom after a page was appended
+    val loadedCount = if (contentType == ContentType.Series) series.size else allBooks.size
+    LaunchedEffect(shouldLoadMore, contentType, hasMore, loadedCount) {
+        if (!shouldLoadMore || !hasMore) return@LaunchedEffect
+        when (contentType) {
+            ContentType.Series -> viewModel.loadMoreSeries()
+            ContentType.Books -> viewModel.loadMoreBooks()
+        }
+    }
+
+    // One compact caption row: size/series/book totals once a source answered, otherwise just the scope/library count
+    val headerCaption = libraryMetricsCaption(state.scope, state.metricsByLibrary, state.metricsTotal)
+        ?: if (state.hasSession) {
+            pluralStringResource(
+                R.plurals.library_scope_libraries,
+                state.libraryCount,
+                scopeLabel,
+                state.libraryCount,
             )
-            // Volume/count caption (mirrors iOS LibraryMetricsText); hidden when no source answered.
-            libraryMetricsCaption(state.scope, state.metricsByLibrary, state.metricsTotal)?.let { caption ->
-                Text(
-                    text = caption,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-            // Target of the metadata-chip jumps from detail pages: show the active metadata filter
-            // (publisher/author/genre/tag/notable entity)
-            activeFilter?.let { filter ->
-                val parts = filter.split("·").map { it.trim() }
-                val chipLabel = when {
-                    parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE ->
-                        "${stringResource(R.string.browse_kind_notable)} · ${notableKindLabel(parts[1])} · ${parts[2]}"
-                    parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
-                    else -> filter
-                }
-                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    FilterChip(
-                        selected = true,
-                        onClick = onClearFilter,
-                        label = { Text(chipLabel) },
-                        trailingIcon = {
-                            Icon(
-                                Icons.Filled.Close,
-                                contentDescription = stringResource(R.string.browse_clear_filter),
-                                modifier = Modifier.padding(2.dp),
-                            )
-                        },
-                    )
-                }
-            }
-            if (!state.hasSession) {
+        } else {
+            scopeLabel
+        }
+
+    // Content-first page: the bar floats over the content (it reserves no layout height) and only the header rows
+    // scroll away with it, so the grid starts right below the bar instead of below four stacked caption rows.
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            !state.hasSession -> Column(modifier = Modifier.fillMaxSize()) {
+                Spacer(Modifier.height(glassTopBarTopPadding()))
                 EmptyState(
                     title = stringResource(R.string.library_offline_title),
                     subtitle = stringResource(R.string.library_offline_subtitle),
                     modifier = Modifier.weight(1f),
                 )
-            } else {
-                // Series/books keep independent scroll positions; load the next page at the bottom
-                val seriesGridState = rememberLazyGridState()
-                val booksGridState = rememberLazyGridState()
-                val gridState = if (contentType == ContentType.Series) seriesGridState else booksGridState
-                val seriesListState = rememberLazyListState()
-                val booksListState = rememberLazyListState()
-                val listState = if (contentType == ContentType.Series) seriesListState else booksListState
-                val gridShouldLoadMore by remember(contentType, gridState) {
-                    derivedStateOf {
-                        val info = gridState.layoutInfo
-                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
-                            ?: return@derivedStateOf false
-                        info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
-                    }
-                }
-                val listShouldLoadMore by remember(contentType, listState) {
-                    derivedStateOf {
-                        val info = listState.layoutInfo
-                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
-                            ?: return@derivedStateOf false
-                        info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 6
-                    }
-                }
-                val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
-                val hasMore = when (contentType) {
-                    ContentType.Series -> state.seriesHasMore
-                    ContentType.Books -> state.booksHasMore
-                }
-                // loadedCount joins the key: keep requesting pages while still at the bottom after
-                // a page was appended
-                val loadedCount = if (contentType == ContentType.Series) series.size else allBooks.size
-                LaunchedEffect(shouldLoadMore, contentType, hasMore, loadedCount) {
-                    if (!shouldLoadMore || !hasMore) return@LaunchedEffect
-                    when (contentType) {
-                        ContentType.Series -> viewModel.loadMoreSeries()
-                        ContentType.Books -> viewModel.loadMoreBooks()
-                    }
-                }
-                when (layout) {
-                    BrowseLayout.List -> LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalNavOverlaySpace.current),
-                    ) {
-                        when (contentType) {
-                            ContentType.Series -> items(series.size, key = { series[it].id }) { index ->
-                                val item = series[index]
-                                SeriesListRow(
-                                    series = item,
-                                    onClick = { onOpenSeries(item) },
-                                    onLongClick = { menuSeries = item },
-                                )
-                            }
-                            ContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
-                                val book = allBooks[index]
-                                BookListRow(
-                                    book = book,
-                                    onClick = { onReadBook(book, false) },
-                                    onLongClick = { menuBook = book },
-                                )
-                            }
-                        }
-                        if (hasMore) {
-                            item(key = "load-more") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                }
-                            }
-                        }
-                    }
+            }
 
-                    else -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
-                        state = gridState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            top = 16.dp,
-                            end = 16.dp,
-                            bottom = 16.dp + LocalNavOverlaySpace.current,
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        when (contentType) {
-                            ContentType.Series -> items(series, key = { it.id }) { item ->
-                                SeriesGridCard(
-                                    series = item,
-                                    onClick = { onOpenSeries(item) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onLongClick = { menuSeries = item },
-                                )
-                            }
-                            ContentType.Books -> items(allBooks, key = { it.id }) { book ->
-                                BookGridCard(
-                                    book = book,
-                                    onClick = { onReadBook(book, false) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onLongClick = { menuBook = book },
-                                )
-                            }
+            layout == BrowseLayout.List -> LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                contentPadding = PaddingValues(
+                    top = glassTopBarTopPadding() + 4.dp,
+                    bottom = 8.dp + LocalNavOverlaySpace.current,
+                ),
+            ) {
+                if (state.loading) {
+                    item(key = "loading") {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+                state.error?.let { message ->
+                    item(key = "error") { LibraryErrorText(message) }
+                }
+                item(key = "library-header") {
+                    LibraryHeader(
+                        contentType = contentType,
+                        onContentTypeChange = { contentType = it },
+                        seriesCount = state.seriesTotal ?: series.size.toLong(),
+                        booksCount = state.booksTotal ?: allBooks.size.toLong(),
+                        caption = headerCaption,
+                        activeFilter = activeFilter,
+                        onClearFilter = onClearFilter,
+                        horizontalPadding = 16.dp,
+                    )
+                }
+                when (contentType) {
+                    ContentType.Series -> items(series.size, key = { series[it].id }) { index ->
+                        val item = series[index]
+                        SeriesListRow(
+                            series = item,
+                            onClick = { onOpenSeries(item) },
+                            onLongClick = { menuSeries = item },
+                        )
+                    }
+                    ContentType.Books -> items(allBooks.size, key = { allBooks[it].id }) { index ->
+                        val book = allBooks[index]
+                        BookListRow(
+                            book = book,
+                            onClick = { onReadBook(book, false) },
+                            onLongClick = { menuBook = book },
+                        )
+                    }
+                }
+                if (hasMore) {
+                    item(key = "load-more") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         }
-                        if (hasMore) {
-                            item(
-                                key = "load-more",
-                                span = { GridItemSpan(maxLineSpan) },
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                }
-                            }
+                    }
+                }
+            }
+
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = if (layout == BrowseLayout.LargeGrid) 152.dp else 110.dp),
+                state = gridState,
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    top = glassTopBarTopPadding() + 4.dp,
+                    end = 16.dp,
+                    bottom = 16.dp + LocalNavOverlaySpace.current,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (state.loading) {
+                    item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+                state.error?.let { message ->
+                    item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
+                        LibraryErrorText(message, horizontalPadding = 0.dp)
+                    }
+                }
+                item(key = "library-header", span = { GridItemSpan(maxLineSpan) }) {
+                    LibraryHeader(
+                        contentType = contentType,
+                        onContentTypeChange = { contentType = it },
+                        seriesCount = state.seriesTotal ?: series.size.toLong(),
+                        booksCount = state.booksTotal ?: allBooks.size.toLong(),
+                        caption = headerCaption,
+                        activeFilter = activeFilter,
+                        onClearFilter = onClearFilter,
+                        horizontalPadding = 0.dp,
+                    )
+                }
+                when (contentType) {
+                    ContentType.Series -> items(series, key = { it.id }) { item ->
+                        SeriesGridCard(
+                            series = item,
+                            onClick = { onOpenSeries(item) },
+                            modifier = Modifier.fillMaxWidth(),
+                            onLongClick = { menuSeries = item },
+                        )
+                    }
+                    ContentType.Books -> items(allBooks, key = { it.id }) { book ->
+                        BookGridCard(
+                            book = book,
+                            onClick = { onReadBook(book, false) },
+                            modifier = Modifier.fillMaxWidth(),
+                            onLongClick = { menuBook = book },
+                        )
+                    }
+                }
+                if (hasMore) {
+                    item(
+                        key = "load-more",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         }
                     }
                 }
             }
         }
+
+        GlassTopBar(
+            title = stringResource(R.string.library_title),
+            progress = barProgress,
+            actions = {
+                TextButton(onClick = { scopeMenuOpen = true }) {
+                    Text(scopeLabel)
+                    Icon(
+                        Icons.Filled.ArrowDropDown,
+                        contentDescription = stringResource(R.string.library_switch_scope),
+                    )
+                }
+                DropdownMenu(
+                    expanded = scopeMenuOpen,
+                    onDismissRequest = { scopeMenuOpen = false },
+                ) {
+                    // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries /
+                    // single libraries / pin editing
+                    if (state.pinnedIds.isNotEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_scope_pinned)) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.PushPin, contentDescription = null)
+                            },
+                            onClick = {
+                                viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
+                                scopeMenuOpen = false
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.common_all_libraries)) },
+                        onClick = {
+                            viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                            scopeMenuOpen = false
+                        },
+                    )
+                    state.libraries.forEach { library ->
+                        DropdownMenuItem(
+                            text = { Text(library.name) },
+                            onClick = {
+                                viewModel.setScope(AppSettingsStore.scopeForLibrary(library.id))
+                                scopeMenuOpen = false
+                            },
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.library_pin_libraries)) },
+                        onClick = {
+                            scopeMenuOpen = false
+                            showPinSheet = true
+                        },
+                    )
+                }
+                IconButton(onClick = { setLayout(layout.next) }) {
+                    Icon(
+                        Icons.Filled.GridView,
+                        contentDescription = stringResource(R.string.library_layout_cd, stringResource(layout.labelRes)),
+                    )
+                }
+                IconButton(onClick = { showOptionsSheet = true }) {
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = stringResource(R.string.browse_filter),
+                    )
+                }
+            },
+        )
     }
 
     if (showOptionsSheet) {
@@ -711,6 +700,88 @@ fun LibraryScreen(
                 },
             )
             else -> Unit
+        }
+    }
+}
+
+/** Inline error line of the library page; the grid already applies its own horizontal content padding. */
+@Composable
+private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 4.dp),
+    )
+}
+
+/**
+ * Header rows of the library page: content-type chips carrying the server-side totals, one compact caption
+ * line and the active metadata-filter chip. It lives inside the scrolling content (instead of above it like
+ * the original toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
+ */
+@Composable
+private fun LibraryHeader(
+    contentType: ContentType,
+    onContentTypeChange: (ContentType) -> Unit,
+    seriesCount: Long,
+    booksCount: Long,
+    caption: String,
+    activeFilter: String?,
+    onClearFilter: () -> Unit,
+    horizontalPadding: Dp,
+) {
+    Column(modifier = Modifier.padding(horizontal = horizontalPadding)) {
+        Row(
+            modifier = Modifier.padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ContentType.entries.forEach { type ->
+                FilterChip(
+                    selected = contentType == type,
+                    onClick = { onContentTypeChange(type) },
+                    label = {
+                        Text(
+                            stringResource(
+                                R.string.library_content_count,
+                                stringResource(type.labelRes),
+                                if (type == ContentType.Series) seriesCount else booksCount,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+        Text(
+            text = caption,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        // Target of the metadata-chip jumps of the detail pages ("kind · value" / "notable · kind · value")
+        activeFilter?.let { filter ->
+            val parts = filter.split("·").map { it.trim() }
+            val chipLabel = when {
+                parts.size == 3 && parts[0] == FILTER_KIND_NOTABLE ->
+                    "${stringResource(R.string.browse_kind_notable)} · ${notableKindLabel(parts[1])} · ${parts[2]}"
+                parts.size == 2 -> "${filterKindLabel(parts[0])} · ${parts[1]}"
+                else -> filter
+            }
+            Row(modifier = Modifier.padding(bottom = 4.dp)) {
+                FilterChip(
+                    selected = true,
+                    onClick = onClearFilter,
+                    label = { Text(chipLabel) },
+                    trailingIcon = {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.browse_clear_filter),
+                            modifier = Modifier.padding(2.dp),
+                        )
+                    },
+                )
+            }
         }
     }
 }

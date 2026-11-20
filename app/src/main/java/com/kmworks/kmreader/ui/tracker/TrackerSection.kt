@@ -95,6 +95,9 @@ fun ProviderLogo(provider: TrackerProvider, modifier: Modifier = Modifier) {
 /**
  * Detail page tracker section (aligned with TrackerSeriesSection):
  * linked tracker chips (logo + status + progress) + Add Tracker (shown while link count < provider count).
+ *
+ * Fills the width on purpose: the phone detail page centers its hero column, and a wrap-content block would be
+ * centered as a whole and read as a floating row instead of the start of the section below the summary.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -102,7 +105,7 @@ fun TrackerSection(
     links: List<TrackerLink> = emptyList(),
     onManage: () -> Unit,
 ) {
-    Column(modifier = Modifier.padding(top = 16.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
         Text(
             stringResource(R.string.tracker_trackers_title),
             style = MaterialTheme.typography.titleSmall,

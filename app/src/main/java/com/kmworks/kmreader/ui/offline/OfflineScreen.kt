@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -27,11 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,12 +41,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.download.DownloadTaskUi
 import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 /** Downloads tab (mirrors OfflineView + OfflineTasksView + OfflineDownloadedBookGroupView + ReadListOfflinePolicyMenuItems). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,57 +69,64 @@ fun OfflineScreen(
     val libraryScope by viewModel.libraryScope.collectAsState()
     var scopeMenuOpen by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.offline_title)) },
-                actions = {
-                    // Library scope (mirrors LibraryScopeMenu): real library list filtering queue and downloads
-                    Box {
-                        IconButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(
-                                Icons.Outlined.Checklist,
-                                contentDescription = stringResource(R.string.offline_library_scope),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = scopeMenuOpen,
-                            onDismissRequest = { scopeMenuOpen = false },
-                        ) {
+    // The frosted bar floats over the page: the download list scrolls underneath it.
+    val pageListState = rememberLazyListState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
+        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
+    )
+    val hazeState = rememberHazeState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        GlassTopBar(
+            title = stringResource(R.string.offline_title),
+            progress = barProgress,
+            modifier = Modifier.zIndex(1f),
+            hazeState = hazeState,
+            actions = {
+                // Library scope (mirrors LibraryScopeMenu): real library list filtering queue and downloads
+                Box {
+                    IconButton(onClick = { scopeMenuOpen = true }) {
+                        Icon(
+                            Icons.Outlined.Checklist,
+                            contentDescription = stringResource(R.string.offline_library_scope),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = scopeMenuOpen,
+                        onDismissRequest = { scopeMenuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
+                            onClick = {
+                                viewModel.setLibraryScope(null)
+                                scopeMenuOpen = false
+                            },
+                        )
+                        libraries.forEach { library ->
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_all_libraries)) },
+                                text = {
+                                    Text(
+                                        if (library.id == libraryScope) "✓ ${library.name}"
+                                        else library.name,
+                                    )
+                                },
                                 onClick = {
-                                    viewModel.setLibraryScope(null)
+                                    viewModel.setLibraryScope(library.id)
                                     scopeMenuOpen = false
                                 },
                             )
-                            libraries.forEach { library ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (library.id == libraryScope) "✓ ${library.name}"
-                                            else library.name,
-                                        )
-                                    },
-                                    onClick = {
-                                        viewModel.setLibraryScope(library.id)
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
                         }
                     }
-                },
-            )
-        },
-    ) { padding ->
+                }
+            },
+        )
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            state = pageListState,
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
             contentPadding = PaddingValues(
                 start = 16.dp,
-                top = 16.dp,
+                top = glassTopBarTopPadding() + 16.dp,
                 end = 16.dp,
                 bottom = 16.dp + LocalNavOverlaySpace.current,
             ),

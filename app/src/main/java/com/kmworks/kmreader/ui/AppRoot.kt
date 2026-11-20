@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,9 +35,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -184,9 +182,16 @@ private data class ReaderRoute(val book: Book, val format: String, val incognito
 }
 
 /**
- * App root (design spec): phone = standard bottom navigation bar / tablet (>=840dp) = bottom-center
- * floating capsule navigation bar; detail, settings and reader stack as full-screen layers above the
- * tab skeleton (stacking order = visual hierarchy).
+ * Bottom space the floating navigation capsule occupies above the navigation-bar inset: item row (icon +
+ * label, ~44dp) plus the capsule and outer paddings. Pages reserve it as list content padding so the last
+ * row can scroll clear of the bar; the system bar inset is added on top at the call site.
+ */
+private val NavOverlaySpace = 76.dp
+
+/**
+ * App root (design spec): a single bottom-center floating capsule navigation bar on every form factor
+ * (content scrolls underneath it); detail, settings and reader stack as full-screen layers above the tab
+ * skeleton (stacking order = visual hierarchy).
  */
 @Composable
 fun AppRoot(
@@ -270,81 +275,63 @@ fun AppRoot(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // Tablet (minimum width >=600dp, equivalent to sw600dp and orientation-independent): bottom-center floating capsule nav bar;
-        // phones keep the standard bottom navigation. (Custom design requested by the user; iOS iPad uses a top sidebarAdaptable.)
-        val config = LocalConfiguration.current
-        val floatingNav = minOf(config.screenWidthDp, config.screenHeightDp) >= 600
-        CompositionLocalProvider(LocalNavOverlaySpace provides if (floatingNav) 96.dp else 0.dp) {
-        Scaffold(
-            // Sub-pages bring their own TopAppBar for status-bar insets, so no safe-area insets are injected here (otherwise the top would be padded twice)
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                if (!floatingNav) {
-                    NavigationBar {
-                        AppTab.entries.forEach { item ->
-                            NavigationBarItem(
-                                selected = tab == item,
-                                onClick = { tab = item },
-                                icon = { Icon(item.icon, contentDescription = stringResource(item.labelRes)) },
-                                label = { Text(stringResource(item.labelRes)) },
-                            )
-                        }
-                    }
+        // Overlay navigation on every form factor: the tab bar floats above the pages, so their content keeps the full
+        // height and scrolls underneath it, reserving only LocalNavOverlaySpace at the bottom. Wide layouts just cap the
+        // capsule width instead of switching to a different bar shape (no more NavigationBar row eating ~80dp on phones).
+        val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        CompositionLocalProvider(LocalNavOverlaySpace provides (NavOverlaySpace + navigationInset)) {
+            // The pages no longer own a Scaffold: the root paints the app background behind their edge-to-edge
+            // content (status bar strip included), so the frosted top bars have something to sit on.
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                when (tab) {
+                    AppTab.Home -> DashboardScreen(
+                        onOpenSeries = openSeries,
+                        onOpenSettings = { showSettings = true },
+                        onOpenBook = openBook,
+                        onOpenSectionDetail = { dashboardSection = it },
+                        onOpenContinuation = { readListDetailId = it.readListId },
+                        onVisitSeries = visitSeriesOfBook,
+                        onReadBook = openReader,
+                    )
+
+                    AppTab.Library -> LibraryScreen(
+                        activeFilter = browseFilter,
+                        onClearFilter = { browseFilter = null },
+                        onOpenSeries = openSeries,
+                        onOpenBook = openBook,
+                        onVisitSeries = visitSeriesOfBook,
+                        onReadBook = openReader,
+                    )
+
+                    AppTab.Lists -> ListsScreen(
+                        onOpenCollection = { collectionDetailId = it },
+                        onOpenReadList = { readListDetailId = it },
+                        onOpenSmartList = { smartListDetailId = it },
+                    )
+
+                    AppTab.Offline -> OfflineScreen()
+
+                    AppTab.Browse -> BrowseScreen(
+                        onOpenSeries = openSeries,
+                        onOpenBook = openBook,
+                        onOpenReadList = { readListDetailId = it },
+                        onOpenCollection = { collectionDetailId = it },
+                        onReadBook = openReader,
+                    )
                 }
-            },
-        ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
-            when (tab) {
-                AppTab.Home -> DashboardScreen(
-                    onOpenSeries = openSeries,
-                    onOpenSettings = { showSettings = true },
-                    onOpenBook = openBook,
-                    onOpenSectionDetail = { dashboardSection = it },
-                    onOpenContinuation = { readListDetailId = it.readListId },
-                    onVisitSeries = visitSeriesOfBook,
-                    onReadBook = openReader,
-                )
 
-                AppTab.Library -> LibraryScreen(
-                    activeFilter = browseFilter,
-                    onClearFilter = { browseFilter = null },
-                    onOpenSeries = openSeries,
-                    onOpenBook = openBook,
-                    onVisitSeries = visitSeriesOfBook,
-                    onReadBook = openReader,
-                )
-
-                AppTab.Lists -> ListsScreen(
-                    onOpenCollection = { collectionDetailId = it },
-                    onOpenReadList = { readListDetailId = it },
-                    onOpenSmartList = { smartListDetailId = it },
-                )
-
-                AppTab.Offline -> OfflineScreen()
-
-                AppTab.Browse -> BrowseScreen(
-                    onOpenSeries = openSeries,
-                    onOpenBook = openBook,
-                    onOpenReadList = { readListDetailId = it },
-                    onOpenCollection = { collectionDetailId = it },
-                    onReadBook = openReader,
-                )
-            }
-            }
-        }
-        }
-
-        // Tablet: overlay floating navigation (content scrolls under the translucent bar; list bottom space is reserved by LocalNavOverlaySpace)
-        if (floatingNav) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                FloatingNavBar(selected = tab, onSelect = { tab = it })
+                // Floating capsule navigation: drawn after the tab pages (so it stays above their content) and before
+                // the full-screen overlay stack below (so detail/settings/reader pages still cover it).
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FloatingNavBar(selected = tab, onSelect = { tab = it })
+                }
             }
         }
 
@@ -739,9 +726,10 @@ private fun LayerSlot(
 }
 
 /**
- * Tablet bottom floating capsule nav bar (referencing mainstream tablet apps: compact item height, a
- * capsule indicator behind the selected icon, a translucent floating container). Unlike the standard
- * NavigationBar: item height is ~60dp instead of 80dp and the width is capped at 480dp.
+ * Bottom floating capsule nav bar, used on every form factor (referencing mainstream tablet apps: compact
+ * item height, a capsule indicator behind the selected icon, a translucent floating container). Unlike the
+ * standard NavigationBar: item height is ~50dp instead of 80dp, it overlays the page content instead of
+ * insetting it, and the width is capped at 400dp on wide screens.
  */
 @Composable
 private fun FloatingNavBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
@@ -798,6 +786,7 @@ private fun FloatingNavBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
                     Text(
                         text = stringResource(item.labelRes),
                         fontSize = 10.sp,
+                        lineHeight = 12.sp,
                         color = contentColor,
                         maxLines = 1,
                         modifier = Modifier.padding(top = 1.dp),

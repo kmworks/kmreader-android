@@ -403,8 +403,9 @@ internal fun BookDetailBody(
                     }
                 }
             } else {
-                // Narrow: hero + action card in a centered column (mirrors the narrow branch of
-                // SeriesDetailScreen)
+                // Narrow: hero + action card stay centered (same as the wide rail); only the section under the
+                // summary (tag chips, media info, read-list chips) is left aligned so it lines up with the rows
+                // around it instead of floating in the middle of the page.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -448,7 +449,7 @@ internal fun BookDetailBody(
                         if (state.readLists.isNotEmpty()) {
                             BookMembershipChips(
                                 entries = state.readLists,
-                                centered = true,
+                                centered = false,
                                 onOpen = onOpenReadList,
                             )
                         }

@@ -131,10 +131,10 @@ private val ActionCardMaxWidth = 480.dp
 private val ActionCardShape = RoundedCornerShape(16.dp)
 
 /** Series detail, mirrors KMReader SeriesDetailView / SeriesDetailContentView:
- *  Hero (large cover + centered info) → DetailActionCard (book-count row + continue-reading capsule + download area) →
- *  timestamp → summary → genre/tag chips → alternate titles → book list (filter/sort/layout/multi-select row).
- *  On wide screens (≥840dp) the info rail sits on the left and the book list on the right, matching
- *  SeriesDetailWideLayoutView. */
+ *  Hero (large cover + centered info) → DetailActionCard (book-count row + continue-reading capsule +
+ *  download area) → timestamp → summary → left-aligned genre/tag/link chips → alternate titles → book list
+ *  (filter/sort/layout/multi-select row). On wide screens (≥960dp) the left info rail sits beside the book
+ *  list, matching SeriesDetailWideLayoutView. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SeriesDetailScreen(
@@ -487,9 +487,10 @@ fun SeriesDetailScreen(
                     }
                 }
             } else {
-                // Phone: single scrolling column with centered content (mirrors the original
-                // DetailHeroView centered state: the action card is horizontally centered with maxWidth 480,
-                // the timestamp is centered, and the chip flow is centered)
+                // Phone: hero + action card stay centered (same as the wide rail, and the same as a tablet in
+                // portrait); only the metadata block under the summary — notable entities / genres / tags /
+                // links / collections — starts at the content edge so it lines up with the book list below
+                // instead of floating in the middle of the page.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -514,8 +515,10 @@ fun SeriesDetailScreen(
                             onDownload = onDownloadSeries,
                         )
                         DetailSummary(displaySeries)
-                        DetailChips(displaySeries, centered = true, onBrowseFilter = onBrowseFilter)
-                        DetailMembershipChips(state.collections, centered = true, onOpen = onOpenCollection)
+                        // Left aligned even though the hero above is centered: this block reads as the start of
+                        // the list section and continues into the book list below.
+                        DetailChips(displaySeries, centered = false, onBrowseFilter = onBrowseFilter)
+                        DetailMembershipChips(state.collections, centered = false, onOpen = onOpenCollection)
                         if (state.hasSession && state.trackerSupported) {
                             TrackerSection(
                                 links = state.trackerLinks,
@@ -834,7 +837,11 @@ fun SeriesDetailScreen(
     }
 }
 
-/** Hero: large centered cover on top with centered info below (narrow layout), mirrors DetailHeroView + SeriesHeroInfoView. */
+/**
+ * Hero: large cover on top with the info below it, mirrors DetailHeroView + SeriesHeroInfoView.
+ * [centered] is true on phones and in the wide info rail (the default look); false keeps a left-aligned
+ * variant where cover, title, creator chips and meta rows all align to the content edge.
+ */
 @Composable
 private fun DetailHero(
     series: Series,
@@ -887,8 +894,9 @@ private fun DetailHero(
             onClick = { (kind, value) -> onBrowseFilter("$kind · $value") },
         )
         Spacer(Modifier.height(12.dp))
-        // DetailHeroMetadataGroup: the centered hero uses a horizontal wrapping flow (wrapping only when a row
-        // does not fit), while the non-centered (wide rail) layout puts each meta item on its own row.
+        // DetailHeroMetadataGroup: the centered layout (phones and the wide rail) uses a horizontal wrapping
+        // flow (wrapping only when a row does not fit), while the left-aligned variant puts each meta item on
+        // its own row.
         if (centered) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -1088,7 +1096,11 @@ private fun DetailChips(
     val genreKindLabel = stringResource(R.string.browse_kind_genre)
     val tagKindLabel = stringResource(R.string.common_tag)
     Column(
-        modifier = Modifier.padding(top = 16.dp),
+        modifier = Modifier
+            // Fill the width when left aligned so the flows start at the content edge even inside a centered
+            // parent column (the phone hero above this block is centered).
+            .then(if (centered) Modifier else Modifier.fillMaxWidth())
+            .padding(top = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (series.notableEntities.isNotEmpty()) {
@@ -1147,7 +1159,11 @@ private fun DetailMembershipChips(
 ) {
     if (entries.isEmpty()) return
     Column(
-        modifier = Modifier.padding(top = 16.dp),
+        modifier = Modifier
+            // Same as DetailChips: fill the width when left aligned so the title and chips sit at the edge of a
+            // centered parent column.
+            .then(if (centered) Modifier else Modifier.fillMaxWidth())
+            .padding(top = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(

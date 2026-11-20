@@ -34,12 +34,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -59,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
@@ -72,8 +71,13 @@ import com.kmworks.kmreader.ui.components.collectionContextMenuItems
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 /** Lists tab: mirrors KMReader ListsBrowseView — three horizontal strips of
  *  collections / read lists / smart lists, pinned entries first, each strip header
@@ -114,48 +118,57 @@ fun ListsScreen(
         state.smartLists?.let { if (it.isNotEmpty()) add(ListGroup(groupSmartListsLabel, it)) }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.lists_tab_title)) },
-                actions = {
-                    // LibraryScopeMenu: all libraries / pinned / single library
-                    Box {
-                        TextButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(
-                                Icons.Filled.Checklist,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+    // The frosted bar floats over the page: the list groups scroll underneath it.
+    val pageListState = rememberLazyListState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
+        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
+    )
+    val hazeState = rememberHazeState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        GlassTopBar(
+            title = stringResource(R.string.lists_tab_title),
+            progress = barProgress,
+            modifier = Modifier.zIndex(1f),
+            hazeState = hazeState,
+            actions = {
+                // LibraryScopeMenu: all libraries / pinned / single library
+                Box {
+                    TextButton(onClick = { scopeMenuOpen = true }) {
+                        Icon(
+                            Icons.Filled.Checklist,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(scope)
+                    }
+                    DropdownMenu(
+                        expanded = scopeMenuOpen,
+                        onDismissRequest = { scopeMenuOpen = false },
+                    ) {
+                        // Demo library names are fixture data.
+                        listOf(scopeAllLibrariesLabel, scopePinnedLabel, "Comics", "Manga", "Manhua").forEach { s ->
+                            DropdownMenuItem(
+                                text = { Text(s) },
+                                onClick = {
+                                    scope = s
+                                    scopeMenuOpen = false
+                                },
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text(scope)
-                        }
-                        DropdownMenu(
-                            expanded = scopeMenuOpen,
-                            onDismissRequest = { scopeMenuOpen = false },
-                        ) {
-                            // Demo library names are fixture data.
-                            listOf(scopeAllLibrariesLabel, scopePinnedLabel, "Comics", "Manga", "Manhua").forEach { s ->
-                                DropdownMenuItem(
-                                    text = { Text(s) },
-                                    onClick = {
-                                        scope = s
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
                         }
                     }
-                },
-            )
-        },
-    ) { padding ->
+                }
+            },
+        )
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalNavOverlaySpace.current),
+            state = pageListState,
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+            contentPadding = PaddingValues(
+                top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
+                bottom = 8.dp + LocalNavOverlaySpace.current,
+            ),
         ) {
             if (state.loading) {
                 item(key = "loading") {
@@ -205,6 +218,13 @@ fun ListsScreen(
                 )
             }
         }
+        // Snackbars sit above the floating capsule navigation instead of under it
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LocalNavOverlaySpace.current),
+        )
     }
 
     menuTarget?.let { (groupTitle, entry) ->

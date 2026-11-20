@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -19,10 +20,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.PushPin
@@ -40,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -62,10 +62,15 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
+import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
+import com.kmworks.kmreader.ui.components.rememberGlassBarProgress
 import com.kmworks.kmreader.ui.detail.BookEditSheet
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.util.shareText
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 /** Dashboard: a list of sections, each = title header + horizontal card flow. Aligned with KMReader DashboardView. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,84 +106,98 @@ fun DashboardScreen(
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.dashboard_title)) },
-                actions = {
-                    // Visibility-scope switch matching the library/list pages: text button + dropdown
-                    Box {
-                        TextButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(
-                                Icons.Filled.Checklist,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(libraryScopeLabel(state.libraryScope, state.libraries))
-                        }
-                        DropdownMenu(
-                            expanded = scopeMenuOpen,
-                            onDismissRequest = { scopeMenuOpen = false },
-                        ) {
-                            // Aligned with iOS LibraryScopeMenu: Pinned (when any pinned) / All Libraries / single library / pin editing
-                            if (state.pinnedIds.isNotEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.dashboard_scope_pinned)) },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.PushPin, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
+    // The frosted bar floats over the page: the sections scroll underneath it instead of below a
+    // full-width toolbar, so the dashboard keeps its content-first density.
+    val pageListState = rememberLazyListState()
+    val barProgress = rememberGlassBarProgress(
+        firstVisibleItemIndex = { pageListState.firstVisibleItemIndex },
+        firstVisibleItemScrollOffset = { pageListState.firstVisibleItemScrollOffset },
+    )
+    // Backdrop the bar blurs: the list is the haze source, so whatever slides under the bar is what
+    // gets blurred (Haze needs to capture the page; a Compose layer cannot blur itself).
+    val hazeState = rememberHazeState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        GlassTopBar(
+            title = stringResource(R.string.dashboard_title),
+            progress = barProgress,
+            modifier = Modifier.zIndex(1f),
+            hazeState = hazeState,
+            actions = {
+                // Visibility-scope switch matching the library/list pages: text button + dropdown
+                Box {
+                    TextButton(onClick = { scopeMenuOpen = true }) {
+                        Icon(
+                            Icons.Filled.Checklist,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(libraryScopeLabel(state.libraryScope, state.libraries))
+                    }
+                    DropdownMenu(
+                        expanded = scopeMenuOpen,
+                        onDismissRequest = { scopeMenuOpen = false },
+                    ) {
+                        // Aligned with iOS LibraryScopeMenu: Pinned (when any pinned) / All Libraries / single library / pin editing
+                        if (state.pinnedIds.isNotEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_all_libraries)) },
+                                text = { Text(stringResource(R.string.dashboard_scope_pinned)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.PushPin, contentDescription = null)
+                                },
                                 onClick = {
-                                    viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                                    viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
                                     scopeMenuOpen = false
                                 },
                             )
-                            state.libraries.forEach { library ->
-                                val libraryScope = AppSettingsStore.scopeForLibrary(library.id)
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (libraryScope == state.libraryScope) "✓ ${library.name}"
-                                            else library.name,
-                                        )
-                                    },
-                                    onClick = {
-                                        viewModel.setScope(libraryScope)
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
+                            onClick = {
+                                viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                                scopeMenuOpen = false
+                            },
+                        )
+                        state.libraries.forEach { library ->
+                            val libraryScope = AppSettingsStore.scopeForLibrary(library.id)
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.dashboard_pin_libraries)) },
+                                text = {
+                                    Text(
+                                        if (libraryScope == state.libraryScope) "✓ ${library.name}"
+                                        else library.name,
+                                    )
+                                },
                                 onClick = {
+                                    viewModel.setScope(libraryScope)
                                     scopeMenuOpen = false
-                                    showPinSheet = true
                                 },
                             )
                         }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.dashboard_pin_libraries)) },
+                            onClick = {
+                                scopeMenuOpen = false
+                                showPinSheet = true
+                            },
+                        )
                     }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.dashboard_action_settings))
-                    }
-                },
-            )
-        },
-    ) { padding ->
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.dashboard_action_settings))
+                }
+            },
+        )
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            // The floating tablet navigation overlays content; reserve bottom space so the last row can scroll above the bar
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalNavOverlaySpace.current),
+            state = pageListState,
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+            // The floating capsule navigation overlays content; reserve bottom space so the last row can
+            // scroll above it. The signed-out state keeps its small inset so it stays centred in the viewport.
+            contentPadding = PaddingValues(
+                top = if (state.hasSession) glassTopBarTopPadding() + 8.dp else 8.dp,
+                bottom = 8.dp + LocalNavOverlaySpace.current,
+            ),
         ) {
             if (state.loading) {
                 item(key = "loading") {

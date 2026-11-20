@@ -99,6 +99,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.haze)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.retrofit)
