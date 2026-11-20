@@ -708,9 +708,19 @@ fun AboutScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(20.dp))
-                AboutLinkRow(title = stringResource(R.string.settings_about_original), value = "github.com/kmworks/kmreader")
+                AboutLinkRow(
+                    title = stringResource(R.string.settings_about_project),
+                    value = "github.com/kmworks/kmreader-android",
+                )
+                AboutLinkRow(
+                    title = stringResource(R.string.settings_about_original),
+                    value = "github.com/kmworks/kmreader",
+                )
                 AboutLinkRow(title = stringResource(R.string.settings_about_komga), value = "komga.org")
-                AboutLinkRow(title = stringResource(R.string.settings_about_feedback), value = "github.com/kmworks/kmreader/issues")
+                AboutLinkRow(
+                    title = stringResource(R.string.settings_about_feedback),
+                    value = "github.com/kmworks/kmreader-android/issues",
+                )
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -844,18 +854,19 @@ private fun SystemSliderRow(
 
 @Composable
 private fun AboutLinkRow(title: String, value: String) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

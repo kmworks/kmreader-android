@@ -171,7 +171,8 @@
 
     <!-- About & licenses -->
     <string name="settings_about_version_format">Version %1$s</string>
-    <string name="settings_about_original">Original KMReader</string>
+    <string name="settings_about_project">Project</string>
+    <string name="settings_about_original">KMReader-iOS</string>
     <string name="settings_about_komga">Komga Server</string>
     <string name="settings_about_feedback">Feedback</string>
     <string name="settings_license_readium">Readium (EPUB engine reference)</string>
