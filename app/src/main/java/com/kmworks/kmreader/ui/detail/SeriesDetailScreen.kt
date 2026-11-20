@@ -56,6 +56,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -527,6 +528,7 @@ fun SeriesDetailScreen(
                         item(key = "books") {
                             BooksSection(
                                 books = books,
+                                loading = state.loading,
                                 layout = booksLayout,
                                 onReadBook = onRead,
                                 onBookLongClick = { menuBook = it },
@@ -599,6 +601,7 @@ fun SeriesDetailScreen(
                     )
                     BooksSection(
                         books = books,
+                        loading = state.loading,
                         layout = booksLayout,
                         onReadBook = onRead,
                         onBookLongClick = { menuBook = it },
@@ -1281,16 +1284,30 @@ private fun AuthorRole.icon(): ImageVector = when (this) {
 
 /** Books section: list rows or an adaptive grid (medium grid card 108 / large grid 160, mirroring LayoutConfig).
  *  Tapping reads the book (mirroring the original BookRowView/BookCardView, where tap = read);
- *  long-pressing opens the book menu (mirroring the original grid long-press gesture); in selection mode a tap toggles selection. */
+ *  long-pressing opens the book menu (mirroring the original grid long-press gesture); in selection mode a tap toggles selection.
+ *  While the first page is in flight the section is replaced by a centered spinner, mirroring
+ *  SeriesBooksQueryView (ProgressView spanning the width while loading with no items yet). */
 @Composable
 private fun BooksSection(
     books: List<Book>,
+    loading: Boolean,
     layout: BrowseLayout,
     onReadBook: (Book) -> Unit,
     onBookLongClick: (Book) -> Unit,
     selection: Set<Int>?,
     onToggleSelect: (Book) -> Unit,
 ) {
+    if (loading && books.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        }
+        return
+    }
     when (layout) {
         BrowseLayout.List -> Column {
             books.forEach { book ->
