@@ -10,11 +10,15 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 private val Context.appSettingsStore by preferencesDataStore(name = "app_settings")
 
@@ -39,6 +43,7 @@ data class AppSettingChange(
 @Singleton
 class AppSettingsStore @Inject constructor(
     @ApplicationContext context: Context,
+    scope: CoroutineScope,
 ) {
 
     private val store = context.appSettingsStore
@@ -211,12 +216,32 @@ class AppSettingsStore @Inject constructor(
     /** Layout of a single browse page (null when unrecorded → callers use the page default). */
     fun browseLayout(page: String): Flow<String?> = browseLayoutOverrides.map { it[page] }
 
+    /**
+     * Warm copy of [browseLayoutOverrides], collected eagerly from construction (before any screen
+     * asks for a layout) so composition can seed its first frame with the persisted value.
+     * Why: `browseLayout(page)` is a cold DataStore flow, so a screen that only collects it renders
+     * the page default for one or more frames and then jumps to the stored layout.
+     */
+    private val browseLayoutSnapshot = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    init {
+        scope.launch {
+            browseLayoutOverrides.collect { browseLayoutSnapshot.value = it }
+        }
+    }
+
+    /** Non-suspending read of the warm snapshot; null when the page has no recorded layout yet. */
+    fun browseLayoutName(page: String): String? = browseLayoutSnapshot.value[page]
+
     suspend fun setBrowseLayout(page: String, layout: String) {
         store.edit { prefs ->
             val current = prefs[Keys.BROWSE_LAYOUT_OVERRIDES].toCsvList()
                 .filter { it.substringBefore('=') != page }
             prefs[Keys.BROWSE_LAYOUT_OVERRIDES] = (current + "$page=$layout").joinToString(",")
         }
+        // Keep the snapshot in step with the write itself: a page opened right after the change must
+        // not read the previous layout while the DataStore emission is still in flight.
+        browseLayoutSnapshot.update { it + (page to layout) }
     }
 
     /** Cover-only cards (hide title/subtitle; aligned with iOS coverOnlyCards). */

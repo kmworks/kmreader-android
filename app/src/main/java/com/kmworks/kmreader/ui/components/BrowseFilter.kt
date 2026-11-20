@@ -104,7 +104,11 @@ fun rememberPersistentBrowseLayout(
     val scope = rememberCoroutineScope()
     // The flow factory must be remembered, otherwise every recomposition rebuilds the flow and restarts collection.
     val layoutFlow = remember(page) { appSettings.browseLayout(page) }
-    val stored by layoutFlow.collectAsState(initial = null)
+    // Seed with AppSettingsStore's warm snapshot: a null initial would paint the page default for a
+    // frame (or a few, while the DataStore read lands) and only then jump to the stored layout —
+    // which re-flows the grid and resizes every card right after the screen appears.
+    val initialLayout = remember(page) { appSettings.browseLayoutName(page) }
+    val stored by layoutFlow.collectAsState(initial = initialLayout)
     // This round's immediate override (instant feedback before the persisted write flows back)
     var local by remember(page) { mutableStateOf<BrowseLayout?>(null) }
     val value = local

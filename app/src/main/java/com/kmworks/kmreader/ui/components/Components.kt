@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -58,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Scale
 import coil3.toBitmap
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.CoverUrlRegistry
@@ -92,7 +95,7 @@ fun CoverArt(
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .clip(CoverShape)
             .background(Color.hsv(hue, 0.42f, 0.60f)),
@@ -174,8 +177,42 @@ fun CoverArt(
         }
 
         if (modelUrl != null && loader != null) {
+            // Decode for the exact pixel box the cover is painted in. Coil's constraint-derived size is
+            // resolved once, on the first measure, and an in-flight request is never re-issued when that
+            // box later changes size: a cover decoded for the 3-column grid keeps being drawn upscaled
+            // after a switch to the 2-column grid (visible blur) until scrolling it out of the lazy grid
+            // and back recreates its painter. An explicit size puts the box size into the request
+            // identity (the model equality delegate compares ImageRequest.sizeResolver), so a resize
+            // re-decodes at the new size instead of reusing the small bitmap.
+            val decodeBounds = if (contentScale != ContentScale.None &&
+                constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
+                constraints.maxWidth > 0 && constraints.maxHeight > 0
+            ) {
+                constraints.maxWidth to constraints.maxHeight
+            } else {
+                null
+            }
+            // ImageRequest models bypass Coil's requestOf() wrapping untouched, so this size is kept.
+            val model: Any? = remember(modelUrl, decodeBounds, contentScale) {
+                val bounds = decodeBounds
+                if (bounds == null) {
+                    modelUrl
+                } else {
+                    ImageRequest.Builder(context)
+                        .data(modelUrl)
+                        .size(bounds.first, bounds.second)
+                        .scale(
+                            if (contentScale == ContentScale.Fit || contentScale == ContentScale.Inside) {
+                                Scale.FIT
+                            } else {
+                                Scale.FILL
+                            },
+                        )
+                        .build()
+                }
+            }
             AsyncImage(
-                model = modelUrl,
+                model = model,
                 contentDescription = null,
                 imageLoader = loader,
                 contentScale = contentScale,
