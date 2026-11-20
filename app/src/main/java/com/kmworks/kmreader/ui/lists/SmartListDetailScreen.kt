@@ -28,7 +28,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.DropdownMenu
@@ -433,8 +432,8 @@ private fun AutoLoadMore(
     }
 }
 
-/** Hero: cover thumbnail + name + target type/updated time + summary (mirrors
- *  SmartListHeroInfoView + DetailTimestampsView). */
+/** Hero: cover thumbnail + name + target type/hit count + summary, then one
+ *  created/updated timestamps line (mirrors SmartListHeroInfoView + DetailTimestampsView). */
 @Composable
 private fun SmartListHero(
     display: SmartListDetail,
@@ -487,19 +486,6 @@ private fun SmartListHero(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.width(12.dp))
-            Icon(
-                Icons.Outlined.Schedule,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = display.modifiedLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         display.summary?.let {
             Text(
@@ -509,14 +495,20 @@ private fun SmartListHero(
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        Text(
-            text = listOfNotNull(createdLabel, display.modifiedLabel)
-                .joinToString(" · ")
-                .ifBlank { display.modifiedLabel },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
-        )
+        // One timestamps line for both dates: the updated date used to also sit in the meta row
+        // above, which printed "更新于 …" twice on this page.
+        val timestamps = listOfNotNull(
+            createdLabel?.takeIf { it.isNotBlank() },
+            display.modifiedLabel.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+        if (timestamps.isNotBlank()) {
+            Text(
+                text = timestamps,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 
