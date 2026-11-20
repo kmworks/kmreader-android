@@ -410,7 +410,6 @@ private fun ListStrip(
             items(group.items.sortedByDescending { it.pinned }, key = { it.id }) { entry ->
                 ListEntryCard(
                     entry = entry,
-                    group = group,
                     onClick = { onOpenEntry(entry) },
                     onLongClick = { onEntryMenu(entry) },
                     modifier = Modifier.width(110.dp),
@@ -434,12 +433,12 @@ private fun ListStrip(
     }
 }
 
-/** List entry card: cover placeholder + title + count; pinned entries carry a pin badge. */
+/** List entry card: cover placeholder + title + count (the grouping target for smart
+ *  lists, which carry no count of their own); pinned entries carry a pin badge. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ListEntryCard(
     entry: ListEntry,
-    group: ListGroup,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -477,21 +476,22 @@ private fun ListEntryCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = if (group.title == stringResource(R.string.lists_group_smartlists)) {
-                stringResource(
-                    R.string.lists_smartlist_meta,
-                    entry.count,
-                    entry.targetLabel ?: "",
-                    entry.modifiedLabel ?: "",
-                )
-            } else {
-                stringResource(R.string.lists_item_count, entry.count)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // A smart list is a saved query, not a container: the server never reports how many
+        // entries it holds, so a "%d items" line here would read "0 items" forever. Show what
+        // the list groups by instead; its own page carries the item counts and timestamps.
+        val secondary = if (entry.smartListTarget != null) {
+            entry.targetLabel.orEmpty()
+        } else {
+            stringResource(R.string.lists_item_count, entry.count)
+        }
+        if (secondary.isNotEmpty()) {
+            Text(
+                text = secondary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

@@ -139,13 +139,11 @@ class ListsViewModel @Inject constructor(
                 )
             }.applyPinned(pinnedReadListIds, DetailIdRegistry::readListDtoId)
             val smartListEntries = smartLists.map { dto ->
+                // No modifiedLabel: a smart list card shows only what it groups by, and its
+                // own page carries the timestamps.
                 dto.toListEntry().copy(
                     targetLabel = context.getString(
                         if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
-                    ),
-                    modifiedLabel = context.getString(
-                        R.string.lists_modified_at,
-                        dto.lastModifiedDate.take(10),
                     ),
                 )
             }
