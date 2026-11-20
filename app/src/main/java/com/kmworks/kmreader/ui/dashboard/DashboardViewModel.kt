@@ -13,6 +13,7 @@ import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.CatalogCache
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
@@ -51,6 +52,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Dashboard sections state; sections == null keeps the sample demo UI. */
 data class DashboardUiState(
@@ -99,6 +102,7 @@ class DashboardViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
@@ -107,6 +111,9 @@ class DashboardViewModel @Inject constructor(
     /** Sections as produced by the server (not yet trimmed by settings); sections are re-derived on layout changes. */
     private var rawSections: List<DashboardSection<out Any>> = emptyList()
     private var layout = DashboardLayout()
+
+    /** Serializes reloads: an SSE burst and a local write can each request one at nearly the same instant. */
+    private val loadMutex = Mutex()
 
     /** Re-fetch the section contents (content sync after a successful action). */
     fun refresh() {
@@ -175,6 +182,14 @@ class DashboardViewModel @Inject constructor(
                 .debounce(3_000)
                 .collect { refresh() }
         }
+        // Refresh after a write issued anywhere in the app (mark read/unread, delete, metadata edit, list membership).
+        // SSE also carries these, but it needs the long connection and the auto-refresh switch; the local signal stays
+        // correct when either is unavailable. Shorter debounce than SSE because the user is looking at the action.
+        viewModelScope.launch {
+            contentChangeBus.changes
+                .debounce(500)
+                .collect { if (_state.value.hasSession) refresh() }
+        }
     }
 
     /** Derive the section list from the persisted order/visibility/card kinds; returns null before content is loaded. */
@@ -215,6 +230,10 @@ class DashboardViewModel @Inject constructor(
     }
 
     private suspend fun load() {
+        loadMutex.withLock { loadLocked() }
+    }
+
+    private suspend fun loadLocked() {
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
         // Data-cache parity (iOS DashboardSectionCacheStore): paint the cached first page immediately,
         // then replace it with the server response below. Only seeds an empty screen, never overrides.
@@ -332,23 +351,19 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    /** Mark a book read/unread; refresh the section contents on success (sections are driven by server progress and cannot be recomputed locally). */
+    /** Mark a book read/unread; the section contents follow from the server, so ContentChangeBus triggers the reload. */
     fun markBookRead(book: Book, read: Boolean) {
         val dtoId = detailRepository.bookDtoId(book.id) ?: return
         viewModelScope.launch {
-            val ok = if (read) actionRepository.markBookRead(dtoId)
-            else actionRepository.markBookUnread(dtoId)
-            if (ok) refresh()
+            if (read) actionRepository.markBookRead(dtoId) else actionRepository.markBookUnread(dtoId)
         }
     }
 
-    /** Mark a series read/unread; refresh the section contents on success. */
+    /** Mark a series read/unread; ContentChangeBus triggers the reload. */
     fun markSeriesRead(series: Series, read: Boolean) {
         val dtoId = detailRepository.seriesDtoId(series.id) ?: return
         viewModelScope.launch {
-            val ok = if (read) actionRepository.markSeriesRead(dtoId)
-            else actionRepository.markSeriesUnread(dtoId)
-            if (ok) refresh()
+            if (read) actionRepository.markSeriesRead(dtoId) else actionRepository.markSeriesUnread(dtoId)
         }
     }
 
@@ -386,7 +401,6 @@ class DashboardViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateSeriesMetadata(dtoId, dto)
-            if (ok) refresh()
             onDone(ok)
         }
     }
@@ -405,7 +419,6 @@ class DashboardViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.updateBookMetadata(dtoId, body)
-            if (ok) refresh()
             onDone(ok)
         }
     }
@@ -425,7 +438,7 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch { onDone(actionRepository.analyzeBook(dtoId)) }
     }
 
-    /** Refresh book metadata; refresh the section contents on success. */
+    /** Refresh book metadata; ContentChangeBus triggers the reload. */
     fun refreshBookMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.bookDtoId(stableId)
         if (dtoId == null) {
@@ -434,12 +447,11 @@ class DashboardViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.refreshBookMetadata(dtoId)
-            if (ok) refresh()
             onDone(ok)
         }
     }
 
-    /** Delete the series files; refresh the section contents on success. */
+    /** Delete the series files; ContentChangeBus triggers the reload. */
     fun deleteSeries(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.seriesDtoId(stableId)
         if (dtoId == null) {
@@ -448,15 +460,12 @@ class DashboardViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val ok = actionRepository.deleteSeries(dtoId)
-            if (ok) {
-                catalogCache.deleteSeries(dtoId)
-                refresh()
-            }
+            if (ok) catalogCache.deleteSeries(dtoId)
             onDone(ok)
         }
     }
 
-    /** Delete the book file; refresh the section contents on success. */
+    /** Delete the book file; ContentChangeBus triggers the reload. */
     fun deleteBook(stableId: Int, onDone: (Boolean) -> Unit) {
         val dtoId = detailRepository.bookDtoId(stableId)
         if (dtoId == null) {
@@ -467,10 +476,7 @@ class DashboardViewModel @Inject constructor(
             // Purge this book's cached pages while its page list still exists (see ImageCacheStore.clearBookPages).
             imageCacheStore.clearBookPages(dtoId)
             val ok = actionRepository.deleteBook(dtoId)
-            if (ok) {
-                catalogCache.deleteBook(dtoId)
-                refresh()
-            }
+            if (ok) catalogCache.deleteBook(dtoId)
             onDone(ok)
         }
     }

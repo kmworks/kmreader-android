@@ -14,6 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class ListRepository @Inject constructor(
     private val sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
 ) {
 
     /** All collections (GET api/v1/collections). */
@@ -70,6 +71,7 @@ class ListRepository @Inject constructor(
         ).awaitBody()?.also {
             DetailIdRegistry.registerCollection(StableIds.collection(it.id), it.id)
             CoverUrlRegistry.registerCollection(StableIds.collection(it.id), it.id)
+            contentChangeBus.notifyChanged()
         }
     }
 
@@ -81,29 +83,40 @@ class ListRepository @Inject constructor(
         ).awaitBody()?.also {
             DetailIdRegistry.registerReadList(StableIds.readList(it.id), it.id)
             CoverUrlRegistry.registerReadList(StableIds.readList(it.id), it.id)
+            contentChangeBus.notifyChanged()
         }
     }
 
     suspend fun updateCollection(dtoId: String, name: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
-        return api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered)).awaitBody() != null
+        return notifyOn(
+            api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered)).awaitBody() != null,
+        )
     }
 
     suspend fun deleteCollection(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
-        return api.deleteCollectionById(dtoId).awaitBody() != null
+        return notifyOn(api.deleteCollectionById(dtoId).awaitBody() != null)
     }
 
     suspend fun updateReadList(dtoId: String, name: String, summary: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
-        return api.updateReadListById(
-            dtoId,
-            ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
-        ).awaitBody() != null
+        return notifyOn(
+            api.updateReadListById(
+                dtoId,
+                ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
+            ).awaitBody() != null,
+        )
     }
 
     suspend fun deleteReadList(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
-        return api.deleteReadListById(dtoId).awaitBody() != null
+        return notifyOn(api.deleteReadListById(dtoId).awaitBody() != null)
+    }
+
+    /** Propagate successful writes to listeners (dashboard) that would otherwise wait for an SSE round trip. */
+    private fun notifyOn(ok: Boolean): Boolean {
+        if (ok) contentChangeBus.notifyChanged()
+        return ok
     }
 }
