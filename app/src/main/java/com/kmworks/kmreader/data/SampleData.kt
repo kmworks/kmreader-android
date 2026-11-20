@@ -60,7 +60,12 @@ data class Series(
     val publisher: String? = null,
     val status: String? = null,
     val language: String? = null,
-    val directionRtl: Boolean = true,
+    /**
+     * Raw Komga reading direction: LEFT_TO_RIGHT / RIGHT_TO_LEFT / VERTICAL / WEBTOON. Kept as the
+     * server token (like [status]) so the UI can show all four values; shells and cached rows that
+     * cannot supply one fall back to LEFT_TO_RIGHT.
+     */
+    val readingDirection: String = "LEFT_TO_RIGHT",
     val releaseYear: Int? = null,
     val totalBookCount: Int? = null,
     val ageRating: Int? = null,

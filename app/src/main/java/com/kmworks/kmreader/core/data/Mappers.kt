@@ -68,7 +68,9 @@ fun SeriesDto.toUiSeries(): Series {
     publisher = metadata.publisher.ifBlank { null },
     status = mapStatus(metadata.status),
     language = metadata.language.ifBlank { null },
-    directionRtl = metadata.readingDirection.contains("RIGHT", ignoreCase = true),
+    // Keep the raw token: "LEFT_TO_RIGHT" also contains the substring "RIGHT", so a contains() test
+    // here used to mark every LTR series as RTL (and VERTICAL/WEBTOON as LTR).
+    readingDirection = metadata.readingDirection.ifBlank { "LEFT_TO_RIGHT" },
     totalBookCount = metadata.totalBookCount,
     ageRating = metadata.ageRating,
     creators = booksMetadata.authors.map { it.toCreator() },

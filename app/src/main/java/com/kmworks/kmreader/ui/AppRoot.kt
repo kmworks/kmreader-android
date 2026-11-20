@@ -320,6 +320,7 @@ fun AppRoot(
                             bookCount = 0,
                             unreadCount = 0,
                             progress = null,
+                            readingDirection = "LEFT_TO_RIGHT",
                         ),
                     ),
                 )
@@ -512,6 +513,7 @@ fun AppRoot(
                                                     bookCount = 0,
                                                     unreadCount = 0,
                                                     progress = null,
+                                                    readingDirection = "LEFT_TO_RIGHT",
                                                 ),
                                             ),
                                         )
@@ -558,6 +560,7 @@ fun AppRoot(
                                             bookCount = 0,
                                             unreadCount = 0,
                                             progress = null,
+                                            readingDirection = "LEFT_TO_RIGHT",
                                         ),
                                     ),
                                 )

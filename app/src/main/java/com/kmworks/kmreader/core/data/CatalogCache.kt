@@ -160,6 +160,8 @@ class CatalogCache @Inject constructor(
                 bookCount = entity.bookCount,
                 unreadCount = entity.unreadCount,
                 progress = entity.progress,
+                // The cache row has no direction column: seed as LTR; the detail page refetches the real one.
+                readingDirection = "LEFT_TO_RIGHT",
             )
         }
     }
@@ -401,6 +403,9 @@ class CatalogCache @Inject constructor(
             bookCount = bookCount,
             unreadCount = unreadCount,
             progress = progress,
+            // The cache row has no direction column: LTR (lists never render the direction; the detail
+            // page refetches the real value).
+            readingDirection = "LEFT_TO_RIGHT",
         )
     }
 

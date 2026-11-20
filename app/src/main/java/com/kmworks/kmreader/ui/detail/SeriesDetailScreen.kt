@@ -26,9 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionLToR
 import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionRToL
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CheckCircle
@@ -978,12 +981,21 @@ private fun HeroMetaItems(series: Series) {
         )
     }
     series.language?.let { MetaRow(icon = Icons.Filled.Public, text = it) }
+    // Four server tokens, not a boolean: "LEFT_TO_RIGHT" itself contains the substring "RIGHT", so a
+    // contains() test used to report every series as RTL and to collapse VERTICAL/WEBTOON into LTR.
+    val readingDirection = series.readingDirection.uppercase()
     MetaRow(
-        icon = Icons.AutoMirrored.Filled.FormatTextdirectionRToL,
-        text = if (series.directionRtl) {
-            stringResource(R.string.series_direction_rtl)
-        } else {
-            stringResource(R.string.series_direction_ltr)
+        icon = when (readingDirection) {
+            "RIGHT_TO_LEFT" -> Icons.AutoMirrored.Filled.FormatTextdirectionRToL
+            "VERTICAL" -> Icons.Filled.SwapVert
+            "WEBTOON" -> Icons.Filled.ViewStream
+            else -> Icons.AutoMirrored.Filled.FormatTextdirectionLToR
+        },
+        text = when (readingDirection) {
+            "RIGHT_TO_LEFT" -> stringResource(R.string.series_direction_rtl)
+            "VERTICAL" -> stringResource(R.string.series_direction_vertical)
+            "WEBTOON" -> stringResource(R.string.series_direction_webtoon)
+            else -> stringResource(R.string.series_direction_ltr)
         },
     )
 }

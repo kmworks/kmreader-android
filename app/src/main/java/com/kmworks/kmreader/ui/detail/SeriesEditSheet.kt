@@ -110,7 +110,10 @@ data class SeriesEditValues(
             // [Series.status] is the server token, not a display label: resolve it through the enum instead of
             // comparing the localized label (that comparison always missed and silently fell back to ONGOING).
             status = series.status?.let { SeriesStatus.fromApiName(it)?.apiName } ?: "ONGOING",
-            readingDirection = if (series.directionRtl) "RIGHT_TO_LEFT" else "LEFT_TO_RIGHT",
+            // Server token, not a display label: normalize to the four selectable values without
+            // collapsing VERTICAL/WEBTOON into LTR.
+            readingDirection = series.readingDirection.uppercase()
+                .takeIf { it in seriesDirectionOptions } ?: "LEFT_TO_RIGHT",
             language = series.language.orEmpty(),
             publisher = series.publisher.orEmpty(),
             ageRating = series.ageRating?.toString().orEmpty(),
