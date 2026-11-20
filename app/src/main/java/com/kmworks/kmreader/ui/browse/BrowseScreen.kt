@@ -48,11 +48,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -69,6 +67,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
@@ -81,10 +80,12 @@ import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
+import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
+import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 
@@ -112,75 +113,16 @@ fun BrowseScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     val browseOptions by viewModel.browseOptionsFlow.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.common_search)) },
-                actions = {
-                    // Same visibility-scope switch as the library/list pages: text button + dropdown
-                    Box {
-                        TextButton(onClick = { scopeMenuOpen = true }) {
-                            Icon(
-                                Icons.Filled.Checklist,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(libraryScopeLabel(state.libraryScope, state.libraries))
-                        }
-                        DropdownMenu(
-                            expanded = scopeMenuOpen,
-                            onDismissRequest = { scopeMenuOpen = false },
-                        ) {
-                            // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries / single library / pin editing
-                            if (state.pinnedIds.isNotEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.library_scope_pinned)) },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.PushPin, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        viewModel.onLibraryScopeChange(AppSettingsStore.SCOPE_PINNED)
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_all_libraries)) },
-                                onClick = {
-                                    viewModel.onLibraryScopeChange(AppSettingsStore.SCOPE_ALL)
-                                    scopeMenuOpen = false
-                                },
-                            )
-                            state.libraries.forEach { library ->
-                                DropdownMenuItem(
-                                    text = { Text(library.name) },
-                                    onClick = {
-                                        viewModel.onLibraryScopeChange(
-                                            AppSettingsStore.scopeForLibrary(library.id),
-                                        )
-                                        scopeMenuOpen = false
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_pin_libraries)) },
-                                onClick = {
-                                    scopeMenuOpen = false
-                                    showPinSheet = true
-                                },
-                            )
-                        }
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    // Same floating frosted bar as the other tab roots (dashboard / library / lists): a stock M3 TopAppBar
+    // painted its own surface-coloured strip above the page, which read as a separate band instead of
+    // belonging to the content.
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                // The glass bar draws over the page instead of reserving layout space, so the search field
+                // has to start below it explicitly.
+                .padding(top = glassTopBarTopPadding() + 4.dp),
         ) {
             OutlinedTextField(
                 value = query,
@@ -261,11 +203,78 @@ fun BrowseScreen(
                     onOptionsChange = viewModel::setBrowseOptions,
                     onDismiss = { showFilterSheet = false },
                     // The search tab's series search supports metadata dimensions (book search ignores inapplicable keys)
-                showSeriesFilters = true,
-                suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
+                    showSeriesFilters = true,
+                    suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
             }
         }
+
+        GlassTopBar(
+            title = stringResource(R.string.common_search),
+            // The query field and filter chips are a fixed header here, so nothing ever slides under the bar:
+            // keep the glass at rest (progress 0 = transparent) and the title simply floats over the page
+            // background, exactly like the other tab roots before their first row scrolls up.
+            progress = 0f,
+            modifier = Modifier.zIndex(1f),
+            actions = {
+                // Same visibility-scope switch as the library/list pages: text button + dropdown
+                Box {
+                    TextButton(onClick = { scopeMenuOpen = true }) {
+                        Icon(
+                            Icons.Filled.Checklist,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(libraryScopeLabel(state.libraryScope, state.libraries))
+                    }
+                    DropdownMenu(
+                        expanded = scopeMenuOpen,
+                        onDismissRequest = { scopeMenuOpen = false },
+                    ) {
+                        // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries / single library / pin editing
+                        if (state.pinnedIds.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_scope_pinned)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.PushPin, contentDescription = null)
+                                },
+                                onClick = {
+                                    viewModel.onLibraryScopeChange(AppSettingsStore.SCOPE_PINNED)
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
+                            onClick = {
+                                viewModel.onLibraryScopeChange(AppSettingsStore.SCOPE_ALL)
+                                scopeMenuOpen = false
+                            },
+                        )
+                        state.libraries.forEach { library ->
+                            DropdownMenuItem(
+                                text = { Text(library.name) },
+                                onClick = {
+                                    viewModel.onLibraryScopeChange(
+                                        AppSettingsStore.scopeForLibrary(library.id),
+                                    )
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_pin_libraries)) },
+                            onClick = {
+                                scopeMenuOpen = false
+                                showPinSheet = true
+                            },
+                        )
+                    }
+                }
+            },
+        )
     }
     // Book long-press menu (mirrors the read group of iOS BookContextMenu: Read/Peek/View Details)
     menuBook?.let { book ->

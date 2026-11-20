@@ -465,55 +465,59 @@ fun LibraryScreen(
             // this state, so content sliding under the bar is blurred instead of hidden by a solid sheet.
             hazeState = hazeState,
             actions = {
-                TextButton(onClick = { scopeMenuOpen = true }) {
-                    Text(scopeLabel)
-                    Icon(
-                        Icons.Filled.ArrowDropDown,
-                        contentDescription = stringResource(R.string.library_switch_scope),
-                    )
-                }
-                DropdownMenu(
-                    expanded = scopeMenuOpen,
-                    onDismissRequest = { scopeMenuOpen = false },
-                ) {
-                    // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries /
-                    // single libraries / pin editing
-                    if (state.pinnedIds.isNotEmpty()) {
+                // The menu must live inside the same Box as its anchor button: a DropdownMenu placed directly in
+                // the actions Row anchors its popup to that full-width Row and opens against the screen's left edge.
+                Box {
+                    TextButton(onClick = { scopeMenuOpen = true }) {
+                        Text(scopeLabel)
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = stringResource(R.string.library_switch_scope),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = scopeMenuOpen,
+                        onDismissRequest = { scopeMenuOpen = false },
+                    ) {
+                        // Mirrors iOS LibraryScopeMenu: Pinned (when pins exist) / All Libraries /
+                        // single libraries / pin editing
+                        if (state.pinnedIds.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_scope_pinned)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.PushPin, contentDescription = null)
+                                },
+                                onClick = {
+                                    viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.library_scope_pinned)) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.PushPin, contentDescription = null)
-                            },
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
                             onClick = {
-                                viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
+                                viewModel.setScope(AppSettingsStore.SCOPE_ALL)
                                 scopeMenuOpen = false
                             },
                         )
-                    }
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.common_all_libraries)) },
-                        onClick = {
-                            viewModel.setScope(AppSettingsStore.SCOPE_ALL)
-                            scopeMenuOpen = false
-                        },
-                    )
-                    state.libraries.forEach { library ->
+                        state.libraries.forEach { library ->
+                            DropdownMenuItem(
+                                text = { Text(library.name) },
+                                onClick = {
+                                    viewModel.setScope(AppSettingsStore.scopeForLibrary(library.id))
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
+                        HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text(library.name) },
+                            text = { Text(stringResource(R.string.library_pin_libraries)) },
                             onClick = {
-                                viewModel.setScope(AppSettingsStore.scopeForLibrary(library.id))
                                 scopeMenuOpen = false
+                                showPinSheet = true
                             },
                         )
                     }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.library_pin_libraries)) },
-                        onClick = {
-                            scopeMenuOpen = false
-                            showPinSheet = true
-                        },
-                    )
                 }
                 IconButton(onClick = { setLayout(layout.next) }) {
                     Icon(

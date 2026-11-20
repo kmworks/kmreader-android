@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -292,54 +293,60 @@ fun AppRoot(
             // The pages no longer own a Scaffold: the root paints the app background behind their edge-to-edge
             // content (status bar strip included), so the frosted top bars have something to sit on.
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                when (tab) {
-                    AppTab.Home -> DashboardScreen(
-                        onOpenSeries = openSeries,
-                        onOpenSettings = { showSettings = true },
-                        onOpenBook = openBook,
-                        onOpenSectionDetail = { dashboardSection = it },
-                        onOpenContinuation = { readListDetailId = it.readListId },
-                        onVisitSeries = visitSeriesOfBook,
-                        onReadBook = openReader,
-                    )
+                // Tab roots have no Scaffold/Surface of their own, so Material's default LocalContentColor (black)
+                // would leak into every Text that does not set a color explicitly - group headers, card titles,
+                // SectionHeader, result headers - and render them black-on-black in dark mode. Pages above the
+                // tab skeleton are Scaffolds, which already provide their own content color.
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                    when (tab) {
+                        AppTab.Home -> DashboardScreen(
+                            onOpenSeries = openSeries,
+                            onOpenSettings = { showSettings = true },
+                            onOpenBook = openBook,
+                            onOpenSectionDetail = { dashboardSection = it },
+                            onOpenContinuation = { readListDetailId = it.readListId },
+                            onVisitSeries = visitSeriesOfBook,
+                            onReadBook = openReader,
+                        )
 
-                    AppTab.Library -> LibraryScreen(
-                        activeFilter = browseFilter,
-                        onClearFilter = { browseFilter = null },
-                        onOpenSeries = openSeries,
-                        onOpenBook = openBook,
-                        onVisitSeries = visitSeriesOfBook,
-                        onReadBook = openReader,
-                    )
+                        AppTab.Library -> LibraryScreen(
+                            activeFilter = browseFilter,
+                            onClearFilter = { browseFilter = null },
+                            onOpenSeries = openSeries,
+                            onOpenBook = openBook,
+                            onVisitSeries = visitSeriesOfBook,
+                            onReadBook = openReader,
+                        )
 
-                    AppTab.Lists -> ListsScreen(
-                        onOpenCollection = { collectionDetailId = it },
-                        onOpenReadList = { readListDetailId = it },
-                        onOpenSmartList = { smartListDetailId = it },
-                    )
+                        AppTab.Lists -> ListsScreen(
+                            onOpenCollection = { collectionDetailId = it },
+                            onOpenReadList = { readListDetailId = it },
+                            onOpenSmartList = { smartListDetailId = it },
+                        )
 
-                    AppTab.Offline -> OfflineScreen()
+                        AppTab.Offline -> OfflineScreen()
 
-                    AppTab.Browse -> BrowseScreen(
-                        onOpenSeries = openSeries,
-                        onOpenBook = openBook,
-                        onOpenReadList = { readListDetailId = it },
-                        onOpenCollection = { collectionDetailId = it },
-                        onReadBook = openReader,
-                    )
-                }
+                        AppTab.Browse -> BrowseScreen(
+                            onOpenSeries = openSeries,
+                            onOpenBook = openBook,
+                            onOpenReadList = { readListDetailId = it },
+                            onOpenCollection = { collectionDetailId = it },
+                            onReadBook = openReader,
+                        )
+                    }
 
-                // Floating capsule navigation: drawn after the tab pages (so it stays above their content) and before
-                // the full-screen overlay stack below (so detail/settings/reader pages still cover it).
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    FloatingNavBar(selected = tab, onSelect = { tab = it })
+                    // Floating capsule navigation: drawn after the tab pages (so it stays above their content) and
+                    // before the full-screen overlay stack below (so detail/settings/reader pages still cover it).
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        FloatingNavBar(selected = tab, onSelect = { tab = it })
+                    }
                 }
             }
         }
