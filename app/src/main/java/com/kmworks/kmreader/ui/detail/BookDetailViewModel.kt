@@ -59,6 +59,9 @@ data class BookDetailUiState(
     /** Series-side initial values of the oneshot combined editing (straight from the DTO; null
      *  when not oneshot or without a session). */
     val oneshotEditable: SeriesEditValues? = null,
+    /** Age rating of the owning series (the rating lives on the series metadata; only a one-shot
+     *  detail shows it, mirrors iOS OneShotDetailContentView). */
+    val seriesAgeRating: Int? = null,
 )
 
 /** Book detail data: resolves the DTO id from the registry, fetches the single book (with
@@ -215,15 +218,20 @@ class BookDetailViewModel @Inject constructor(
                         linksLock = dto.metadata.linksLock,
                         notableEntitiesLock = dto.metadata.notableEntitiesLock,
                     ),
+                    mediaComment = dto.media.comment.ifBlank { null },
+                    created = dto.created.take(10),
+                    lastModified = dto.lastModified.take(10),
                 )
                 val memberships = detailRepository.bookReadLists(dtoId)
                     .map { it.toListEntry() }
                 // oneshot: fetch the owning series metadata as the series-side initial values of
                 // the combined editing (failure does not block the detail body)
                 seriesDtoId = null
+                var seriesAgeRating: Int? = null
                 val oneshotEditable = if (dto.oneshot) {
                     seriesDtoId = dto.seriesId
                     detailRepository.seriesDetail(dto.seriesId)?.metadata?.let { metadata ->
+                        seriesAgeRating = metadata.ageRating
                         SeriesEditValues(
                             title = metadata.title,
                             titleSort = metadata.titleSort,
@@ -269,6 +277,7 @@ class BookDetailViewModel @Inject constructor(
                         readLists = memberships,
                         isAdmin = isAdmin,
                         oneshotEditable = oneshotEditable,
+                        seriesAgeRating = seriesAgeRating,
                     )
                 }
                 contentId = stableId

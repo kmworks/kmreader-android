@@ -99,14 +99,32 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.NotableEntityKnownKinds
 import com.kmworks.kmreader.data.SampleData.ListEntry
+import com.kmworks.kmreader.ui.components.AgeRatingBadge
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionLToR
+import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionRToL
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.ViewStream
+import androidx.compose.material.icons.outlined.Business
+import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.QrCode
+import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.ui.platform.LocalUriHandler
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.MetaChip
+import com.kmworks.kmreader.ui.components.DetailAlternateTitles
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 
 private val WideLayoutBreakpoint = 960.dp
@@ -119,6 +137,8 @@ private val ActionCardShape = RoundedCornerShape(16.dp)
 private const val FILTER_KIND_AUTHOR = "author"
 private const val FILTER_KIND_TAG = "tag"
 private const val FILTER_KIND_NOTABLE = "notable"
+private const val FILTER_KIND_PUBLISHER = "publisher"
+private const val FILTER_KIND_GENRE = "genre"
 
 /** Actions of the detail page "More" menu (mirrors the entries of the BookDetailView toolbar
  *  Menu). */
@@ -387,9 +407,11 @@ internal fun BookDetailBody(
                             displayed,
                             seriesTitle,
                             meta,
+                            ageRating = state.seriesAgeRating,
                             centered = true,
                             onOpenSeries = onOpenSeries,
                             onBrowseFilter = onBrowseFilter,
+                            seriesMeta = state.oneshotEditable,
                         )
                         BookActionCard(
                             book = displayed,
@@ -404,6 +426,10 @@ internal fun BookDetailBody(
                                 onDownload(displayed)
                             },
                             onReadIncognito = onReadIncognito,
+                        )
+                        DetailTimestamps(
+                            created = meta?.created,
+                            lastModified = meta?.lastModified,
                         )
                     }
                     Column(
@@ -422,6 +448,7 @@ internal fun BookDetailBody(
                             BookSecondaryContent(
                                 it,
                                 onBrowseFilter = onBrowseFilter,
+                                seriesMeta = state.oneshotEditable,
                             )
                         }
                         if (state.readLists.isNotEmpty()) {
@@ -451,9 +478,11 @@ internal fun BookDetailBody(
                             displayed,
                             seriesTitle,
                             meta,
+                            ageRating = state.seriesAgeRating,
                             centered = true,
                             onOpenSeries = onOpenSeries,
                             onBrowseFilter = onBrowseFilter,
+                            seriesMeta = state.oneshotEditable,
                         )
                         BookActionCard(
                             book = displayed,
@@ -469,12 +498,17 @@ internal fun BookDetailBody(
                             },
                             onReadIncognito = onReadIncognito,
                         )
+                        DetailTimestamps(
+                            created = meta?.created,
+                            lastModified = meta?.lastModified,
+                        )
                     }
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         meta?.let {
                             BookSecondaryContent(
                                 it,
                                 onBrowseFilter = onBrowseFilter,
+                                seriesMeta = state.oneshotEditable,
                             )
                         }
                         if (state.readLists.isNotEmpty()) {
@@ -556,16 +590,21 @@ internal fun BookDetailBody(
 }
 
 /** Hero: cover, owning-series entry, title, author chips, metadata rows (mirrors the book form of
- *  DetailHeroView). */
+ *  DetailHeroView). [ageRating] is the owning series' rating, shown only on the one-shot detail
+ *  (mirrors iOS OneShotDetailContentView). [seriesMeta] carries the owning series metadata and is
+ *  non-null only on the one-shot detail: its publisher joins the creator chips and its language /
+ *  reading direction join the metadata rows, as on iOS. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BookHero(
     book: Book,
     seriesTitle: String?,
     meta: BookDetailMeta?,
+    ageRating: Int?,
     centered: Boolean,
     onOpenSeries: () -> Unit,
     onBrowseFilter: (String) -> Unit = {},
+    seriesMeta: SeriesEditValues? = null,
 ) {
     Column(
         modifier = Modifier
@@ -613,26 +652,50 @@ internal fun BookHero(
             }
             Spacer(Modifier.height(4.dp))
         }
-        Text(
-            text = book.title,
-            style = MaterialTheme.typography.headlineSmall,
-        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            ageRating?.takeIf { it > 0 }?.let { rating ->
+                AgeRatingBadge(rating)
+            }
+        }
         val authors = meta?.authors.orEmpty()
-        if (authors.isNotEmpty()) {
-            // Mirrors iOS BookDetailContentView.authorItems: the role only decides the icon and
-            // ordering, the label shows the name only.
-            val ordered = authors.sortedBy { it.role.ordinal }.map { creator ->
-                ChipItem(
-                    text = creator.name,
-                    icon = creator.role.icon(),
-                    value = creator.name,
-                )
+        val publisher = seriesMeta?.publisher?.takeIf { it.isNotBlank() }
+        if (authors.isNotEmpty() || publisher != null) {
+            // Mirrors iOS OneShotDetailContentView.creatorItems: the publisher comes first on the
+            // one-shot page, then the authors ordered by role (the role only decides the icon and
+            // ordering, the label shows the name only).
+            val creatorChips = buildList {
+                if (publisher != null) {
+                    add(
+                        ChipItem(
+                            text = publisher,
+                            icon = Icons.Outlined.Business,
+                            value = publisher,
+                            filterKind = FILTER_KIND_PUBLISHER,
+                        ),
+                    )
+                }
+                authors.sortedBy { it.role.ordinal }.forEach { creator ->
+                    add(
+                        ChipItem(
+                            text = creator.name,
+                            icon = creator.role.icon(),
+                            value = creator.name,
+                        ),
+                    )
+                }
             }
             CollapsibleChipFlow(
-                items = ordered,
+                items = creatorChips,
                 limit = 4,
                 centered = centered,
-                onClick = { item -> onBrowseFilter("$FILTER_KIND_AUTHOR · ${item.value}") },
+                onClick = { item -> onBrowseFilter("${item.filterKind} · ${item.value}") },
             )
         }
         val notableEntities = meta?.notableEntities.orEmpty()
@@ -668,6 +731,15 @@ internal fun BookHero(
                     Icons.Filled.DateRange to
                         stringResource(R.string.book_release_date, meta.releaseDate),
                 )
+            }
+            if (seriesMeta != null) {
+                // One-shot: the series-side language / reading direction belong to the hero row
+                // group (mirrors OneShotDetailContentView's DetailHeroMetadataGroup)
+                seriesMeta.language.takeIf { it.isNotBlank() }?.let { add(Icons.Filled.Public to it) }
+                readingDirectionMeta(seriesMeta.readingDirection)?.let { add(it) }
+            }
+            if (meta != null) {
+                meta.isbn?.takeIf { it.isNotBlank() }?.let { add(Icons.Outlined.QrCode to it) }
             }
             add(
                 Icons.AutoMirrored.Filled.MenuBook to
@@ -855,6 +927,26 @@ internal fun BookActionCard(
                     }
                 }
             }
+            // Mirrors iOS DetailActionCard: the last read date sits under the read state row
+            book.lastReadAtMs?.takeIf { !book.deleted }?.let { readAt ->
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.History,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.book_last_read, mediumDate(readAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
             ReadingActionButton(book = book, onRead = { onRead(book) })
             Spacer(Modifier.height(8.dp))
@@ -962,11 +1054,13 @@ private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
 }
 
 /** Right/bottom content: summary, tag chips, media info (mirrors ExpandableSummaryView +
- *  BookMediaInfoSection). */
+ *  BookMediaInfoSection). [seriesMeta] is non-null only on the one-shot detail and contributes the
+ *  genres, the alternate titles and the book links (mirrors iOS OneShotDetailContentView). */
 @Composable
 internal fun BookSecondaryContent(
     meta: BookDetailMeta,
     onBrowseFilter: (String) -> Unit = {},
+    seriesMeta: SeriesEditValues? = null,
 ) {
     Text(
         text = stringResource(R.string.book_summary),
@@ -980,16 +1074,64 @@ internal fun BookSecondaryContent(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp),
     )
+    val genres = seriesMeta?.genres.orEmpty()
+    if (genres.isNotEmpty()) {
+        // One-shot: genres belong to the owning series (mirrors DetailChipFlow(genreItems))
+        CollapsibleChipFlow(
+            items = genres.map { genre ->
+                ChipItem(
+                    text = genre,
+                    icon = Icons.Outlined.TheaterComedy,
+                    value = genre,
+                    filterKind = FILTER_KIND_GENRE,
+                )
+            },
+            limit = 6,
+            centered = false,
+            onClick = { item -> onBrowseFilter("${item.filterKind} · ${item.value}") },
+        )
+    }
     if (meta.tags.isNotEmpty()) {
         // Tag chips: a tap jumps to the tag-filtered browse view (mirrors
         // DetailChipFlow(tagItems))
         CollapsibleChipFlow(
-            items = meta.tags.map { tag -> ChipItem(text = tag, icon = Icons.Outlined.Sell, value = tag) },
+            items = meta.tags.map { tag ->
+                ChipItem(
+                    text = tag,
+                    icon = Icons.Outlined.Sell,
+                    value = tag,
+                    filterKind = FILTER_KIND_TAG,
+                )
+            },
             limit = 6,
             centered = false,
-            onClick = { item -> onBrowseFilter("$FILTER_KIND_TAG · ${item.value}") },
+            onClick = { item -> onBrowseFilter("${item.filterKind} · ${item.value}") },
         )
     }
+    if (meta.links.isNotEmpty()) {
+        // External link chips (mirrors DetailChipFlow(linkItems)): the whole row is not collapsible
+        // on iOS either
+        val uriHandler = LocalUriHandler.current
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            meta.links.forEach { (label, url) ->
+                MetaChip(
+                    text = label,
+                    icon = Icons.Outlined.Link,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { runCatching { uriHandler.openUri(url) } },
+                )
+            }
+        }
+    }
+    // One-shot alternate titles (mirrors iOS SeriesAlternateTitlesView). Shared with the series page.
+    DetailAlternateTitles(items = seriesMeta?.alternateTitles.orEmpty())
     Text(
         text = stringResource(R.string.book_media_info),
         style = MaterialTheme.typography.titleSmall,
@@ -1001,10 +1143,36 @@ internal fun BookSecondaryContent(
         MetaRow(icon = Icons.Outlined.Storage, text = meta.sizeLabel)
         MetaRow(icon = Icons.Outlined.Folder, text = meta.filePath)
     }
+    meta.mediaComment?.takeIf { it.isNotBlank() }?.let { comment ->
+        // Mirrors iOS BookMediaInfoSection: an orange warning icon with the comment in red
+        Row(
+            modifier = Modifier.padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Color(0xFFFFA726),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = comment,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
 }
 
-/** Data of a tappable chip: label, icon, and the value reported to the browse filter. */
-private data class ChipItem(val text: String, val icon: ImageVector?, val value: String)
+/** Data of a tappable chip: label, icon, the value reported to the browse filter, and the filter
+ *  kind prepended to it ([filterKind] · [value]). */
+private data class ChipItem(
+    val text: String,
+    val icon: ImageVector?,
+    val value: String,
+    val filterKind: String = FILTER_KIND_AUTHOR,
+)
 
 /** Collapsible chip flow: shows the first [limit] items by default, the rest expands in place via
  *  a "+N" chip (mirrors DetailChipFlow). */
@@ -1047,6 +1215,63 @@ private fun CollapsibleChipFlow(
         }
     }
 }
+
+/** Quiet created/modified caption under the action card (mirrors DetailTimestampsView: caption
+ *  size, secondary color, no chip chrome). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun DetailTimestamps(
+    created: String?,
+    lastModified: String?,
+    centered: Boolean = true,
+) {
+    val rows = buildList {
+        created?.take(10)?.let { add(Icons.Outlined.Event to stringResource(R.string.lists_created_at, it)) }
+        lastModified?.take(10)?.let {
+            add(Icons.Outlined.Schedule to stringResource(R.string.lists_modified_at, it))
+        }
+    }
+    if (rows.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+    ) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(
+                12.dp,
+                if (centered) Alignment.CenterHorizontally else Alignment.Start,
+            ),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            rows.forEach { (icon, text) -> MetaRow(icon = icon, text = text) }
+        }
+    }
+}
+
+/** Reading-direction hero row (icon + localized label) of the one-shot page; null when unset or
+ *  unknown (mirrors ReadingDirection.fromString.icon / displayName). */
+@Composable
+private fun readingDirectionMeta(direction: String): Pair<ImageVector, String>? =
+    when (direction.uppercase()) {
+        "RIGHT_TO_LEFT" -> Icons.AutoMirrored.Filled.FormatTextdirectionRToL to
+            stringResource(R.string.series_direction_rtl)
+
+        "VERTICAL" -> Icons.Filled.SwapVert to stringResource(R.string.series_direction_vertical)
+        "WEBTOON" -> Icons.Filled.ViewStream to stringResource(R.string.series_direction_webtoon)
+        "LEFT_TO_RIGHT" -> Icons.AutoMirrored.Filled.FormatTextdirectionLToR to
+            stringResource(R.string.series_direction_ltr)
+
+        else -> null
+    }
+
+/** Medium date of an epoch-millis timestamp (mirrors iOS formattedMediumDate). */
+private fun mediumDate(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDate()
+        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 
 /** Metadata chip: icon + label, optionally tappable (the shared chip of every page). */
 

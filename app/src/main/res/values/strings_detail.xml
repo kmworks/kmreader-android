@@ -55,6 +55,7 @@
     <string name="book_delete_message">The files for “%1$s” will be deleted from the server. This cannot be undone.</string>
     <string name="book_downloaded">Downloaded</string>
     <string name="book_edit_metadata">Edit metadata</string>
+    <string name="book_last_read">Last read %1$s</string>
     <string name="book_mark_read">Mark as read</string>
     <string name="book_mark_unread">Mark as unread</string>
     <string name="book_media_info">Media info</string>

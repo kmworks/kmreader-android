@@ -100,6 +100,12 @@ data class SeriesDetailUiState(
     val trackerLinks: List<TrackerLink> = emptyList(),
     /** Initial values for metadata editing (straight from the DTO; null without a session or for demo data). */
     val editable: SeriesEditValues? = null,
+    /** Server-side created date of the series (date only); null without a session or for demo data. */
+    val created: String? = null,
+    /** Server-side last-modified date of the series (date only); null without a session or for demo data. */
+    val lastModified: String? = null,
+    /** Alternate titles of the series as label/title pairs (mirrors the iOS SeriesAlternateTitlesView). */
+    val alternateTitles: List<Pair<String, String>> = emptyList(),
 )
 
 /** Series detail data: resolves the DTO id through the registry, then loads the series and its book list. */
@@ -241,6 +247,11 @@ class SeriesDetailViewModel @Inject constructor(
                             )
                         },
                         libraryId = seriesDto?.libraryId,
+                        created = seriesDto?.created?.take(10),
+                        lastModified = seriesDto?.lastModified?.take(10),
+                        alternateTitles = seriesDto?.metadata?.alternateTitles
+                            ?.map { it.label to it.title }
+                            .orEmpty(),
                     )
                 }
                 contentId = stableId

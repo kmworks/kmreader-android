@@ -115,6 +115,7 @@ import com.kmworks.kmreader.ui.components.completedLastReadText
 import com.kmworks.kmreader.ui.components.oneshotLineText
 import com.kmworks.kmreader.ui.components.pageLabelText
 import com.kmworks.kmreader.ui.components.subtitleText
+import com.kmworks.kmreader.ui.components.AgeRatingBadge
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
@@ -128,6 +129,7 @@ import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.MetaChip
+import com.kmworks.kmreader.ui.components.DetailAlternateTitles
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.tracker.TrackerSection
@@ -475,8 +477,14 @@ fun SeriesDetailScreen(
                             onRead = { continueBook?.let(onRead) },
                             onDownload = onDownloadSeries,
                         )
+                        DetailTimestamps(
+                            created = state.created,
+                            lastModified = state.lastModified,
+                            centered = false,
+                        )
                         DetailSummary(displaySeries)
                         DetailChips(series = displaySeries, onBrowseFilter = onBrowseFilter)
+                        DetailAlternateTitles(items = state.alternateTitles)
                         DetailMembershipChips(state.collections, onOpen = onOpenCollection)
                         if (state.hasSession && state.trackerSupported) {
                             TrackerSection(
@@ -558,10 +566,19 @@ fun SeriesDetailScreen(
                             onRead = { continueBook?.let(onRead) },
                             onDownload = onDownloadSeries,
                         )
+                        DetailTimestamps(
+                            created = state.created,
+                            lastModified = state.lastModified,
+                            centered = false,
+                        )
                         DetailSummary(displaySeries)
                         // Left aligned even though the hero above is centered: this block reads as the start of
                         // the list section and continues into the book list below.
                         DetailChips(displaySeries, centered = false, onBrowseFilter = onBrowseFilter)
+                        DetailAlternateTitles(
+                            items = state.alternateTitles,
+                            centered = false,
+                        )
                         DetailMembershipChips(state.collections, centered = false, onOpen = onOpenCollection)
                         if (state.hasSession && state.trackerSupported) {
                             TrackerSection(
@@ -906,18 +923,17 @@ private fun DetailHero(
                 .aspectRatio(2f / 3f),
         )
         Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 text = series.title,
                 style = MaterialTheme.typography.headlineSmall,
             )
-            series.ageRating?.let { rating ->
-                Text(
-                    text = " $rating+",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
-                )
+            // Mirrors iOS SeriesHeroInfoView: the badge only appears for a rated series (> 0).
+            series.ageRating?.takeIf { it > 0 }?.let { rating ->
+                AgeRatingBadge(rating)
             }
         }
         Spacer(Modifier.height(12.dp))

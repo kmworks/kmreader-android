@@ -66,4 +66,9 @@ data class BookDetailMeta(
     val notableEntities: List<NotableEntity> = emptyList(),
     /** Server lock state of each field (all false when there is no DTO). */
     val locks: BookMetadataLocks = BookMetadataLocks(),
+    /** Media comment warning (mirrors iOS BookMediaInfoSection media.localizedComment). */
+    val mediaComment: String? = null,
+    /** Server created/last-modified dates (ISO strings; the UI shows the date part only). */
+    val created: String? = null,
+    val lastModified: String? = null,
 )

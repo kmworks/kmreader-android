@@ -53,6 +53,7 @@
     <string name="book_delete_message">「%1$s」的文件将从服务器删除，此操作不可撤销。</string>
     <string name="book_downloaded">已下载</string>
     <string name="book_edit_metadata">编辑元数据</string>
+    <string name="book_last_read">上次阅读 %1$s</string>
     <string name="book_mark_read">标记为已读</string>
     <string name="book_mark_unread">标记为未读</string>
     <string name="book_media_info">媒体信息</string>
