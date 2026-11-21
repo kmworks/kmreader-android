@@ -188,8 +188,8 @@ fun SeriesDetailScreen(
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
         ?: books.firstOrNull()
-    // Mirrors seriesDetailLayout: list / medium grid / large grid, list by default, persisted per page
-    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("seriesDetail", BrowseLayout.List)
+    // Mirrors seriesDetailLayout: list / medium grid / large grid, large grid by default, persisted per page
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("seriesDetail", BrowseLayout.LargeGrid)
     // Filter state (mirrors BookBrowseOptions; the real implementation persists per page via AppStorage)
     var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
     // Selection state: null = selection mode off; once on, tapping a book toggles it

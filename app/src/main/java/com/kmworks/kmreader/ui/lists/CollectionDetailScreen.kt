@@ -103,7 +103,7 @@ fun CollectionDetailScreen(
         ordered = state.ordered ?: collection.ordered,
     )
     val sourceSeries = state.series ?: emptyList()
-    val (layout, setLayout) = rememberPersistentBrowseLayout("collectionDetail", BrowseLayout.Grid)
+    val (layout, setLayout) = rememberPersistentBrowseLayout("collectionDetail", BrowseLayout.LargeGrid)
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }

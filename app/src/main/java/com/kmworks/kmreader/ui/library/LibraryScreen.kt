@@ -132,9 +132,9 @@ fun LibraryScreen(
         activeFilter = request
     }
     // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout,
-    // default grid)
-    val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.Grid)
-    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.Grid)
+    // large grid by default)
+    val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.LargeGrid)
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.LargeGrid)
     val layout = if (contentType == LibraryContentType.Series) seriesLayout else booksLayout
     val setLayout = if (contentType == LibraryContentType.Series) setSeriesLayout else setBooksLayout
     var scopeMenuOpen by remember { mutableStateOf(false) }

@@ -109,7 +109,7 @@ fun BrowseScreen(
     var showPinSheet by remember { mutableStateOf(false) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
     // Results grid layout (list/grid/large grid, persisted per page, mirroring iOS per-page layout memory)
-    val (resultsLayout, setResultsLayout) = rememberPersistentBrowseLayout("search", BrowseLayout.Grid)
+    val (resultsLayout, setResultsLayout) = rememberPersistentBrowseLayout("search", BrowseLayout.LargeGrid)
     var showFilterSheet by remember { mutableStateOf(false) }
     val browseOptions by viewModel.browseOptionsFlow.collectAsStateWithLifecycle()
 

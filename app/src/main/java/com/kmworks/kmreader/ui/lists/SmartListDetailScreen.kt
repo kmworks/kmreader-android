@@ -95,7 +95,7 @@ fun SmartListDetailScreen(
     val state by viewModel.state.collectAsState()
     LaunchedEffect(smartList.id) { viewModel.load(smartList.id) }
 
-    val (layout, setLayout) = rememberPersistentBrowseLayout("smartListDetail", BrowseLayout.Grid)
+    val (layout, setLayout) = rememberPersistentBrowseLayout("smartListDetail", BrowseLayout.LargeGrid)
     var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }

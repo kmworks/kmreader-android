@@ -96,7 +96,7 @@ fun DashboardSectionDetailScreen(
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
     viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
-    val (layout, setLayout) = rememberPersistentBrowseLayout("dashboardSection", BrowseLayout.Grid)
+    val (layout, setLayout) = rememberPersistentBrowseLayout("dashboardSection", BrowseLayout.LargeGrid)
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
