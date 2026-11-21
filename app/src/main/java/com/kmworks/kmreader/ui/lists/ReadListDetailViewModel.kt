@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ContentRowRefresher
@@ -374,14 +372,17 @@ class ReadListDetailViewModel @Inject constructor(
         return true
     }
 
-    /** Create a read list (the "New…" flow of the "Add to list" picker); reports the new entry on success. */
-    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
-    }
-
-    /** Create a collection (the "New…" flow of the "Add to collection" picker); reports the new entry on success. */
-    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    /** Create a read list from the picker's selection (its books, or the books of its series); reports the new entry. */
+    fun createReadListEntry(
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newReadListEntry(listRepository, detailRepository, name, summary, ordered, selection))
+        }
     }
 
     /** Save book metadata (BookEditSheet flow, mirrors BookDetailViewModel.saveMetadata):

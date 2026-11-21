@@ -44,6 +44,10 @@ fun ReadListEditSheet(
     initialOrdered: Boolean = true,
     isEdit: Boolean = false,
     onDelete: (() -> Unit)? = null,
+    /** A create/update is in flight: the save button is disabled so a double tap cannot create two lists. */
+    busy: Boolean = false,
+    /** Shown above the buttons after a failed create; the sheet stays open so the input is not lost. */
+    errorText: String? = null,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var summary by remember { mutableStateOf(initialSummary) }
@@ -105,6 +109,15 @@ fun ReadListEditSheet(
                 Switch(checked = ordered, onCheckedChange = { ordered = it })
             }
 
+            if (errorText != null) {
+                Text(
+                    text = errorText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+
             Spacer(Modifier.height(24.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -119,7 +132,7 @@ fun ReadListEditSheet(
                 OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = { onSave(name.trim(), summary.trim(), ordered) },
-                    enabled = name.isNotBlank(),
+                    enabled = name.isNotBlank() && !busy,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(stringResource(R.string.common_save))

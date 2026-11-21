@@ -76,6 +76,7 @@ import com.kmworks.kmreader.ui.detail.KomfSeriesContextDialogs
 import com.kmworks.kmreader.ui.detail.KomfSeriesViewModel
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
+import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.util.shareText
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -411,13 +412,14 @@ fun DashboardScreen(
             onDismiss = { showPinSheet = false },
         )
     }
-    // "Add to Collection/Read List" pickers: real list data (empty without a session)
+    // "Add to Collection/Read List" pickers: real list data (empty without a session). The selection seeds a
+    // list created from the picker, so a new collection/read list is born holding what the user picked.
     if (addToCollectionOpen) {
         (addTarget as? Series)?.let { series ->
             AddToListSheet(
                 collections = state.collections ?: emptyList(),
                 readLists = emptyList(),
-                onCreateReadList = viewModel::createReadListEntry,
+                selection = ListSelection(seriesIds = listOf(series.id)),
                 onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addSeriesToCollection(entry, series)
@@ -436,8 +438,8 @@ fun DashboardScreen(
             is Series -> AddToListSheet(
                 collections = emptyList(),
                 readLists = state.readLists ?: emptyList(),
+                selection = ListSelection(seriesIds = listOf(target.id)),
                 onCreateReadList = viewModel::createReadListEntry,
-                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     // Komga read lists only accept books: adding a series appends its books one by one
                     viewModel.addSeriesToReadList(entry, target)
@@ -452,8 +454,8 @@ fun DashboardScreen(
             is Book -> AddToListSheet(
                 collections = emptyList(),
                 readLists = state.readLists ?: emptyList(),
+                selection = ListSelection(bookIds = listOf(target.id)),
                 onCreateReadList = viewModel::createReadListEntry,
-                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addBookToReadList(entry, target)
                     addToReadListOpen = false

@@ -126,6 +126,7 @@ import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
 import com.kmworks.kmreader.ui.lists.AddToListSheet
+import com.kmworks.kmreader.ui.lists.ListSelection
 
 private val WideLayoutBreakpoint = 960.dp
 private val HeroCoverWidth = 168.dp
@@ -526,14 +527,14 @@ internal fun BookDetailBody(
         }
     }
 
-    // "Add to Read List" picker: real list data, selection calls the API (empty without
-    // a session)
+    // "Add to Read List" picker: real list data, selection calls the API (empty without a session).
+    // The selection seeds a read list created from here (Komga refuses a read list without books).
     if (addToReadListOpen) {
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            selection = ListSelection(bookIds = listOf(book.id)),
             onCreateReadList = viewModel::createReadListEntry,
-            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addToReadList(entry)
                 addToReadListOpen = false

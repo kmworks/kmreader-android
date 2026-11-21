@@ -93,4 +93,6 @@
     <string name="smartlist_share_unavailable">Sharing requires a kmrs server with smart lists enabled.</string>
     <string name="smartlist_share_admin_only">Only administrators can change the visibility of a smart list.</string>
     <string name="smartlist_save_failed">Could not save changes</string>
+    <!-- Add-to-list picker: creating a collection/read list failed (no ids to seed it, or the server refused it). -->
+    <string name="lists_create_failed">Could not create the list.</string>
 </resources>

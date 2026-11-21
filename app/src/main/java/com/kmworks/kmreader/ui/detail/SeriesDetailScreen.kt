@@ -140,6 +140,7 @@ import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
+import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.tracker.TrackerSection
 import com.kmworks.kmreader.ui.tracker.TrackerSeriesSheet
 import com.kmworks.kmreader.ui.util.shareText
@@ -806,12 +807,13 @@ fun SeriesDetailScreen(
             },
         )
     }
-    // "Add to collection" picker: real collection data, calls the API after selection (empty without a session)
+    // "Add to collection" picker: real collection data, calls the API after selection (empty without a session).
+    // The selection seeds a collection created from here (Komga refuses a collection without series).
     if (addToCollectionOpen) {
         AddToListSheet(
             collections = collections ?: emptyList(),
             readLists = emptyList(),
-            onCreateReadList = viewModel::createReadListEntry,
+            selection = ListSelection(seriesIds = listOf(series.id)),
             onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addToCollection(entry)
@@ -825,8 +827,8 @@ fun SeriesDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            selection = ListSelection(seriesIds = listOf(series.id)),
             onCreateReadList = viewModel::createReadListEntry,
-            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 if (!viewModel.addSeriesToReadList(entry)) {
                     scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.book_add_to_readlist)) }
@@ -841,8 +843,8 @@ fun SeriesDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            selection = ListSelection(bookIds = ids.toList()),
             onCreateReadList = viewModel::createReadListEntry,
-            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 if (viewModel.addBooksToReadList(entry, ids)) {
                     selectedIds = null
@@ -979,8 +981,8 @@ fun SeriesDetailScreen(
             AddToListSheet(
                 collections = emptyList(),
                 readLists = readLists ?: emptyList(),
+                selection = ListSelection(bookIds = listOf(target.id)),
                 onCreateReadList = viewModel::createReadListEntry,
-                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     if (!viewModel.addBooksToReadList(entry, setOf(target.id))) {
                         scope.launch { selectionFailure(context.getString(R.string.book_add_to_readlist)) }

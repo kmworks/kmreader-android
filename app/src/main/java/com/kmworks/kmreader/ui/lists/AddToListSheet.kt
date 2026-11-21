@@ -44,42 +44,82 @@ fun AddToListSheet(
     onSelect: (ListEntry) -> Unit,
     onDismiss: () -> Unit,
     alreadyInIds: Set<Int> = emptySet(),
-    /** Create a read list: on success the new entry is reported back (and immediately selected).
-     *  When null, the "New Read List" button is hidden. */
-    onCreateReadList: ((name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) -> Unit)? = null,
-    /** Create a collection: on success the new entry is reported back.
-     *  When null, the "New Collection" button is hidden. */
-    onCreateCollection: ((name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) -> Unit)? = null,
+    /** Content the picker acts on; a list created from here is born holding it (Komga rejects empty bodies). */
+    selection: ListSelection = ListSelection(),
+    /** Create a read list seeded with [selection]: on success the new entry is reported back (and immediately
+     *  selected). When null — or when [selection] carries no content — the "New Read List" button is hidden. */
+    onCreateReadList: ((
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) -> Unit)? = null,
+    /** Create a collection seeded with the selected series. When null — or without series in [selection] — the
+     *  "New Collection" button is hidden; a read-list picker therefore never offers it. */
+    onCreateCollection: ((
+        name: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) -> Unit)? = null,
 ) {
-    // Create sub-flow: "readlist" / "collection" / null
+    val showCreateCollection = onCreateCollection != null && selection.seriesIds.isNotEmpty()
+    val showCreateReadList = onCreateReadList != null &&
+        (selection.bookIds.isNotEmpty() || selection.seriesIds.isNotEmpty())
+
+    // Create sub-flow: "readlist" / "collection" / null. A failed create keeps the sheet open with an error
+    // instead of silently returning to the picker (the request used to fail with an invisible HTTP 400).
     var createMode by remember { mutableStateOf<String?>(null) }
+    var createBusy by remember { mutableStateOf(false) }
+    var createFailed by remember { mutableStateOf(false) }
+    val closeCreate: () -> Unit = {
+        createMode = null
+        createBusy = false
+        createFailed = false
+    }
+
     if (createMode == "readlist") {
         ReadListEditSheet(
             onSave = { name, summary, ordered ->
-                onCreateReadList?.invoke(name, summary, ordered) { entry ->
-                    createMode = null
+                createFailed = false
+                createBusy = true
+                onCreateReadList?.invoke(name, summary, ordered, selection) { entry ->
+                    createBusy = false
                     if (entry != null) {
+                        closeCreate()
                         onSelect(entry)
                         onDismiss()
+                    } else {
+                        createFailed = true
                     }
                 }
             },
-            onDismiss = { createMode = null },
+            onDismiss = closeCreate,
+            busy = createBusy,
+            errorText = if (createFailed) stringResource(R.string.lists_create_failed) else null,
         )
         return
     }
     if (createMode == "collection") {
         CollectionEditSheet(
             onSave = { name, ordered ->
-                onCreateCollection?.invoke(name, ordered) { entry ->
-                    createMode = null
+                createFailed = false
+                createBusy = true
+                onCreateCollection?.invoke(name, ordered, selection) { entry ->
+                    createBusy = false
                     if (entry != null) {
+                        closeCreate()
                         onSelect(entry)
                         onDismiss()
+                    } else {
+                        createFailed = true
                     }
                 }
             },
-            onDismiss = { createMode = null },
+            onDismiss = closeCreate,
+            busy = createBusy,
+            errorText = if (createFailed) stringResource(R.string.lists_create_failed) else null,
         )
         return
     }
@@ -155,7 +195,7 @@ fun AddToListSheet(
                 }
             }
 
-            if (onCreateCollection != null) {
+            if (showCreateCollection) {
                 OutlinedButton(
                     onClick = { createMode = "collection" },
                     modifier = Modifier
@@ -167,12 +207,12 @@ fun AddToListSheet(
                     Text(stringResource(R.string.collection_new_action))
                 }
             }
-            if (onCreateReadList != null) {
+            if (showCreateReadList) {
                 OutlinedButton(
                     onClick = { createMode = "readlist" },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = if (onCreateCollection != null) 8.dp else 16.dp),
+                        .padding(top = if (showCreateCollection) 8.dp else 16.dp),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))

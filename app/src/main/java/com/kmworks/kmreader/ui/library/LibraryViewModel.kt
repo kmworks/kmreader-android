@@ -8,6 +8,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.BookRepository
@@ -862,16 +863,29 @@ class LibraryViewModel @Inject constructor(
         val options: BookBrowseOptions,
     )
 
-    /** Create a read list (the "New…" flow of the "Add to List" picker); returns the new entry on
-     *  success. */
-    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
+    /** Create a collection from the picker's selection (Komga refuses empty ones); returns the new entry on success. */
+    fun createCollectionEntry(
+        name: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newCollectionEntry(listRepository, detailRepository, name, ordered, selection.seriesIds))
+        }
     }
 
-    /** Create a collection (the "New…" flow of the "Add to Collection" picker); returns the new entry
-     *  on success. */
-    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    /** Create a read list from the picker's selection (its books, or the books of its series); same contract. */
+    fun createReadListEntry(
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newReadListEntry(listRepository, detailRepository, name, summary, ordered, selection))
+        }
     }
 
     private companion object {
