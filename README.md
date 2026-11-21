@@ -30,11 +30,12 @@ navigation model, translated to Android containers only.
 - **EPUB reader** on the WebView + ReadiumCSS path: theme presets, typography (font size, weight,
   line height, margins, columns), publisher styles, flow style, page-turn animation, nested table of
   contents, and importable custom fonts.
-- **PDF reader** on the official AndroidX PDF viewer: text layer for selection/search, table of
-  contents, page jump, continuous scroll, page presentation and solo-cover options, reading
-  background, and progress overlay. An optional native `PdfRenderer` engine (Reader defaults → PDF)
-  renders pages locally on devices where the AndroidX viewer is too heavy; it trades text selection
-  and search for a smaller footprint.
+- **PDF reading** with a choice of reader, matching the iOS app: **Use Native PDF Reader** (Reader
+  defaults → PDF, on by default) opens PDFs in the dedicated AndroidX PDF viewer with a text layer
+  for selection/search, table of contents, page jump, continuous scroll, page presentation,
+  solo-cover, reading background, and progress overlay. Turning it off opens PDFs in the DIVINA
+  comic reader instead — the better fit for comic and manga PDFs, and the only way a
+  downloaded PDF is rendered page-by-page from disk while offline.
 
 ### Browse and discovery
 
@@ -63,7 +64,7 @@ them from disk so a downloaded book opens without the server:
 | CBZ (zip comic archive) | one `book.cbz` file | DIVINA reader, pages extracted on demand |
 | CBR and Divina-compatible EPUB | page images | DIVINA reader, page files |
 | EPUB (webpub) | one `book.epub` file | EPUB reader, resources read straight from the zip |
-| PDF | one `book.pdf` file | PDF reader (both engines) |
+| PDF | one `book.pdf` file | PDF viewer (text layer), or the DIVINA reader when the native PDF reader is off — its pages are rasterized from disk on demand |
 
 Divina rendering places local page files in front of the network, EPUB resources fall back to the
 server when a zip entry is missing, and read progress and table-of-contents links are compared after
@@ -208,6 +209,7 @@ docs/         Static design reference
 
 KMReader for Android is built on Jetpack Compose and Material 3, Coil, OkHttp, Retrofit,
 kotlinx.serialization/coroutines, Room, DataStore, WorkManager, and Hilt. EPUB rendering follows
-the Readium CSS approach; PDF rendering uses the AndroidX PDF viewer and its bundled PDFium by
-default, with an optional native `PdfRenderer` engine.
+the Readium CSS approach; PDFs use the AndroidX PDF viewer and its bundled PDFium by default and can
+instead be read through the DIVINA comic reader, whose downloaded PDFs are rasterized with the
+platform `PdfRenderer`.
 The in-app licenses screen shows the license of each bundled component.

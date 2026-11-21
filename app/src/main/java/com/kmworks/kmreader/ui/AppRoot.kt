@@ -91,7 +91,6 @@ import com.kmworks.kmreader.ui.login.LoginScreen
 import com.kmworks.kmreader.ui.offline.OfflineScreen
 import com.kmworks.kmreader.ui.reader.CustomFontsScreen
 import com.kmworks.kmreader.ui.reader.EpubReaderScreen
-import com.kmworks.kmreader.ui.reader.NativePdfReaderScreen
 import com.kmworks.kmreader.ui.reader.PdfReaderScreen
 import com.kmworks.kmreader.ui.reader.ReaderScreen
 import com.kmworks.kmreader.ui.settings.AboutScreen
@@ -696,14 +695,9 @@ fun AppRoot(
                             },
                         )
 
+                        // PDF: the dedicated PDF reader (system PDF engine, text layer) or the
+                        // DIVINA comic reader; the choice is the "Use Native PDF Reader" preference.
                         "PDF" -> if (useNativePdfReader) {
-                            NativePdfReaderScreen(
-                                book = route.book,
-                                onBack = pop,
-                                incognito = route.incognito,
-                                startAtEnd = route.startAtEnd,
-                            )
-                        } else {
                             PdfReaderScreen(
                                 book = route.book,
                                 onBack = pop,
@@ -719,6 +713,23 @@ fun AppRoot(
                                 onBrowseFilter = { filter ->
                                     pushFilteredLibrary(filter, LibraryContentType.Books)
                                 },
+                            )
+                        } else {
+                            ReaderScreen(
+                                book = route.book,
+                                onBack = pop,
+                                incognito = route.incognito,
+                                readListStableId = route.readListStableId,
+                                startAtEnd = route.startAtEnd,
+                                onVisitSeries = {
+                                    pop()
+                                    visitSeriesOfBook(it)
+                                },
+                                onOpenReadList = { push(ReadListDetailRoute(it)) },
+                                onBrowseFilter = { filter ->
+                                    pushFilteredLibrary(filter, LibraryContentType.Books)
+                                },
+                                onOpenBook = ::openAdjacent,
                             )
                         }
 

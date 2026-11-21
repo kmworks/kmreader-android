@@ -94,6 +94,12 @@ class ReaderViewModel @Inject constructor(
     /** Archive pages extracted on demand ([DownloadKind.Archive]), keyed by page number. */
     private val archivePages = ConcurrentHashMap<Int, File>()
 
+    /** PDF pages rasterized on demand ([DownloadKind.Pdf] read by the comic reader). */
+    private val pdfPages = ConcurrentHashMap<Int, File>()
+
+    /** Download kind of the current book, when it is downloaded (null otherwise). */
+    private var localKind: DownloadKind? = null
+
     /** Image entry names of the downloaded archive, keyed by one-based page number. */
     private var localArchiveEntries: Map<Int, String> = emptyMap()
 
@@ -138,7 +144,9 @@ class ReaderViewModel @Inject constructor(
         // Local page indexes are per book; a sibling opened through the reader must not reuse them.
         localPageFiles.clear()
         archivePages.clear()
+        pdfPages.clear()
         localArchiveEntries = emptyMap()
+        localKind = null
         extractingPages.clear()
         // Reset progress-gate state on book change (mirrors the original rebuilding the gate on every loadBook)
         sessionStartPage = null
@@ -168,8 +176,9 @@ class ReaderViewModel @Inject constructor(
             val unreadCount = series?.booksUnreadCount
 
             // Downloaded content first: the page list may be unreachable offline, in which case the
-            // local files (downloaded pages or the entries of a downloaded archive) stand in for it.
+            // local files (downloaded pages, archive entries, or rasterized PDF pages) stand in for it.
             val downloadKind = runCatching { offlineLibrary.kind(dtoId) }.getOrNull()
+            localKind = downloadKind
             runCatching { offlineLibrary.pageFiles(dtoId) }.getOrDefault(emptyMap())
                 .let(localPageFiles::putAll)
             localArchiveEntries = if (downloadKind == DownloadKind.Archive) {
@@ -190,7 +199,7 @@ class ReaderViewModel @Inject constructor(
                         height = dto.height ?: 0,
                     )
                 }
-                downloadKind == DownloadKind.Archive || localPageFiles.isNotEmpty() ->
+                downloadKind != null ->
                     localPageNumbers(dtoId, downloadKind).map { number ->
                         // Offline the dimensions are unknown; portrait is the same neutral default as above.
                         ReaderPage(id = number, number = number, width = 0, height = 0)
@@ -245,6 +254,9 @@ class ReaderViewModel @Inject constructor(
     /** One-based page numbers available on disk for this download (empty when nothing local applies). */
     private fun localPageNumbers(dtoId: String, kind: DownloadKind?): List<Int> = when (kind) {
         DownloadKind.Archive -> localArchiveEntries.keys.sorted()
+        // A downloaded PDF is one file: the comic reader rasterizes its pages on demand, so the
+        // page list comes from the page count recorded in meta.txt.
+        DownloadKind.Pdf -> (1..offlineLibrary.pageCount(dtoId)).toList()
         else -> {
             runCatching { offlineLibrary.pageFiles(dtoId) }.getOrDefault(emptyMap())
                 .let(localPageFiles::putAll)
@@ -334,19 +346,24 @@ class ReaderViewModel @Inject constructor(
     }
 
     /**
-     * Full-page image URL: a downloaded page (or an archive page extracted on demand) wins over the
-     * server; null only when there is no session. Reading [localPageVersion] subscribes the caller's
-     * composition, so a page that finishes extracting in the background re-resolves to its file.
+     * Full-page image URL: a downloaded page (or an archive/PDF page rasterized on demand) wins over
+     * the server; null only when there is no session. Reading [localPageVersion] subscribes the
+     * caller's composition, so a page that finishes rendering in the background re-resolves to its file.
      */
     fun pageImageUrl(pageNumber: Int): String? {
         val dtoId = _uiState.value.bookDtoId ?: return null
         localPageVersion.intValue
         localPageFiles[pageNumber]?.let { return it.toURI().toString() }
         archivePages[pageNumber]?.let { return it.toURI().toString() }
+        pdfPages[pageNumber]?.let { return it.toURI().toString() }
         if (localArchiveEntries.containsKey(pageNumber)) {
             requestArchivePage(dtoId, pageNumber)
             // While the entry is being extracted, keep the page visible online; offline the
             // composable shows its placeholder until the file lands and the version bumps.
+            return readerRepository.pageUrl(dtoId, pageNumber)
+        }
+        if (localKind == DownloadKind.Pdf && offlineLibrary.pdfFile(dtoId) != null) {
+            requestPdfPage(dtoId, pageNumber)
             return readerRepository.pageUrl(dtoId, pageNumber)
         }
         return readerRepository.pageUrl(dtoId, pageNumber)
@@ -385,6 +402,26 @@ class ReaderViewModel @Inject constructor(
                 localPageVersion.intValue++
             }
         }
+    }
+
+    /** Rasterizes one PDF page in the background; page URIs resolve to the file on the next read. */
+    private fun requestPdfPage(dtoId: String, pageNumber: Int) {
+        if (!extractingPages.add(pageNumber)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = runCatching { offlineLibrary.pdfPage(dtoId, pageNumber) }.getOrNull()
+            extractingPages.remove(pageNumber)
+            if (file != null && _uiState.value.bookDtoId == dtoId) {
+                pdfPages[pageNumber] = file
+                localPageVersion.intValue++
+            }
+        }
+    }
+
+    override fun onCleared() {
+        _uiState.value.bookDtoId?.let { dtoId ->
+            runCatching { offlineLibrary.closePdf(dtoId) }
+        }
+        super.onCleared()
     }
 
     // ---- Progress reporting (mirrors the original ReaderProgressRecordingGate) ----

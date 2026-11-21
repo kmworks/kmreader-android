@@ -1,9 +1,11 @@
 package com.kmworks.kmreader.core.download
 
 import android.content.Context
+import android.graphics.Bitmap
 import com.kmworks.kmreader.core.epub.EpubManifestDto
 import com.kmworks.kmreader.core.epub.EpubResource
 import com.kmworks.kmreader.core.epub.EpubZip
+import com.kmworks.kmreader.core.pdf.PdfDocumentHolder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -29,6 +31,8 @@ import kotlinx.coroutines.withContext
  *   book.cbz            DownloadKind.Archive (zip-based comics)
  * ```
  */
+private const val PDF_PAGE_RENDER_WIDTH = 1600
+
 @Singleton
 class OfflineLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -37,6 +41,7 @@ class OfflineLibrary @Inject constructor(
     private val downloadsRoot = File(context.filesDir, "downloads")
     private val pageCacheRoot = File(context.cacheDir, "offline-pages")
     private val archiveEntryCache = ConcurrentHashMap<String, List<String>>()
+    private val pdfHolders = ConcurrentHashMap<String, PdfDocumentHolder>()
 
     fun bookDir(bookDtoId: String): File = File(downloadsRoot, bookDtoId)
 
@@ -130,6 +135,41 @@ class OfflineLibrary @Inject constructor(
 
     fun extractedPage(bookDtoId: String, pageNumber: Int): File =
         File(File(pageCacheRoot, bookDtoId), "%04d.img".format(pageNumber))
+
+    /**
+     * Rasterizes one page of a downloaded PDF into the page cache, so the comic reader can show a
+     * downloaded PDF offline (the iOS app renders offline PDFs through its DIVINA reader the same
+     * way). The bitmap is rendered at a fixed width and cached until the PDF changes.
+     */
+    suspend fun pdfPage(bookDtoId: String, pageNumber: Int): File? = withContext(Dispatchers.IO) {
+        val pdf = pdfFile(bookDtoId) ?: return@withContext null
+        val target = extractedPage(bookDtoId, pageNumber)
+        if (target.isFile && target.length() > 0L && target.lastModified() >= pdf.lastModified()) {
+            return@withContext target
+        }
+        val holder = runCatching {
+            pdfHolders.getOrPut(bookDtoId) { PdfDocumentHolder(pdf) }
+        }.getOrNull() ?: return@withContext null
+        val bitmap = runCatching { holder.renderPage(pageNumber - 1, PDF_PAGE_RENDER_WIDTH) }.getOrNull()
+            ?: return@withContext null
+        runCatching {
+            target.parentFile?.mkdirs()
+            val part = File(target.parentFile, "${target.name}.part")
+            part.outputStream().buffered().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
+            }
+            if (!part.renameTo(target)) {
+                part.copyTo(target, overwrite = true)
+                part.delete()
+            }
+            target
+        }.also { bitmap.recycle() }.getOrNull()
+    }
+
+    /** Releases the cached PDF renderer for a book (called when the reading session ends). */
+    fun closePdf(bookDtoId: String) {
+        pdfHolders.remove(bookDtoId)?.close()
+    }
 
     fun epubFile(bookDtoId: String): File? = contentFile(bookDtoId, DownloadKind.Epub)
 

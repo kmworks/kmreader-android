@@ -38,7 +38,7 @@ class SettingsPrefsViewModel @Inject constructor(
 
     /** PDF engine: native PdfRenderer (true) or androidx.pdf (false, default). */
     val useNativePdfReader: StateFlow<Boolean> = appSettings.useNativePdfReader
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     /** App icon variant (primary/classic/legacy; persisted, applied via manifest aliases). */
     val appIcon: StateFlow<String> = appSettings.appIcon
