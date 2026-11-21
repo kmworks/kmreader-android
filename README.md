@@ -176,6 +176,10 @@ docs/         Static design reference
 ## Compatibility
 
 - Komga 1.20.0+ (API v1 and v2).
+- Responses from an older server decode tolerantly: a field the pinned OpenAPI
+  snapshot declares required but the server does not send (for example
+  `notableEntities`, added in Komga 1.29) reads as an empty value instead of
+  failing the whole page, matching the optional properties of the Apple app.
 - Enhanced features (trackers, smart-list editing, reading stats, client settings sync) require a
   [kmrs](https://github.com/kmworks/kmrs) server or a server with the corresponding integration.
 
