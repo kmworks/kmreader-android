@@ -2,15 +2,15 @@ package com.kmworks.kmreader.core.download
 
 /**
  * Badge state drawn on series/book cards, mirroring iOS `DownloadStatus`/`SeriesDownloadStatus`:
- * [None] nothing downloaded, [Pending] paused or waiting for a worker slot, [Downloading] a worker is
+ * [None] nothing downloaded, [Paused] the download is paused, [Downloading] a worker is
  * running, [Partial] some books of a series are downloaded, [Full] complete, [Failed] the last attempt failed.
  */
-enum class DownloadMark { None, Pending, Downloading, Partial, Full, Failed }
+enum class DownloadMark { None, Paused, Downloading, Partial, Full, Failed }
 
 /** Queue status → badge state. Completed downloads never reach this: the file scan decides [DownloadMark.Full]. */
 fun DownloadTaskUi.Status.toDownloadMark(): DownloadMark = when (this) {
     DownloadTaskUi.Status.Downloading -> DownloadMark.Downloading
-    DownloadTaskUi.Status.Paused -> DownloadMark.Pending
+    DownloadTaskUi.Status.Paused -> DownloadMark.Paused
     DownloadTaskUi.Status.Failed -> DownloadMark.Failed
 }
 
@@ -25,7 +25,7 @@ data class SeriesDownloadAggregate(
     val downloaded: Int = 0,
     val total: Int = 0,
     val downloading: Int = 0,
-    val pending: Int = 0,
+    val paused: Int = 0,
     val failed: Int = 0,
 ) {
     val mark: DownloadMark
@@ -34,7 +34,7 @@ data class SeriesDownloadAggregate(
             // A partially downloaded series keeps its partial mark even while the rest is queued.
             downloaded > 0 -> DownloadMark.Partial
             downloading > 0 -> DownloadMark.Downloading
-            pending > 0 -> DownloadMark.Pending
+            paused > 0 -> DownloadMark.Paused
             failed > 0 -> DownloadMark.Failed
             else -> DownloadMark.None
         }
@@ -48,7 +48,7 @@ data class DownloadedIndex(
     /** UI stable ids ([com.kmworks.kmreader.core.data.StableIds.book]) of fully downloaded books. */
     val books: Set<Int> = emptySet(),
     /**
-     * Stable ids with an unfinished task → its badge state ([DownloadMark.Pending], [DownloadMark.Downloading]
+     * Stable ids with an unfinished task → its badge state ([DownloadMark.Paused], [DownloadMark.Downloading]
      * or [DownloadMark.Failed]). A completed download always wins in [bookMark].
      */
     val tasks: Map<Int, DownloadMark> = emptyMap(),
