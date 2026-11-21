@@ -371,10 +371,10 @@ fun SeriesGridCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(downloadedMark)
                     }
                 }
@@ -386,10 +386,10 @@ fun SeriesGridCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(downloadedMark)
                     }
                 }
@@ -502,10 +502,10 @@ fun BookGridCard(
                     color = statusColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (downloadedMark != DownloadMark.None) {
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(4.dp))
                     DownloadedMarkIcon(downloadedMark)
                 }
             }
@@ -690,10 +690,10 @@ private fun CardTextOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = TightTextStyle,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (statusLabel == null && downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(
                             mark = downloadedMark,
                             tint = Color.White.copy(alpha = 0.85f),
@@ -721,10 +721,10 @@ private fun CardTextOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = TightTextStyle,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(
                             mark = downloadedMark,
                             tint = statusColor.copy(alpha = 0.85f),
@@ -1015,10 +1015,10 @@ fun BookHorizontalCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TightTextStyle,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (downloadedMark != DownloadMark.None) {
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(4.dp))
                     DownloadedMarkIcon(downloadedMark, tint = palette.meta, size = 11.dp)
                 }
             }
@@ -1069,10 +1069,10 @@ fun BookListRow(
                     text = rowStatus?.first ?: book.pageLabelText(),
                     style = MaterialTheme.typography.bodySmall,
                     color = rowStatus?.second ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (downloadedMark != DownloadMark.None) {
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(4.dp))
                     DownloadedMarkIcon(downloadedMark)
                 }
             }
@@ -1153,10 +1153,10 @@ fun SeriesListRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(downloadedMark)
                     }
                 }
@@ -1168,10 +1168,10 @@ fun SeriesListRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (downloadedMark != DownloadMark.None) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(downloadedMark)
                     }
                 }

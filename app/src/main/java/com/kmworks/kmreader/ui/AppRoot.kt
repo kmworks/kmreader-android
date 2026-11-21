@@ -468,12 +468,12 @@ fun AppRoot(
                     )
                 }
             }
-        }
 
-        // Pages above the tab skeleton, drawn one layer per page: the tab skeleton is the page below index 0
-        // and every pushed page owns its layer, so the pages beneath keep their composition (scroll position,
-        // open sheets) while the page above slides in.
-        OverlayStack(
+            // Pages above the tab skeleton, drawn one layer per page: the tab skeleton is the page below index 0
+            // and every pushed page owns its layer, so the pages beneath keep their composition (scroll position,
+            // open sheets) while the page above slides in. The provider above wraps this stack too: detail and
+            // reader pages read the same locals (downloaded index, nav overlay space) as the tab pages.
+            OverlayStack(
             stack = pages,
             leaving = leaving,
             backDrag = backDrag,
@@ -761,6 +761,7 @@ fun AppRoot(
                     }
                 }
             }
+        }
         }
     }
 }
