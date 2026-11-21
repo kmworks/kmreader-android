@@ -18,7 +18,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -37,7 +39,7 @@ class DownloadRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @Suppress("unused") private val sessionManager: SessionManager,
     appSettings: AppSettingsStore,
-    appScope: CoroutineScope,
+    private val appScope: CoroutineScope,
 ) {
 
     private val workManager get() = WorkManager.getInstance(context)
@@ -51,6 +53,43 @@ class DownloadRepository @Inject constructor(
         appScope.launch {
             appSettings.downloadConcurrency.collect { pageConcurrency = it }
         }
+        refreshDownloadedIndex()
+        // A task reaching SUCCEEDED/CANCELLED changes what is on disk; progress updates do not, so only
+        // (book, status) pairs are compared.
+        appScope.launch {
+            downloads
+                .map { rows -> rows.map { it.bookDtoId to it.status } }
+                .distinctUntilChanged()
+                .collect { refreshDownloadedIndex() }
+        }
+    }
+
+    /** Rescan completed downloads and publish the badge index (off the main thread). */
+    fun refreshDownloadedIndex() {
+        appScope.launch(Dispatchers.IO) {
+            _downloadedIndex.value = scanDownloadedIndex()
+        }
+    }
+
+    private fun scanDownloadedIndex(): DownloadedIndex {
+        val books = mutableSetOf<Int>()
+        val seriesDownloaded = mutableMapOf<String, Int>()
+        val seriesTotals = mutableMapOf<String, Int>()
+        downloadsDir.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+            val meta = DownloadMeta.read(dir) ?: return@forEach
+            if (!meta.isComplete(dir)) return@forEach
+            books += StableIds.book(dir.name)
+            val seriesDtoId = enqueueMeta.getString("${dir.name}#series", null) ?: return@forEach
+            seriesDownloaded[seriesDtoId] = (seriesDownloaded[seriesDtoId] ?: 0) + 1
+            val total = enqueueMeta.getInt("${dir.name}#seriesCount", 0)
+            if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
+        }
+        return DownloadedIndex(
+            books = books,
+            series = seriesDownloaded.mapValues { (seriesDtoId, downloaded) ->
+                SeriesDownloadAggregate(downloaded = downloaded, total = seriesTotals[seriesDtoId] ?: 0)
+            },
+        )
     }
 
     // Enqueue metadata (WorkInfo carries no inputData; title/page count live here for queue rows)
@@ -87,6 +126,14 @@ class DownloadRepository @Inject constructor(
     // Local actions (pause/resume/enqueue) drive a re-composition of the downloads flow via tick
     private val tick = MutableStateFlow(0)
 
+    private val _downloadedIndex = MutableStateFlow(DownloadedIndex())
+
+    /**
+     * Completed downloads as card-badge state (stable book ids + per-series aggregates). Refreshed after
+     * queue transitions and every explicit rescan, so cards never scan the disk themselves.
+     */
+    val downloadedIndex: StateFlow<DownloadedIndex> = _downloadedIndex
+
     /**
      * Enqueue a whole-book download; a same-named task is REPLACE-restarted (retry semantics).
      * The media type decides what is downloaded (page images vs the single book file), see [DownloadSpec].
@@ -99,8 +146,20 @@ class DownloadRepository @Inject constructor(
         mediaType: String = "",
         epubDivinaCompatible: Boolean = false,
         libraryId: String? = null,
+        /** Owning series: lets downloaded books carry a series badge and the offline row open the series detail. */
+        seriesDtoId: String? = null,
+        /** Books in the owning series when known (0/absent = unknown, the badge stays "partial"). */
+        seriesBookCount: Int? = null,
     ) {
-        enqueue(bookDtoId, title, pageCount, DownloadSpec.forMedia(mediaType, epubDivinaCompatible), libraryId)
+        enqueue(
+            bookDtoId,
+            title,
+            pageCount,
+            DownloadSpec.forMedia(mediaType, epubDivinaCompatible),
+            libraryId,
+            seriesDtoId,
+            seriesBookCount,
+        )
     }
 
     /**
@@ -124,6 +183,8 @@ class DownloadRepository @Inject constructor(
         pageCount: Int,
         spec: DownloadSpec,
         libraryId: String?,
+        seriesDtoId: String? = null,
+        seriesBookCount: Int? = null,
     ) {
         enqueueMeta.edit()
             .putString(bookDtoId, title)
@@ -132,6 +193,10 @@ class DownloadRepository @Inject constructor(
             .putString("$bookDtoId#format", spec.format)
             .apply {
                 if (libraryId != null) putString("$bookDtoId#library", libraryId)
+                if (seriesDtoId != null) putString("$bookDtoId#series", seriesDtoId)
+                if (seriesBookCount != null && seriesBookCount > 0) {
+                    putInt("$bookDtoId#seriesCount", seriesBookCount)
+                }
             }
             .apply()
         val constraints = Constraints.Builder()
@@ -244,6 +309,8 @@ class DownloadRepository @Inject constructor(
 
     /** Downloaded books (file scan; the meta kind decides completeness: all pages, or the single file). */
     suspend fun downloadedBooks(): List<DownloadedBookUi> = withContext(Dispatchers.IO) {
+        // Keep the badge index in sync with every explicit rescan (the offline page calls this after deletes).
+        _downloadedIndex.value = scanDownloadedIndex()
         downloadsDir.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
             val meta = DownloadMeta.read(dir) ?: return@mapNotNull null
             if (!meta.isComplete(dir)) return@mapNotNull null
@@ -258,6 +325,7 @@ class DownloadRepository @Inject constructor(
                 libraryId = enqueueMeta.getString("${dir.name}#library", null),
                 kind = meta.kind,
                 format = meta.fileFormat,
+                seriesDtoId = enqueueMeta.getString("${dir.name}#series", null),
             )
         }?.sortedBy { it.title } ?: emptyList()
     }
@@ -274,6 +342,7 @@ class DownloadRepository @Inject constructor(
         AppLog.i("Download", "cancel: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         clearEnqueueMeta(bookDtoId)
         File(downloadsDir, bookDtoId).deleteRecursively()
+        _downloadedIndex.value = scanDownloadedIndex()
         tick.value += 1
     }
 
@@ -283,6 +352,7 @@ class DownloadRepository @Inject constructor(
         AppLog.i("Download", "delete: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         clearEnqueueMeta(bookDtoId)
         File(downloadsDir, bookDtoId).deleteRecursively()
+        _downloadedIndex.value = scanDownloadedIndex()
         tick.value += 1
     }
 
@@ -294,6 +364,8 @@ class DownloadRepository @Inject constructor(
             .remove("$bookDtoId#library")
             .remove("$bookDtoId#kind")
             .remove("$bookDtoId#format")
+            .remove("$bookDtoId#series")
+            .remove("$bookDtoId#seriesCount")
             .apply()
     }
 

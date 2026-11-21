@@ -82,6 +82,8 @@
     <string name="menu_mark_read">标记为已读</string>
     <string name="menu_mark_unread">标记为未读</string>
     <string name="menu_remove_download">移除下载</string>
+    <string name="download_badge_downloaded">已下载</string>
+    <string name="download_badge_partial">部分已下载</string>
     <string name="menu_add_to_collection">加入收藏</string>
     <string name="menu_add_to_read_list">加入阅读列表</string>
     <string name="menu_edit_metadata">编辑元数据</string>

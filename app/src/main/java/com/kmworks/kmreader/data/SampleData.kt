@@ -85,6 +85,11 @@ data class Book(
     val number: String,
     val title: String,
     val seriesTitle: String,
+    /**
+     * Owning series DTO id (mirrors Komga book.seriesId). Carried on the row so a download enqueued from a
+     * book card can be tagged with its series and the card can show the series download state.
+     */
+    val seriesDtoId: String? = null,
     val hue: Float,
     val pageCount: Int,
     val progress: Float?,

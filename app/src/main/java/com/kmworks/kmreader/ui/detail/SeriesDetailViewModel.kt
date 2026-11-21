@@ -415,6 +415,8 @@ class SeriesDetailViewModel @Inject constructor(
                 book.pageCount,
                 mediaType = book.mediaType,
                 epubDivinaCompatible = book.epubDivinaCompatible,
+                seriesDtoId = book.seriesDtoId,
+                seriesBookCount = books.size,
             )
             enqueued = true
         }
@@ -472,6 +474,8 @@ class SeriesDetailViewModel @Inject constructor(
                 book.pageCount,
                 mediaType = book.mediaType,
                 epubDivinaCompatible = book.epubDivinaCompatible,
+                seriesDtoId = book.seriesDtoId,
+                seriesBookCount = books.size,
             )
             enqueued = true
         }
@@ -491,6 +495,8 @@ class SeriesDetailViewModel @Inject constructor(
                     book.pageCount,
                     mediaType = book.mediaType,
                     epubDivinaCompatible = book.epubDivinaCompatible,
+                    seriesDtoId = book.seriesDtoId,
+                    seriesBookCount = _uiState.value.books?.size,
                 )
             }
         }

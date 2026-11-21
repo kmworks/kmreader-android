@@ -3,10 +3,17 @@ package com.kmworks.kmreader.ui.offline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.DetailIdRegistry
+import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.LibraryRepository
+import com.kmworks.kmreader.core.data.StableIds
+import com.kmworks.kmreader.core.data.toUiBook
+import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.download.DownloadTaskUi
 import com.kmworks.kmreader.core.download.DownloadedBookUi
+import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,11 +24,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** A detail page the Downloads tab asked to open; the screen consumes it once (mirrors the iOS offline context menus). */
+sealed interface OfflineNavigation {
+    data class OpenBook(val book: Book) : OfflineNavigation
+    data class OpenSeries(val series: Series) : OfflineNavigation
+}
+
 /** Download screen state: WorkManager queue + file-scanned completed list and storage stats. */
 @HiltViewModel
 class DownloadViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val libraryRepository: LibraryRepository,
+    private val detailRepository: DetailRepository,
 ) : ViewModel() {
 
     /** Library scope (aligned with LibraryScopeMenu): null = all libraries; filters the queue and the downloaded list. */
@@ -116,5 +130,68 @@ class DownloadViewModel @Inject constructor(
             downloadRepository.deleteBook(book.bookDtoId)
             refreshLocal()
         }
+    }
+
+    // ---- Downloaded-row detail navigation (mirrors the iOS offline context menus) ----
+
+    private val _navigation = MutableStateFlow<OfflineNavigation?>(null)
+
+    /** Pending detail page to open; consumed by the screen after it is pushed. */
+    val navigation: StateFlow<OfflineNavigation?> = _navigation.asStateFlow()
+
+    fun consumeNavigation() {
+        _navigation.value = null
+    }
+
+    /**
+     * Open a downloaded book's detail. The row only stores the DTO id, so resolve the real [Book] through the
+     * server first (it carries the metadata the detail page shows); when offline or deleted, fall back to a
+     * shell built from the download row so the page still opens.
+     */
+    fun openBookDetails(item: DownloadedBookUi) {
+        viewModelScope.launch {
+            val dto = runCatching { detailRepository.bookDetail(item.bookDtoId) }.getOrNull()
+            _navigation.value = OfflineNavigation.OpenBook(dto?.toUiBook() ?: offlineBook(item, dto?.seriesId))
+        }
+    }
+
+    /** Open the series that owns a downloaded book; ignores the request when the series cannot be resolved. */
+    fun openSeriesDetails(item: DownloadedBookUi) {
+        viewModelScope.launch {
+            val bookDto = runCatching { detailRepository.bookDetail(item.bookDtoId) }.getOrNull()
+            val seriesDtoId = item.seriesDtoId ?: bookDto?.seriesId ?: return@launch
+            val series = runCatching { detailRepository.seriesDetail(seriesDtoId) }.getOrNull()?.toUiSeries()
+                ?: offlineSeries(seriesDtoId)
+            _navigation.value = OfflineNavigation.OpenSeries(series)
+        }
+    }
+
+    private fun offlineBook(item: DownloadedBookUi, seriesDtoId: String?): Book {
+        val stableId = StableIds.book(item.bookDtoId)
+        DetailIdRegistry.registerBook(stableId, item.bookDtoId)
+        return Book(
+            id = stableId,
+            number = "",
+            title = item.title,
+            seriesTitle = "",
+            seriesDtoId = seriesDtoId,
+            hue = 0f,
+            pageCount = item.pageCount,
+            progress = null,
+        )
+    }
+
+    private fun offlineSeries(dtoId: String): Series {
+        val stableId = StableIds.series(dtoId)
+        DetailIdRegistry.registerSeries(stableId, dtoId)
+        return Series(
+            id = stableId,
+            title = "",
+            author = "",
+            hue = 0f,
+            bookCount = 0,
+            unreadCount = 0,
+            progress = null,
+        )
     }
 }

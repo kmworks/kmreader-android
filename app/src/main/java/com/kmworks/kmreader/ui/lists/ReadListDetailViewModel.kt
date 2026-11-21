@@ -322,6 +322,7 @@ class ReadListDetailViewModel @Inject constructor(
                         book.pageCount,
                         mediaType = book.mediaType,
                         epubDivinaCompatible = book.epubDivinaCompatible,
+                        seriesDtoId = book.seriesDtoId,
                     )
                     true
                 }

@@ -12,4 +12,6 @@ data class DownloadedBookUi(
     val kind: DownloadKind = DownloadKind.Pages,
     /** Container format of a single-file download (`pdf`/`epub`/`cbz`); `images` for page downloads. */
     val format: String = DownloadSpec.FORMAT_IMAGES,
+    /** Owning series DTO id (recorded at enqueue time when the call site knew it); lets the row open the series detail. */
+    val seriesDtoId: String? = null,
 )

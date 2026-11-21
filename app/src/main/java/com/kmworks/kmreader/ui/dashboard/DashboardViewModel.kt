@@ -454,6 +454,7 @@ class DashboardViewModel @Inject constructor(
             pageCount = book.pageCount,
             mediaType = book.mediaType,
             epubDivinaCompatible = book.epubDivinaCompatible,
+            seriesDtoId = book.seriesDtoId,
         )
     }
 
@@ -461,7 +462,8 @@ class DashboardViewModel @Inject constructor(
     fun downloadSeries(stableId: Int) {
         val dtoId = detailRepository.seriesDtoId(stableId) ?: return
         viewModelScope.launch {
-            detailRepository.seriesBooks(dtoId).forEach { book ->
+            val books = detailRepository.seriesBooks(dtoId)
+            books.forEach { book ->
                 downloadRepository.enqueueBook(
                     book.id,
                     book.metadata.title.ifBlank { book.name },
@@ -469,6 +471,8 @@ class DashboardViewModel @Inject constructor(
                     mediaType = book.media.mediaType,
                     epubDivinaCompatible = book.media.epubDivinaCompatible,
                     libraryId = book.libraryId,
+                    seriesDtoId = dtoId,
+                    seriesBookCount = books.size,
                 )
             }
         }

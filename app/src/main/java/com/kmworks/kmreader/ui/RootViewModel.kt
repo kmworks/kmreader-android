@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.toUiBook
+import com.kmworks.kmreader.core.download.DownloadRepository
+import com.kmworks.kmreader.core.download.DownloadedIndex
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.core.network.ServerConfig
 import com.kmworks.kmreader.core.network.ServerConfigStore
@@ -42,6 +44,7 @@ class RootViewModel @Inject constructor(
     private val sseContentSync: SseContentSync,
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
+    private val downloadRepository: DownloadRepository,
 ) : ViewModel() {
 
     val config: StateFlow<ServerConfig?> = configStore.config
@@ -59,7 +62,11 @@ class RootViewModel @Inject constructor(
     val sseEnabled: StateFlow<Boolean> = appSettings.sseEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
-    /** PDF engine choice: native PdfRenderer (true) or androidx.pdf (false, default). */
+    /** Downloaded books (and series aggregates) for the card badges; refreshed whenever a download finishes or is removed. */
+    val downloadedIndex: StateFlow<DownloadedIndex> = downloadRepository.downloadedIndex
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadedIndex())
+
+    /** PDF reader choice: dedicated PDF reader (true) or the DIVINA comic reader (false). */
     val useNativePdfReader: StateFlow<Boolean> = appSettings.useNativePdfReader
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
