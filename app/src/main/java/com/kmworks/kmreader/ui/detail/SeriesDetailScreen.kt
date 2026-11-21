@@ -376,18 +376,18 @@ fun SeriesDetailScreen(
                                     }
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.series_edit_title)) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Edit, contentDescription = null)
-                                },
-                                onClick = {
-                                    moreOpen = false
-                                    showEditSheet = true
-                                },
-                            )
-                            // Analyze/refresh/delete: admin-gated (mirrors iOS current.isAdmin)
+                            // Edit/analyze/refresh/delete: admin-gated (mirrors iOS current.isAdmin)
                             if (state.isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.series_edit_title)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Edit, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        showEditSheet = true
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_analyze)) },
                                     leadingIcon = {
@@ -871,7 +871,7 @@ fun SeriesDetailScreen(
                 } else {
                     null
                 },
-                onEdit = { editBook = target },
+                onEdit = if (state.isAdmin) ({ editBook = target }) else null,
                 onAnalyze = if (state.isAdmin) {
                     {
                         viewModel.analyzeBook(target.id) { ok ->

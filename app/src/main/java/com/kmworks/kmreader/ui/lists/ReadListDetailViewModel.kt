@@ -20,6 +20,7 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.ui.detail.BookMetadataDraft
@@ -48,6 +49,8 @@ data class ReadListDetailUiState(
     val hasMore: Boolean = false,
     /** Read list cover (server thumbnail endpoint). */
     val heroThumbnail: String? = null,
+    /** Whether the current account is an admin (gates metadata edit/analyze/refresh and add-to-list actions). */
+    val isAdmin: Boolean = false,
 )
 
 /** Read list detail data: resolves the DTO; books are fetched in order via
@@ -62,6 +65,7 @@ class ReadListDetailViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val contentChangeBus: ContentChangeBus,
     private val contentRowRefresher: ContentRowRefresher,
+    private val serverAdminRepository: ServerAdminRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReadListDetailUiState())
@@ -80,6 +84,9 @@ class ReadListDetailViewModel @Inject constructor(
     private var contentJob: kotlinx.coroutines.Job? = null
 
     init {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAdmin = serverAdminRepository.isAdmin()) }
+        }
         observeContentChanges()
     }
 

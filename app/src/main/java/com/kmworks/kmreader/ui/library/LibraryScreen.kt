@@ -541,7 +541,7 @@ fun LibraryScreen(
                 } else {
                     null
                 },
-                onEdit = { editSeries = series },
+                onEdit = if (state.isAdmin) ({ editSeries = series }) else null,
                 onAnalyze = if (state.isAdmin) ({ viewModel.analyzeSeries(series.id) {} }) else null,
                 onRefresh = if (state.isAdmin) ({ viewModel.refreshSeriesMetadata(series.id) {} }) else null,
                 onKomfIdentify = if (state.komfAvailable) {
@@ -589,7 +589,7 @@ fun LibraryScreen(
                 } else {
                     null
                 },
-                onEdit = { editBook = book },
+                onEdit = if (state.isAdmin) ({ editBook = book }) else null,
                 onAnalyze = if (state.isAdmin) ({ viewModel.analyzeBook(book.id) {} }) else null,
                 onRefresh = if (state.isAdmin) ({ viewModel.refreshBookMetadata(book.id) {} }) else null,
                 onShare = {

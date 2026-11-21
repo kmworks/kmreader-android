@@ -463,21 +463,33 @@ fun ReadListDetailScreen(
                         demoMarks = demoMarks + (target.id to false)
                     }
                 },
-                onAddToReadList = {
-                    addTarget = target
-                    viewModel.ensureReadListsLoaded()
-                    addToReadListOpen = true
-                },
-                onEdit = { editBook = target },
-                onAnalyze = {
-                    viewModel.analyzeBook(target.id) { ok ->
-                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_analyze_book)) }
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        addTarget = target
+                        viewModel.ensureReadListsLoaded()
+                        addToReadListOpen = true
                     }
+                } else {
+                    null
                 },
-                onRefresh = {
-                    viewModel.refreshBookMetadata(target.id) { ok ->
-                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_refresh_metadata)) }
+                onEdit = if (state.isAdmin) ({ editBook = target }) else null,
+                onAnalyze = if (state.isAdmin) {
+                    {
+                        viewModel.analyzeBook(target.id) { ok ->
+                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_analyze_book)) }
+                        }
                     }
+                } else {
+                    null
+                },
+                onRefresh = if (state.isAdmin) {
+                    {
+                        viewModel.refreshBookMetadata(target.id) { ok ->
+                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_refresh_metadata)) }
+                        }
+                    }
+                } else {
+                    null
                 },
                 onShare = {
                     val url = viewModel.bookWebUrl(target.id)
