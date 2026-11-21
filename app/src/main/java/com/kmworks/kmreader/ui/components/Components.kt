@@ -375,7 +375,7 @@ fun SeriesGridCard(
                     )
                     if (downloadedMark != DownloadMark.None) {
                         Spacer(Modifier.width(4.dp))
-                        DownloadedMarkIcon(downloadedMark)
+                        DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                     }
                 }
             } else {
@@ -390,7 +390,7 @@ fun SeriesGridCard(
                     )
                     if (downloadedMark != DownloadMark.None) {
                         Spacer(Modifier.width(4.dp))
-                        DownloadedMarkIcon(downloadedMark)
+                        DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                     }
                 }
             }
@@ -506,7 +506,7 @@ fun BookGridCard(
                 )
                 if (downloadedMark != DownloadMark.None) {
                     Spacer(Modifier.width(4.dp))
-                    DownloadedMarkIcon(downloadedMark)
+                    DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                 }
             }
         }
@@ -696,8 +696,8 @@ private fun CardTextOverlay(
                         Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(
                             mark = downloadedMark,
+                            textSize = 11.sp,
                             tint = Color.White.copy(alpha = 0.85f),
-                            size = 10.dp,
                         )
                     }
                 }
@@ -727,8 +727,8 @@ private fun CardTextOverlay(
                         Spacer(Modifier.width(4.dp))
                         DownloadedMarkIcon(
                             mark = downloadedMark,
+                            textSize = 11.sp,
                             tint = statusColor.copy(alpha = 0.85f),
-                            size = 10.dp,
                         )
                     }
                 }
@@ -1019,7 +1019,7 @@ fun BookHorizontalCard(
                 )
                 if (downloadedMark != DownloadMark.None) {
                     Spacer(Modifier.width(4.dp))
-                    DownloadedMarkIcon(downloadedMark, tint = palette.meta, size = 11.dp)
+                    DownloadedMarkIcon(downloadedMark, textSize = 10.sp, tint = palette.meta)
                 }
             }
         },
@@ -1073,7 +1073,7 @@ fun BookListRow(
                 )
                 if (downloadedMark != DownloadMark.None) {
                     Spacer(Modifier.width(4.dp))
-                    DownloadedMarkIcon(downloadedMark)
+                    DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                 }
             }
             if (display.showProgressBar) {
@@ -1157,7 +1157,7 @@ fun SeriesListRow(
                     )
                     if (downloadedMark != DownloadMark.None) {
                         Spacer(Modifier.width(4.dp))
-                        DownloadedMarkIcon(downloadedMark)
+                        DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                     }
                 }
             } else {
@@ -1172,7 +1172,7 @@ fun SeriesListRow(
                     )
                     if (downloadedMark != DownloadMark.None) {
                         Spacer(Modifier.width(4.dp))
-                        DownloadedMarkIcon(downloadedMark)
+                        DownloadedMarkIcon(downloadedMark, textSize = MaterialTheme.typography.bodySmall.fontSize)
                     }
                 }
             }

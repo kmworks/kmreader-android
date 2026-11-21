@@ -10,9 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.download.DownloadMark
@@ -40,19 +40,24 @@ internal fun seriesDownloadedMark(series: Series): DownloadMark =
 /**
  * Small downloaded-state glyph drawn at the trailing edge of a card's detail line, matching the
  * placement of iOS `DownloadStatusIcon` in GridCardView.
+ *
+ * iOS lets the glyph inherit the detail label's font, so the icon is always exactly as tall as the
+ * text beside it. Passing [textSize] here keeps that coupling: the badge cannot drift larger than
+ * the line, and it follows the user's font scale instead of being a fixed dp that eats card width.
  */
 @Composable
 internal fun DownloadedMarkIcon(
     mark: DownloadMark,
+    textSize: TextUnit,
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    size: Dp = 13.dp,
 ) {
     val (icon, description) = when (mark) {
         DownloadMark.Full -> Icons.Filled.DownloadDone to stringResource(R.string.download_badge_downloaded)
         DownloadMark.Partial -> Icons.Filled.Download to stringResource(R.string.download_badge_partial)
         DownloadMark.None -> return
     }
+    val size = with(LocalDensity.current) { textSize.toDp() }
     Icon(
         imageVector = icon,
         contentDescription = description,
