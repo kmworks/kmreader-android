@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -849,6 +850,17 @@ private fun LayerSlot(
                     // instead of a recomposition of everything below it.
                     val recede = above?.let { 1f - it.value } ?: 0f
                     translationX = size.width * (motion.value - RecedeDrift * recede)
+                }
+                // A page is opaque, and so must its touch area be: when its content draws no gesture
+                // handler of its own (a reader still loading, an error state) hit testing would skip
+                // this layer and fall through to the page underneath, where the tap lands on that
+                // page's cards. This sink only claims the hit path -- it never consumes, so the
+                // page's own gestures are unaffected. It rides on the translated layer so it covers
+                // exactly the part of the page that is on screen.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) awaitPointerEvent()
+                    }
                 }
                 // The page casts a shadow over the one it uncovers. It is strongest mid-travel and gone at
                 // both ends, so no dark line is left against the screen edge while a page sits still.
