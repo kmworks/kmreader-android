@@ -44,9 +44,15 @@ data class ServerInstance(
 
     companion object {
         /** Build an instance from the active configuration after a successful login (upsert dedup key = normalizedBaseUrl + username). */
-        fun fromConfig(config: ServerConfig, existingId: String? = null, createdAt: Long? = null): ServerInstance =
+        fun fromConfig(
+            config: ServerConfig,
+            existingId: String? = null,
+            createdAt: Long? = null,
+            name: String = "",
+        ): ServerInstance =
             ServerInstance(
                 id = existingId ?: UUID.randomUUID().toString(),
+                name = name,
                 baseUrl = config.normalizedBaseUrl,
                 username = config.username,
                 password = config.password,

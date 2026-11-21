@@ -107,21 +107,26 @@ class ServerConfigStore(private val context: Context) {
     /**
      * Persist a successful login (mirrors iOS upsertInstance): deduped by normalizedBaseUrl + username;
      * repeated logins only refresh credentials and lastUsedAt, avoiding orphan instances.
+     * [displayName] is the custom name entered while adding the server; when blank, an existing
+     * instance keeps its name and a new instance keeps the default (host fallback at display time).
      */
-    suspend fun upsertInstance(config: ServerConfig) {
+    suspend fun upsertInstance(config: ServerConfig, displayName: String? = null) {
+        val trimmedName = displayName?.trim().orEmpty()
         context.serverConfigStore.edit { prefs ->
             val list = decodeInstances(prefs[Keys.InstancesJson]).toMutableList()
             val existingIndex = list.indexOfFirst {
                 it.normalizedBaseUrl == config.normalizedBaseUrl && it.username == config.username
             }
             val instance = if (existingIndex >= 0) {
+                val existing = list[existingIndex]
                 ServerInstance.fromConfig(
                     config,
-                    existingId = list[existingIndex].id,
-                    createdAt = list[existingIndex].createdAt,
+                    existingId = existing.id,
+                    createdAt = existing.createdAt,
+                    name = trimmedName.ifBlank { existing.name },
                 )
             } else {
-                ServerInstance.fromConfig(config)
+                ServerInstance.fromConfig(config, name = trimmedName)
             }
             if (existingIndex >= 0) list[existingIndex] = instance else list.add(instance)
             prefs[Keys.InstancesJson] = json.encodeToString(list)
