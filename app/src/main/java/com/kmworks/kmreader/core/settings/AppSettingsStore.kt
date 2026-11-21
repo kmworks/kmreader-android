@@ -249,19 +249,11 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_CARD_KIND_MENU] = enabled }
     }
 
-    /** Whether the "Read Lists in Progress" section is shown (default on). */
-    val dashboardContinuationEnabled: Flow<Boolean> = store.data.map { prefs ->
-        prefs[Keys.DASHBOARD_CONTINUATION] ?: true
-    }
-
-    suspend fun setDashboardContinuationEnabled(enabled: Boolean) {
-        store.edit { prefs -> prefs[Keys.DASHBOARD_CONTINUATION] = enabled }
-    }
-
     /**
      * Opt-in read-list continuation (mirrors the original readListContinuationEnabled, default off):
-     * while off nothing is recorded, synced, resolved, or shown; turning it on also adds the
-     * dashboard's "Read Lists in Progress" section, because that section has nothing to show otherwise.
+     * while off nothing is recorded, synced, resolved, or shown. This switch alone decides whether the
+     * dashboard's "Read Lists in Progress" section appears, so the section stays hidden until the user asks
+     * for read-list continuation — as on iOS.
      */
     val readListContinuationEnabled: Flow<Boolean> = booleanPref(Keys.READ_LIST_CONTINUATION, false)
 
@@ -547,7 +539,6 @@ class AppSettingsStore @Inject constructor(
         val DASHBOARD_SECTION_ORDER = stringPreferencesKey("dashboard_section_order")
         val DASHBOARD_HIDDEN_SECTIONS = stringPreferencesKey("dashboard_hidden_sections")
         val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")
-        val DASHBOARD_CONTINUATION = booleanPreferencesKey("dashboard_continuation_enabled")
         val READ_LIST_CONTINUATION = booleanPreferencesKey("read_list_continuation_enabled")
         val DASHBOARD_KIND_OVERRIDES = stringPreferencesKey("dashboard_kind_overrides")
         val BROWSE_LAYOUT_OVERRIDES = stringPreferencesKey("browse_layout_overrides")

@@ -23,7 +23,6 @@ data class DashboardSettingsUiState(
     val order: List<String> = emptyList(),
     val hidden: Set<String> = emptySet(),
     val cardKindMenu: Boolean = true,
-    val continuation: Boolean = true,
     val overrides: Map<String, DashboardCardKind> = emptyMap(),
 ) {
     /** Visible sections in persisted order; sections never customized are appended in default order. */
@@ -50,7 +49,8 @@ class SettingsDashboardViewModel @Inject constructor(
     /**
      * Read-list continuation (mirrors the original readListContinuationEnabled): while on, the books of an
      * ordered read list the user is reading continue in list order wherever they are opened, and the read
-     * lists section has content. Off means nothing is recorded, synced, resolved or shown.
+     * lists section has content. Off means nothing is recorded, synced, resolved or shown — and the section
+     * itself is hidden (the dashboard keys its visibility on this switch, as on iOS).
      */
     val readListContinuation: StateFlow<Boolean> = appSettings.readListContinuationEnabled.stateIn(
         scope = viewModelScope,
@@ -61,14 +61,12 @@ class SettingsDashboardViewModel @Inject constructor(
     val state: StateFlow<DashboardSettingsUiState> = combine(        appSettings.dashboardSectionOrder,
         appSettings.dashboardHiddenSections,
         appSettings.dashboardCardKindMenu,
-        appSettings.dashboardContinuationEnabled,
         appSettings.dashboardKindOverrides,
-    ) { order, hidden, kindMenu, continuation, overrides ->
+    ) { order, hidden, kindMenu, overrides ->
         DashboardSettingsUiState(
             order = order,
             hidden = hidden,
             cardKindMenu = kindMenu,
-            continuation = continuation,
             overrides = overrides.mapNotNull { (id, value) ->
                 DashboardCardKind.entries.firstOrNull { it.name == value }?.let { id to it }
             }.toMap(),
@@ -105,14 +103,11 @@ class SettingsDashboardViewModel @Inject constructor(
     }
 
     /**
-     * Mirrors the original toggle: enabling continuation also inserts the read lists section into the
-     * dashboard, disabling removes it.
+     * Mirrors the original toggle: this one switch turns read-list continuation on/off everywhere, including
+     * the dashboard's read lists section (on iOS the section is not a separate setting).
      */
     fun setContinuation(enabled: Boolean) {
-        viewModelScope.launch {
-            appSettings.setReadListContinuationEnabled(enabled)
-            appSettings.setDashboardContinuationEnabled(enabled)
-        }
+        viewModelScope.launch { appSettings.setReadListContinuationEnabled(enabled) }
     }
 
     fun setSectionKind(sectionId: String, kind: DashboardCardKind?) {
@@ -130,7 +125,6 @@ class SettingsDashboardViewModel @Inject constructor(
             appSettings.setDashboardHiddenSections(emptySet())
             appSettings.setDashboardCardKindMenu(true)
             appSettings.setReadListContinuationEnabled(false)
-            appSettings.setDashboardContinuationEnabled(true)
         }
     }
 }
