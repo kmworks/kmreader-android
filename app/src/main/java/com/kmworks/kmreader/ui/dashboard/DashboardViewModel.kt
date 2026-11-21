@@ -446,9 +446,15 @@ class DashboardViewModel @Inject constructor(
     }
 
     /** Download a whole book (silently ignored when there is no DTO mapping). */
-    fun downloadBook(stableId: Int, title: String, pageCount: Int) {
-        val dtoId = detailRepository.bookDtoId(stableId) ?: return
-        downloadRepository.enqueueBook(dtoId, title, pageCount)
+    fun downloadBook(book: Book) {
+        val dtoId = detailRepository.bookDtoId(book.id) ?: return
+        downloadRepository.enqueueBook(
+            bookDtoId = dtoId,
+            title = book.title,
+            pageCount = book.pageCount,
+            mediaType = book.mediaType,
+            epubDivinaCompatible = book.epubDivinaCompatible,
+        )
     }
 
     /** Download all books of the series (enqueued one by one). */
@@ -460,6 +466,8 @@ class DashboardViewModel @Inject constructor(
                     book.id,
                     book.metadata.title.ifBlank { book.name },
                     book.media.pagesCount,
+                    mediaType = book.media.mediaType,
+                    epubDivinaCompatible = book.media.epubDivinaCompatible,
                     libraryId = book.libraryId,
                 )
             }

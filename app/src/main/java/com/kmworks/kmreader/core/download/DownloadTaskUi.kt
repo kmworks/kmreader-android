@@ -10,6 +10,8 @@ data class DownloadTaskUi(
     val pageDone: Int,
     val pageTotal: Int,
     val status: Status,
+    /** What the task stores: page downloads count pages, single-file kinds count one file. */
+    val kind: DownloadKind = DownloadKind.Pages,
 ) {
     val progress: Float get() = if (pageTotal > 0) pageDone / pageTotal.toFloat() else 0f
 

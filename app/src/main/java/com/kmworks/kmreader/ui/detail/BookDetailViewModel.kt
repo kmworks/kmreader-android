@@ -356,7 +356,13 @@ class BookDetailViewModel @Inject constructor(
         if (sessionManager.clients.value == null) return false
         val dtoId = loadedId?.let { detailRepository.bookDtoId(it) } ?: return false
         val book = _uiState.value.book ?: return false
-        downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+        downloadRepository.enqueueBook(
+            bookDtoId = dtoId,
+            title = book.title,
+            pageCount = book.pageCount,
+            mediaType = book.mediaType,
+            epubDivinaCompatible = book.epubDivinaCompatible,
+        )
         return true
     }
 

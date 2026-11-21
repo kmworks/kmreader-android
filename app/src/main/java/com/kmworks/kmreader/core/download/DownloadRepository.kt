@@ -8,6 +8,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.kmworks.kmreader.core.data.CoverUrlRegistry
+import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -85,11 +87,49 @@ class DownloadRepository @Inject constructor(
     // Local actions (pause/resume/enqueue) drive a re-composition of the downloads flow via tick
     private val tick = MutableStateFlow(0)
 
-    /** Enqueue a whole-book download; a same-named task is REPLACE-restarted (retry semantics). libraryId filters queue tasks by library on the offline page; omitted keeps the old value. */
-    fun enqueueBook(bookDtoId: String, title: String, pageCount: Int, libraryId: String? = null) {
+    /**
+     * Enqueue a whole-book download; a same-named task is REPLACE-restarted (retry semantics).
+     * The media type decides what is downloaded (page images vs the single book file), see [DownloadSpec].
+     * libraryId filters queue tasks by library on the offline page; omitted keeps the old value.
+     */
+    fun enqueueBook(
+        bookDtoId: String,
+        title: String,
+        pageCount: Int,
+        mediaType: String = "",
+        epubDivinaCompatible: Boolean = false,
+        libraryId: String? = null,
+    ) {
+        enqueue(bookDtoId, title, pageCount, DownloadSpec.forMedia(mediaType, epubDivinaCompatible), libraryId)
+    }
+
+    /**
+     * Re-enqueue a paused/failed task using the kind and format recorded at enqueue time, so a retry
+     * never needs the book DTO (and legacy page downloads keep their layout).
+     */
+    fun retryBook(bookDtoId: String) {
+        val title = enqueueMeta.getString(bookDtoId, null) ?: return
+        val pageCount = enqueueMeta.getInt("$bookDtoId#pages", 0)
+        if (pageCount <= 0) return
+        val kind = DownloadKind.fromMeta(enqueueMeta.getString("$bookDtoId#kind", null))
+        val format = enqueueMeta.getString("$bookDtoId#format", null)
+            .orEmpty()
+            .ifBlank { if (kind == DownloadKind.Pages) DownloadSpec.FORMAT_IMAGES else "bin" }
+        enqueue(bookDtoId, title, pageCount, DownloadSpec(kind, format), libraryId = null)
+    }
+
+    private fun enqueue(
+        bookDtoId: String,
+        title: String,
+        pageCount: Int,
+        spec: DownloadSpec,
+        libraryId: String?,
+    ) {
         enqueueMeta.edit()
             .putString(bookDtoId, title)
             .putInt("$bookDtoId#pages", pageCount)
+            .putString("$bookDtoId#kind", spec.kind.metaValue)
+            .putString("$bookDtoId#format", spec.format)
             .apply {
                 if (libraryId != null) putString("$bookDtoId#library", libraryId)
             }
@@ -105,13 +145,15 @@ class DownloadRepository @Inject constructor(
                 DownloadWorker.KEY_TITLE to title,
                 DownloadWorker.KEY_PAGE_COUNT to pageCount,
                 DownloadWorker.KEY_CONCURRENCY to pageConcurrency,
+                DownloadWorker.KEY_KIND to spec.kind.metaValue,
+                DownloadWorker.KEY_FORMAT to spec.format,
             ))
             .setConstraints(constraints)
             .addTag(DownloadWorker.TAG)
             .addTag(bookDtoId)
             .build()
         workManager.enqueueUniqueWork(workName(bookDtoId), androidx.work.ExistingWorkPolicy.REPLACE, request)
-        AppLog.i("Download", "enqueue: $title ($pageCount pages)")
+        AppLog.i("Download", "enqueue: $title (${spec.kind.metaValue}, $pageCount pages)")
         tick.value += 1
     }
 
@@ -123,14 +165,12 @@ class DownloadRepository @Inject constructor(
         tick.value += 1
     }
 
-    /** Resume download: clear the paused flag and re-enqueue (existing pages are skipped — natural resume). */
+    /** Resume download: clear the paused flag and re-enqueue (existing content is skipped — natural resume). */
     suspend fun resumeBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         val title = enqueueMeta.getString(bookDtoId, null) ?: return@withContext
-        val pageCount = enqueueMeta.getInt("$bookDtoId#pages", 0)
-        if (pageCount <= 0) return@withContext
         enqueueMeta.edit().putBoolean("$bookDtoId#paused", false).apply()
         AppLog.i("Download", "resume: $title")
-        enqueueBook(bookDtoId, title, pageCount)
+        retryBook(bookDtoId)
     }
 
     /** Downloading queue (in progress + paused + failed). */
@@ -139,17 +179,18 @@ class DownloadRepository @Inject constructor(
             .combine(tick) { infos, _ -> infos }
             .map { infos ->
                 val rows = infos.mapNotNull { info ->
-                    val bookId = info.tags.firstOrNull { it != DownloadWorker.TAG }
-                        ?: return@mapNotNull null
+                    val bookId = bookIdFromTags(info.tags) ?: return@mapNotNull null
                     val title = enqueueMeta.getString(bookId, null) ?: bookId
                     val total = enqueueMeta.getInt("$bookId#pages", 0)
                     val paused = enqueueMeta.getBoolean("$bookId#paused", false)
+                    val kind = DownloadKind.fromMeta(enqueueMeta.getString("$bookId#kind", null))
                     val pageDone = info.progress.getInt(DownloadWorker.KEY_PAGE_DONE, 0)
                     val pageTotal = info.progress.getInt(DownloadWorker.KEY_PAGE_TOTAL, total)
                     when {
                         paused && info.state != WorkInfo.State.RUNNING -> DownloadTaskUi(
                             bookDtoId = bookId,
                             title = title,
+                            kind = kind,
                             pageDone = pageDone,
                             pageTotal = pageTotal,
                             status = DownloadTaskUi.Status.Paused,
@@ -159,6 +200,7 @@ class DownloadRepository @Inject constructor(
                             info.state == WorkInfo.State.BLOCKED -> DownloadTaskUi(
                             bookDtoId = bookId,
                             title = title,
+                            kind = kind,
                             pageDone = pageDone,
                             pageTotal = pageTotal,
                             status = DownloadTaskUi.Status.Downloading,
@@ -166,6 +208,7 @@ class DownloadRepository @Inject constructor(
                         info.state == WorkInfo.State.FAILED -> DownloadTaskUi(
                             bookDtoId = bookId,
                             title = title,
+                            kind = kind,
                             pageDone = pageDone,
                             pageTotal = pageTotal,
                             status = DownloadTaskUi.Status.Failed,
@@ -181,17 +224,17 @@ class DownloadRepository @Inject constructor(
                     .filter { it !in present }
                     .mapNotNull { bookId ->
                         val dir = File(downloadsDir, bookId)
-                        val pageTotal = enqueueMeta.getInt("$bookId#pages", 0)
-                        if (!dir.isDirectory || pageTotal <= 0) return@mapNotNull null
-                        val pageDone = dir.listFiles()
-                            ?.count { it.name != DownloadWorker.META_FILE } ?: 0
+                        if (!dir.isDirectory) return@mapNotNull null
+                        val meta = DownloadMeta.read(dir) ?: return@mapNotNull null
+                        if (meta.kind == DownloadKind.Pages && meta.pageCount <= 0) return@mapNotNull null
                         // A fully downloaded one must not appear in the queue (the completed list takes over)
-                        if (pageDone >= pageTotal) return@mapNotNull null
+                        if (meta.isComplete(dir)) return@mapNotNull null
                         DownloadTaskUi(
                             bookDtoId = bookId,
                             title = enqueueMeta.getString(bookId, null) ?: bookId,
-                            pageDone = pageDone,
-                            pageTotal = pageTotal,
+                            kind = meta.kind,
+                            pageDone = if (meta.kind == DownloadKind.Pages) meta.pageFiles(dir).size else 0,
+                            pageTotal = if (meta.kind == DownloadKind.Pages) meta.pageCount else 1,
                             status = DownloadTaskUi.Status.Paused,
                         )
                     }
@@ -199,49 +242,37 @@ class DownloadRepository @Inject constructor(
             }
             .flowOn(Dispatchers.IO)
 
-    /** Downloaded books (file scan; requires meta.txt and all page files). */
+    /** Downloaded books (file scan; the meta kind decides completeness: all pages, or the single file). */
     suspend fun downloadedBooks(): List<DownloadedBookUi> = withContext(Dispatchers.IO) {
         downloadsDir.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
-            val meta = File(dir, DownloadWorker.META_FILE).takeIf { it.isFile } ?: return@mapNotNull null
-            val props = meta.readLines().mapNotNull {
-                val i = it.indexOf('=')
-                if (i > 0) it.substring(0, i) to it.substring(i + 1) else null
-            }.toMap()
-            val pageCount = props["pageCount"]?.toIntOrNull() ?: return@mapNotNull null
-            val pages = dir.listFiles()?.count { it.name != DownloadWorker.META_FILE } ?: 0
-            if (pages < pageCount) return@mapNotNull null
+            val meta = DownloadMeta.read(dir) ?: return@mapNotNull null
+            if (!meta.isComplete(dir)) return@mapNotNull null
+            // The offline list is built from the file scan alone: no DTO has been mapped on this launch, so the
+            // cover registry has no book → dto id mapping yet. Register it here or every offline cover is a miss.
+            CoverUrlRegistry.registerBook(StableIds.book(dir.name), dir.name)
             DownloadedBookUi(
                 bookDtoId = dir.name,
-                title = props["title"] ?: dir.name,
-                pageCount = pageCount,
+                title = meta.title ?: dir.name,
+                pageCount = meta.pageCount,
                 sizeBytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
                 libraryId = enqueueMeta.getString("${dir.name}#library", null),
+                kind = meta.kind,
+                format = meta.fileFormat,
             )
         }?.sortedBy { it.title } ?: emptyList()
     }
 
-    /** Integrity check: the directory exists and every page is present. */
+    /** Integrity check: the directory exists and holds everything the meta kind requires. */
     suspend fun isBookDownloaded(bookDtoId: String): Boolean = withContext(Dispatchers.IO) {
         val dir = File(downloadsDir, bookDtoId)
-        val meta = File(dir, DownloadWorker.META_FILE)
-        if (!meta.isFile) return@withContext false
-        val pageCount = meta.readLines()
-            .firstOrNull { it.startsWith("pageCount=") }
-            ?.substringAfter('=')?.toIntOrNull() ?: return@withContext false
-        val pages = dir.listFiles()?.count { it.name != DownloadWorker.META_FILE } ?: 0
-        pages >= pageCount
+        DownloadMeta.read(dir)?.isComplete(dir) == true
     }
 
-    /** Cancel the task and delete the downloaded page files. */
+    /** Cancel the task and delete the downloaded content. */
     suspend fun cancelBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
         AppLog.i("Download", "cancel: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
-        enqueueMeta.edit()
-            .remove(bookDtoId)
-            .remove("$bookDtoId#pages")
-            .remove("$bookDtoId#paused")
-            .remove("$bookDtoId#library")
-            .apply()
+        clearEnqueueMeta(bookDtoId)
         File(downloadsDir, bookDtoId).deleteRecursively()
         tick.value += 1
     }
@@ -250,14 +281,20 @@ class DownloadRepository @Inject constructor(
     suspend fun deleteBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))
         AppLog.i("Download", "delete: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
+        clearEnqueueMeta(bookDtoId)
+        File(downloadsDir, bookDtoId).deleteRecursively()
+        tick.value += 1
+    }
+
+    private fun clearEnqueueMeta(bookDtoId: String) {
         enqueueMeta.edit()
             .remove(bookDtoId)
             .remove("$bookDtoId#pages")
             .remove("$bookDtoId#paused")
             .remove("$bookDtoId#library")
+            .remove("$bookDtoId#kind")
+            .remove("$bookDtoId#format")
             .apply()
-        File(downloadsDir, bookDtoId).deleteRecursively()
-        tick.value += 1
     }
 
     /** Total bytes used by the download directory. */
@@ -280,5 +317,19 @@ class DownloadRepository @Inject constructor(
     companion object {
         private const val KEY_WIFI_ONLY = "wifiOnly"
         private const val KEY_AUTO_UNREAD = "autoDownloadUnread"
+
+        /**
+         * WorkManager tags every request with the worker class FQCN in addition to the tags we add, so the tag
+         * set is {FQCN, [DownloadWorker.TAG], bookDtoId}. Only the book dto id identifies the book: both
+         * synthetic tags are excluded, and anything unexpected is rejected rather than surfaced as a queue row
+         * titled by a class name.
+         */
+        internal fun bookIdFromTags(tags: Collection<String>): String? =
+            tags.filterNot(::isSyntheticTag).singleOrNull()?.takeIf { it.isNotBlank() }
+
+        private fun isSyntheticTag(tag: String): Boolean =
+            tag == DownloadWorker.TAG ||
+                tag == DownloadWorker::class.java.name ||
+                tag.endsWith(".ConstraintTrackingWorker")
     }
 }

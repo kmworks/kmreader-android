@@ -481,7 +481,7 @@ fun ReaderScreen(
                 val profile = settings.preloadProfile
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { number ->
-                        viewModel.pageUrl(number)?.let { url ->
+                        viewModel.pageImageUrl(number)?.let { url ->
                             imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
                         }
                     }
@@ -520,7 +520,7 @@ fun ReaderScreen(
                 val profile = settings.preloadProfile
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { n ->
-                        viewModel.pageUrl(n)?.let { url ->
+                        viewModel.pageImageUrl(n)?.let { url ->
                             imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
                         }
                     }
@@ -879,7 +879,7 @@ fun ReaderScreen(
                         rotationDegrees = rotationDegrees,
                         state = webtoonState,
                         modifier = Modifier.fillMaxSize().then(gestureModifier).nestedScroll(continueConnection),
-                        pageUrl = viewModel::pageUrl,
+                        pageUrl = viewModel::pageImageUrl,
                         endPage = endPage,
                         previousEndPage = previousEndPage,
                     )
@@ -907,7 +907,7 @@ fun ReaderScreen(
                                 settings = settings,
                                 rotationDegrees = rotationDegrees,
                                 contentColor = pageContentColor,
-                                pageUrl = viewModel::pageUrl,
+                                pageUrl = viewModel::pageImageUrl,
                                 firstHalfOnLeft = firstHalfOnLeft,
                             )
                         }
@@ -954,7 +954,7 @@ fun ReaderScreen(
                                     settings = settings,
                                     rotationDegrees = rotationDegrees,
                                     contentColor = pageContentColor,
-                                    pageUrl = viewModel::pageUrl,
+                                    pageUrl = viewModel::pageImageUrl,
                                     firstHalfOnLeft = firstHalfOnLeft,
                                 )
                             }
@@ -1101,7 +1101,7 @@ fun ReaderScreen(
                         onRotationChange = { rotationDegrees = it },
                         onOpenSettings = { showSettings = true },
                         onSharePage = {
-                            viewModel.pageUrl(page)?.let { url -> sharePageUrl(context, url) }
+                            viewModel.pageShareUrl(page)?.let { url -> sharePageUrl(context, url) }
                         },
                         onOpenPageJump = { showPageJump = true },
                         onOpenPreviousBook = previousBook?.let { prev -> { openPrevious(prev) } },
@@ -1188,7 +1188,7 @@ fun ReaderScreen(
                 showPageJump = false
             },
             onShare = { p ->
-                viewModel.pageUrl(p)?.let { url -> sharePageUrl(context, url) }
+                viewModel.pageShareUrl(p)?.let { url -> sharePageUrl(context, url) }
             },
             onDismiss = { showPageJump = false },
         )
@@ -1207,7 +1207,7 @@ fun ReaderScreen(
         val canSolo = allowDualPairs && !current.isLandscape && !isSolo
         ReaderPageMenuSheet(
             page = current,
-            pageUrl = viewModel.pageUrl(current.number),
+            pageUrl = viewModel.pageShareUrl(current.number),
             soloAction = if (isSolo || canSolo) {
                 SoloMenuAction(
                     isSolo = isSolo,

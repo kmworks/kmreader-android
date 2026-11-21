@@ -316,7 +316,13 @@ class ReadListDetailViewModel @Inject constructor(
                 if (dtoId == null) {
                     false
                 } else {
-                    downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+                    downloadRepository.enqueueBook(
+                        dtoId,
+                        book.title,
+                        book.pageCount,
+                        mediaType = book.mediaType,
+                        epubDivinaCompatible = book.epubDivinaCompatible,
+                    )
                     true
                 }
             }

@@ -288,7 +288,13 @@ class CollectionDetailViewModel @Inject constructor(
             seriesDtoIds.forEach { seriesDtoId ->
                 try {
                     detailRepository.seriesBooks(seriesDtoId).forEach { book ->
-                        downloadRepository.enqueueBook(book.id, book.name, book.media.pagesCount)
+                        downloadRepository.enqueueBook(
+                            book.id,
+                            book.name,
+                            book.media.pagesCount,
+                            mediaType = book.media.mediaType,
+                            epubDivinaCompatible = book.media.epubDivinaCompatible,
+                        )
                         enqueued = true
                     }
                 } catch (_: Exception) {

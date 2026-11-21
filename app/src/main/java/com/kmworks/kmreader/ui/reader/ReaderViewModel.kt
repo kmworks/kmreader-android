@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.reader
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.ActionRepository
@@ -8,6 +9,8 @@ import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.data.ReaderReadListContext
 import com.kmworks.kmreader.core.data.ReaderRepository
+import com.kmworks.kmreader.core.download.DownloadKind
+import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.reading.ReadListReadingService
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -15,11 +18,14 @@ import com.kmworks.kmreader.core.settings.DivinaSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.min
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -62,6 +68,7 @@ data class ReaderUiState(
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     private val readerRepository: ReaderRepository,
+    private val offlineLibrary: OfflineLibrary,
     private val actionRepository: ActionRepository,
     private val detailRepository: DetailRepository,
     private val settingsStore: DivinaSettingsStore,
@@ -80,6 +87,23 @@ class ReaderViewModel @Inject constructor(
     val soloPages: StateFlow<Set<Int>> = _soloPages.asStateFlow()
 
     private var loadedBookId: Int? = null
+
+    /** Downloaded page images ([DownloadKind.Pages]), keyed by page number. */
+    private val localPageFiles = ConcurrentHashMap<Int, File>()
+
+    /** Archive pages extracted on demand ([DownloadKind.Archive]), keyed by page number. */
+    private val archivePages = ConcurrentHashMap<Int, File>()
+
+    /** Image entry names of the downloaded archive, keyed by one-based page number. */
+    private var localArchiveEntries: Map<Int, String> = emptyMap()
+
+    private val extractingPages = ConcurrentHashMap.newKeySet<Int>()
+
+    /**
+     * Bumped whenever a page becomes readable from disk. Compose reads it in [pageImageUrl], so the
+     * image that was waiting on a background archive extraction recomposes with its local file.
+     */
+    private val localPageVersion = mutableIntStateOf(0)
 
     /** The read list this session continues in, resolved once per session so continuing keeps the order. */
     private var sessionReadListContext: ReaderReadListContext? = null
@@ -111,6 +135,11 @@ class ReaderViewModel @Inject constructor(
     fun load(book: Book, readListStableId: Int? = null, startAtEnd: Boolean = false) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
+        // Local page indexes are per book; a sibling opened through the reader must not reuse them.
+        localPageFiles.clear()
+        archivePages.clear()
+        localArchiveEntries = emptyMap()
+        extractingPages.clear()
         // Reset progress-gate state on book change (mirrors the original rebuilding the gate on every loadBook)
         sessionStartPage = null
         hasRecordedProgress = false
@@ -138,9 +167,38 @@ class ReaderViewModel @Inject constructor(
             val seriesDirection = series?.metadata?.readingDirection
             val unreadCount = series?.booksUnreadCount
 
-            val dtos = readerRepository.pages(dtoId)
+            // Downloaded content first: the page list may be unreachable offline, in which case the
+            // local files (downloaded pages or the entries of a downloaded archive) stand in for it.
+            val downloadKind = runCatching { offlineLibrary.kind(dtoId) }.getOrNull()
+            runCatching { offlineLibrary.pageFiles(dtoId) }.getOrDefault(emptyMap())
+                .let(localPageFiles::putAll)
+            localArchiveEntries = if (downloadKind == DownloadKind.Archive) {
+                runCatching { offlineLibrary.archiveEntries(dtoId) }.getOrDefault(emptyList())
+                    .mapIndexed { index, entry -> (index + 1) to entry }
+                    .toMap()
+            } else {
+                emptyMap()
+            }
+            val dtos = runCatching { readerRepository.pages(dtoId) }.getOrDefault(emptyList())
+            val pages = when {
+                dtos.isNotEmpty() -> dtos.map { dto ->
+                    ReaderPage(
+                        id = dto.number,
+                        number = dto.number,
+                        // PageDto width/height are nullable: unknown treated as portrait (does not affect pairing logic)
+                        width = dto.width ?: 0,
+                        height = dto.height ?: 0,
+                    )
+                }
+                downloadKind == DownloadKind.Archive || localPageFiles.isNotEmpty() ->
+                    localPageNumbers(dtoId, downloadKind).map { number ->
+                        // Offline the dimensions are unknown; portrait is the same neutral default as above.
+                        ReaderPage(id = number, number = number, width = 0, height = 0)
+                    }
+                else -> emptyList()
+            }
             _uiState.value = when {
-                dtos.isEmpty() -> ReaderUiState(
+                pages.isEmpty() -> ReaderUiState(
                     status = ReaderPagesStatus.Error,
                     bookId = book.id,
                     bookDtoId = dtoId,
@@ -149,24 +207,16 @@ class ReaderViewModel @Inject constructor(
                     // Mirrors the original loadBook: incognito or completed → start from page 0; startAtEnd
                     // (only explicit end-of-book entries now) lands on the last page instead
                     val resumePage = when {
-                        startAtEnd -> dtos.lastOrNull()?.number
+                        startAtEnd -> pages.lastOrNull()?.number
                         incognito || progress?.completed == true -> null
-                        else -> progress?.page
+                        else -> progress?.page?.takeIf { page -> pages.any { it.number == page } }
                     }
                     // Gate anchor = resume page (otherwise the pager jumping from 0 to the resume page would count as "turned N pages" and record immediately)
-                    sessionStartPage = resumePage ?: dtos.firstOrNull()?.number
+                    sessionStartPage = resumePage ?: pages.firstOrNull()?.number
                     ReaderUiState(
                         status = ReaderPagesStatus.Ready,
                         bookId = book.id,
-                        pages = dtos.map { dto ->
-                            ReaderPage(
-                                id = dto.number,
-                                number = dto.number,
-                                // PageDto width/height are nullable: unknown treated as portrait (does not affect pairing logic)
-                                width = dto.width ?: 0,
-                                height = dto.height ?: 0,
-                            )
-                        },
+                        pages = pages,
                         bookDtoId = dtoId,
                         initialPage = resumePage,
                         wasInProgress = progress != null && progress.completed != true,
@@ -189,6 +239,16 @@ class ReaderViewModel @Inject constructor(
                 }
                 resolveAdjacent(dtoId, context?.readListId)
             }
+        }
+    }
+
+    /** One-based page numbers available on disk for this download (empty when nothing local applies). */
+    private fun localPageNumbers(dtoId: String, kind: DownloadKind?): List<Int> = when (kind) {
+        DownloadKind.Archive -> localArchiveEntries.keys.sorted()
+        else -> {
+            runCatching { offlineLibrary.pageFiles(dtoId) }.getOrDefault(emptyMap())
+                .let(localPageFiles::putAll)
+            localPageFiles.keys.sorted()
         }
     }
 
@@ -273,8 +333,30 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /** Full-page image URL (null without a real session; UI shows a placeholder). */
-    fun pageUrl(pageNumber: Int): String? =
+    /**
+     * Full-page image URL: a downloaded page (or an archive page extracted on demand) wins over the
+     * server; null only when there is no session. Reading [localPageVersion] subscribes the caller's
+     * composition, so a page that finishes extracting in the background re-resolves to its file.
+     */
+    fun pageImageUrl(pageNumber: Int): String? {
+        val dtoId = _uiState.value.bookDtoId ?: return null
+        localPageVersion.intValue
+        localPageFiles[pageNumber]?.let { return it.toURI().toString() }
+        archivePages[pageNumber]?.let { return it.toURI().toString() }
+        if (localArchiveEntries.containsKey(pageNumber)) {
+            requestArchivePage(dtoId, pageNumber)
+            // While the entry is being extracted, keep the page visible online; offline the
+            // composable shows its placeholder until the file lands and the version bumps.
+            return readerRepository.pageUrl(dtoId, pageNumber)
+        }
+        return readerRepository.pageUrl(dtoId, pageNumber)
+    }
+
+    /**
+     * Shareable page URL: always the server address. A share must never leak a local file path,
+     * and the recipient usually has no access to this device's downloads.
+     */
+    fun pageShareUrl(pageNumber: Int): String? =
         _uiState.value.bookDtoId?.let { readerRepository.pageUrl(it, pageNumber) }
 
     /** Page thumbnail URL (for the thumbnail strip). */
@@ -283,10 +365,27 @@ class ReaderViewModel @Inject constructor(
 
     /**
      * First page of a neighbouring book: the end page and the continuation gesture open one of them
-     * straight away, so its image is warmed before the seam is crossed.
+     * straight away, so its image is warmed before the seam is crossed. A downloaded page is used
+     * directly (the neighbour may not have been read yet, but it can still be offline).
      */
-    fun firstPageUrl(bookId: Int): String? =
-        readerRepository.bookDtoId(bookId)?.let { readerRepository.pageUrl(it, 1) }
+    fun firstPageUrl(bookId: Int): String? {
+        val dtoId = readerRepository.bookDtoId(bookId) ?: return null
+        val local = runCatching { offlineLibrary.pageFiles(dtoId) }.getOrDefault(emptyMap())[1]
+        return local?.toURI()?.toString() ?: readerRepository.pageUrl(dtoId, 1)
+    }
+
+    /** Extracts one archive entry in the background; page URIs resolve to the file on the next read. */
+    private fun requestArchivePage(dtoId: String, pageNumber: Int) {
+        if (!extractingPages.add(pageNumber)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = runCatching { offlineLibrary.extractArchivePage(dtoId, pageNumber) }.getOrNull()
+            extractingPages.remove(pageNumber)
+            if (file != null && _uiState.value.bookDtoId == dtoId) {
+                archivePages[pageNumber] = file
+                localPageVersion.intValue++
+            }
+        }
+    }
 
     // ---- Progress reporting (mirrors the original ReaderProgressRecordingGate) ----
     /** Session start page (first observed settled page). */

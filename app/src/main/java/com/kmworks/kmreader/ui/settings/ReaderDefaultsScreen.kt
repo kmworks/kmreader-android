@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.ViewAgenda
@@ -69,6 +70,8 @@ fun ReaderDefaultsScreen(
     val pdfSettings by readerSettingsViewModel.pdfSettings.collectAsStateWithLifecycle()
     // Mirrors the original AppConfig.progressRecordingThreshold (default 3; 0 = immediately)
     val progressThreshold by prefsViewModel.progressRecordingThreshold.collectAsStateWithLifecycle()
+    // PDF engine preference (device-local): native PdfRenderer vs the default androidx.pdf engine
+    val useNativePdfReader by prefsViewModel.useNativePdfReader.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -176,6 +179,16 @@ fun ReaderDefaultsScreen(
             }
             item {
                 DefaultsSectionTitle("PDF")
+                SettingsSection {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.pdf_native_engine),
+                        subtitle = stringResource(R.string.pdf_native_engine_hint),
+                        checked = useNativePdfReader,
+                        onCheckedChange = prefsViewModel::setUseNativePdfReader,
+                        icon = Icons.Outlined.PictureAsPdf,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 PdfSettingsContent(
                     settings = pdfSettings,
                     onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },

@@ -52,6 +52,8 @@ class AutoDownloadUnreadTrigger @Inject constructor(
                 bookDtoId = dto.id,
                 title = dto.metadata.title.ifBlank { dto.name },
                 pageCount = dto.media.pagesCount,
+                mediaType = dto.media.mediaType,
+                epubDivinaCompatible = dto.media.epubDivinaCompatible,
                 libraryId = dto.libraryId,
             )
             enqueued += 1

@@ -59,6 +59,10 @@ class RootViewModel @Inject constructor(
     val sseEnabled: StateFlow<Boolean> = appSettings.sseEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    /** PDF engine choice: native PdfRenderer (true) or androidx.pdf (false, default). */
+    val useNativePdfReader: StateFlow<Boolean> = appSettings.useNativePdfReader
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     init {
         // SSE: hold the long connection while a session exists and the switch is on, otherwise disconnect
         viewModelScope.launch {
