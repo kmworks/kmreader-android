@@ -59,4 +59,59 @@ class DownloadedIndexTest {
         // StableIds maps ids deterministically, so a different dtoId is a different stableId.
         assertEquals(DownloadMark.None, index.bookMark(StableIds.book("book-c")))
     }
+
+    @Test
+    fun queuedTaskShowsItsBadgeUntilTheDownloadCompletes() {
+        assertEquals(
+            DownloadMark.Downloading,
+            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Downloading)).bookMark(bookA),
+        )
+        assertEquals(
+            DownloadMark.Pending,
+            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Pending)).bookMark(bookA),
+        )
+        assertEquals(
+            DownloadMark.Failed,
+            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Failed)).bookMark(bookA),
+        )
+        assertEquals(DownloadMark.None, DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Downloading)).bookMark(bookB))
+    }
+
+    @Test
+    fun completedBookWinsOverAnInFlightRestart() {
+        // REPLACE re-download of a finished book: the files are complete, so the card keeps its check.
+        val index = DownloadedIndex(books = setOf(bookA), tasks = mapOf(bookA to DownloadMark.Failed))
+        assertEquals(DownloadMark.Full, index.bookMark(bookA))
+    }
+
+    @Test
+    fun seriesWithoutCompletedBooksReflectsQueueState() {
+        val downloading = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, downloading = 1)),
+        )
+        assertEquals(DownloadMark.Downloading, downloading.seriesMark("series-1"))
+
+        val pending = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, pending = 1)),
+        )
+        assertEquals(DownloadMark.Pending, pending.seriesMark("series-1"))
+
+        val failed = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, failed = 1)),
+        )
+        assertEquals(DownloadMark.Failed, failed.seriesMark("series-1"))
+
+        // A partly downloaded series keeps its Partial mark even while the rest is still queued.
+        val partial = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(downloaded = 1, total = 3, downloading = 2)),
+        )
+        assertEquals(DownloadMark.Partial, partial.seriesMark("series-1"))
+    }
+
+    @Test
+    fun queueStatusMapsToBadgeMarks() {
+        assertEquals(DownloadMark.Downloading, DownloadTaskUi.Status.Downloading.toDownloadMark())
+        assertEquals(DownloadMark.Pending, DownloadTaskUi.Status.Paused.toDownloadMark())
+        assertEquals(DownloadMark.Failed, DownloadTaskUi.Status.Failed.toDownloadMark())
+    }
 }
