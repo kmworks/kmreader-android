@@ -96,6 +96,8 @@
     <string name="reader_cancel_solo">取消独显</string>
     <string name="reader_show_page_solo">独显第 %1$d 页</string>
     <string name="reader_menu_page_nav">页面导航</string>
+    <string name="reader_menu_previous_book">上一本书</string>
+    <string name="reader_menu_next_book">下一本书</string>
     <string name="reader_jump_to_page">跳页</string>
     <string name="reader_go_to_page">跳页</string>
     <string name="reader_jump">跳转</string>
@@ -115,6 +117,14 @@
     <string name="reader_previous_match">上一个匹配</string>
     <string name="reader_next_match">下一个匹配</string>
     <string name="reader_volume_pdf">第 %1$s 卷 · PDF</string>
+
+    <!-- Reader: end of book page (mirrors the original end-page content) -->
+    <string name="reader_end_previous_book">上一本</string>
+    <string name="reader_end_next_book">下一本</string>
+    <string name="reader_end_caught_up">已读完</string>
+    <string name="reader_end_unread_left">还剩 %1$d 本未读</string>
+    <string name="reader_end_pages">%1$d 页</string>
+    <string name="reader_end_read_next">阅读下一本</string>
 
     <!-- Reader: PDF -->
     <string name="pdf_continuous_scroll">连续滚动</string>
@@ -163,6 +173,8 @@
     <string name="epub_chapter_progress">第 %1$d/%2$d 章 · %3$d%%</string>
     <string name="epub_error_locate_book">无法定位书籍</string>
     <string name="epub_error_load_toc">无法加载目录</string>
+    <string name="epub_end_finished">已读完</string>
+    <string name="epub_end_return">返回</string>
     <string name="epub_preset_updated_now">刚刚更新</string>
     <plurals name="epub_preset_updated_days">
         <item quantity="other">%1$d 天前更新</item>

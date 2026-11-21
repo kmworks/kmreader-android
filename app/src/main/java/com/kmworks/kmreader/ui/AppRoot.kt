@@ -155,9 +155,20 @@ private data class SettingsPageRoute(val page: SettingsPage) : Route {
     override val key: String get() = "settings:${page.name}"
 }
 
-/** [format] is [Book.readerFormat], known before the page is pushed, so opening a book needs no lookup. */
-private data class ReaderRoute(val book: Book, val format: String, val incognito: Boolean) : Route {
-    override val key: String get() = "reader:${book.id}:$incognito"
+/**
+ * [format] is [Book.readerFormat], known before the page is pushed, so opening a book needs no lookup.
+ * [readListStableId] is the read list the book was opened from, so the session continues in its order.
+ * [startAtEnd] opens the book on its last page (explicit end-of-book entries). The backward seam into a
+ * previous book no longer sets it: that book resumes on its own progress.
+ */
+private data class ReaderRoute(
+    val book: Book,
+    val format: String,
+    val incognito: Boolean,
+    val readListStableId: Int? = null,
+    val startAtEnd: Boolean = false,
+) : Route {
+    override val key: String get() = "reader:${book.id}:$incognito:$startAtEnd"
 }
 
 /**
@@ -328,6 +339,18 @@ fun AppRoot(
     // leaves, instead of holding a cover screen while the format is looked up.
     val openReader: (Book, Boolean) -> Unit = { book, incognito ->
         push(ReaderRoute(book = book, format = book.readerFormat, incognito = incognito))
+    }
+    // Opening from a read list carries the list so the session continues in list order (mirrors the
+    // original ReaderReadListContext passed from the read list page)
+    val openReadListBook: (Book, Boolean, Int) -> Unit = { book, incognito, readListId ->
+        push(
+            ReaderRoute(
+                book = book,
+                format = book.readerFormat,
+                incognito = incognito,
+                readListStableId = readListId,
+            ),
+        )
     }
 
     // The page the system back gesture drags: the stack keeps it pointing at the page in front, and the
@@ -518,8 +541,8 @@ fun AppRoot(
                             readList = readList,
                             onBack = pop,
                             // Mirrors the original app: tapping a book reads it directly (details go through the "View Details" menu item)
-                            onRead = { openReader(it, false) },
-                            onReadIncognito = { openReader(it, true) },
+                            onRead = { openReadListBook(it, false, id) },
+                            onReadIncognito = { openReadListBook(it, true, id) },
                             onOpenBook = { push(BookDetailRoute(it)) },
                             onOpenSeries = { seriesStableId ->
                                 push(
@@ -616,50 +639,75 @@ fun AppRoot(
 
                 // Route the reader by the format the book carries (Book.readerFormat, from the server
                 // mediaType): CBZ/CBR -> Divina, EPUB -> EPUB, PDF -> PDF.
-                is ReaderRoute -> when (route.format) {
+                is ReaderRoute -> {
                     // Cross-page navigation actions from the in-reader detail sheet push the target page
-                    // above the reader, so back returns into the book being read.
-                    "EPUB" -> EpubReaderScreen(
-                        book = route.book,
-                        onBack = pop,
-                        incognito = route.incognito,
-                        onVisitSeries = {
-                            pop()
-                            visitSeriesOfBook(it)
-                        },
-                        onOpenReadList = { push(ReadListDetailRoute(it)) },
-                        onBrowseFilter = { filter ->
-                            pushFilteredLibrary(filter, LibraryContentType.Books)
-                        },
-                    )
+                    // above the reader, so back returns into the book being read. A neighbouring book is
+                    // read by the reader for its own format: replace this route so that reader takes over
+                    // (the Divina reader stays open across books, the other two swap the page).
+                    fun openAdjacent(next: Book, atEnd: Boolean) {
+                        pop()
+                        push(
+                            ReaderRoute(
+                                book = next,
+                                format = next.readerFormat,
+                                incognito = route.incognito,
+                                readListStableId = route.readListStableId,
+                                startAtEnd = atEnd,
+                            ),
+                        )
+                    }
+                    when (route.format) {
+                        "EPUB" -> EpubReaderScreen(
+                            book = route.book,
+                            onBack = pop,
+                            incognito = route.incognito,
+                            readListStableId = route.readListStableId,
+                            startAtEnd = route.startAtEnd,
+                            onOpenBook = ::openAdjacent,
+                            onVisitSeries = {
+                                pop()
+                                visitSeriesOfBook(it)
+                            },
+                            onOpenReadList = { push(ReadListDetailRoute(it)) },
+                            onBrowseFilter = { filter ->
+                                pushFilteredLibrary(filter, LibraryContentType.Books)
+                            },
+                        )
 
-                    "PDF" -> PdfReaderScreen(
-                        book = route.book,
-                        onBack = pop,
-                        incognito = route.incognito,
-                        onVisitSeries = {
-                            pop()
-                            visitSeriesOfBook(it)
-                        },
-                        onOpenReadList = { push(ReadListDetailRoute(it)) },
-                        onBrowseFilter = { filter ->
-                            pushFilteredLibrary(filter, LibraryContentType.Books)
-                        },
-                    )
+                        "PDF" -> PdfReaderScreen(
+                            book = route.book,
+                            onBack = pop,
+                            incognito = route.incognito,
+                            readListStableId = route.readListStableId,
+                            startAtEnd = route.startAtEnd,
+                            onOpenBook = ::openAdjacent,
+                            onVisitSeries = {
+                                pop()
+                                visitSeriesOfBook(it)
+                            },
+                            onOpenReadList = { push(ReadListDetailRoute(it)) },
+                            onBrowseFilter = { filter ->
+                                pushFilteredLibrary(filter, LibraryContentType.Books)
+                            },
+                        )
 
-                    else -> ReaderScreen(
-                        book = route.book,
-                        onBack = pop,
-                        incognito = route.incognito,
-                        onVisitSeries = {
-                            pop()
-                            visitSeriesOfBook(it)
-                        },
-                        onOpenReadList = { push(ReadListDetailRoute(it)) },
-                        onBrowseFilter = { filter ->
-                            pushFilteredLibrary(filter, LibraryContentType.Books)
-                        },
-                    )
+                        else -> ReaderScreen(
+                            book = route.book,
+                            onBack = pop,
+                            incognito = route.incognito,
+                            readListStableId = route.readListStableId,
+                            startAtEnd = route.startAtEnd,
+                            onVisitSeries = {
+                                pop()
+                                visitSeriesOfBook(it)
+                            },
+                            onOpenReadList = { push(ReadListDetailRoute(it)) },
+                            onBrowseFilter = { filter ->
+                                pushFilteredLibrary(filter, LibraryContentType.Books)
+                            },
+                            onOpenBook = ::openAdjacent,
+                        )
+                    }
                 }
             }
         }

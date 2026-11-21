@@ -96,6 +96,8 @@
     <string name="reader_cancel_solo">Exit solo page</string>
     <string name="reader_show_page_solo">Solo page %1$d</string>
     <string name="reader_menu_page_nav">Page navigation</string>
+    <string name="reader_menu_previous_book">Previous book</string>
+    <string name="reader_menu_next_book">Next book</string>
     <string name="reader_jump_to_page">Go to page</string>
     <string name="reader_go_to_page">Go to page</string>
     <string name="reader_jump">Go</string>
@@ -115,6 +117,14 @@
     <string name="reader_previous_match">Previous match</string>
     <string name="reader_next_match">Next match</string>
     <string name="reader_volume_pdf">Vol. %1$s · PDF</string>
+
+    <!-- Reader: end of book page (mirrors the original end-page content) -->
+    <string name="reader_end_previous_book">Previous</string>
+    <string name="reader_end_next_book">Next</string>
+    <string name="reader_end_caught_up">You\'re all caught up!</string>
+    <string name="reader_end_unread_left">%1$d unread left</string>
+    <string name="reader_end_pages">%1$d pages</string>
+    <string name="reader_end_read_next">Read next</string>
 
     <!-- Reader: PDF -->
     <string name="pdf_continuous_scroll">Continuous scroll</string>
@@ -163,6 +173,8 @@
     <string name="epub_chapter_progress">Ch. %1$d/%2$d · %3$d%%</string>
     <string name="epub_error_locate_book">Cannot locate this book</string>
     <string name="epub_error_load_toc">Cannot load the table of contents</string>
+    <string name="epub_end_finished">Book finished</string>
+    <string name="epub_end_return">Return</string>
     <string name="epub_preset_updated_now">Updated just now</string>
     <plurals name="epub_preset_updated_days">
         <item quantity="one">Updated %1$d day ago</item>

@@ -81,6 +81,7 @@ fun SettingsDashboardScreen(
     viewModel: SettingsDashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val readListContinuation by viewModel.readListContinuation.collectAsStateWithLifecycle()
     val visibleSections = state.visibleSections
     val hiddenSections = state.hiddenSections
 
@@ -133,10 +134,13 @@ fun SettingsDashboardScreen(
                         onCheckedChange = viewModel::setCardKindMenu,
                     )
                     SettingsRowDivider()
+                    // Read-list continuation: records the read list being read, continues it in list order
+                    // from any entry point, and shows it in the read lists section (mirrors the original
+                    // readListContinuationEnabled toggle, which also inserts/removes that section)
                     SettingsSwitchRow(
                         title = stringResource(R.string.dashboard_readlist_continuation),
                         subtitle = stringResource(R.string.dashboard_readlist_continuation_caption),
-                        checked = state.continuation,
+                        checked = readListContinuation,
                         onCheckedChange = viewModel::setContinuation,
                     )
                 }

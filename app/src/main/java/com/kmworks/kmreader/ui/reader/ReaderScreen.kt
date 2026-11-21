@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -80,13 +81,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
@@ -103,6 +111,7 @@ import coil3.request.ImageRequest
 import coil3.request.transformations
 import coil3.size.Size
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.image.BorderCropTransformation
 import com.kmworks.kmreader.core.logging.AppLog
@@ -111,6 +120,7 @@ import com.kmworks.kmreader.data.ReaderPage
 import com.kmworks.kmreader.data.ReaderViewItem
 import com.kmworks.kmreader.data.ReaderViewItemGenerator
 import dagger.hilt.android.EntryPointAccessors
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
@@ -148,6 +158,12 @@ private val ChromeText = Color.White
  * - Progress: ReaderProgressRecordingGate (3-page threshold / completed bypass / incognito skip),
  *   flushed on exit
  * - Preloading: ReaderPreloadProfile window + 0.3s debounce + "preload on Wi-Fi only" gating
+ * - End of book: the last cell is the end page (previous/next book hint, mirrors the original
+ *   ReaderViewItem.end); the next book is opened in this same session, keeping the reader options,
+ *   or handed to [onOpenBook] when it is read by another reader (EPUB/PDF)
+ * - Start of book: symmetric, the first cell is the previous book's end page (the original appends
+ *   `.end` after every segment, so the item before a segment's first page is the previous segment's
+ *   end page); turning back past it reopens that book on its own progress
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -160,6 +176,12 @@ fun ReaderScreen(
     onVisitSeries: (Book) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
+    /** Hands a book another reader owns (EPUB/PDF) to the route; [startAtEnd] opens it on its last page. */
+    onOpenBook: (Book, Boolean) -> Unit = { _, _ -> },
+    /** The read list the entry book was opened from (null from everywhere else); the session keeps its order. */
+    readListStableId: Int? = null,
+    /** Open the entry book on its last page (explicit end-of-book entry); the seam cards resume progress. */
+    startAtEnd: Boolean = false,
 ) {
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
@@ -168,11 +190,17 @@ fun ReaderScreen(
     val readerBackground = settings.background.color(darkTheme)
     val pageContentColor = settings.background.contentColor(darkTheme)
 
+    // The book on screen: the route's book, replaced when the end page opens the next one (mirrors the
+    // original currentBook, which the session keeps while the reader stays open)
+    var presentedBook by remember(book.id) { mutableStateOf(book) }
+
     // Mirrors the original shouldShowControls (initially false): the chrome stays hidden while
     // loading and reading; only a tap reveals it
     var chromeVisible by remember { mutableStateOf(false) }
     var page by remember { mutableIntStateOf(1) }
     var pageInitialized by remember { mutableStateOf(false) }
+    // Which book the current page/layout state was restored for (the end page can open the next one)
+    var initializedBookId by remember { mutableIntStateOf(-1) }
     // Progress-reporting gate: do not report until the restored page has scrolled into place
     // (mirrors iOS, where the first observed page is the restored page; otherwise jumping to the
     // restored page would look like a page turn)
@@ -229,9 +257,25 @@ fun ReaderScreen(
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(book, incognito) {
+    LaunchedEffect(presentedBook, incognito, startAtEnd) {
         viewModel.incognito = incognito
-        viewModel.load(book)
+        // The next book starts on its own page instead of inheriting the previous book's
+        initializedBookId = -1
+        // The pager states below are anchored on `page` whenever this is true, so a book switch would
+        // otherwise seed the new list with the previous book's page number (and the settled-page watcher
+        // would then keep reporting it). Clearing it makes the rebuild anchor on the new book's own
+        // initialPage instead; progress reporting is re-armed once that page is actually on screen.
+        pageInitialized = false
+        progressArmed = false
+        // The read list of the entry point only applies to the first load; continuing a list keeps the
+        // context the view model already resolved (mirrors resolvedReadListContext living in the session)
+        // startAtEnd only applies to the route's entry book: books opened inside this session carry their
+        // own resume position (the backward seam passes startAtEnd to openBook instead)
+        viewModel.load(
+            presentedBook,
+            readListStableId,
+            startAtEnd = startAtEnd && presentedBook.id == book.id,
+        )
     }
     // Flush unreported progress when leaving the reader (mirrors the original flushProgress)
     DisposableEffect(Unit) {
@@ -240,27 +284,33 @@ fun ReaderScreen(
     // Diagnostic trail: every reader open/close goes into the app log with the heap in use, so a death
     // between two entries can be attributed to this screen and a memory blow-up is visible right before
     // the process disappears (the log file survives the crash).
-    DisposableEffect(book.id) {
-        AppLog.i("Reader", "open book=${book.id} incognito=$incognito ${heapFootprint()}")
-        onDispose { AppLog.i("Reader", "close book=${book.id} ${heapFootprint()}") }
+    DisposableEffect(presentedBook.id) {
+        AppLog.i("Reader", "open book=${presentedBook.id} incognito=$incognito ${heapFootprint()}")
+        onDispose { AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}") }
     }
     val readerPages = uiState.pages
     val soloPages by viewModel.soloPages.collectAsStateWithLifecycle()
     val pageCount = readerPages.size
     val ready = uiState.status == ReaderPagesStatus.Ready
 
-    // After loading: restore the initial page and resolve session preferences (runs only once)
-    LaunchedEffect(ready) {
-        if (!ready || pageInitialized) return@LaunchedEffect
+    // After loading: restore the initial page and resolve session preferences. Runs once per book —
+    // the reader options are already set when the end page opens the next book, so they are kept
+    // (mirrors preserveReaderOptions of the original openAdjacentBook)
+    LaunchedEffect(ready, presentedBook.id, uiState.bookId) {
+        if (!ready || uiState.bookId != presentedBook.id) return@LaunchedEffect
+        if (initializedBookId == presentedBook.id) return@LaunchedEffect
         page = uiState.initialPage ?: 1
-        direction = resolveReadingDirection(
-            seriesDirection = uiState.seriesDirection,
-            forceDefault = settings.forceDefaultDirection,
-            defaultDirection = defaultDirection,
-        )
-        pageLayout = settings.defaultPageLayout
-        splitWideMode = settings.defaultSplitWideMode
-        soloCoverPage = settings.defaultSoloCoverPage
+        if (direction == null) {
+            direction = resolveReadingDirection(
+                seriesDirection = uiState.seriesDirection,
+                forceDefault = settings.forceDefaultDirection,
+                defaultDirection = defaultDirection,
+            )
+        }
+        if (pageLayout == null) pageLayout = settings.defaultPageLayout
+        if (splitWideMode == null) splitWideMode = settings.defaultSplitWideMode
+        if (soloCoverPage == null) soloCoverPage = settings.defaultSoloCoverPage
+        initializedBookId = presentedBook.id
         pageInitialized = true
     }
 
@@ -292,7 +342,7 @@ fun ReaderScreen(
     // reads right to left (mirrors isLeftSplitHalf)
     val firstHalfOnLeft = splitWideNow.effectiveReadingDirection(directionNow) != ReadingDirection.Rtl
 
-    val items = remember(
+    val pageItems = remember(
         readerPages,
         allowDualPairs,
         forceDualPairs,
@@ -312,23 +362,44 @@ fun ReaderScreen(
             noCover = noCover,
         )
     }
+    // The previous book, once the sibling lookup has resolved: its end page becomes the seam in front of
+    // the first page, the mirror image of the end page appended after the last one (the original appends
+    // `.end` after every segment, so the item in front of a segment's first page is the previous segment's
+    // end page)
+    val previousBook = uiState.adjacent.let { if (it.loaded) it.previous else null }
+    val items = remember(pageItems, previousBook?.id) {
+        if (previousBook != null) {
+            listOf(ReaderViewItem.PreviousEnd) + pageItems + ReaderViewItem.End
+        } else {
+            pageItems + ReaderViewItem.End
+        }
+    }
     // The resume page has to be the pager's initial page, not a scroll applied after the first frame:
     // the pager state is created while the list is still loading, so opening a book mid-way would
     // paint cell 0 for a frame and only then jump to the restored cell (the first-page flash). Both
     // scroll states are therefore rebuilt when the list becomes ready, so their first layout is
     // already the cell that holds the resume page.
-    val initialViewIndex = remember(ready) {
-        if (!ready) {
-            0
+    //
+    // They are also rebuilt when the previous book resolves: its end page is prepended, which shifts every
+    // index by one, so a kept index would silently show the cell before the current one. Rebuilding around
+    // the page on screen (the restored page before the first seek has run) keeps the reader in place.
+    val pagerState = key(ready, presentedBook.id, previousBook?.id) {
+        val anchor = if (pageInitialized) page else (uiState.initialPage ?: 1)
+        val start = if (ready) {
+            items.indexOfFirst { it.pages.contains(anchor) }.coerceAtLeast(0)
         } else {
-            items.indexOfFirst { it.pages.contains(uiState.initialPage ?: 1) }.coerceAtLeast(0)
+            0
         }
+        rememberPagerState(initialPage = start) { items.size.coerceAtLeast(1) }
     }
-    val pagerState = key(ready) {
-        rememberPagerState(initialPage = initialViewIndex) { items.size.coerceAtLeast(1) }
-    }
-    val webtoonState = key(ready) {
-        rememberLazyListState(initialFirstVisibleItemIndex = initialViewIndex)
+    val webtoonState = key(ready, presentedBook.id, previousBook?.id) {
+        val anchor = if (pageInitialized) page else (uiState.initialPage ?: 1)
+        val start = if (ready) {
+            items.indexOfFirst { it.pages.contains(anchor) }.coerceAtLeast(0)
+        } else {
+            0
+        }
+        rememberLazyListState(initialFirstVisibleItemIndex = start)
     }
     val scope = rememberCoroutineScope()
 
@@ -417,12 +488,24 @@ fun ReaderScreen(
                 }
             }
     }
+    // Warm the first page of the neighbours: the end page and the continuation gesture open one of them
+    // straight away, so the image cache must not be cold at that point (the original preloads the next
+    // segment for the same reason)
+    LaunchedEffect(uiState.adjacent, imageLoader, wifiOnlyPreload) {
+        if (wifiOnlyPreload && !isWifiConnected(context)) return@LaunchedEffect
+        listOfNotNull(uiState.adjacent.next, uiState.adjacent.previous).forEach { book ->
+            viewModel.firstPageUrl(book.id)?.let { url ->
+                imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+            }
+        }
+    }
     // Progress reporting (paged/vertical)
     LaunchedEffect(pagerState, items, uiState.bookDtoId, progressArmed) {
         if (!progressArmed) return@LaunchedEffect
         snapshotFlow { pagerState.settledPage }.collect { index ->
             if (uiState.bookDtoId == null) return@collect
-            items.getOrNull(index)?.let { viewModel.reportProgress(it.pages.max()) }
+            // The end-of-book cell holds no pages (it must not be reported as a page)
+            items.getOrNull(index)?.pages?.maxOrNull()?.let { viewModel.reportProgress(it) }
         }
     }
     // Webtoon: preloading + progress reporting
@@ -432,7 +515,7 @@ fun ReaderScreen(
             .debounce(300)
             .collect { index ->
                 if (uiState.bookDtoId == null) return@collect
-                items.getOrNull(index)?.let { viewModel.reportProgress(it.pages.max()) }
+                items.getOrNull(index)?.pages?.maxOrNull()?.let { viewModel.reportProgress(it) }
                 if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
                 val profile = settings.preloadProfile
                 for (i in (index - profile.before)..(index + profile.after)) {
@@ -445,6 +528,39 @@ fun ReaderScreen(
             }
     }
 
+    // Opens the next book from the end page. Progress is flushed first and the current reader options
+    // are kept (mirrors the original openAdjacentBook); a book another reader handles (EPUB/PDF) is
+    // handed back to the route so that reader takes over.
+    fun openNext(next: Book) {
+        viewModel.flushProgress(page)
+        if (next.readerFormat != "CBZ") {
+            onOpenBook(next, false)
+            return
+        }
+        viewModel.openBook(next)
+        presentedBook = next
+    }
+    // Opens the previous book from its end page (the mirror image of [openNext]). It resumes on that
+    // book's own progress rather than its last page: landing on the last page and then leaving would
+    // record the book as finished, and the seam card is a way back, not a way to finish it twice.
+    fun openPrevious(previous: Book) {
+        viewModel.flushProgress(page)
+        if (previous.readerFormat != "CBZ") {
+            // Another reader takes over and resumes its own progress (startAtEnd stays false)
+            onOpenBook(previous, false)
+            return
+        }
+        viewModel.openBook(previous)
+        presentedBook = previous
+    }
+    // First page of the book on screen: the cell after the previous book's end page
+    fun goToFirstPage() {
+        val target = items.indexOfFirst { it.pages.isNotEmpty() }.coerceAtLeast(0)
+        scope.launch {
+            if (isWebtoon) webtoonState.animateScrollToItem(target)
+            else pagerState.animateScrollToPage(target.coerceIn(0, max(0, items.lastIndex)))
+        }
+    }
     // Single-tap/double-tap/long-press/pinch gestures (run in parallel inside one pointerInput so
     // they do not fight the Pager drag)
     fun stepPage(target: Int) {
@@ -454,12 +570,96 @@ fun ReaderScreen(
             else pagerState.scrollToPage(clamped)
         }
     }
+    // True while the end-of-book cell owns the screen (the last cell of either pager)
+    fun atEndPage(): Boolean {
+        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else pagerState.currentPage
+        return items.getOrNull(index.coerceIn(0, max(0, items.lastIndex))) is ReaderViewItem.End
+    }
+    // The end page has no page after it: turning past it opens the next book (the original pages
+    // straight into the next segment, which a single-book pager cannot do)
+    fun openNextIfAtEndPage(): Boolean {
+        val next = uiState.adjacent.next
+        if (!uiState.adjacent.loaded || next == null || !atEndPage()) return false
+        openNext(next)
+        return true
+    }
     // Tap-zone navigation: one page per tap
     fun tapNext() {
+        if (openNextIfAtEndPage()) return
         stepPage(pagerState.currentPage + 1)
     }
+    // True while the previous book's end page owns the screen (the first cell of either pager)
+    fun atPreviousEndPage(): Boolean {
+        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else pagerState.currentPage
+        return items.getOrNull(index.coerceIn(0, max(0, items.lastIndex))) is ReaderViewItem.PreviousEnd
+    }
+    // Nothing precedes the previous book's end page: turning back opens that book (the original pages
+    // straight out of the prepended segment, which a single-book pager cannot do)
+    fun openPreviousIfAtPreviousEndPage(): Boolean {
+        val previous = previousBook ?: return false
+        if (!atPreviousEndPage()) return false
+        openPrevious(previous)
+        return true
+    }
     fun tapPrevious() {
+        if (openPreviousIfAtPreviousEndPage()) return
         stepPage(pagerState.currentPage - 1)
+    }
+    // Continuation gesture: the pager only holds this book's cells, so at the seam a drag has nowhere to
+    // go — it turns into overscroll, and the part the pager could not consume reaches this connection as
+    // nested-scroll leftover. Once that leftover passes a short threshold the adjacent book opens, which
+    // is the extra page turn the original gets for free: its pager holds every segment's cells in one flat
+    // list, so its last page is never a seam. Backwards the same gesture reopens the previous book on its
+    // own progress.
+    val continueThreshold = with(LocalDensity.current) { 72.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    // One pull per book: the book the gesture continues into gets its own allowance
+    val continuePull = remember(presentedBook.id, continueThreshold) {
+        ReaderContinuationPull(continueThreshold)
+    }
+    val continueConnection = remember(
+        presentedBook.id,
+        isPaged,
+        directionNow,
+        uiState.adjacent,
+        progressArmed,
+    ) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                // A scroll the reader could take means it is not pressed against a seam after all
+                if (available == Offset.Zero) {
+                    if (consumed != Offset.Zero) continuePull.reset()
+                    return Offset.Zero
+                }
+                if (!progressArmed) return Offset.Zero
+                val axial = if (isPaged) available.x else available.y
+                if (axial == 0f) return Offset.Zero
+                // Forward means the drag asks for the next page in this reading direction
+                val forward = if (isPaged && directionNow == ReadingDirection.Rtl) axial > 0f else axial < 0f
+                val next = uiState.adjacent.next
+                val previous = uiState.adjacent.previous
+                if (forward) {
+                    if (next == null) return Offset.Zero
+                    if (continuePull.add(abs(axial))) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        openNext(next)
+                    }
+                } else {
+                    if (previous == null) return Offset.Zero
+                    if (continuePull.add(abs(axial))) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        openPrevious(previous)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                // The gesture ended without crossing the seam
+                continuePull.reset()
+                return Velocity.Zero
+            }
+        }
     }
     val gestureModifier = Modifier.pointerInput(
         settings.tapZoneMode,
@@ -471,6 +671,8 @@ fun ReaderScreen(
         isWebtoon,
         directionNow,
         items,
+        // The end page opens the next book, so the handler must see the resolved neighbour
+        uiState.adjacent,
     ) {
         val viewSize = size
         coroutineScope {
@@ -487,14 +689,19 @@ fun ReaderScreen(
                     when (action) {
                         TapZoneAction.Previous -> scope.launch {
                             if (isWebtoon) {
-                                webtoonState.animateScrollBy(-viewSize.height * settings.webtoonTapScrollPercentage / 100f)
+                                // At the top of the scroll the previous book's end page opens that book
+                                if (!openPreviousIfAtPreviousEndPage()) {
+                                    webtoonState.animateScrollBy(-viewSize.height * settings.webtoonTapScrollPercentage / 100f)
+                                }
                             } else {
                                 tapPrevious()
                             }
                         }
                         TapZoneAction.Next -> scope.launch {
                             if (isWebtoon) {
-                                webtoonState.animateScrollBy(viewSize.height * settings.webtoonTapScrollPercentage / 100f)
+                                if (!openNextIfAtEndPage()) {
+                                    webtoonState.animateScrollBy(viewSize.height * settings.webtoonTapScrollPercentage / 100f)
+                                }
                             } else {
                                 tapNext()
                             }
@@ -578,6 +785,64 @@ fun ReaderScreen(
         null
     }
 
+    // End-of-book cell: the finished book as "Previous", then the next book or the caught-up state
+    // (mirrors the original end page inserted after the last page of a segment)
+    val endPage: @Composable (Modifier) -> Unit = { cellModifier ->
+        ReaderEndPage(
+            book = presentedBook,
+            adjacent = uiState.adjacent,
+            // A read list page reports list order, not series membership, so the series unread count
+            // would read as a list statistic (mirrors the original unreadText suppression)
+            unreadCount = if (uiState.readListId == null) uiState.unreadCount else null,
+            relationTitle = uiState.readListName ?: presentedBook.seriesTitle,
+            isRtl = directionNow == ReadingDirection.Rtl,
+            contentColor = pageContentColor,
+            onOpenNext = { next -> openNext(next) },
+            onRetry = viewModel::retryAdjacent,
+            onClose = onBack,
+            modifier = cellModifier,
+        )
+    }
+    // End page of the previous book: the same seam seen from the other side, with the previous book as
+    // "Previous" and the book on screen as "Next" (mirrors the original, where the end page of a segment
+    // is the item right before the next segment's first page)
+    val previousEndPage: @Composable (Modifier) -> Unit = { cellModifier ->
+        val previous = previousBook
+        if (previous != null) {
+            ReaderEndPage(
+                book = previous,
+                adjacent = ReaderAdjacentBooks(next = presentedBook, loaded = true),
+                unreadCount = if (uiState.readListId == null) uiState.unreadCount else null,
+                relationTitle = uiState.readListName ?: previous.seriesTitle,
+                isRtl = directionNow == ReadingDirection.Rtl,
+                contentColor = pageContentColor,
+                // "Next" is the book already open: the tap goes back to its first page
+                onOpenNext = { goToFirstPage() },
+                onRetry = viewModel::retryAdjacent,
+                onClose = onBack,
+                // The card of the finished book reopens it: it resumes on its own progress instead of
+                // its last page, so walking back does not record the book as finished
+                onOpenPrevious = { openPrevious(previous) },
+                modifier = cellModifier,
+            )
+        }
+    }
+    // The end page is the last cell: refresh the unread count once it is in view (a completing progress
+    // write only moves the series count after the server has stored it). The settled cell is observed
+    // rather than read in composition, which would recompose the screen while scrolling. A settled cell
+    // also ends a continuation drag, so its accumulated pull starts over.
+    LaunchedEffect(pagerState, webtoonState, items, isWebtoon, uiState.bookDtoId) {
+        val settled = if (isWebtoon) {
+            snapshotFlow { webtoonState.firstVisibleItemIndex }
+        } else {
+            snapshotFlow { pagerState.settledPage }
+        }
+        settled.collect { index ->
+            continuePull.reset()
+            if (items.getOrNull(index) is ReaderViewItem.End) viewModel.refreshUnreadCount()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(readerBackground)) {
         when (uiState.status) {
             ReaderPagesStatus.Loading -> Box(
@@ -599,7 +864,7 @@ fun ReaderScreen(
                     style = MaterialTheme.typography.titleSmall,
                     color = pageContentColor.copy(alpha = 0.85f),
                 )
-                TextButton(onClick = { viewModel.retry(book) }) {
+                TextButton(onClick = { viewModel.retry(presentedBook) }) {
                     Text(stringResource(R.string.common_retry), color = pageContentColor)
                 }
             }
@@ -613,38 +878,53 @@ fun ReaderScreen(
                         settings = settings,
                         rotationDegrees = rotationDegrees,
                         state = webtoonState,
-                        modifier = Modifier.fillMaxSize().then(gestureModifier),
+                        modifier = Modifier.fillMaxSize().then(gestureModifier).nestedScroll(continueConnection),
                         pageUrl = viewModel::pageUrl,
+                        endPage = endPage,
+                        previousEndPage = previousEndPage,
                     )
 
                     isVertical -> VerticalPager(
                         state = pagerState,
-                        modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(zoomModifier)
+                            .then(gestureModifier)
+                            .nestedScroll(continueConnection),
                         userScrollEnabled = !zoomed,
                         contentPadding = PaddingValues(0.dp),
                         // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
                         // native pager): no loading placeholder flash while turning pages
                         beyondViewportPageCount = 1,
                     ) { index ->
-                        ViewerPage(
-                            item = items[index],
-                            imageLoader = imageLoader,
-                            settings = settings,
-                            rotationDegrees = rotationDegrees,
-                            contentColor = pageContentColor,
-                            pageUrl = viewModel::pageUrl,
-                            firstHalfOnLeft = firstHalfOnLeft,
-                        )
+                        val item = items[index]
+                        when {
+                            item is ReaderViewItem.End -> endPage(Modifier.fillMaxSize())
+                            item is ReaderViewItem.PreviousEnd -> previousEndPage(Modifier.fillMaxSize())
+                            else -> ViewerPage(
+                                item = item,
+                                imageLoader = imageLoader,
+                                settings = settings,
+                                rotationDegrees = rotationDegrees,
+                                contentColor = pageContentColor,
+                                pageUrl = viewModel::pageUrl,
+                                firstHalfOnLeft = firstHalfOnLeft,
+                            )
+                        }
                     }
 
                     else -> HorizontalPager(
                         state = pagerState,
-                        modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(zoomModifier)
+                            .then(gestureModifier)
+                            .nestedScroll(continueConnection),
                         userScrollEnabled = !zoomed,
                         reverseLayout = directionNow == ReadingDirection.Rtl,
                         contentPadding = PaddingValues(0.dp),
-                        // The iOS pager lays pages out edge to edge with no spacing for
-                        // either transition, so pages must not be inset here either.
+                        // The iOS pager keeps minimumLineSpacing 0 in both transitions, so the two
+                        // pages of a swipe touch instead of showing a gap
                         pageSpacing = 0.dp,
                         // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
                         // native pager): no loading placeholder flash while turning pages
@@ -665,15 +945,19 @@ fun ReaderScreen(
                                     }
                                 },
                         ) {
-                            ViewerPage(
-                                item = item,
-                                imageLoader = imageLoader,
-                                settings = settings,
-                                rotationDegrees = rotationDegrees,
-                                contentColor = pageContentColor,
-                                pageUrl = viewModel::pageUrl,
-                                firstHalfOnLeft = firstHalfOnLeft,
-                            )
+                            when {
+                                item is ReaderViewItem.End -> endPage(Modifier.fillMaxSize())
+                                item is ReaderViewItem.PreviousEnd -> previousEndPage(Modifier.fillMaxSize())
+                                else -> ViewerPage(
+                                    item = item,
+                                    imageLoader = imageLoader,
+                                    settings = settings,
+                                    rotationDegrees = rotationDegrees,
+                                    contentColor = pageContentColor,
+                                    pageUrl = viewModel::pageUrl,
+                                    firstHalfOnLeft = firstHalfOnLeft,
+                                )
+                            }
                         }
                     }
                 }
@@ -786,13 +1070,13 @@ fun ReaderScreen(
                     // Mirrors the iOS readerChapterTitle: oneshots show the book title and hide the
                     // volume-number subtitle
                     Text(
-                        if (book.oneshot) book.title else book.seriesTitle,
+                        if (presentedBook.oneshot) presentedBook.title else presentedBook.seriesTitle,
                         style = MaterialTheme.typography.titleSmall,
                         color = ChromeText,
                     )
-                    if (!book.oneshot) {
+                    if (!presentedBook.oneshot) {
                         Text(
-                            book.number,
+                            presentedBook.number,
                             style = MaterialTheme.typography.bodySmall,
                             color = ChromeText.copy(alpha = 0.7f),
                         )
@@ -820,7 +1104,8 @@ fun ReaderScreen(
                             viewModel.pageUrl(page)?.let { url -> sharePageUrl(context, url) }
                         },
                         onOpenPageJump = { showPageJump = true },
-
+                        onOpenPreviousBook = previousBook?.let { prev -> { openPrevious(prev) } },
+                        onOpenNextBook = uiState.adjacent.next?.let { next -> { openNext(next) } },
                         onDismiss = { menuOpen = false },
                     )
                 }
@@ -910,7 +1195,7 @@ fun ReaderScreen(
     }
     if (showDetailSheet) {
         ReaderDetailSheet(
-            book = book,
+            book = presentedBook,
             onDismiss = { showDetailSheet = false },
             onVisitSeries = onVisitSeries,
             onOpenReadList = onOpenReadList,
@@ -986,6 +1271,8 @@ private fun WebtoonReader(
     state: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     pageUrl: (Int) -> String?,
+    endPage: @Composable (Modifier) -> Unit,
+    previousEndPage: @Composable (Modifier) -> Unit,
 ) {
     val widthFraction = (pageWidthPercentage / 100f).coerceIn(0.5f, 1f)
     LazyColumn(
@@ -999,17 +1286,28 @@ private fun WebtoonReader(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                WebtoonItem(
-                    item = item,
-                    imageLoader = imageLoader,
-                    settings = settings,
-                    rotationDegrees = rotationDegrees,
-                    contentColor = settings.background.contentColor(
-                        androidx.compose.foundation.isSystemInDarkTheme(),
-                    ),
-                    pageUrl = pageUrl,
-                    modifier = Modifier.fillMaxWidth(widthFraction),
-                )
+                when {
+                    // The end pages scroll like a page, but size to their content instead of the page width
+                    item is ReaderViewItem.End -> Box(modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp)) {
+                        endPage(Modifier.fillMaxSize())
+                    }
+
+                    item is ReaderViewItem.PreviousEnd -> Box(modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp)) {
+                        previousEndPage(Modifier.fillMaxSize())
+                    }
+
+                    else -> WebtoonItem(
+                        item = item,
+                        imageLoader = imageLoader,
+                        settings = settings,
+                        rotationDegrees = rotationDegrees,
+                        contentColor = settings.background.contentColor(
+                            androidx.compose.foundation.isSystemInDarkTheme(),
+                        ),
+                        pageUrl = pageUrl,
+                        modifier = Modifier.fillMaxWidth(widthFraction),
+                    )
+                }
             }
         }
     }
@@ -1072,6 +1370,10 @@ private fun WebtoonItem(
             modifier = modifier,
             half = if (item.secondHalf) 1 else 0,
         )
+
+        // The end pages own no pages and are rendered by the caller
+        is ReaderViewItem.End -> Unit
+        is ReaderViewItem.PreviousEnd -> Unit
     }
 }
 
@@ -1137,6 +1439,10 @@ private fun ViewerPage(
                 half = if (item.secondHalf) 1 else 0,
                 firstHalfOnLeft = firstHalfOnLeft,
             )
+
+            // The end pages own no pages and are rendered by the caller
+            is ReaderViewItem.End -> Unit
+            is ReaderViewItem.PreviousEnd -> Unit
         }
     }
 }
@@ -1160,13 +1466,12 @@ private fun PageImage(
     /** Content alignment inside the cell (toward the gutter in dual pairs; mirrors the original trailing/leading). */
     alignment: Alignment = Alignment.Center,
 ) {
-    // Mirrors the iOS page layout, which sizes the page from the loaded image instead of the
-    // server metadata (NativePageItem_iOS.swift): use the decoded size once the request has
-    // finished, keep the metadata ratio while loading (a no-op when both agree).
+    // The box is sized from the decoded page once it is available, like iOS (which fits by the loaded
+    // UIImage size): the server page.width/height is only the pre-load guess, so missing or stale
+    // metadata cannot leave a band inside an otherwise width-hugging box.
     var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
     val decodedRatio = (imageState as? AsyncImagePainter.State.Success)
-        ?.painter
-        ?.intrinsicSize
+        ?.painter?.intrinsicSize
         ?.takeIf { it.width > 0f && it.height > 0f }
         ?.let { it.width / it.height }
     val metadataRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 0f

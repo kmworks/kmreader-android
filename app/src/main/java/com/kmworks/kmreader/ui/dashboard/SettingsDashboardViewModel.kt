@@ -47,8 +47,18 @@ class SettingsDashboardViewModel @Inject constructor(
     private val appSettings: AppSettingsStore,
 ) : ViewModel() {
 
-    val state: StateFlow<DashboardSettingsUiState> = combine(
-        appSettings.dashboardSectionOrder,
+    /**
+     * Read-list continuation (mirrors the original readListContinuationEnabled): while on, the books of an
+     * ordered read list the user is reading continue in list order wherever they are opened, and the read
+     * lists section has content. Off means nothing is recorded, synced, resolved or shown.
+     */
+    val readListContinuation: StateFlow<Boolean> = appSettings.readListContinuationEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    val state: StateFlow<DashboardSettingsUiState> = combine(        appSettings.dashboardSectionOrder,
         appSettings.dashboardHiddenSections,
         appSettings.dashboardCardKindMenu,
         appSettings.dashboardContinuationEnabled,
@@ -94,8 +104,15 @@ class SettingsDashboardViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setDashboardCardKindMenu(enabled) }
     }
 
+    /**
+     * Mirrors the original toggle: enabling continuation also inserts the read lists section into the
+     * dashboard, disabling removes it.
+     */
     fun setContinuation(enabled: Boolean) {
-        viewModelScope.launch { appSettings.setDashboardContinuationEnabled(enabled) }
+        viewModelScope.launch {
+            appSettings.setReadListContinuationEnabled(enabled)
+            appSettings.setDashboardContinuationEnabled(enabled)
+        }
     }
 
     fun setSectionKind(sectionId: String, kind: DashboardCardKind?) {
@@ -112,6 +129,7 @@ class SettingsDashboardViewModel @Inject constructor(
             appSettings.setDashboardSectionOrder(emptyList())
             appSettings.setDashboardHiddenSections(emptySet())
             appSettings.setDashboardCardKindMenu(true)
+            appSettings.setReadListContinuationEnabled(false)
             appSettings.setDashboardContinuationEnabled(true)
         }
     }

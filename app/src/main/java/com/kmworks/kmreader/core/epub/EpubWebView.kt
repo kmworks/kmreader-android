@@ -229,7 +229,8 @@ fun createEpubWebView(
     context: android.content.Context,
     bridge: EpubJsBridge,
     client: EpubWebViewClient,
-): WebView = WebView(context).apply {
+    onBottomOverscroll: (() -> Unit)? = null,
+): EpubScrollWebView = EpubScrollWebView(context).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = false
     settings.allowFileAccess = false
@@ -238,4 +239,5 @@ fun createEpubWebView(
     settings.mediaPlaybackRequiresUserGesture = true
     webViewClient = client
     addJavascriptInterface(bridge, EpubJs.BRIDGE)
+    this.onBottomOverscroll = onBottomOverscroll
 }

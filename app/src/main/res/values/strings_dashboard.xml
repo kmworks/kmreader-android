@@ -42,8 +42,8 @@
     <string name="dashboard_settings_hidden_sections">Hidden Sections</string>
     <string name="dashboard_card_kind_menu">Card Kind Menu</string>
     <string name="dashboard_card_kind_menu_caption">Show the card kind switcher next to section titles</string>
-    <string name="dashboard_readlist_continuation">Read List Continuation</string>
-    <string name="dashboard_readlist_continuation_caption">Show the "Read Lists" section</string>
+    <string name="dashboard_readlist_continuation">Continue Read Lists Like Series</string>
+    <string name="dashboard_readlist_continuation_caption">Books from an ordered read list you\'re reading continue in the list\'s order wherever you open them, and the Read Lists section shows each list\'s next book.</string>
     <string name="dashboard_settings_scope_note">Scope: section content is filtered by the library scope in the dashboard top bar (All / Pinned / single library).</string>
     <string name="dashboard_settings_reorder_hint">Long-press the handle on the right to reorder; the switch controls whether a section is shown on the dashboard.</string>
     <string name="dashboard_reset_default">Reset to Default</string>

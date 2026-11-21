@@ -38,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -89,6 +90,12 @@ fun PdfReaderScreen(
     incognito: Boolean = false,
     viewModel: PdfReaderViewModel = hiltViewModel(),
     settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
+    /** The read list the book was opened from (null from everywhere else), kept across neighbouring books. */
+    readListStableId: Int? = null,
+    /** Open the book on its last page (explicit end-of-book entry; the backward seam resumes progress). */
+    startAtEnd: Boolean = false,
+    /** Opens a neighbouring book with the reader for its format; [startAtEnd] travels on the route. */
+    onOpenBook: (Book, Boolean) -> Unit = { _, _ -> },
     onVisitSeries: (Book) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
@@ -114,9 +121,9 @@ fun PdfReaderScreen(
     // throttle / exit flush would report page 1 first and cross the gating threshold)
     var initialPageApplied by remember { mutableStateOf(false) }
 
-    LaunchedEffect(book.id, incognito) {
+    LaunchedEffect(book.id, incognito, startAtEnd) {
         viewModel.incognito = incognito
-        viewModel.load(book)
+        viewModel.load(book, readListStableId, startAtEnd)
     }
 
     val pageCount =
@@ -443,6 +450,30 @@ fun PdfReaderScreen(
                                     showPageJump = true
                                 },
                             )
+                            // Neighbouring books: the read list order, else the series (mirrors the
+                            // Divina menu; another reader takes over through onOpenBook). Both sides
+                            // resume on their own progress, never on the end page.
+                            state.adjacent.previous?.let { previous ->
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.reader_menu_previous_book)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.flushProgress(currentPage)
+                                        onOpenBook(previous, false)
+                                    },
+                                )
+                            }
+                            state.adjacent.next?.let { next ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.reader_menu_next_book)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.flushProgress(currentPage)
+                                        onOpenBook(next, false)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

@@ -42,8 +42,8 @@
     <string name="dashboard_settings_hidden_sections">隐藏分区</string>
     <string name="dashboard_card_kind_menu">卡片形态菜单</string>
     <string name="dashboard_card_kind_menu_caption">在分区标题右侧显示卡片形态切换</string>
-    <string name="dashboard_readlist_continuation">阅读列表续读</string>
-    <string name="dashboard_readlist_continuation_caption">显示「进行中的阅读列表」分区</string>
+    <string name="dashboard_readlist_continuation">像系列一样继续阅读列表</string>
+    <string name="dashboard_readlist_continuation_caption">你正在阅读的有序阅读列表中的书籍，无论从哪里打开，都会按列表顺序继续，阅读列表分区会显示每个列表的下一本书。</string>
     <string name="dashboard_settings_scope_note">范围说明：分区内容按仪表盘顶栏的库范围（全部 / 已钉选 / 单库）过滤。</string>
     <string name="dashboard_settings_reorder_hint">长按右侧手柄拖动调整顺序；开关控制是否在仪表盘显示。</string>
     <string name="dashboard_reset_default">恢复默认</string>
