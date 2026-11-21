@@ -42,6 +42,11 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
+      # Guards backward compatibility: these decode real payloads captured from
+      # an older Komga to keep missing fields tolerated
+      - name: Run API decoding tests
+        run: ./gradlew :core:api:test --console=plain
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --console=plain
 

@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -115,7 +117,154 @@ tasks.register("patchGeneratedSources") {
             }
             if (changed) source.writeText(patched.joinToString(System.lineSeparator()))
         }
+        // 3. Tolerant decoding for response models.
+        //    A Komga server older than this OpenAPI snapshot legitimately omits
+        //    properties the snapshot marks required — `notableEntities`, for one,
+        //    only exists from Komga 1.29 — and kotlinx-serialization throws
+        //    MissingFieldException for a required property without a default.
+        //    The app turns that failure into an empty screen. Giving every
+        //    non-nullable response-model property a neutral default marks it
+        //    optional in the generated descriptor, so an absent field decodes to
+        //    an empty value, matching what the iOS client gets from its optional
+        //    properties. Request-only schemas stay strict on purpose: the app
+        //    always supplies their required properties, and kotlinx omits
+        //    default-valued properties when serializing (encodeDefaults is off),
+        //    so defaulting them would silently rewrite request bodies.
+        //    Required object references stay strict too: no neutral value exists.
+        val responseSchemas = responseReachableSchemas(rootProject.file("api/openapi.json"))
+        check(responseSchemas.isNotEmpty()) {
+            "no response models found in api/openapi.json — the spec layout changed"
+        }
+        var defaultedProperties = 0
+        modelDir.listFiles { f -> f.extension == "kt" }?.forEach { source ->
+            val schemaName = source.nameWithoutExtension
+            if (schemaName !in responseSchemas) return@forEach
+            val enumEntries = enumFirstEntries(source.readLines(), schemaName)
+            var inConstructor = false
+            var changed = false
+            val patched = source.readLines().map { line ->
+                val trimmed = line.trimEnd()
+                if (!inConstructor && (trimmed == "data class $schemaName (" || trimmed == "data class $schemaName(")) {
+                    inConstructor = true
+                    line
+                } else if (inConstructor && (trimmed == ")" || trimmed == ") {")) {
+                    inConstructor = false
+                    line
+                } else if (inConstructor) {
+                    val typedDefault = neutralDefault(trimmed, enumEntries)
+                    if (typedDefault == null) {
+                        line
+                    } else {
+                        changed = true
+                        defaultedProperties++
+                        typedDefault
+                    }
+                } else {
+                    line
+                }
+            }
+            if (changed) source.writeText(patched.joinToString(System.lineSeparator()))
+        }
+        if (defaultedProperties > 0) {
+            println("patchGeneratedSources: defaulted $defaultedProperties response property/ies for tolerant decoding")
+        }
     }
+}
+
+private val reflectedProperty = Regex("""^(\s+(?:override )?val [^:]+: )(.+?)(,?)$""")
+private val reflectedEnumEntry = Regex("""^\s+(?:@SerialName\(value = "[^"]*"\)\s+)?([A-Za-z0-9_]+)\(""")
+
+private val neutralScalars = mapOf(
+    "kotlin.String" to "\"\"",
+    "kotlin.Boolean" to "false",
+    "kotlin.Int" to "0",
+    "kotlin.Long" to "0L",
+    "kotlin.Double" to "0.0",
+    "kotlin.Float" to "0.0f",
+    "kotlinx.serialization.json.JsonElement" to "kotlinx.serialization.json.JsonNull",
+)
+
+/** The same property line with a neutral default appended, or null to leave it strict. */
+private fun neutralDefault(line: String, enumEntries: Map<String, String>): String? {
+    val match = reflectedProperty.matchEntire(line) ?: return null
+    val type = match.groupValues[2].trim()
+    // Already nullable or already defaulted: the generator emitted no strictness.
+    if (type.contains('?') || type.contains(" = ")) return null
+    val literal = neutralScalars[type]
+        ?: when {
+            type.startsWith("kotlin.collections.List<") -> "emptyList()"
+            type.startsWith("kotlin.collections.Set<") -> "emptySet()"
+            type.startsWith("kotlin.collections.Map<") -> "emptyMap()"
+            else -> enumEntries[type]?.let { "$type.$it" }
+        }
+        ?: return null
+    return match.groupValues[1] + type + " = " + literal + match.groupValues[3]
+}
+
+/** First declared constant of each nested enum declared in a generated model file. */
+private fun enumFirstEntries(lines: List<String>, owner: String): Map<String, String> {
+    val entries = mutableMapOf<String, String>()
+    var pendingEnum: String? = null
+    lines.forEach { line ->
+        val declaration = Regex("""^\s+enum class (\w+)\(val value:""").find(line)
+        if (declaration != null) {
+            pendingEnum = declaration.groupValues[1]
+            return@forEach
+        }
+        val enumName = pendingEnum ?: return@forEach
+        if (line.trimStart().startsWith("}")) {
+            pendingEnum = null
+            return@forEach
+        }
+        val entry = reflectedEnumEntry.find(line)
+        if (entry != null) {
+            entries["$owner.$enumName"] = entry.groupValues[1]
+            pendingEnum = null
+        }
+    }
+    return entries
+}
+
+/**
+ * Schema names reachable from any API response body in the pinned spec. Only
+ * those models are decoded from server payloads, so only those get the tolerant
+ * treatment; request bodies are built locally and stay strict.
+ */
+private fun responseReachableSchemas(specFile: File): Set<String> {
+    val spec = JsonSlurper().parse(specFile) as Map<*, *>
+    val schemas = ((spec["components"] as? Map<*, *>)?.get("schemas") as? Map<*, *>) ?: return emptySet()
+    val operationKeys = setOf("get", "put", "post", "delete", "options", "head", "patch", "trace")
+
+    fun collectReferences(node: Any?, into: MutableSet<String>) {
+        when (node) {
+            is Map<*, *> -> {
+                (node["\$ref"] as? String)?.let { into += it.substringAfterLast('/') }
+                node.values.forEach { collectReferences(it, into) }
+            }
+            is List<*> -> node.forEach { collectReferences(it, into) }
+        }
+    }
+
+    val roots = mutableSetOf<String>()
+    (spec["paths"] as? Map<*, *>)?.values?.forEach { pathItem ->
+        (pathItem as? Map<*, *>)?.forEach { (key, operation) ->
+            if (key !in operationKeys) return@forEach
+            val responses = (operation as? Map<*, *>)?.get("responses") ?: return@forEach
+            collectReferences(responses, roots)
+        }
+    }
+
+    val reachable = mutableSetOf<String>()
+    val queue = ArrayDeque(roots)
+    while (queue.isNotEmpty()) {
+        val name = queue.removeFirst()
+        if (!reachable.add(name)) continue
+        val schema = schemas[name] ?: continue
+        val referenced = mutableSetOf<String>()
+        collectReferences(schema, referenced)
+        referenced.forEach { if (it !in reachable) queue.addLast(it) }
+    }
+    return reachable
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
@@ -131,4 +280,10 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation(kotlin("test"))
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
