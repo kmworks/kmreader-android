@@ -151,10 +151,17 @@ class ReadListDetailViewModel @Inject constructor(
             }
         }
         is ContentChange.ReadLists -> {
-            // This list's own membership/metadata: re-read. Its deletion closes the page,
-            // so there is nothing left to refresh.
             val dtoId = currentDtoId
-            dtoId == null || dtoId !in change.dtoIds || change.kind == ContentChangeKind.Deleted
+            when {
+                // Another read list changed: not this page's business.
+                dtoId == null || dtoId !in change.dtoIds -> true
+                // The page renders only name/summary/ordered, and [save] has already put the
+                // written values in the state: re-reading would blank the book list for nothing.
+                change.kind == ContentChangeKind.MetadataChanged -> true
+                // Membership, or this list's deletion (which closes the page): the server owns
+                // the new rows.
+                else -> false
+            }
         }
         // Collections and smart lists are not this page's subject.
         else -> true
@@ -370,6 +377,25 @@ class ReadListDetailViewModel @Inject constructor(
             actionRepository.addBookToReadList(readListDtoId, bookDtoId)
         }
         return true
+    }
+
+    /**
+     * Rename/reorder the read list (PATCH api/v1/readlists/{id}). The new values are applied to the
+     * state here so the content-change broadcast can be patched instead of forcing a reload.
+     */
+    fun save(name: String, summary: String, ordered: Boolean, onDone: (Boolean) -> Unit) {
+        val dtoId = currentDtoId ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.updateReadList(dtoId, name, summary, ordered)
+            if (ok) _uiState.update { it.copy(name = name, summary = summary, ordered = ordered) }
+            onDone(ok)
+        }
+    }
+
+    /** Delete the read list; the caller closes the page when the write succeeds. */
+    fun delete(onDone: (Boolean) -> Unit) {
+        val dtoId = currentDtoId ?: return onDone(false)
+        viewModelScope.launch { onDone(listRepository.deleteReadList(dtoId)) }
     }
 
     /** Create a read list from the picker's selection (its books, or the books of its series); reports the new entry. */
