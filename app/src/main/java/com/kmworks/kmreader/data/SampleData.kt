@@ -100,6 +100,11 @@ data class Book(
      * the format has to be known before the reader page is pushed (see [readerFormat]).
      */
     val mediaType: String = "",
+    /**
+     * Komga reports whether an EPUB is DIVINA-compatible (server-rendered pages) or must be read as a
+     * WebPub/whole-file EPUB. Mirrors MediaDto.epubDivinaCompatible; the download kind depends on it.
+     */
+    val epubDivinaCompatible: Boolean = false,
     /** Marked deleted on the server (mirrors iOS book.deleted; shown in red as "Unavailable" on the detail page). */
     val deleted: Boolean = false,
     /** External metadata links (komf identification candidates; series links are often empty for one-shots so fall back to the book). */

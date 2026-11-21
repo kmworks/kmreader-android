@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.download.DownloadTaskUi
 import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -507,6 +508,7 @@ private fun DownloadTaskRow(
         CoverArt(
             title = task.title,
             hue = (task.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
+            stableId = StableIds.book(task.bookDtoId),
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),
@@ -520,7 +522,11 @@ private fun DownloadTaskRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = stringResource(R.string.offline_task_pages, task.pageDone, task.pageTotal),
+                text = if (task.kind.isSingleFile) {
+                    stringResource(R.string.offline_task_file)
+                } else {
+                    stringResource(R.string.offline_task_pages, task.pageDone, task.pageTotal)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -553,7 +559,11 @@ private fun DownloadTaskRow(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        stringResource(R.string.offline_task_paused_detail, task.pageDone),
+                        text = if (task.kind.isSingleFile) {
+                            stringResource(R.string.offline_task_paused_file)
+                        } else {
+                            stringResource(R.string.offline_task_paused_detail, task.pageDone)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -636,6 +646,7 @@ private fun DownloadedRow(item: DownloadedBookUi, onRemove: () -> Unit) {
         CoverArt(
             title = item.title,
             hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
+            stableId = StableIds.book(item.bookDtoId),
             modifier = Modifier
                 .width(44.dp)
                 .aspectRatio(2f / 3f),

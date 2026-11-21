@@ -122,6 +122,8 @@
     <string name="offline_downloaded_empty">暂无已下载内容</string>
     <string name="offline_downloaded_empty_caption">已下载的书籍可离线阅读</string>
     <string name="offline_task_pages">%1$d/%2$d 页</string>
+    <string name="offline_task_file">正在下载书籍文件</string>
+    <string name="offline_task_paused_file">已暂停 · 恢复后续传</string>
     <string name="offline_paused_resume">已暂停 · 已下载 %1$d 页，恢复后续传</string>
     <string name="offline_failed_retry">下载失败，可重试</string>
     <string name="offline_pause">暂停</string>

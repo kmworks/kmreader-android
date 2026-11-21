@@ -38,10 +38,22 @@ object EpubWeb {
         if (uri.host != FAKE_HOST) return null
         val segments = uri.pathSegments ?: return null
         if (segments.size < 2) return null
-        return segments.drop(1).joinToString("/")
+        // Normalized so the zip lookup and the resource cache agree on one spelling per file.
+        return EpubHref.normalize(segments.drop(1).joinToString("/"))
     }
 
-    /** Full URL of a resource request (href joined verbatim into the query). */
+    /**
+     * Path-style resource URL: `/resource/<href segments>`. Preferred over the legacy query form
+     * because it keeps the href a path (the reader looks resources up by path), and it is the form
+     * Komga documents; the query form stays available as a fallback for older servers.
+     */
+    fun resourcePathUrl(baseUrl: String, bookDtoId: String, href: String): String {
+        val path = EpubHref.normalize(href)
+        return "$baseUrl/api/v1/books/$bookDtoId/resource/" +
+            path.split('/').joinToString("/") { Uri.encode(it) }
+    }
+
+    /** Legacy resource URL (href joined verbatim into the query); kept as a fallback. */
     fun resourceRequestUrl(baseUrl: String, bookDtoId: String, href: String): String =
         "$baseUrl/api/v1/books/$bookDtoId/resource?$href"
 

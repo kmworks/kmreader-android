@@ -223,4 +223,8 @@
     <string name="pdf_reading_background">Reading background</string>
     <string name="pdf_section_overlay">Reading overlay</string>
     <string name="pdf_show_progress">Show progress bar while reading</string>
-</resources>
+    <string name="pdf_native_engine">Native PDF renderer</string>
+    <string name="pdf_native_engine_hint">Renders pages locally with Android\'s PdfRenderer; no text selection or search</string>
+    <string name="pdf_reader_volume">Vol. %1$d · PDF</string>
+    <string name="pdf_page_content">Page %1$d</string>
+    <string name="pdf_page_placeholder">PDF page %1$d</string></resources>

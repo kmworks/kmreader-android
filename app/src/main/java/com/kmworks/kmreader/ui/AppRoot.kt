@@ -91,6 +91,7 @@ import com.kmworks.kmreader.ui.login.LoginScreen
 import com.kmworks.kmreader.ui.offline.OfflineScreen
 import com.kmworks.kmreader.ui.reader.CustomFontsScreen
 import com.kmworks.kmreader.ui.reader.EpubReaderScreen
+import com.kmworks.kmreader.ui.reader.NativePdfReaderScreen
 import com.kmworks.kmreader.ui.reader.PdfReaderScreen
 import com.kmworks.kmreader.ui.reader.ReaderScreen
 import com.kmworks.kmreader.ui.settings.AboutScreen
@@ -259,6 +260,8 @@ fun AppRoot(
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
     // (page background only) instead of flashing the login page before the saved session arrives.
     val sessionGate by rootViewModel.sessionGate.collectAsStateWithLifecycle()
+    // PDF engine selection (native PdfRenderer vs androidx.pdf); device-local preference.
+    val useNativePdfReader by rootViewModel.useNativePdfReader.collectAsStateWithLifecycle()
     when (sessionGate) {
         SessionGate.Loading -> {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
@@ -693,22 +696,31 @@ fun AppRoot(
                             },
                         )
 
-                        "PDF" -> PdfReaderScreen(
-                            book = route.book,
-                            onBack = pop,
-                            incognito = route.incognito,
-                            readListStableId = route.readListStableId,
-                            startAtEnd = route.startAtEnd,
-                            onOpenBook = ::openAdjacent,
-                            onVisitSeries = {
-                                pop()
-                                visitSeriesOfBook(it)
-                            },
-                            onOpenReadList = { push(ReadListDetailRoute(it)) },
-                            onBrowseFilter = { filter ->
-                                pushFilteredLibrary(filter, LibraryContentType.Books)
-                            },
-                        )
+                        "PDF" -> if (useNativePdfReader) {
+                            NativePdfReaderScreen(
+                                book = route.book,
+                                onBack = pop,
+                                incognito = route.incognito,
+                                startAtEnd = route.startAtEnd,
+                            )
+                        } else {
+                            PdfReaderScreen(
+                                book = route.book,
+                                onBack = pop,
+                                incognito = route.incognito,
+                                readListStableId = route.readListStableId,
+                                startAtEnd = route.startAtEnd,
+                                onOpenBook = ::openAdjacent,
+                                onVisitSeries = {
+                                    pop()
+                                    visitSeriesOfBook(it)
+                                },
+                                onOpenReadList = { push(ReadListDetailRoute(it)) },
+                                onBrowseFilter = { filter ->
+                                    pushFilteredLibrary(filter, LibraryContentType.Books)
+                                },
+                            )
+                        }
 
                         else -> ReaderScreen(
                             book = route.book,

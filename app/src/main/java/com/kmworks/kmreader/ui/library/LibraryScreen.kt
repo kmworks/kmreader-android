@@ -588,7 +588,7 @@ fun LibraryScreen(
                 onOpenDetails = { onOpenBook(book) },
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
-                onDownload = { viewModel.downloadBook(book.id, book.title, book.pageCount) },
+                onDownload = { viewModel.downloadBook(book) },
                 onAddToReadList = if (state.isAdmin) {
                     {
                         addTarget = book

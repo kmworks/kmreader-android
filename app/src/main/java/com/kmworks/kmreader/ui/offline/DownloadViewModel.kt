@@ -95,9 +95,9 @@ class DownloadViewModel @Inject constructor(
         viewModelScope.launch { downloadRepository.cancelBook(task.bookDtoId) }
     }
 
-    /** Retry a failed task (re-enqueue; pages already on disk are skipped). */
+    /** Retry a failed task using the kind/format recorded at enqueue time (existing content is skipped). */
     fun retry(task: DownloadTaskUi) {
-        downloadRepository.enqueueBook(task.bookDtoId, task.title, task.pageTotal)
+        downloadRepository.retryBook(task.bookDtoId)
     }
 
     /** Real pause: cancel the task but keep pages already on disk (resume skips what is there). */

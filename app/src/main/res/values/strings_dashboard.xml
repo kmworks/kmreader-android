@@ -122,6 +122,8 @@
     <string name="offline_downloaded_empty">No downloaded content</string>
     <string name="offline_downloaded_empty_caption">Downloaded books can be read offline</string>
     <string name="offline_task_pages">%1$d/%2$d pages</string>
+    <string name="offline_task_file">Downloading book file</string>
+    <string name="offline_task_paused_file">Paused · resumes where it left off</string>
     <string name="offline_paused_resume">Paused · %1$d pages downloaded, will resume</string>
     <string name="offline_failed_retry">Download failed, you can retry</string>
     <string name="offline_pause">Pause</string>

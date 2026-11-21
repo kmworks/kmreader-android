@@ -2,6 +2,7 @@ package com.kmworks.kmreader.core.pdf
 
 import android.content.Context
 import com.kmworks.kmreader.core.data.DetailIdRegistry
+import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.network.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -20,17 +21,23 @@ import okhttp3.Request
 class PdfRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sessionManager: SessionManager,
+    private val offlineLibrary: OfflineLibrary,
 ) {
 
     private val pdfDir: File get() = File(context.filesDir, "pdf")
 
     fun bookDtoId(stableId: Int): String? = DetailIdRegistry.bookDtoId(stableId)
 
-    /** The cached PDF file (exists and non-empty); otherwise null. */
-    fun cachedFile(bookDtoId: String): File? {
-        val file = File(pdfDir, "$bookDtoId.pdf")
-        return if (file.exists() && file.length() > 0) file else null
-    }
+    /**
+     * The PDF file to open (exists and non-empty); otherwise null.
+     *
+     * A whole-book download (DownloadKind.Pdf) wins over this repository's own cache: P2 already
+     * stores book.pdf next to the other downloads, so reusing it avoids a second copy on disk and
+     * a second download.
+     */
+    fun cachedFile(bookDtoId: String): File? =
+        offlineLibrary.pdfFile(bookDtoId)?.takeIf { it.isFile && it.length() > 0L }
+            ?: File(pdfDir, "$bookDtoId.pdf").takeIf { it.exists() && it.length() > 0L }
 
     /**
      * Download the whole PDF; returns immediately when already cached.
@@ -53,7 +60,7 @@ class PdfRepository @Inject constructor(
         try {
             clients.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
-                val body = response.body ?: return@withContext null
+                val body = response.body
                 pdfDir.mkdirs()
                 val append = response.code == 206 && resumeFrom > 0
                 val total = body.contentLength().let { length ->

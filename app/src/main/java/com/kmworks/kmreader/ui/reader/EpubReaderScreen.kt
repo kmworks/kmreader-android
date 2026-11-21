@@ -86,6 +86,7 @@ import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.epub.EpubChapter
+import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
@@ -95,6 +96,7 @@ import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.reading.ReadListReadingService
@@ -141,6 +143,7 @@ data class EpubUiState(
 class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
+    private val offlineLibrary: OfflineLibrary,
     private val fontRepository: FontRepository,
     private val appSettings: AppSettingsStore,
     @ApplicationContext private val context: Context,
@@ -214,7 +217,10 @@ class EpubReaderViewModel @Inject constructor(
             }
             bookDtoId = dtoId
             refreshFonts()
-            val manifest = epubRepository.manifest(dtoId)
+            // Offline first: a downloaded EPUB carries its own manifest, so the TOC and the
+            // reading order survive without the server; the network manifest stays authoritative.
+            val manifest = runCatching { epubRepository.manifest(dtoId) }.getOrNull()
+                ?: offlineLibrary.epubManifest(dtoId)
             val order = manifest?.readingOrder.orEmpty()
                 .filter { !it.href.isNullOrBlank() }
             if (order.isEmpty()) {
@@ -227,7 +233,8 @@ class EpubReaderViewModel @Inject constructor(
             val chapters = order.mapIndexed { index, link ->
                 EpubChapter(
                     index = index,
-                    href = link.href.orEmpty(),
+                    // Canonical path; resource URLs and progression hrefs are compared through it.
+                    href = EpubHref.normalize(link.href.orEmpty()),
                     title = link.title?.takeIf { it.isNotBlank() }
                         ?: context.getString(R.string.epub_chapter_fallback, index + 1),
                 )
@@ -238,7 +245,7 @@ class EpubReaderViewModel @Inject constructor(
             weightsByHref = positions
                 ?.takeIf { it.total > 0 }
                 ?.positions
-                ?.groupingBy { it.href }
+                ?.groupingBy { EpubHref.normalize(it.href) }
                 ?.eachCount()
                 ?.mapValues { it.value.toFloat() / positionsTotal }
                 .orEmpty()
@@ -252,7 +259,7 @@ class EpubReaderViewModel @Inject constructor(
             var startIndex = 0
             var startFraction: Float? = null
             if (saved != null) {
-                val index = chapters.indexOfFirst { it.href == saved.locator.href }
+                val index = chapters.indexOfFirst { EpubHref.matches(it.href, saved.locator.href) }
                 if (index >= 0) {
                     startIndex = index
                     startFraction = saved.locator.locations?.progression
@@ -356,9 +363,23 @@ class EpubReaderViewModel @Inject constructor(
     /** Forwards resource interception (called synchronously on the WebViewClient thread). */
     fun fetchResource(href: String): EpubResource? {
         val dtoId = bookDtoId ?: return null
+        // Downloaded EPUB first: no network round trip and the reader works offline. The zip
+        // stores resources as plain paths, which is exactly the normalized href.
+        offlineLibrary.epubResourceBlocking(dtoId, href)?.let {
+            return if (it.mimeType == "application/octet-stream") {
+                EpubResource(it.data, EpubWeb.mediaTypeFor(href), it.encoding)
+            } else {
+                it
+            }
+        }
         val base = epubRepository.baseUrl ?: return null
-        val url = EpubWeb.resourceRequestUrl(base, dtoId, href)
-        val resource = epubRepository.fetchResourceBlocking(url) ?: return null
+        // Path-style URL first (the documented resource route), then the legacy query form for
+        // servers that only accept the href as a query parameter.
+        val resource = epubRepository.fetchResourceBlocking(
+            EpubWeb.resourcePathUrl(base, dtoId, href),
+        ) ?: epubRepository.fetchResourceBlocking(
+            EpubWeb.resourceRequestUrl(base, dtoId, href),
+        ) ?: return null
         return if (resource.mimeType == "application/octet-stream") {
             EpubResource(resource.data, EpubWeb.mediaTypeFor(href), resource.encoding)
         } else {
@@ -992,7 +1013,7 @@ private fun flattenToc(
 }
 
 private fun tocContainsHref(href: String, links: List<EpubLinkDto>): Boolean =
-    links.any { it.href == href || tocContainsHref(href, it.children.orEmpty()) }
+    links.any { EpubHref.matches(it.href, href) || tocContainsHref(href, it.children.orEmpty()) }
 
 /** Containers holding the current entry are expanded by default (mirrors the DisclosureGroup init in EpubTocSheetView). */
 private fun initialTocExpanded(
@@ -1034,7 +1055,7 @@ private fun EpubChapterSheet(
 
     fun jumpTo(link: EpubLinkDto) {
         val href = firstDescendantHref(link) ?: return
-        val index = chapters.indexOfFirst { it.href == href }
+        val index = chapters.indexOfFirst { EpubHref.matches(it.href, href) }
         if (index >= 0) onJump(index)
     }
 
@@ -1065,7 +1086,7 @@ private fun EpubChapterSheet(
             } else {
                 items(rows.size) { index ->
                     val row = rows[index]
-                    val isCurrent = row.link.href != null && row.link.href == currentHref
+                    val isCurrent = EpubHref.matches(row.link.href, currentHref)
                     TocEntryRow(
                         title = row.link.title ?: row.link.href ?: "",
                         depth = row.depth,

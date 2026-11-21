@@ -409,7 +409,13 @@ class SeriesDetailViewModel @Inject constructor(
         var enqueued = false
         books.forEach { book ->
             val dtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
-            downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+            downloadRepository.enqueueBook(
+                dtoId,
+                book.title,
+                book.pageCount,
+                mediaType = book.mediaType,
+                epubDivinaCompatible = book.epubDivinaCompatible,
+            )
             enqueued = true
         }
         if (enqueued) refreshDownloaded()
@@ -460,7 +466,13 @@ class SeriesDetailViewModel @Inject constructor(
         var enqueued = false
         books.forEach { book ->
             val dtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
-            downloadRepository.enqueueBook(dtoId, book.title, book.pageCount)
+            downloadRepository.enqueueBook(
+                dtoId,
+                book.title,
+                book.pageCount,
+                mediaType = book.mediaType,
+                epubDivinaCompatible = book.epubDivinaCompatible,
+            )
             enqueued = true
         }
         return enqueued
@@ -473,7 +485,13 @@ class SeriesDetailViewModel @Inject constructor(
         _uiState.value.books.orEmpty().filter { (it.progress ?: 0f) < 1f }.forEach { book ->
             val bookDtoId = detailRepository.bookDtoId(book.id) ?: return@forEach
             if (_downloaded.value[book.id] != true) {
-                downloadRepository.enqueueBook(bookDtoId, book.title, book.pageCount)
+                downloadRepository.enqueueBook(
+                    bookDtoId,
+                    book.title,
+                    book.pageCount,
+                    mediaType = book.mediaType,
+                    epubDivinaCompatible = book.epubDivinaCompatible,
+                )
             }
         }
     }
