@@ -94,7 +94,7 @@
 
     <!-- Series / book / one-shot metadata edit sheets -->
     <string name="book_edit_title">编辑书籍</string>
-    <string name="detail_edit_oneshot">编辑单发</string>
+    <string name="detail_edit_oneshot">编辑单篇</string>
     <string name="detail_basic_info">基本信息</string>
     <string name="detail_reading_settings">阅读设置</string>
     <string name="edit_tab_general">通用</string>

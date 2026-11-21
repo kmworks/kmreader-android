@@ -54,7 +54,7 @@
     <string name="notable_active_filter">知名实体：%1$s</string>
 
     <!-- Book / series cards -->
-    <string name="components_oneshot">单行本</string>
+    <string name="components_oneshot">单篇</string>
     <string name="card_read_percent">已读 %1$d%%</string>
     <string name="card_unavailable">不可用</string>
     <string name="card_book_count_total">%1$d / %2$d 册</string>
@@ -115,7 +115,7 @@
     <string name="filter_descending">降序</string>
     <string name="filter_read_status">阅读状态</string>
     <string name="filter_flags">标记</string>
-    <string name="filter_oneshot">单发</string>
+    <string name="filter_oneshot">单篇</string>
     <string name="filter_deleted">已删除</string>
     <string name="filter_series_status">系列状态</string>
     <string name="filter_publisher">出版社</string>
