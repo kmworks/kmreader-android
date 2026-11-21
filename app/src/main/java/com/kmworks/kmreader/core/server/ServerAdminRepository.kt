@@ -48,7 +48,10 @@ data class SessionEntry(
     val creationTime: String? = null,
     val lastAccessedTime: String? = null,
     val current: Boolean = false,
+    /** The actuator listing reports expired sessions; the native listings only return live ones. */
+    val expired: Boolean = false,
     val email: String? = null,
+    val userId: String? = null,
     val native: Boolean = false,
 )
 
@@ -290,6 +293,7 @@ class ServerAdminRepository @Inject constructor(
                         creationTime = dto.creationTime,
                         lastAccessedTime = dto.lastAccessedTime,
                         email = dto.email,
+                        userId = dto.userId,
                         native = true,
                     )
                 },
@@ -308,6 +312,7 @@ class ServerAdminRepository @Inject constructor(
                     id = dto.id,
                     creationTime = dto.creationTime,
                     lastAccessedTime = dto.lastAccessedTime,
+                    expired = dto.expired == true,
                     native = false,
                 )
             },

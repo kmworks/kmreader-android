@@ -29,6 +29,7 @@
     <string name="server_admin_memory">Memory</string>
     <string name="server_admin_disk">Disk</string>
     <string name="server_admin_disk_value">%1$s free of %2$s</string>
+    <string name="server_admin_disk_free_value">%1$s free</string>
 
     <string name="server_admin_section_content">Content</string>
     <string name="server_admin_libraries">Libraries</string>
@@ -57,6 +58,7 @@
     <string name="server_admin_stats_unavailable">This server does not expose library statistics.</string>
 
     <string name="server_admin_tasks_queue">Task queue</string>
+    <string name="server_admin_tasks_total">Total tasks</string>
     <string name="server_admin_tasks_queued">%1$d queued</string>
     <string name="server_admin_tasks_cancel_all">Cancel all tasks</string>
     <string name="server_admin_tasks_cancel_all_confirm">Every queued task will be discarded.</string>
@@ -72,7 +74,10 @@
     <string name="server_admin_sessions_empty">There are no active sessions.</string>
     <string name="server_admin_sessions_kick">Kick</string>
     <string name="server_admin_sessions_current">This device</string>
+    <string name="server_admin_sessions_active">Active</string>
+    <string name="server_admin_sessions_expired">Expired</string>
     <string name="server_admin_sessions_anonymous">Anonymous</string>
+    <string name="server_admin_sessions_footer">Kicking a session signs that device out immediately.</string>
     <string name="server_admin_session_created">Created %1$s</string>
     <string name="server_admin_session_accessed">Last seen %1$s</string>
     <string name="server_admin_session_kicked">Session kicked</string>
@@ -81,6 +86,7 @@
     <string name="server_admin_scheduled_unavailable">Scheduled tasks are not available on this server.</string>
 
     <string name="server_admin_history_empty">No server activity yet.</string>
+    <string name="server_admin_history_no_file">No file</string>
 
     <string name="server_admin_files_unavailable">The server filesystem is not accessible.</string>
     <string name="server_admin_files_root">Server filesystem</string>

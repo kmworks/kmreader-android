@@ -29,6 +29,7 @@
     <string name="server_admin_memory">内存</string>
     <string name="server_admin_disk">磁盘</string>
     <string name="server_admin_disk_value">剩余 %1$s，共 %2$s</string>
+    <string name="server_admin_disk_free_value">剩余 %1$s</string>
 
     <string name="server_admin_section_content">内容</string>
     <string name="server_admin_libraries">书库</string>
@@ -57,6 +58,7 @@
     <string name="server_admin_stats_unavailable">该服务器未提供书库统计。</string>
 
     <string name="server_admin_tasks_queue">任务队列</string>
+    <string name="server_admin_tasks_total">总任务</string>
     <string name="server_admin_tasks_queued">排队 %1$d 个</string>
     <string name="server_admin_tasks_cancel_all">取消全部任务</string>
     <string name="server_admin_tasks_cancel_all_confirm">所有排队中的任务都将被丢弃。</string>
@@ -72,7 +74,10 @@
     <string name="server_admin_sessions_empty">当前没有活跃会话。</string>
     <string name="server_admin_sessions_kick">踢出</string>
     <string name="server_admin_sessions_current">本设备</string>
+    <string name="server_admin_sessions_active">活跃</string>
+    <string name="server_admin_sessions_expired">已过期</string>
     <string name="server_admin_sessions_anonymous">匿名</string>
+    <string name="server_admin_sessions_footer">踢出会话会立即使该设备退出登录。</string>
     <string name="server_admin_session_created">创建于 %1$s</string>
     <string name="server_admin_session_accessed">最后访问 %1$s</string>
     <string name="server_admin_session_kicked">会话已踢出</string>
@@ -81,6 +86,7 @@
     <string name="server_admin_scheduled_unavailable">该服务器未提供定时任务。</string>
 
     <string name="server_admin_history_empty">暂无服务器活动记录。</string>
+    <string name="server_admin_history_no_file">无文件</string>
 
     <string name="server_admin_files_unavailable">无法访问服务器文件系统。</string>
     <string name="server_admin_files_root">服务器文件系统</string>

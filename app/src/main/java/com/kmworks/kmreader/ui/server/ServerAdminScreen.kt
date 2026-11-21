@@ -21,15 +21,48 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.ArrowCircleDown
+import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.DocumentScanner
+import androidx.compose.material.icons.outlined.EventRepeat
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FormatListBulleted
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.ManageAccounts
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,9 +81,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -64,6 +102,10 @@ import com.kmworks.kmreader.core.server.SessionScope
 import com.kmworks.kmreader.core.server.TaskTypeStatsDto
 import com.kmworks.kmreader.ui.components.relativeTimeLabel
 import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 /**
@@ -158,6 +200,7 @@ fun ServerAdminScreen(
             when {
                 !state.isAdmin -> CenteredMessage(R.string.server_admin_admin_required)
                 state.page == ServerAdminPage.Info -> InfoPage(
+                    taskQueueCount = state.tasks.queueSize,
                     onOpen = viewModel::open,
                     onDownloadLog = { viewModel.open(ServerAdminPage.Log) },
                     onShutdown = { confirmShutdown = true },
@@ -252,6 +295,7 @@ private fun pageTitleRes(page: ServerAdminPage): Int = when (page) {
  */
 @Composable
 private fun InfoPage(
+    taskQueueCount: Long?,
     onOpen: (ServerAdminPage) -> Unit,
     onDownloadLog: () -> Unit,
     onShutdown: () -> Unit,
@@ -262,27 +306,87 @@ private fun InfoPage(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item { SectionTitle(stringResource(R.string.server_admin_section_server)) }
-        item { NavRow(stringResource(R.string.server_admin_info)) { onOpen(ServerAdminPage.ServerInfo) } }
+        item {
+            NavRow(stringResource(R.string.server_admin_info), Icons.Outlined.Dns) {
+                onOpen(ServerAdminPage.ServerInfo)
+            }
+        }
 
         item { SectionTitle(stringResource(R.string.server_admin_section_manage)) }
-        item { NavRow(stringResource(R.string.server_admin_libraries)) { onOpen(ServerAdminPage.Libraries) } }
-        item { NavRow(stringResource(R.string.server_admin_libraries_manage)) { onOpen(ServerAdminPage.LibrariesAdmin) } }
-        item { NavRow(stringResource(R.string.server_admin_api_keys)) { onOpen(ServerAdminPage.ApiKeys) } }
-        item { NavRow(stringResource(R.string.server_admin_auth_activity)) { onOpen(ServerAdminPage.AuthActivity) } }
-        item { NavRow(stringResource(R.string.server_admin_media)) { onOpen(ServerAdminPage.Media) } }
-        item { NavRow(stringResource(R.string.server_admin_tasks)) { onOpen(ServerAdminPage.Tasks) } }
-        item { NavRow(stringResource(R.string.server_admin_sessions)) { onOpen(ServerAdminPage.Sessions) } }
-        item { NavRow(stringResource(R.string.server_admin_scheduled)) { onOpen(ServerAdminPage.Scheduled) } }
-        item { NavRow(stringResource(R.string.server_admin_history)) { onOpen(ServerAdminPage.History) } }
-        item { NavRow(stringResource(R.string.server_admin_files)) { onOpen(ServerAdminPage.Files) } }
+        item {
+            NavRow(stringResource(R.string.server_admin_libraries), Icons.Outlined.CollectionsBookmark) {
+                onOpen(ServerAdminPage.Libraries)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_libraries_manage), Icons.Outlined.Tune) {
+                onOpen(ServerAdminPage.LibrariesAdmin)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_api_keys), Icons.Outlined.Key) {
+                onOpen(ServerAdminPage.ApiKeys)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_auth_activity), Icons.Outlined.ManageAccounts) {
+                onOpen(ServerAdminPage.AuthActivity)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_media), Icons.Outlined.DocumentScanner) {
+                onOpen(ServerAdminPage.Media)
+            }
+        }
+        item {
+            NavRow(
+                label = stringResource(R.string.server_admin_tasks),
+                icon = Icons.Outlined.Assignment,
+                // The queue count is the same badge the iOS tile carries.
+                badge = taskQueueCount?.takeIf { it > 0L }?.toString(),
+            ) { onOpen(ServerAdminPage.Tasks) }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_sessions), Icons.Outlined.People) {
+                onOpen(ServerAdminPage.Sessions)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_scheduled), Icons.Outlined.EventRepeat) {
+                onOpen(ServerAdminPage.Scheduled)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_history), Icons.Outlined.History) {
+                onOpen(ServerAdminPage.History)
+            }
+        }
+        item {
+            NavRow(stringResource(R.string.server_admin_files), Icons.Outlined.Folder) {
+                onOpen(ServerAdminPage.Files)
+            }
+        }
 
         item { SectionTitle(stringResource(R.string.server_admin_section_maintenance)) }
-        item { NavRow(stringResource(R.string.server_admin_log)) { onDownloadLog() } }
+        item {
+            NavRow(stringResource(R.string.server_admin_log), Icons.Outlined.Description) {
+                onDownloadLog()
+            }
+        }
         item {
             OutlinedButton(
                 onClick = onShutdown,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            ) { Text(stringResource(R.string.server_admin_shutdown), color = MaterialTheme.colorScheme.error) }
+            ) {
+                Icon(
+                    Icons.Outlined.PowerSettingsNew,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.server_admin_shutdown), color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
@@ -305,28 +409,43 @@ private fun ServerInfoPage(state: ServerAdminUiState) {
     ) {
         item { SectionTitle(stringResource(R.string.server_admin_section_server)) }
         item {
-            info.version?.let { ValueRow(stringResource(R.string.server_admin_version), it) }
+            info.version?.let {
+                InfoRow(Icons.Outlined.Sell, stringResource(R.string.server_admin_version), it)
+            }
         }
         item {
-            info.commit?.let { ValueRow(stringResource(R.string.server_admin_commit), it) }
+            info.commit?.let {
+                InfoRow(
+                    icon = Icons.Outlined.AccountTree,
+                    label = stringResource(R.string.server_admin_commit),
+                    value = it,
+                    monospaced = true,
+                )
+            }
         }
         item {
-            info.osLine?.let { ValueRow(stringResource(R.string.server_admin_os), it) }
+            info.osLine?.let {
+                InfoRow(Icons.Outlined.Computer, stringResource(R.string.server_admin_os), it)
+            }
         }
         item {
-            info.healthStatus?.let { ValueRow(stringResource(R.string.server_admin_health), it) }
+            info.healthStatus?.let {
+                InfoRow(Icons.Outlined.MonitorHeart, stringResource(R.string.server_admin_health), it)
+            }
         }
         item {
             info.startedAtMs?.let {
-                ValueRow(
+                // Absolute date + time, matching the iOS info row (the relative label stays on updates/history).
+                InfoRow(
+                    Icons.Outlined.Schedule,
                     stringResource(R.string.server_admin_started),
-                    stringResource(R.string.server_admin_rel_time, relativeTimeLabel(it)),
+                    dateTimeLabel(it),
                 )
             }
         }
         item {
             info.uptimeSeconds?.let {
-                ValueRow(stringResource(R.string.server_admin_uptime), formatDuration(it))
+                InfoRow(Icons.Outlined.Timer, stringResource(R.string.server_admin_uptime), formatDuration(it))
             }
         }
 
@@ -336,28 +455,25 @@ private fun ServerInfoPage(state: ServerAdminUiState) {
             item { HintText(stringResource(R.string.server_admin_update_unsupported)) }
         }
 
-        if (info.cpuPercent != null || info.memoryBytes != null || info.diskTotal != null) {
+        if (info.cpuPercent != null || info.memoryBytes != null || info.diskFree != null) {
             item { SectionTitle(stringResource(R.string.server_admin_section_resources)) }
             item {
                 info.cpuPercent?.let {
-                    ValueRow(stringResource(R.string.server_admin_cpu), formatPercent(it))
+                    InfoRow(Icons.Outlined.Speed, stringResource(R.string.server_admin_cpu), formatPercent(it))
                 }
             }
             item {
                 info.memoryBytes?.let {
-                    ValueRow(stringResource(R.string.server_admin_memory), formatBytes(it))
+                    InfoRow(Icons.Outlined.Memory, stringResource(R.string.server_admin_memory), formatBytes(it))
                 }
             }
             item {
-                if (info.diskTotal != null && info.diskFree != null) {
-                    ValueRow(
-                        stringResource(R.string.server_admin_disk),
-                        stringResource(
-                            R.string.server_admin_disk_value,
-                            formatBytes(info.diskFree),
-                            formatBytes(info.diskTotal),
-                        ),
-                    )
+                val free = info.diskFree
+                if (free != null) {
+                    val value = info.diskTotal?.let { total ->
+                        stringResource(R.string.server_admin_disk_value, formatBytes(free), formatBytes(total))
+                    } ?: stringResource(R.string.server_admin_disk_free_value, formatBytes(free))
+                    InfoRow(Icons.Outlined.Storage, stringResource(R.string.server_admin_disk), value)
                 }
             }
         }
@@ -366,37 +482,45 @@ private fun ServerInfoPage(state: ServerAdminUiState) {
             item { SectionTitle(stringResource(R.string.server_admin_section_content)) }
             item {
                 info.libraries?.let {
-                    ValueRow(stringResource(R.string.server_admin_libraries), it.toString())
+                    InfoRow(
+                        Icons.Outlined.CollectionsBookmark,
+                        stringResource(R.string.server_admin_libraries),
+                        it.toString(),
+                    )
                 }
             }
             item {
                 info.series?.let {
-                    ValueRow(stringResource(R.string.server_admin_series), it.toString())
+                    InfoRow(Icons.AutoMirrored.Outlined.MenuBook, stringResource(R.string.server_admin_series), it.toString())
                 }
             }
             item {
                 info.books?.let {
-                    ValueRow(stringResource(R.string.server_admin_books), it.toString())
+                    InfoRow(Icons.Outlined.Book, stringResource(R.string.server_admin_books), it.toString())
                 }
             }
             item {
                 info.collections?.let {
-                    ValueRow(stringResource(R.string.server_admin_collections), it.toString())
+                    InfoRow(Icons.Outlined.Collections, stringResource(R.string.server_admin_collections), it.toString())
                 }
             }
             item {
                 info.readlists?.let {
-                    ValueRow(stringResource(R.string.server_admin_readlists), it.toString())
+                    InfoRow(
+                        Icons.Outlined.FormatListBulleted,
+                        stringResource(R.string.server_admin_readlists),
+                        it.toString(),
+                    )
                 }
             }
             item {
                 info.sidecars?.let {
-                    ValueRow(stringResource(R.string.server_admin_sidecars), it.toString())
+                    InfoRow(Icons.Outlined.Description, stringResource(R.string.server_admin_sidecars), it.toString())
                 }
             }
             item {
                 info.fileSize?.let {
-                    ValueRow(stringResource(R.string.server_admin_total_size), formatBytes(it))
+                    InfoRow(Icons.Outlined.Archive, stringResource(R.string.server_admin_total_size), formatBytes(it))
                 }
             }
         }
@@ -405,9 +529,11 @@ private fun ServerInfoPage(state: ServerAdminUiState) {
 
 @Composable
 private fun UpdateCheckRow(state: ServerAdminUiState) {
+    val urlHandler = LocalUriHandler.current
     val check = state.updateCheck
     if (check == null) {
-        ValueRow(
+        InfoRow(
+            Icons.Outlined.ArrowCircleDown,
             stringResource(R.string.server_admin_update_checks),
             stringResource(R.string.server_admin_update_unknown),
         )
@@ -415,28 +541,37 @@ private fun UpdateCheckRow(state: ServerAdminUiState) {
     }
     val update = check.update
     when {
-        update != null && update.version.isNotBlank() ->
-            ValueRow(stringResource(R.string.server_admin_update_available), update.version)
-        !check.enabled ->
-            ValueRow(
-                stringResource(R.string.server_admin_update_checks),
-                stringResource(R.string.server_admin_update_disabled),
+        update != null && update.version.isNotBlank() -> {
+            // The iOS row opens the release page; keep the same link affordance here.
+            val releaseUrl = update.url?.takeIf { it.isNotBlank() }
+            InfoRow(
+                icon = Icons.Outlined.ArrowCircleDown,
+                label = stringResource(R.string.server_admin_update_available),
+                value = update.version,
+                onClick = releaseUrl?.let { url -> { urlHandler.openUri(url) } },
             )
-        check.checkedAt.isNullOrBlank() ->
-            ValueRow(
-                stringResource(R.string.server_admin_update_checks),
-                stringResource(R.string.server_admin_update_not_checked),
-            )
-        else ->
-            ValueRow(
-                stringResource(R.string.server_admin_version),
-                stringResource(R.string.server_admin_update_current),
-            )
+        }
+        !check.enabled -> InfoRow(
+            Icons.Outlined.ArrowCircleDown,
+            stringResource(R.string.server_admin_update_checks),
+            stringResource(R.string.server_admin_update_disabled),
+        )
+        check.checkedAt.isNullOrBlank() -> InfoRow(
+            Icons.Outlined.ArrowCircleDown,
+            stringResource(R.string.server_admin_update_checks),
+            stringResource(R.string.server_admin_update_not_checked),
+        )
+        else -> InfoRow(
+            Icons.Outlined.ArrowCircleDown,
+            stringResource(R.string.server_admin_version),
+            stringResource(R.string.server_admin_update_current),
+        )
     }
     parseIsoMs(check.checkedAt)?.let { checkedAt ->
-        ValueRow(
+        InfoRow(
+            Icons.Outlined.CalendarMonth,
             stringResource(R.string.server_admin_update_last_checked),
-            stringResource(R.string.server_admin_rel_time, relativeTimeLabel(checkedAt)),
+            relativeTimeLabel(checkedAt),
         )
     }
 }
@@ -529,29 +664,99 @@ private fun TasksPage(state: ServerAdminUiState, onCancelAll: () -> Unit) {
         Loading()
         return
     }
+    val queuedTypes = tasks.types
+        .filter { (it.queued ?: 0L) > 0L }
+        .sortedWith(compareByDescending<TaskTypeStatsDto> { it.queued ?: 0L }.thenBy { it.type })
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item { SectionTitle(stringResource(R.string.server_admin_tasks_queue)) }
         item {
+            // iOS leads the queue card with the total, the per-type counts below it.
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = stringResource(R.string.server_admin_tasks_queued, tasks.queueSize ?: 0L),
-                    style = MaterialTheme.typography.bodyLarge,
+                Icon(
+                    Icons.Outlined.Assignment,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = onCancelAll, enabled = tasks.queueSize != 0L && !tasks.busy) {
-                    Text(stringResource(R.string.server_admin_tasks_cancel_all))
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = stringResource(R.string.server_admin_tasks_total),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = (tasks.queueSize ?: 0L).toString(),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if ((tasks.queueSize ?: 0L) > 0L) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+        if (queuedTypes.isNotEmpty()) {
+            item {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+            }
+            items(queuedTypes, key = { it.type }) { type ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = humanizeTaskType(type.type),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = (type.queued ?: 0L).toString(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
+        item {
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+        item {
+            TextButton(
+                onClick = onCancelAll,
+                enabled = tasks.queueSize != 0L && !tasks.busy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Outlined.Cancel, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.server_admin_tasks_cancel_all))
+            }
+        }
+        item { SectionTitle(stringResource(R.string.server_admin_tasks_executed)) }
         if (tasks.types.isNotEmpty()) {
-            item { SectionTitle(stringResource(R.string.server_admin_tasks_executed)) }
             items(tasks.types) { type -> TaskTypeRow(type) }
         } else {
             item { HintText(stringResource(R.string.server_admin_tasks_none)) }
@@ -632,11 +837,19 @@ private fun SessionsPage(
                         enabled = sessions.kickingId == null && !entry.current,
                         onKick = { onKick(entry) },
                     )
-                    if (index == sessions.entries.lastIndex && sessions.hasMore && !sessions.loading) {
+                    if (index >= sessions.entries.lastIndex - 2 && sessions.hasMore && !sessions.loading) {
                         LaunchedEffect(entry.id) { onLoadMore() }
                     }
                 }
                 if (sessions.loading) item { LoadingRow() }
+                item {
+                    Text(
+                        text = stringResource(R.string.server_admin_sessions_footer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                    )
+                }
             }
         }
     }
@@ -644,47 +857,88 @@ private fun SessionsPage(
 
 @Composable
 private fun SessionRow(entry: SessionEntry, kicking: Boolean, enabled: Boolean, onKick: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The session id leads the row (monospaced, middle-truncated in the iOS row).
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = entry.email?.takeIf { it.isNotBlank() }
-                    ?: stringResource(R.string.server_admin_sessions_anonymous),
-                style = MaterialTheme.typography.bodyLarge,
+                text = entry.id,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-            )
-            parseIsoMs(entry.creationTime)?.let { created ->
-                Text(
-                    text = stringResource(
-                        R.string.server_admin_session_created,
-                        stringResource(R.string.server_admin_rel_time, relativeTimeLabel(created)),
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            parseIsoMs(entry.lastAccessedTime)?.let { accessed ->
-                Text(
-                    text = stringResource(
-                        R.string.server_admin_session_accessed,
-                        stringResource(R.string.server_admin_rel_time, relativeTimeLabel(accessed)),
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (entry.current) {
-            Text(
-                text = stringResource(R.string.server_admin_sessions_current),
-                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        } else if (kicking) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp))
-        } else {
-            TextButton(onClick = onKick, enabled = enabled) {
-                Text(stringResource(R.string.server_admin_sessions_kick))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(
+                    when {
+                        entry.current -> R.string.server_admin_sessions_current
+                        entry.expired -> R.string.server_admin_sessions_expired
+                        else -> R.string.server_admin_sessions_active
+                    },
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = when {
+                    entry.current -> MaterialTheme.colorScheme.onSurfaceVariant
+                    entry.expired -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.primary
+                },
+            )
+        }
+        Text(
+            text = entry.email?.takeIf { it.isNotBlank() }
+                ?: entry.userId?.takeIf { it.isNotBlank() }
+                ?: stringResource(R.string.server_admin_sessions_anonymous),
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val created = parseIsoMs(entry.creationTime)
+            val accessed = parseIsoMs(entry.lastAccessedTime)
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (created != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.server_admin_session_created,
+                            relativeTimeLabel(created),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (created != null && accessed != null) {
+                    Text(
+                        text = "·",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (accessed != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.server_admin_session_accessed,
+                            relativeTimeLabel(accessed),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (kicking) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            } else if (!entry.current) {
+                TextButton(
+                    onClick = onKick,
+                    enabled = enabled,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text(stringResource(R.string.server_admin_sessions_kick))
+                }
             }
         }
     }
@@ -752,7 +1006,7 @@ private fun HistoryPage(state: ServerAdminUiState, onLoadMore: () -> Unit) {
         ) {
             itemsIndexed(history.events, key = { _, event -> event.id }) { index, event ->
                 HistoryRow(event)
-                if (index == history.events.lastIndex && history.hasMore && !history.loading) {
+                if (index >= history.events.lastIndex - 2 && history.hasMore && !history.loading) {
                     LaunchedEffect(event.id) { onLoadMore() }
                 }
             }
@@ -763,22 +1017,36 @@ private fun HistoryPage(state: ServerAdminUiState, onLoadMore: () -> Unit) {
 
 @Composable
 private fun HistoryRow(event: HistoricalEventDto) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(humanizeEventType(event.type), style = MaterialTheme.typography.bodyLarge)
+    val primary = historyPrimaryName(event)
+    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HistoryTypeBadge(event.type)
+            Spacer(Modifier.weight(1f))
             parseIsoMs(event.timestamp)?.let { timestamp ->
                 Text(
                     text = relativeTimeLabel(timestamp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
         }
-        val detail = event.properties["BOOK"] ?: event.properties["SERIES"]
-        if (!detail.isNullOrBlank()) {
+        Text(
+            text = primary ?: stringResource(R.string.server_admin_history_no_file),
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        event.properties["SERIES"]?.takeIf { it.isNotBlank() && it != primary }?.let { series ->
+            HistoryDetailLine(Icons.AutoMirrored.Outlined.MenuBook, series)
+        }
+        event.properties["BOOK"]?.takeIf { it.isNotBlank() && it != primary }?.let { book ->
+            HistoryDetailLine(Icons.Outlined.Book, book)
+        }
+        historyExtraLine(event)?.let { extra ->
             Text(
-                text = detail,
-                style = MaterialTheme.typography.bodySmall,
+                text = extra,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -786,6 +1054,79 @@ private fun HistoryRow(event: HistoricalEventDto) {
         }
     }
 }
+
+@Composable
+private fun HistoryTypeBadge(type: String) {
+    val color = historyEventColor(type)
+    Text(
+        text = humanizeEventType(type),
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.15f), RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun HistoryDetailLine(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun historyEventColor(type: String): Color = when (type) {
+    "BookFileDeleted", "BookPurged", "SeriesPurged" -> MaterialTheme.colorScheme.error
+    "SeriesFolderDeleted" -> MaterialTheme.colorScheme.tertiary
+    "BookConverted" -> MaterialTheme.colorScheme.primary
+    "BookImported" -> Color(0xFF43A047)
+    "DuplicatePageDeleted" -> MaterialTheme.colorScheme.tertiary
+    "BookTrashed" -> Color(0xFFEF6C00)
+    "SeriesTrashed" -> Color(0xFFF9A825)
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/** The file/display name carried by the event; null when the payload has none. */
+private fun historyPrimaryName(event: HistoricalEventDto): String? =
+    event.properties["name"]?.takeIf { it.isNotBlank() }?.let(::baseName)
+        ?: event.properties["BOOK"]?.takeIf { it.isNotBlank() }
+        ?: event.properties["SERIES"]?.takeIf { it.isNotBlank() }
+
+/** Secondary properties as iOS shows them: "key: value · key: value", hashes shortened. */
+private fun historyExtraLine(event: HistoricalEventDto): String? {
+    val parts = event.properties
+        .filterKeys { it != "name" && it != "BOOK" && it != "SERIES" }
+        .toSortedMap()
+        .map { (key, value) ->
+            if (key == "reason") {
+                value
+            } else {
+                val display = when {
+                    key.lowercase().contains("hash") && value.length > 12 -> value.take(12) + "…"
+                    key == "former file" || key == "source" -> baseName(value)
+                    else -> value
+                }
+                "$key: $display"
+            }
+        }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+private fun baseName(path: String): String =
+    path.split('/', '\\').lastOrNull { it.isNotBlank() } ?: path
 
 // endregion
 
@@ -835,11 +1176,14 @@ private fun LogPage(state: ServerAdminUiState) {
         state.logLoading && log == null -> Loading()
         log == null -> CenteredMessage(R.string.server_admin_log_unavailable)
         else -> Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text(
-                text = log,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
+            // Selection mirrors the iOS share sheet: the log can be copied out as text.
+            SelectionContainer {
+                Text(
+                    text = log,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
         }
     }
 }
@@ -858,28 +1202,83 @@ private fun SectionTitle(title: String) {
     )
 }
 
+/** Icon + label + trailing value, the shape of the iOS server info rows. */
 @Composable
-private fun ValueRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+private fun InfoRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    monospaced: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(12.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(12.dp))
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = if (monospaced) {
+                MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
+            } else {
+                MaterialTheme.typography.bodyLarge
+            },
+            color = if (onClick != null) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            textAlign = TextAlign.End,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+/** Navigation row with the optional icon and count badge the iOS server links carry. */
 @Composable
-private fun NavRow(label: String, onClick: () -> Unit) {
+private fun NavRow(
+    label: String,
+    icon: ImageVector? = null,
+    badge: String? = null,
+    onClick: () -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        if (badge != null) {
+            Text(
+                text = badge,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(percent = 50))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+        }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
@@ -906,7 +1305,7 @@ private fun Loading() {
 }
 
 @Composable
-private fun LoadingRow() {
+internal fun LoadingRow() {
     Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(modifier = Modifier.size(24.dp))
     }
@@ -956,7 +1355,13 @@ internal fun formatBytes(bytes: Long): String {
     }
 }
 
-internal fun formatPercent(value: Double): String = String.format(Locale.US, "%.0f%%", value)
+internal fun formatPercent(value: Double): String = String.format(Locale.US, "%.1f%%", value)
+
+/** Absolute local date + time, matching the iOS `.abbreviated` / `.shortened` row values. */
+internal fun dateTimeLabel(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 
 /** Whole-unit duration ("3d 4h"), used for uptimes and task timings. */
 internal fun formatDuration(seconds: Long): String {

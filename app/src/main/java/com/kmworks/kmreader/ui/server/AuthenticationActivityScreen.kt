@@ -6,16 +6,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,11 +33,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -39,7 +50,6 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.AuthenticationActivityDto
 import com.kmworks.kmreader.core.server.ServerAdminRepository
-import com.kmworks.kmreader.ui.components.relativeTimeLabel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,10 +158,12 @@ fun AuthenticationActivityScreen(
                                 color = MaterialTheme.colorScheme.outlineVariant,
                             )
                         }
-                        if (index == state.entries.lastIndex && state.hasMore) {
-                            LoadMoreRow { viewModel.load(reset = false) }
+                        // The iOS list pages itself once the last few rows appear.
+                        if (index >= state.entries.lastIndex - 2 && state.hasMore && !state.loading) {
+                            LaunchedEffect(entry.dateTime) { viewModel.load(reset = false) }
                         }
                     }
+                    if (state.loading) item { LoadingRow() }
                 }
             }
         }
@@ -162,69 +174,79 @@ fun AuthenticationActivityScreen(
 private fun AuthenticationActivityRow(entry: AuthenticationActivityDto) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Icon(
             imageVector = if (entry.success) Icons.Filled.CheckCircle else Icons.Filled.Error,
             contentDescription = null,
             tint = if (entry.success) {
-                MaterialTheme.colorScheme.primary
+                Color(0xFF43A047)
             } else {
                 MaterialTheme.colorScheme.error
             },
             modifier = Modifier.size(20.dp),
         )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = stringResource(
-                    if (entry.success) {
-                        R.string.server_admin_auth_activity_success
-                    } else {
-                        R.string.server_admin_auth_activity_failure
-                    },
-                ),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            val created = parseIsoMs(entry.dateTime)
-            if (created != null) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The source names the sign-in client; otherwise the success/failure text stands in (iOS row).
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = relativeTimeLabel(created),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = entry.source?.takeIf { it.isNotBlank() } ?: stringResource(
+                        if (entry.success) {
+                            R.string.server_admin_auth_activity_success
+                        } else {
+                            R.string.server_admin_auth_activity_failure
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            entry.source?.takeIf { it.isNotBlank() }?.let {
-                AuthActivityDetail(stringResource(R.string.server_admin_auth_activity_source), it)
-            }
-            entry.ip?.takeIf { it.isNotBlank() }?.let {
-                AuthActivityDetail(stringResource(R.string.server_admin_auth_activity_ip), it)
-            }
-            entry.email?.takeIf { it.isNotBlank() }?.let {
-                AuthActivityDetail(stringResource(R.string.server_admin_auth_activity_email), it)
+                parseIsoMs(entry.dateTime)?.let { date ->
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = dateTimeLabel(date),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             entry.apiKeyComment?.takeIf { it.isNotBlank() }?.let {
-                AuthActivityDetail(stringResource(R.string.server_admin_auth_activity_api_key), it)
+                AuthActivityDetail(Icons.Outlined.Key, it)
             }
             entry.userAgent?.takeIf { it.isNotBlank() }?.let {
-                AuthActivityDetail(stringResource(R.string.server_admin_auth_activity_agent), it)
+                AuthActivityDetail(Icons.Outlined.Computer, it)
+            }
+            entry.ip?.takeIf { it.isNotBlank() }?.let {
+                AuthActivityDetail(Icons.Outlined.Wifi, it)
+            }
+            entry.email?.takeIf { it.isNotBlank() }?.let {
+                AuthActivityDetail(Icons.Outlined.Email, it)
             }
             entry.error?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFB00020),
-                )
+                AuthActivityDetail(Icons.Outlined.ErrorOutline, it, error = true)
             }
         }
     }
 }
 
 @Composable
-private fun AuthActivityDetail(label: String, value: String) {
-    Text(
-        text = "$label: $value",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun AuthActivityDetail(icon: ImageVector, value: String, error: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
