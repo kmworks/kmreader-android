@@ -67,8 +67,8 @@ class DownloadedIndexTest {
             DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Downloading)).bookMark(bookA),
         )
         assertEquals(
-            DownloadMark.Pending,
-            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Pending)).bookMark(bookA),
+            DownloadMark.Paused,
+            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Paused)).bookMark(bookA),
         )
         assertEquals(
             DownloadMark.Failed,
@@ -91,10 +91,10 @@ class DownloadedIndexTest {
         )
         assertEquals(DownloadMark.Downloading, downloading.seriesMark("series-1"))
 
-        val pending = DownloadedIndex(
-            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, pending = 1)),
+        val paused = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, paused = 1)),
         )
-        assertEquals(DownloadMark.Pending, pending.seriesMark("series-1"))
+        assertEquals(DownloadMark.Paused, paused.seriesMark("series-1"))
 
         val failed = DownloadedIndex(
             series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, failed = 1)),
@@ -111,7 +111,7 @@ class DownloadedIndexTest {
     @Test
     fun queueStatusMapsToBadgeMarks() {
         assertEquals(DownloadMark.Downloading, DownloadTaskUi.Status.Downloading.toDownloadMark())
-        assertEquals(DownloadMark.Pending, DownloadTaskUi.Status.Paused.toDownloadMark())
+        assertEquals(DownloadMark.Paused, DownloadTaskUi.Status.Paused.toDownloadMark())
         assertEquals(DownloadMark.Failed, DownloadTaskUi.Status.Failed.toDownloadMark())
     }
 }

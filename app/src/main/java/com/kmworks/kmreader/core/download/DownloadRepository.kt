@@ -114,7 +114,7 @@ class DownloadRepository @Inject constructor(
         val seriesDownloaded = mutableMapOf<String, Int>()
         val seriesTotals = mutableMapOf<String, Int>()
         val seriesDownloading = mutableMapOf<String, Int>()
-        val seriesPending = mutableMapOf<String, Int>()
+        val seriesPaused = mutableMapOf<String, Int>()
         val seriesFailed = mutableMapOf<String, Int>()
         completed.forEach { (dir, _) ->
             val bookId = dir.name
@@ -135,8 +135,8 @@ class DownloadRepository @Inject constructor(
             when (mark) {
                 DownloadMark.Downloading ->
                     seriesDownloading[seriesDtoId] = (seriesDownloading[seriesDtoId] ?: 0) + 1
-                DownloadMark.Pending ->
-                    seriesPending[seriesDtoId] = (seriesPending[seriesDtoId] ?: 0) + 1
+                DownloadMark.Paused ->
+                    seriesPaused[seriesDtoId] = (seriesPaused[seriesDtoId] ?: 0) + 1
                 DownloadMark.Failed ->
                     seriesFailed[seriesDtoId] = (seriesFailed[seriesDtoId] ?: 0) + 1
                 else -> Unit
@@ -145,7 +145,7 @@ class DownloadRepository @Inject constructor(
             if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
         }
 
-        val seriesIds = seriesDownloaded.keys + seriesDownloading.keys + seriesPending.keys + seriesFailed.keys
+        val seriesIds = seriesDownloaded.keys + seriesDownloading.keys + seriesPaused.keys + seriesFailed.keys
         return DownloadedIndex(
             books = books,
             tasks = tasks,
@@ -154,7 +154,7 @@ class DownloadRepository @Inject constructor(
                     downloaded = seriesDownloaded[seriesDtoId] ?: 0,
                     total = seriesTotals[seriesDtoId] ?: 0,
                     downloading = seriesDownloading[seriesDtoId] ?: 0,
-                    pending = seriesPending[seriesDtoId] ?: 0,
+                    paused = seriesPaused[seriesDtoId] ?: 0,
                     failed = seriesFailed[seriesDtoId] ?: 0,
                 )
             },
@@ -467,7 +467,7 @@ class DownloadRepository @Inject constructor(
         }
         refreshDownloadedIndex()
         // A task reaching SUCCEEDED/CANCELLED changes what is on disk; progress updates do not, so only
-        // (book, status) pairs are compared. The marks also feed the card badges (pending/spinning/failed).
+        // (book, status) pairs are compared. The marks also feed the card badges (paused/spinning/failed).
         appScope.launch {
             downloads
                 .map { rows -> rows.associate { it.bookDtoId to it.status.toDownloadMark() } }

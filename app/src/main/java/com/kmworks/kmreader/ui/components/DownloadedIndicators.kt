@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +42,7 @@ val LocalDownloadedIndex = compositionLocalOf { DownloadedIndex() }
 internal fun bookDownloadedMark(book: Book): DownloadMark =
     LocalDownloadedIndex.current.bookMark(book.id)
 
-/** Download marker for a series card (mirrors iOS SeriesDownloadStatus: full, partial, pending or failed). */
+/** Download marker for a series card (mirrors iOS SeriesDownloadStatus: full, partial, paused or failed). */
 @Composable
 internal fun seriesDownloadedMark(series: Series): DownloadMark =
     LocalDownloadedIndex.current.seriesMark(DetailIdRegistry.seriesDtoId(series.id))
@@ -49,7 +50,7 @@ internal fun seriesDownloadedMark(series: Series): DownloadMark =
 /**
  * Downloaded-state glyph drawn at the trailing edge of a card's detail line, matching the placement of
  * iOS `DownloadStatusIcon` in GridCardView: a check when complete, a partial glyph for a partly downloaded
- * series, a spinning arrow while a worker runs, a still arrow while pending/paused, and a red error mark.
+ * series, a spinning arrow while a worker runs, a pause icon while paused, and a red error mark.
  *
  * iOS lets the glyph inherit the detail label's font, so the icon is always exactly as tall as the text
  * beside it. Passing [textSize] here keeps that coupling: the badge cannot drift larger than the line, and
@@ -77,9 +78,9 @@ internal fun DownloadedMarkIcon(
             icon = Icons.Filled.Refresh
             description = R.string.download_badge_downloading
         }
-        DownloadMark.Pending -> {
-            icon = Icons.Filled.Refresh
-            description = R.string.download_badge_pending
+        DownloadMark.Paused -> {
+            icon = Icons.Filled.Pause
+            description = R.string.download_badge_paused
         }
         DownloadMark.Failed -> {
             icon = Icons.Filled.Error
