@@ -175,6 +175,9 @@
     <string name="server_admin_library_browse_root">Server filesystem</string>
     <string name="server_admin_library_browse_empty">No sub folders.</string>
     <string name="server_admin_library_browse_pick">Use this folder</string>
+    <string name="server_admin_library_section_basic">Basic Information</string>
+    <string name="server_admin_library_section_scan">Scanning</string>
+    <string name="server_admin_library_section_import">Import &amp; Processing</string>
     <string name="server_admin_library_scan">Scan</string>
     <string name="server_admin_library_scan_deep">Deep scan</string>
     <string name="server_admin_library_analyze">Analyze</string>

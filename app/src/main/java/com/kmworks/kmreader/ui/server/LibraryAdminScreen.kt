@@ -1,10 +1,14 @@
 package com.kmworks.kmreader.ui.server
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,31 +17,35 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -49,8 +57,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -64,6 +75,10 @@ import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.api.model.LibraryUpdateDto
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.ui.settings.SettingsPickerRow
+import com.kmworks.kmreader.ui.settings.SettingsRowDivider
+import com.kmworks.kmreader.ui.settings.SettingsSection
+import com.kmworks.kmreader.ui.settings.SettingsSwitchRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -423,27 +438,38 @@ fun LibraryAdminScreen(
             when {
                 state.loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 state.libraries.isEmpty() -> CenteredMessage(R.string.server_admin_library_empty)
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                else -> Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    ),
                 ) {
-                    items(state.libraries, key = { it.id }) { library ->
-                        LibraryAdminRow(
-                            library = library,
-                            metrics = state.metrics[library.id],
-                            enabled = !state.busy,
-                            onEdit = { viewModel.startEdit(library) },
-                            onDelete = { viewModel.askDelete(library) },
-                            onScan = { viewModel.scan(library, deep = false) },
-                            onDeepScan = { viewModel.scan(library, deep = true) },
-                            onAnalyze = { viewModel.analyze(library) },
-                            onEmptyTrash = { viewModel.emptyTrash(library) },
-                            onRefreshMetadata = { viewModel.refreshMetadata(library) },
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                        )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        itemsIndexed(state.libraries, key = { _, library -> library.id }) { index, library ->
+                            LibraryAdminRow(
+                                library = library,
+                                metrics = state.metrics[library.id],
+                                enabled = !state.busy,
+                                onEdit = { viewModel.startEdit(library) },
+                                onDelete = { viewModel.askDelete(library) },
+                                onScan = { viewModel.scan(library, deep = false) },
+                                onDeepScan = { viewModel.scan(library, deep = true) },
+                                onAnalyze = { viewModel.analyze(library) },
+                                onEmptyTrash = { viewModel.emptyTrash(library) },
+                                onRefreshMetadata = { viewModel.refreshMetadata(library) },
+                            )
+                            if (index < state.libraries.lastIndex) {
+                                SettingsRowDivider()
+                            }
+                        }
                     }
                 }
             }
@@ -482,6 +508,7 @@ fun LibraryAdminScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LibraryAdminRow(
     library: LibraryDto,
@@ -496,108 +523,136 @@ private fun LibraryAdminRow(
     onRefreshMetadata: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onEdit)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.weight(1f).clickable(enabled = enabled, onClick = onEdit),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = library.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = library.root,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            // Metrics caption (hidden entirely when neither stats nor actuator metrics exist).
-            metrics?.takeIf { !it.isEmpty }?.let { values ->
-                val caption = buildList {
-                    values.fileSize?.let { add(formatBytes(it)) }
-                    values.seriesCount?.let { add(stringResource(R.string.library_metrics_series, it)) }
-                    values.booksCount?.let { add(stringResource(R.string.library_metrics_books, it)) }
-                }.joinToString(" · ")
-                if (caption.isNotEmpty()) {
-                    Text(
-                        text = caption,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = library.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = library.root,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onScan, enabled = enabled) {
+                Icon(
+                    Icons.Filled.Bolt,
+                    contentDescription = stringResource(R.string.server_admin_library_scan),
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, enabled = enabled) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = stringResource(R.string.server_admin_library_more),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.server_admin_library_edit)) },
+                        onClick = { menuOpen = false; onEdit() },
+                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.server_admin_library_scan_deep)) },
+                        onClick = { menuOpen = false; onDeepScan() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.server_admin_library_analyze)) },
+                        onClick = { menuOpen = false; onAnalyze() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.server_admin_library_empty_trash)) },
+                        onClick = { menuOpen = false; onEmptyTrash() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.server_admin_library_refresh_metadata)) },
+                        onClick = { menuOpen = false; onRefreshMetadata() },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(R.string.server_admin_library_delete),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = { menuOpen = false; onDelete() },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
                     )
                 }
             }
-            if (library.unavailable) {
-                Text(
-                    text = stringResource(R.string.server_admin_library_unavailable),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+        }
+        metrics?.takeIf { !it.isEmpty }?.let { values ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                values.fileSize?.let { LibraryMetricChip(Icons.Outlined.Storage, formatBytes(it)) }
+                values.seriesCount?.let {
+                    LibraryMetricChip(Icons.AutoMirrored.Outlined.MenuBook, stringResource(R.string.library_metrics_series, it))
+                }
+                values.booksCount?.let {
+                    LibraryMetricChip(Icons.Outlined.Book, stringResource(R.string.library_metrics_books, it))
+                }
             }
         }
-        IconButton(onClick = onScan, enabled = enabled) {
-            Icon(
-                Icons.Filled.Bolt,
-                contentDescription = stringResource(R.string.server_admin_library_scan),
-                modifier = Modifier.size(20.dp),
+        if (library.unavailable) {
+            LibraryMetricChip(
+                icon = Icons.Outlined.FolderOpen,
+                text = stringResource(R.string.server_admin_library_unavailable),
+                color = MaterialTheme.colorScheme.error,
             )
         }
-        Box {
-            IconButton(onClick = { menuOpen = true }, enabled = enabled) {
-                Icon(
-                    Icons.Filled.MoreVert,
-                    contentDescription = stringResource(R.string.server_admin_library_more),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.server_admin_library_edit)) },
-                    onClick = { menuOpen = false; onEdit() },
-                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.server_admin_library_scan_deep)) },
-                    onClick = { menuOpen = false; onDeepScan() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.server_admin_library_analyze)) },
-                    onClick = { menuOpen = false; onAnalyze() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.server_admin_library_empty_trash)) },
-                    onClick = { menuOpen = false; onEmptyTrash() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.server_admin_library_refresh_metadata)) },
-                    onClick = { menuOpen = false; onRefreshMetadata() },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(R.string.server_admin_library_delete),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                    onClick = { menuOpen = false; onDelete() },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                )
-            }
-        }
+    }
+}
+
+@Composable
+private fun LibraryMetricChip(icon: ImageVector, text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Row(
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), RoundedCornerShape(percent = 50))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = color,
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -651,75 +706,100 @@ private fun LibraryFormScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            OutlinedTextField(
-                value = data.name,
-                onValueChange = { value -> onUpdate { it.copy(name = value) } },
-                singleLine = true,
-                label = { Text(stringResource(R.string.server_admin_library_name)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = data.root,
-                    onValueChange = { value -> onUpdate { it.copy(root = value) } },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.server_admin_library_root)) },
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = { onBrowse(data.root.takeIf { it.isNotBlank() }) }) {
-                    Text(stringResource(R.string.server_admin_library_browse))
+            SettingsSection(title = stringResource(R.string.server_admin_library_section_basic)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = data.name,
+                        onValueChange = { value -> onUpdate { it.copy(name = value) } },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.server_admin_library_name)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = data.root,
+                        onValueChange = { value -> onUpdate { it.copy(root = value) } },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.server_admin_library_root)) },
+                        trailingIcon = {
+                            IconButton(onClick = { onBrowse(data.root.takeIf { it.isNotBlank() }) }) {
+                                Icon(
+                                    Icons.Outlined.FolderOpen,
+                                    contentDescription = stringResource(R.string.server_admin_library_browse),
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
+                SettingsRowDivider()
+                val intervalLabelRes = SCAN_INTERVALS
+                    .firstOrNull { it.first == data.scanInterval }
+                    ?.second
+                    ?: R.string.server_admin_interval_disabled
+                SettingsPickerRow(
+                    title = stringResource(R.string.server_admin_library_scan_interval),
+                    selectedLabel = stringResource(intervalLabelRes),
+                    options = SCAN_INTERVALS.map { (raw, res) -> raw to stringResource(res) },
+                    onSelect = { raw -> onUpdate { it.copy(scanInterval = raw) } },
+                    icon = Icons.Outlined.Schedule,
+                )
             }
-            ScanIntervalField(
-                value = data.scanInterval,
-                onChange = { value -> onUpdate { it.copy(scanInterval = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_scan_on_startup),
-                checked = data.scanOnStartup,
-                onChange = { value -> onUpdate { it.copy(scanOnStartup = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_scan_cbx),
-                checked = data.scanCbx,
-                onChange = { value -> onUpdate { it.copy(scanCbx = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_scan_pdf),
-                checked = data.scanPdf,
-                onChange = { value -> onUpdate { it.copy(scanPdf = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_scan_epub),
-                checked = data.scanEpub,
-                onChange = { value -> onUpdate { it.copy(scanEpub = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_import_comic_info),
-                checked = data.importComicInfoBook,
-                onChange = { value -> onUpdate { it.copy(importComicInfoBook = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_import_comic_info_series),
-                checked = data.importComicInfoSeries,
-                onChange = { value -> onUpdate { it.copy(importComicInfoSeries = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_import_local_artwork),
-                checked = data.importLocalArtwork,
-                onChange = { value -> onUpdate { it.copy(importLocalArtwork = value) } },
-            )
-            FormSwitch(
-                label = stringResource(R.string.server_admin_library_analyze_dimensions),
-                checked = data.analyzeDimensions,
-                onChange = { value -> onUpdate { it.copy(analyzeDimensions = value) } },
-            )
+            SettingsSection(title = stringResource(R.string.server_admin_library_section_scan)) {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_scan_on_startup),
+                    checked = data.scanOnStartup,
+                    onCheckedChange = { value -> onUpdate { it.copy(scanOnStartup = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_scan_cbx),
+                    checked = data.scanCbx,
+                    onCheckedChange = { value -> onUpdate { it.copy(scanCbx = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_scan_pdf),
+                    checked = data.scanPdf,
+                    onCheckedChange = { value -> onUpdate { it.copy(scanPdf = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_scan_epub),
+                    checked = data.scanEpub,
+                    onCheckedChange = { value -> onUpdate { it.copy(scanEpub = value) } },
+                )
+            }
+            SettingsSection(title = stringResource(R.string.server_admin_library_section_import)) {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_comic_info),
+                    checked = data.importComicInfoBook,
+                    onCheckedChange = { value -> onUpdate { it.copy(importComicInfoBook = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_comic_info_series),
+                    checked = data.importComicInfoSeries,
+                    onCheckedChange = { value -> onUpdate { it.copy(importComicInfoSeries = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_local_artwork),
+                    checked = data.importLocalArtwork,
+                    onCheckedChange = { value -> onUpdate { it.copy(importLocalArtwork = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_analyze_dimensions),
+                    checked = data.analyzeDimensions,
+                    onCheckedChange = { value -> onUpdate { it.copy(analyzeDimensions = value) } },
+                )
+            }
         }
     }
 
@@ -733,51 +813,6 @@ private fun LibraryFormScreen(
                 onCloseBrowse()
             },
         )
-    }
-}
-
-@Composable
-private fun ScanIntervalField(value: String, onChange: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val labelRes = SCAN_INTERVALS.firstOrNull { it.first == value }?.second
-        ?: R.string.server_admin_interval_disabled
-    Box {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                stringResource(R.string.server_admin_library_scan_interval) + ": " + stringResource(labelRes),
-            )
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            SCAN_INTERVALS.forEach { (raw, res) ->
-                DropdownMenuItem(
-                    text = { Text(stringResource(res)) },
-                    trailingIcon = {
-                        if (raw == value) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    onClick = {
-                        open = false
-                        onChange(raw)
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FormSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text = label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

@@ -175,6 +175,9 @@
     <string name="server_admin_library_browse_root">服务器文件系统</string>
     <string name="server_admin_library_browse_empty">没有子目录。</string>
     <string name="server_admin_library_browse_pick">使用此目录</string>
+    <string name="server_admin_library_section_basic">基本信息</string>
+    <string name="server_admin_library_section_scan">扫描</string>
+    <string name="server_admin_library_section_import">导入与处理</string>
     <string name="server_admin_library_scan">扫描</string>
     <string name="server_admin_library_scan_deep">深度扫描</string>
     <string name="server_admin_library_analyze">分析</string>
