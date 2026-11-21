@@ -97,6 +97,7 @@ import com.kmworks.kmreader.ui.settings.AppearanceSettingsScreen
 import com.kmworks.kmreader.ui.settings.BrowseSettingsScreen
 import com.kmworks.kmreader.ui.settings.CacheSettingsScreen
 import com.kmworks.kmreader.ui.settings.LogsScreen
+import com.kmworks.kmreader.ui.settings.LocalSettingsPane
 import com.kmworks.kmreader.ui.settings.NetworkSettingsScreen
 import com.kmworks.kmreader.ui.settings.OpenSourceLicensesScreen
 import com.kmworks.kmreader.ui.settings.ReaderDefaultsScreen
@@ -581,11 +582,14 @@ fun AppRoot(
                     // pane gets its own view-model scope, so a page that is left takes its state with it.
                     splitDetail = { page, onDismiss, onNavigate ->
                         PageScope(key = "settings:${page.name}") {
-                            SettingsPageContent(
-                                page = page,
-                                onBack = onDismiss,
-                                onNavigate = onNavigate,
-                            )
+                            // The pane's own pages drop their back arrow; the hub's arrow leaves settings.
+                            CompositionLocalProvider(LocalSettingsPane provides true) {
+                                SettingsPageContent(
+                                    page = page,
+                                    onBack = onDismiss,
+                                    onNavigate = onNavigate,
+                                )
+                            }
                         }
                     },
                 )

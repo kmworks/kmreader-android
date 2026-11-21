@@ -63,6 +63,7 @@ import com.kmworks.kmreader.core.server.SessionEntry
 import com.kmworks.kmreader.core.server.SessionScope
 import com.kmworks.kmreader.core.server.TaskTypeStatsDto
 import com.kmworks.kmreader.ui.components.relativeTimeLabel
+import com.kmworks.kmreader.ui.settings.SettingsBackIcon
 import java.util.Locale
 
 /**
@@ -123,7 +124,9 @@ fun ServerAdminScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(pageTitleRes(state.page))) },
-                navigationIcon = {
+                // Only the Info page is the root of the split's pane; pages opened from it keep their arrow
+                // so they can return to Info.
+                navigationIcon = SettingsBackIcon(paneRoot = state.page == ServerAdminPage.Info) {
                     IconButton(onClick = {
                         if (state.page == ServerAdminPage.Info) onBack()
                         else viewModel.open(ServerAdminPage.Info)

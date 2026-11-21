@@ -58,6 +58,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSectionSetting
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
+import com.kmworks.kmreader.ui.settings.SettingsBackIcon
 import kotlin.math.roundToInt
 
 /**
@@ -93,7 +94,7 @@ fun SettingsDashboardScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.dashboard_title)) },
-                navigationIcon = {
+                navigationIcon = SettingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,

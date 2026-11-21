@@ -47,6 +47,7 @@ import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.CustomFont
 import com.kmworks.kmreader.data.SampleSystemData
+import com.kmworks.kmreader.ui.settings.SettingsBackIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,7 +139,7 @@ fun CustomFontsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.fonts_title)) },
-                navigationIcon = {
+                navigationIcon = SettingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

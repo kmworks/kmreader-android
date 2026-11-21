@@ -74,7 +74,7 @@ fun AppearanceSettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.appearance_title)) },
-                navigationIcon = {
+                navigationIcon = SettingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

@@ -59,6 +59,7 @@ import com.kmworks.kmreader.core.tracker.TrackerLinkDto
 import com.kmworks.kmreader.core.tracker.TrackerLinkGroupDto
 import com.kmworks.kmreader.core.tracker.TrackerPreferencesDto
 import com.kmworks.kmreader.core.tracker.TrackerRepository
+import com.kmworks.kmreader.ui.settings.SettingsBackIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -129,7 +130,7 @@ fun TrackerSettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tracker_trackers_title)) },
-                navigationIcon = {
+                navigationIcon = SettingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
