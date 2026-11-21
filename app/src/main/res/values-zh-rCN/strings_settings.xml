@@ -177,4 +177,5 @@
     <string name="settings_about_feedback">问题反馈</string>
     <string name="settings_license_readium">Readium（EPUB 引擎参考）</string>
     <string name="settings_license_pdfium">PDFium（PDF 引擎参考）</string>
+    <string name="settings_split_placeholder">从左侧选择一项设置</string>
 </resources>

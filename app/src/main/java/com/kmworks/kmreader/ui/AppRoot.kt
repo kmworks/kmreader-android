@@ -100,19 +100,15 @@ import com.kmworks.kmreader.ui.settings.LogsScreen
 import com.kmworks.kmreader.ui.settings.NetworkSettingsScreen
 import com.kmworks.kmreader.ui.settings.OpenSourceLicensesScreen
 import com.kmworks.kmreader.ui.settings.ReaderDefaultsScreen
+import com.kmworks.kmreader.ui.settings.SettingsPage
 import com.kmworks.kmreader.ui.settings.SettingsScreen
 import com.kmworks.kmreader.ui.settings.SseSettingsScreen
 import com.kmworks.kmreader.ui.stats.ReadingStatsScreen
 import com.kmworks.kmreader.ui.server.ServerAdminScreen
+import com.kmworks.kmreader.ui.tracker.TrackerSettingsScreen
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-
-/** Settings sub-page routes (mirrors the section entries of SettingsView). */
-private enum class SettingsPage {
-    Appearance, Browse, Dashboard, ReaderDefaults, Stats,
-    CustomFonts, Cache, Network, Sse, Logs, Account, Server, About, Licenses,
-}
 
 /**
  * One full-screen page pushed above the tab skeleton.
@@ -580,41 +576,25 @@ fun AppRoot(
 
                 is SettingsRoute -> SettingsScreen(
                     onBack = pop,
-                    onOpenAppearance = { push(SettingsPageRoute(SettingsPage.Appearance)) },
-                    onOpenBrowse = { push(SettingsPageRoute(SettingsPage.Browse)) },
-                    onOpenDashboard = { push(SettingsPageRoute(SettingsPage.Dashboard)) },
-                    onOpenReaderDefaults = { push(SettingsPageRoute(SettingsPage.ReaderDefaults)) },
-                    onOpenStats = { push(SettingsPageRoute(SettingsPage.Stats)) },
-                    onOpenCustomFonts = { push(SettingsPageRoute(SettingsPage.CustomFonts)) },
-                    onOpenCache = { push(SettingsPageRoute(SettingsPage.Cache)) },
-                    onOpenNetwork = { push(SettingsPageRoute(SettingsPage.Network)) },
-                    onOpenSse = { push(SettingsPageRoute(SettingsPage.Sse)) },
-                    onOpenLogs = { push(SettingsPageRoute(SettingsPage.Logs)) },
-                    onOpenAccount = { push(SettingsPageRoute(SettingsPage.Account)) },
-                    onOpenServer = { push(SettingsPageRoute(SettingsPage.Server)) },
-                    onOpenAbout = { push(SettingsPageRoute(SettingsPage.About)) },
-                    onOpenLicenses = { push(SettingsPageRoute(SettingsPage.Licenses)) },
+                    onOpenPage = { page -> push(SettingsPageRoute(page)) },
+                    // Tablet split: the hub keeps its column and the chosen page renders beside it. The
+                    // pane gets its own view-model scope, so a page that is left takes its state with it.
+                    splitDetail = { page, onDismiss, onNavigate ->
+                        PageScope(key = "settings:${page.name}") {
+                            SettingsPageContent(
+                                page = page,
+                                onBack = onDismiss,
+                                onNavigate = onNavigate,
+                            )
+                        }
+                    },
                 )
 
-                is SettingsPageRoute -> when (route.page) {
-                    SettingsPage.Appearance -> AppearanceSettingsScreen(onBack = pop)
-                    SettingsPage.Browse -> BrowseSettingsScreen(onBack = pop)
-                    SettingsPage.Dashboard -> SettingsDashboardScreen(onBack = pop)
-                    SettingsPage.ReaderDefaults -> ReaderDefaultsScreen(
-                        onBack = pop,
-                        onOpenCustomFonts = { push(SettingsPageRoute(SettingsPage.CustomFonts)) },
-                    )
-                    SettingsPage.Stats -> ReadingStatsScreen(onBack = pop)
-                    SettingsPage.CustomFonts -> CustomFontsScreen(onBack = pop)
-                    SettingsPage.Cache -> CacheSettingsScreen(onBack = pop)
-                    SettingsPage.Network -> NetworkSettingsScreen(onBack = pop)
-                    SettingsPage.Sse -> SseSettingsScreen(onBack = pop)
-                    SettingsPage.Logs -> LogsScreen(onBack = pop)
-                    SettingsPage.Account -> ServerListScreen(onBack = pop)
-                    SettingsPage.Server -> ServerAdminScreen(onBack = pop)
-                    SettingsPage.About -> AboutScreen(onBack = pop)
-                    SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = pop)
-                }
+                is SettingsPageRoute -> SettingsPageContent(
+                    page = route.page,
+                    onBack = pop,
+                    onNavigate = { page -> push(SettingsPageRoute(page)) },
+                )
 
                 // The filtered library list a metadata chip pushed: a page of its own, so the library tab
                 // keeps its own conditions and back returns to the page the chip was tapped on.
@@ -678,6 +658,41 @@ fun AppRoot(
                 }
             }
         }
+    }
+}
+
+/**
+ * Renders one settings page.
+ *
+ * A pushed route on a phone and the detail pane of the tablet split show the same composable, so the two
+ * presentations cannot drift apart: [onBack] leaves the page (pop, or clear the split selection) and
+ * [onNavigate] opens a page from inside a page -- another pane on a tablet, a pushed page on a phone.
+ */
+@Composable
+private fun SettingsPageContent(
+    page: SettingsPage,
+    onBack: () -> Unit,
+    onNavigate: (SettingsPage) -> Unit,
+) {
+    when (page) {
+        SettingsPage.Appearance -> AppearanceSettingsScreen(onBack = onBack)
+        SettingsPage.Browse -> BrowseSettingsScreen(onBack = onBack)
+        SettingsPage.Dashboard -> SettingsDashboardScreen(onBack = onBack)
+        SettingsPage.ReaderDefaults -> ReaderDefaultsScreen(
+            onBack = onBack,
+            onOpenCustomFonts = { onNavigate(SettingsPage.CustomFonts) },
+        )
+        SettingsPage.Trackers -> TrackerSettingsScreen(onBack = onBack)
+        SettingsPage.Stats -> ReadingStatsScreen(onBack = onBack)
+        SettingsPage.CustomFonts -> CustomFontsScreen(onBack = onBack)
+        SettingsPage.Cache -> CacheSettingsScreen(onBack = onBack)
+        SettingsPage.Network -> NetworkSettingsScreen(onBack = onBack)
+        SettingsPage.Sse -> SseSettingsScreen(onBack = onBack)
+        SettingsPage.Logs -> LogsScreen(onBack = onBack)
+        SettingsPage.Account -> ServerListScreen(onBack = onBack)
+        SettingsPage.Server -> ServerAdminScreen(onBack = onBack)
+        SettingsPage.About -> AboutScreen(onBack = onBack)
+        SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = onBack)
     }
 }
 

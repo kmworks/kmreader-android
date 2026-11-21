@@ -1,21 +1,22 @@
 package com.kmworks.kmreader.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Brush
@@ -26,26 +27,27 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +62,6 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.ui.RootViewModel
-import com.kmworks.kmreader.ui.tracker.TrackerSettingsScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,41 +82,41 @@ class SettingsEntryViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
-/** Expanded (tablet landscape) width: the hub splits into two columns of cards. */
-private val TwoColumnBreakpoint = 840.dp
+/** Smallest screen width that marks a device as a tablet (Android's own sw600dp split point). */
+private const val TabletMinWidthDp = 600
 
-/** Breathing room above and below each section card. */
+/** Narrowest window that fits the hub beside a readable detail pane. */
+private const val SplitMinWidthDp = 840
+
+/** Width of the hub column in the split layout. */
+private val SidebarWidth = 360.dp
+
+/** Breathing room between the section cards of the hub list. */
 private val CardGap = 16.dp
 
-/** Gutter between the two columns, wider than [CardGap] so the split reads clearly. */
-private val TwoColumnGap = 24.dp
-
-/** Cards stop stretching on very wide tablets; the columns are centred instead. */
-private val WideContentMaxWidth = 1100.dp
+/**
+ * Whether the settings hub shows the master/detail split: a tablet, in a window wide enough that the hub
+ * column can stand next to the page content instead of covering it.
+ */
+internal fun isSettingsSplitLayout(smallestScreenWidthDp: Int, screenWidthDp: Int): Boolean =
+    smallestScreenWidthDp >= TabletMinWidthDp && screenWidthDp >= SplitMinWidthDp
 
 /**
- * Settings hub (mirrors SettingsView). Entries are grouped iOS-style into cards with a colored icon
- * badge per row; on a tablet in landscape the cards flow into two level columns. New entries are
- * exposed via callbacks; host navigates.
+ * Settings hub (mirrors SettingsView). Entries are grouped iOS-style into cards with a colored icon badge
+ * per row. On a phone a row opens a pushed page; on a tablet with enough width the hub keeps the left
+ * column and the chosen page renders in the right one, and that choice is made here so the rows stay the
+ * same in both presentations.
+ *
+ * @param onOpenPage presented a destination when the hub drives navigation itself (phone layout).
+ * @param splitDetail detail pane of the split layout; receives the page, the callback that clears the
+ * selection, and the callback that switches to another page without going back through the hub.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenAppearance: () -> Unit = {},
-    onOpenBrowse: () -> Unit = {},
-    onOpenDashboard: () -> Unit = {},
-    onOpenReaderDefaults: () -> Unit = {},
-    onOpenStats: () -> Unit = {},
-    onOpenCustomFonts: () -> Unit = {},
-    onOpenCache: () -> Unit = {},
-    onOpenNetwork: () -> Unit = {},
-    onOpenSse: () -> Unit = {},
-    onOpenLogs: () -> Unit = {},
-    onOpenAccount: () -> Unit = {},
-    onOpenServer: () -> Unit = {},
-    onOpenAbout: () -> Unit = {},
-    onOpenLicenses: () -> Unit = {},
+    onOpenPage: (SettingsPage) -> Unit = {},
+    splitDetail: (@Composable (page: SettingsPage, onDismiss: () -> Unit, onNavigate: (SettingsPage) -> Unit) -> Unit)? = null,
     viewModel: SettingsEntryViewModel = hiltViewModel(),
     prefsViewModel: SettingsPrefsViewModel = hiltViewModel(),
     rootViewModel: RootViewModel = hiltViewModel(),
@@ -124,48 +125,74 @@ fun SettingsScreen(
     val trueBlack by prefsViewModel.trueBlackDark.collectAsStateWithLifecycle()
     val themeMode by prefsViewModel.themeMode.collectAsStateWithLifecycle()
     val serverConfig by rootViewModel.config.collectAsStateWithLifecycle()
-    var showTrackerSettings by remember { mutableStateOf(false) }
     // kmrs capability gate: entry subtitles hint when the ReadingStats/Trackers features are missing
     val statsSupported by viewModel.readingStatsSupported.collectAsState()
     val trackersSupported by viewModel.trackersSupported.collectAsState()
-    // Two columns are a tablet affordance: a phone in landscape is wide but still a phone.
-    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
 
-    if (showTrackerSettings) {
-        TrackerSettingsScreen(onBack = { showTrackerSettings = false })
-        return
+    val configuration = LocalConfiguration.current
+    val detail = splitDetail
+    val split = detail != null &&
+        isSettingsSplitLayout(configuration.smallestScreenWidthDp, configuration.screenWidthDp)
+    // The chosen pane survives a configuration change; the name of the page is enough to restore it.
+    var selectedPageName by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedPage = selectedPageName?.let { name -> SettingsPage.entries.firstOrNull { it.name == name } }
+    // In the split layout a row selects the pane beside the hub; otherwise the host presents it as a page.
+    val navigate: (SettingsPage) -> Unit = if (split) {
+        { page -> selectedPageName = page.name }
+    } else {
+        onOpenPage
     }
 
     val groups = settingsGroups(
         themeMode = themeMode,
         trueBlack = trueBlack,
         onTrueBlackChange = prefsViewModel::setTrueBlackDark,
-        onOpenAppearance = onOpenAppearance,
-        onOpenBrowse = onOpenBrowse,
-        onOpenDashboard = onOpenDashboard,
-        onOpenReaderDefaults = onOpenReaderDefaults,
+        navigate = navigate,
+        selectedPage = selectedPage.takeIf { split },
         trackersSupported = trackersSupported,
-        onOpenTrackers = { showTrackerSettings = true },
         statsSupported = statsSupported,
-        onOpenStats = onOpenStats,
-        onOpenCustomFonts = onOpenCustomFonts,
-        onOpenCache = onOpenCache,
-        onOpenNetwork = onOpenNetwork,
-        onOpenSse = onOpenSse,
-        onOpenLogs = onOpenLogs,
         currentInstance = serverConfig?.normalizedBaseUrl,
         account = when {
             serverConfig == null -> null
             serverConfig?.useApiKey == true -> "API Key"
             else -> serverConfig?.username.orEmpty()
         },
-        onOpenAccount = onOpenAccount,
-        onOpenServer = onOpenServer,
-        onOpenAbout = onOpenAbout,
-        onOpenLicenses = onOpenLicenses,
     )
 
+    if (detail != null && split) {
+        // System back leaves the open page before it leaves the settings hub.
+        BackHandler(enabled = selectedPage != null) { selectedPageName = null }
+        Row(modifier = Modifier.fillMaxSize()) {
+            SettingsHub(onBack = onBack, groups = groups, modifier = Modifier.width(SidebarWidth))
+            VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                val page = selectedPage
+                if (page == null) {
+                    SettingsDetailPlaceholder()
+                } else {
+                    detail(
+                        page,
+                        { selectedPageName = null },
+                        { target -> selectedPageName = target.name },
+                    )
+                }
+            }
+        }
+    } else {
+        SettingsHub(onBack = onBack, groups = groups)
+    }
+}
+
+/** The hub itself: a titled, scrollable list of section cards (one column, whatever the window width). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsHub(
+    onBack: () -> Unit,
+    groups: List<SettingsGroup>,
+    modifier: Modifier = Modifier,
+) {
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
@@ -177,79 +204,60 @@ fun SettingsScreen(
             )
         },
     ) { padding ->
-        BoxWithConstraints(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(CardGap),
         ) {
-            if (isTablet && maxWidth >= TwoColumnBreakpoint) {
-                // Wide layout: two independent columns sharing one scroll, balanced so neither ends early.
-                val (leftGroups, rightGroups) = balanceSettingsGroups(groups)
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = WideContentMaxWidth)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(TwoColumnGap),
-                    ) {
-                        SettingsColumn(leftGroups, modifier = Modifier.weight(1f))
-                        SettingsColumn(rightGroups, modifier = Modifier.weight(1f))
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(CardGap),
-                ) {
-                    items(groups, key = { it.title }) { group ->
-                        SettingsGroupCard(group)
-                    }
-                }
+            items(groups, key = { it.title }) { group ->
+                SettingsGroupCard(group)
             }
         }
     }
 }
 
-/** One column of the wide layout. */
+/** Right pane of the split layout before a row is chosen. */
 @Composable
-private fun SettingsColumn(groups: List<SettingsGroup>, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(CardGap)) {
-        groups.forEach { group -> SettingsGroupCard(group) }
+private fun SettingsDetailPlaceholder(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Tune,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = stringResource(R.string.settings_split_placeholder),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
 /**
  * Hub content in the order of the iOS settings form, each section card tagged with its iOS badge
  * icon and accent color. Only the sections of this app exist here; capabilities without kmrs support
- * keep their hint subtitles.
+ * keep their hint subtitles. [selectedPage] is set only by the split layout, where the open page is
+ * marked in the hub.
  */
 @Composable
 private fun settingsGroups(
     themeMode: String,
     trueBlack: Boolean,
     onTrueBlackChange: (Boolean) -> Unit,
-    onOpenAppearance: () -> Unit,
-    onOpenBrowse: () -> Unit,
-    onOpenDashboard: () -> Unit,
-    onOpenReaderDefaults: () -> Unit,
+    navigate: (SettingsPage) -> Unit,
+    selectedPage: SettingsPage?,
     trackersSupported: Boolean,
-    onOpenTrackers: () -> Unit,
     statsSupported: Boolean,
-    onOpenStats: () -> Unit,
-    onOpenCustomFonts: () -> Unit,
-    onOpenCache: () -> Unit,
-    onOpenNetwork: () -> Unit,
-    onOpenSse: () -> Unit,
-    onOpenLogs: () -> Unit,
     currentInstance: String?,
     account: String?,
-    onOpenAccount: () -> Unit,
-    onOpenServer: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onOpenLicenses: () -> Unit,
 ): List<SettingsGroup> = listOf(
     SettingsGroup(
         title = stringResource(R.string.appearance_title),
@@ -273,7 +281,8 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_appearance_entry_subtitle),
                 icon = Icons.Outlined.Brush,
                 accent = SettingsAccent.Blue,
-                onClick = onOpenAppearance,
+                selected = selectedPage == SettingsPage.Appearance,
+                onClick = { navigate(SettingsPage.Appearance) },
             ),
         ),
     ),
@@ -285,14 +294,16 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_browse_entry_subtitle),
                 icon = Icons.Outlined.GridView,
                 accent = SettingsAccent.Purple,
-                onClick = onOpenBrowse,
+                selected = selectedPage == SettingsPage.Browse,
+                onClick = { navigate(SettingsPage.Browse) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_dashboard_title),
                 subtitle = stringResource(R.string.settings_dashboard_subtitle),
                 icon = Icons.Outlined.Dashboard,
                 accent = SettingsAccent.Orange,
-                onClick = onOpenDashboard,
+                selected = selectedPage == SettingsPage.Dashboard,
+                onClick = { navigate(SettingsPage.Dashboard) },
             ),
         ),
     ),
@@ -304,7 +315,8 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_reader_defaults_subtitle),
                 icon = Icons.AutoMirrored.Outlined.MenuBook,
                 accent = SettingsAccent.Blue,
-                onClick = onOpenReaderDefaults,
+                selected = selectedPage == SettingsPage.ReaderDefaults,
+                onClick = { navigate(SettingsPage.ReaderDefaults) },
             ),
         ),
     ),
@@ -322,7 +334,8 @@ private fun settingsGroups(
                 ),
                 icon = Icons.Outlined.Sync,
                 accent = SettingsAccent.Purple,
-                onClick = onOpenTrackers,
+                selected = selectedPage == SettingsPage.Trackers,
+                onClick = { navigate(SettingsPage.Trackers) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_stats_title),
@@ -335,7 +348,8 @@ private fun settingsGroups(
                 ),
                 icon = Icons.Outlined.BarChart,
                 accent = SettingsAccent.Indigo,
-                onClick = onOpenStats,
+                selected = selectedPage == SettingsPage.Stats,
+                onClick = { navigate(SettingsPage.Stats) },
             ),
         ),
     ),
@@ -347,7 +361,8 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_custom_fonts_subtitle),
                 icon = Icons.Outlined.TextFields,
                 accent = SettingsAccent.Mint,
-                onClick = onOpenCustomFonts,
+                selected = selectedPage == SettingsPage.CustomFonts,
+                onClick = { navigate(SettingsPage.CustomFonts) },
             ),
         ),
     ),
@@ -359,7 +374,8 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_cache_subtitle),
                 icon = Icons.Outlined.Cached,
                 accent = SettingsAccent.Gray,
-                onClick = onOpenCache,
+                selected = selectedPage == SettingsPage.Cache,
+                onClick = { navigate(SettingsPage.Cache) },
             ),
         ),
     ),
@@ -371,21 +387,24 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_network_subtitle),
                 icon = Icons.Outlined.Wifi,
                 accent = SettingsAccent.Teal,
-                onClick = onOpenNetwork,
+                selected = selectedPage == SettingsPage.Network,
+                onClick = { navigate(SettingsPage.Network) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_sse),
                 subtitle = stringResource(R.string.settings_sse_subtitle),
                 icon = Icons.Outlined.Sensors,
                 accent = SettingsAccent.Orange,
-                onClick = onOpenSse,
+                selected = selectedPage == SettingsPage.Sse,
+                onClick = { navigate(SettingsPage.Sse) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_logs),
                 subtitle = stringResource(R.string.settings_logs_subtitle),
                 icon = Icons.AutoMirrored.Outlined.ReceiptLong,
                 accent = SettingsAccent.Brown,
-                onClick = onOpenLogs,
+                selected = selectedPage == SettingsPage.Logs,
+                onClick = { navigate(SettingsPage.Logs) },
             ),
         ),
     ),
@@ -409,14 +428,16 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_server_accounts_subtitle),
                 icon = Icons.Outlined.Storage,
                 accent = SettingsAccent.Gray,
-                onClick = onOpenAccount,
+                selected = selectedPage == SettingsPage.Account,
+                onClick = { navigate(SettingsPage.Account) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_server_title),
                 subtitle = stringResource(R.string.settings_server_subtitle),
                 icon = Icons.Outlined.AdminPanelSettings,
                 accent = SettingsAccent.Gray,
-                onClick = onOpenServer,
+                selected = selectedPage == SettingsPage.Server,
+                onClick = { navigate(SettingsPage.Server) },
             ),
         ),
     ),
@@ -428,14 +449,16 @@ private fun settingsGroups(
                 subtitle = stringResource(R.string.settings_about_subtitle),
                 icon = Icons.Outlined.Info,
                 accent = SettingsAccent.Gray,
-                onClick = onOpenAbout,
+                selected = selectedPage == SettingsPage.About,
+                onClick = { navigate(SettingsPage.About) },
             ),
             SettingsRow(
                 title = stringResource(R.string.settings_licenses),
                 subtitle = stringResource(R.string.settings_licenses_subtitle),
                 icon = Icons.Outlined.Description,
                 accent = SettingsAccent.Gray,
-                onClick = onOpenLicenses,
+                selected = selectedPage == SettingsPage.Licenses,
+                onClick = { navigate(SettingsPage.Licenses) },
             ),
         ),
     ),
@@ -447,35 +470,4 @@ private fun themeModeLabel(mode: String): String = when (mode) {
     "light" -> stringResource(R.string.appearance_theme_light)
     "dark" -> stringResource(R.string.appearance_theme_dark)
     else -> stringResource(R.string.appearance_theme_system)
-}
-
-/**
- * Height estimate used only to balance the two columns of the wide layout: a row is taller when it
- * carries a subtitle, so a card with describing rows lands where it fits without a measuring pass.
- */
-private fun estimatedCardHeight(group: SettingsGroup): Int =
-    group.rows.sumOf { row -> if (row.subtitle.isNullOrEmpty()) 56 else 72 }
-
-/**
- * Splits the hub into two level columns, keeping the section order: each card goes to the column that
- * is currently shorter. Greedy is enough here because the cards are few and their heights are known.
- */
-internal fun balanceSettingsGroups(
-    groups: List<SettingsGroup>,
-): Pair<List<SettingsGroup>, List<SettingsGroup>> {
-    val left = mutableListOf<SettingsGroup>()
-    val right = mutableListOf<SettingsGroup>()
-    var leftHeight = 0
-    var rightHeight = 0
-    groups.forEach { group ->
-        val height = estimatedCardHeight(group)
-        if (leftHeight <= rightHeight) {
-            left += group
-            leftHeight += height
-        } else {
-            right += group
-            rightHeight += height
-        }
-    }
-    return left to right
 }

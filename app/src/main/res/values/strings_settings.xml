@@ -177,4 +177,6 @@
     <string name="settings_about_feedback">Feedback</string>
     <string name="settings_license_readium">Readium (EPUB engine reference)</string>
     <string name="settings_license_pdfium">PDFium (PDF engine reference)</string>
+    <!-- Tablet split layout: hint in the detail pane before a setting is chosen -->
+    <string name="settings_split_placeholder">Choose a setting on the left</string>
 </resources>

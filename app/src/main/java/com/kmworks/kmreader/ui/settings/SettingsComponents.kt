@@ -69,6 +69,8 @@ internal data class SettingsRow(
     val checked: Boolean = false,
     val onCheckedChange: ((Boolean) -> Unit)? = null,
     val onClick: (() -> Unit)? = null,
+    /** Marked in the hub when the split layout already shows this row's page in the detail pane. */
+    val selected: Boolean = false,
 )
 
 /** A titled group of rows rendered as one rounded card. */
@@ -125,6 +127,9 @@ private fun SettingsRowContent(row: SettingsRow) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(
+                if (row.selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent,
+            )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = RowInset, vertical = RowVerticalInset),
         verticalAlignment = Alignment.CenterVertically,
