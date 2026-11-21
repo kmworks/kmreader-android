@@ -289,7 +289,7 @@ class DashboardViewModel @Inject constructor(
                 if (onDeck.isNotEmpty()) DashboardSection("onDeck", context.getString(R.string.dashboard_section_on_deck), DashboardCardKind.Large, onDeck) else null,
                 if (releasedBooks.isNotEmpty()) DashboardSection("recentlyReleasedBooks", context.getString(R.string.dashboard_section_recently_released_books), DashboardCardKind.Large, releasedBooks) else null,
                 if (addedBooks.isNotEmpty()) DashboardSection("recentlyAddedBooks", context.getString(R.string.dashboard_section_recently_added_books), DashboardCardKind.Large, addedBooks) else null,
-                if (addedSeries.isNotEmpty()) DashboardSection("recentlyAddedSeries", context.getString(R.string.dashboard_section_recently_added_series), DashboardCardKind.Small, addedSeries) else null,
+                if (addedSeries.isNotEmpty()) DashboardSection("recentlyAddedSeries", context.getString(R.string.dashboard_section_recently_added_series), DashboardCardKind.Large, addedSeries) else null,
                 if (updatedSeries.isNotEmpty()) DashboardSection("recentlyUpdatedSeries", context.getString(R.string.dashboard_section_recently_updated_series), DashboardCardKind.Large, updatedSeries) else null,
                 if (readBooks.isNotEmpty()) DashboardSection("recentlyReadBooks", context.getString(R.string.dashboard_section_recently_read_books), DashboardCardKind.Small, readBooks) else null,
             )

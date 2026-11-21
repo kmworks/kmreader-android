@@ -422,7 +422,7 @@ class CatalogCache @Inject constructor(
 
     private fun sectionKind(sectionId: String): DashboardCardKind = when (sectionId) {
         "keepReading" -> DashboardCardKind.Horizontal
-        "recentlyAddedSeries", "recentlyReadBooks" -> DashboardCardKind.Small
+        "recentlyReadBooks" -> DashboardCardKind.Small
         else -> DashboardCardKind.Large
     }
 

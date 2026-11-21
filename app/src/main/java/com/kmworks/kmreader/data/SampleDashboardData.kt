@@ -67,7 +67,7 @@ object SampleDashboardData {
         DashboardSectionSetting("recentlyReleasedBooks", "Recently Released Books", DashboardCardKind.Large),
         DashboardSectionSetting("recentlyAddedBooks", "Recently Added Books", DashboardCardKind.Large),
         DashboardSectionSetting(
-            "recentlyAddedSeries", "Recently Added Series", DashboardCardKind.Small, seriesContent = true,
+            "recentlyAddedSeries", "Recently Added Series", DashboardCardKind.Large, seriesContent = true,
         ),
         DashboardSectionSetting(
             "recentlyUpdatedSeries", "Recently Updated Series", DashboardCardKind.Large, seriesContent = true,
