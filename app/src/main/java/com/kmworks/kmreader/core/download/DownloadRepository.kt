@@ -54,29 +54,6 @@ class DownloadRepository @Inject constructor(
     @Volatile
     private var pageConcurrency = AppSettingsStore.DEFAULT_DOWNLOAD_CONCURRENCY
 
-    init {
-        appScope.launch {
-            appSettings.downloadConcurrency.collect { pageConcurrency = it }
-        }
-        refreshDownloadedIndex()
-        // A task reaching SUCCEEDED/CANCELLED changes what is on disk; progress updates do not, so only
-        // (book, status) pairs are compared.
-        appScope.launch {
-            downloads
-                .map { rows -> rows.map { it.bookDtoId to it.status } }
-                .distinctUntilChanged()
-                .collect { refreshDownloadedIndex() }
-        }
-        // Refreshed catalog rows carry the series id, which backfills downloads enqueued before it existed.
-        // Debounced because a single screen load writes several pages in a row.
-        appScope.launch {
-            catalogCache.savedBooks.collectLatest {
-                delay(500)
-                refreshDownloadedIndex()
-            }
-        }
-    }
-
     /**
      * Series identity recovered from the catalog cache for downloads enqueued before #series existed,
      * memoized so a queue tick does not hit the database again.
@@ -423,6 +400,35 @@ class DownloadRepository @Inject constructor(
         enqueueMeta.getString("$bookDtoId#library", null)
 
     private fun workName(bookDtoId: String) = "download_$bookDtoId"
+
+    /**
+     * Deferred to the end of the class body on purpose: the init block starts coroutines that read the
+     * properties above ([downloads], [_downloadedIndex], [legacySeries]). Kotlin initializes properties and
+     * runs init blocks in declaration order, so an init block placed earlier would observe those fields as null
+     * from the worker thread (crash: MutableStateFlow.setValue on a null reference).
+     */
+    init {
+        appScope.launch {
+            appSettings.downloadConcurrency.collect { pageConcurrency = it }
+        }
+        refreshDownloadedIndex()
+        // A task reaching SUCCEEDED/CANCELLED changes what is on disk; progress updates do not, so only
+        // (book, status) pairs are compared.
+        appScope.launch {
+            downloads
+                .map { rows -> rows.map { it.bookDtoId to it.status } }
+                .distinctUntilChanged()
+                .collect { refreshDownloadedIndex() }
+        }
+        // Refreshed catalog rows carry the series id, which backfills downloads enqueued before it existed.
+        // Debounced because a single screen load writes several pages in a row.
+        appScope.launch {
+            catalogCache.savedBooks.collectLatest {
+                delay(500)
+                refreshDownloadedIndex()
+            }
+        }
+    }
 
     companion object {
         private const val KEY_WIFI_ONLY = "wifiOnly"
