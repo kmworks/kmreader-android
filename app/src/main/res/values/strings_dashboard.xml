@@ -108,9 +108,11 @@
     <!-- Downloads -->
     <string name="offline_title">Downloads</string>
     <string name="offline_storage_usage">Storage</string>
+    <string name="offline_storage_total">%1$s total</string>
     <string name="offline_storage_summary">%1$s downloaded of %2$s</string>
     <string name="offline_queue">Download Queue</string>
     <string name="offline_queue_empty">No download tasks</string>
+    <string name="offline_queue_empty_caption">Books you download will appear here</string>
     <string name="offline_policy">Download Policy</string>
     <string name="offline_auto_download_unread">Auto-download Unread</string>
     <string name="offline_auto_download_unread_subtitle">Automatically download unread books on new content (SSE) or when opening a series</string>
@@ -118,6 +120,7 @@
     <string name="offline_wifi_only_subtitle">Pause downloads while on cellular</string>
     <string name="offline_downloaded_books">Downloaded Books</string>
     <string name="offline_downloaded_empty">No downloaded content</string>
+    <string name="offline_downloaded_empty_caption">Downloaded books can be read offline</string>
     <string name="offline_task_pages">%1$d/%2$d pages</string>
     <string name="offline_paused_resume">Paused · %1$d pages downloaded, will resume</string>
     <string name="offline_failed_retry">Download failed, you can retry</string>
