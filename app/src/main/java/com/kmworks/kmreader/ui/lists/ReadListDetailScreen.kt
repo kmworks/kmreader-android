@@ -151,6 +151,45 @@ fun ReadListDetailScreen(
         .let { if (it < 0) null else it }
     val heroFirst = visible.firstOrNull()
 
+    // Selection actions, hoisted so the pinned bottom bar and the list rows share one implementation.
+    val toggleSelectAll: () -> Unit = {
+        selected = if (selected.size == books.size) emptySet() else books.map { it.id }.toSet()
+    }
+    val exitSelection: () -> Unit = {
+        selecting = false
+        selected = emptySet()
+    }
+    // Real data goes through the API (updated in the VM); demo data gets local feedback.
+    val onSelectedMarkRead: () -> Unit = {
+        if (!viewModel.markBooksRead(selected, true)) {
+            demoMarks = demoMarks + selected.associateWith { true }
+        }
+        exitSelection()
+    }
+    val onSelectedMarkUnread: () -> Unit = {
+        if (!viewModel.markBooksRead(selected, false)) {
+            demoMarks = demoMarks + selected.associateWith { false }
+        }
+        exitSelection()
+    }
+    val onSelectedDownload: () -> Unit = {
+        viewModel.downloadBooks(selected) { ok ->
+            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
+        }
+        exitSelection()
+    }
+    val onSelectedAddToReadList: () -> Unit = {
+        viewModel.ensureReadListsLoaded()
+        addSelectedToReadListOpen = true
+    }
+    val onSelectedRemove: () -> Unit = {
+        if (!viewModel.removeBooks(selected)) {
+            removedIds = removedIds + selected
+        }
+        onRemoveBooks(selected.toList())
+        exitSelection()
+    }
+
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
     // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
     val barHazeState = rememberHazeState()
@@ -159,6 +198,23 @@ fun ReadListDetailScreen(
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Pinned to the page bottom: the book list is long, and the inline row scrolled away with it,
+        // forcing the user back to the top to act on the selection they had just made.
+        bottomBar = {
+            if (selecting) {
+                SelectionToolbar(
+                    selectedCount = selected.size,
+                    totalCount = books.size,
+                    onSelectAll = toggleSelectAll,
+                    onMarkRead = onSelectedMarkRead,
+                    onMarkUnread = onSelectedMarkUnread,
+                    onDownload = onSelectedDownload,
+                    onAddToReadList = onSelectedAddToReadList,
+                    onDelete = onSelectedRemove,
+                    onDone = exitSelection,
+                )
+            }
+        },
         // Keep the page under the status bar: the Scaffold inset would clip every scroller at the
         // status bar and leave the bar's top strip without a backdrop (a hard seam).
         contentWindowInsets = glassPageContentWindowInsets(),
@@ -272,58 +328,13 @@ fun ReadListDetailScreen(
                             )
                         }
                         ReadListToolbar(
-                            selecting = selecting,
-                            selectedCount = selected.size,
-                            totalCount = books.size,
+                            selectionMode = selecting,
                             options = options,
                             layout = layout,
                             onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
                             onStartSelecting = { selecting = true },
-                            onSelectAll = {
-                                selected = if (selected.size == books.size) emptySet()
-                                else books.map { it.id }.toSet()
-                            },
-                            onMarkRead = {
-                                // Real data goes through the API (updated in the VM);
-                                // demo data gets local feedback
-                                if (!viewModel.markBooksRead(selected, true)) {
-                                    demoMarks = demoMarks + selected.associateWith { true }
-                                }
-                                selected = emptySet()
-                                selecting = false
-                            },
-                            onMarkUnread = {
-                                if (!viewModel.markBooksRead(selected, false)) {
-                                    demoMarks = demoMarks + selected.associateWith { false }
-                                }
-                                selected = emptySet()
-                                selecting = false
-                            },
-                            onDownload = {
-                                viewModel.downloadBooks(selected) { ok ->
-                                    if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
-                                }
-                                selected = emptySet()
-                                selecting = false
-                            },
-                            onAddToReadList = {
-                                viewModel.ensureReadListsLoaded()
-                                addSelectedToReadListOpen = true
-                            },
-                            onRemoveSelected = {
-                                if (!viewModel.removeBooks(selected)) {
-                                    removedIds = removedIds + selected
-                                }
-                                onRemoveBooks(selected.toList())
-                                selected = emptySet()
-                                selecting = false
-                            },
-                            onDoneSelecting = {
-                                selecting = false
-                                selected = emptySet()
-                            },
                         )
                         ReadListBookList(
                             books = books,
@@ -372,56 +383,13 @@ fun ReadListDetailScreen(
                         )
                     }
                     ReadListToolbar(
-                        selecting = selecting,
-                        selectedCount = selected.size,
-                        totalCount = books.size,
+                        selectionMode = selecting,
                         options = options,
                         layout = layout,
                         onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
                         onStartSelecting = { selecting = true },
-                        onSelectAll = {
-                            selected = if (selected.size == books.size) emptySet()
-                            else books.map { it.id }.toSet()
-                        },
-                        onMarkRead = {
-                            if (!viewModel.markBooksRead(selected, true)) {
-                                demoMarks = demoMarks + selected.associateWith { true }
-                            }
-                            selected = emptySet()
-                            selecting = false
-                        },
-                        onMarkUnread = {
-                            if (!viewModel.markBooksRead(selected, false)) {
-                                demoMarks = demoMarks + selected.associateWith { false }
-                            }
-                            selected = emptySet()
-                            selecting = false
-                        },
-                        onDownload = {
-                            viewModel.downloadBooks(selected) { ok ->
-                                if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
-                            }
-                            selected = emptySet()
-                            selecting = false
-                        },
-                        onAddToReadList = {
-                            viewModel.ensureReadListsLoaded()
-                            addSelectedToReadListOpen = true
-                        },
-                        onRemoveSelected = {
-                            if (!viewModel.removeBooks(selected)) {
-                                removedIds = removedIds + selected
-                            }
-                            onRemoveBooks(selected.toList())
-                            selected = emptySet()
-                            selecting = false
-                        },
-                        onDoneSelecting = {
-                            selecting = false
-                            selected = emptySet()
-                        },
                     )
                     ReadListBookList(
                         books = books,
@@ -734,49 +702,31 @@ private fun ContinuationHintCard(
     }
 }
 
-/** Toolbar row: filter chip flow + enter multi-select; switches to SelectionToolbar
- *  while selecting (mirrors BooksListViewForReadList). */
+/** Toolbar row: filter chip flow + enter multi-select. The selection actions live in the pinned
+ *  bottom bar instead, so they stay reachable while the list is scrolled (mirrors
+ *  BooksListViewForReadList). */
 @Composable
 private fun ReadListToolbar(
-    selecting: Boolean,
-    selectedCount: Int,
-    totalCount: Int,
+    selectionMode: Boolean,
     options: BookBrowseOptions,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
     onApplyPreset: (com.kmworks.kmreader.data.SavedFilter) -> Unit,
     onStartSelecting: () -> Unit,
-    onSelectAll: () -> Unit,
-    onMarkRead: () -> Unit,
-    onMarkUnread: () -> Unit,
-    onDownload: () -> Unit,
-    onAddToReadList: () -> Unit,
-    onRemoveSelected: () -> Unit,
-    onDoneSelecting: () -> Unit,
 ) {
-    if (selecting) {
-        SelectionToolbar(
-            selectedCount = selectedCount,
-            totalCount = totalCount,
-            onSelectAll = onSelectAll,
-            onMarkRead = onMarkRead,
-            onMarkUnread = onMarkUnread,
-            onDownload = onDownload,
-            onAddToReadList = onAddToReadList,
-            onDelete = onRemoveSelected,
-            onDone = onDoneSelecting,
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        BrowseFilterChipFlow(
+            options = options,
+            layout = layout,
+            onLayoutChange = onLayoutChange,
+            onOpenOptions = onOpenOptions,
+            onApplyPreset = onApplyPreset,
+            modifier = Modifier.weight(1f),
         )
-    } else {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BrowseFilterChipFlow(
-                options = options,
-                layout = layout,
-                onLayoutChange = onLayoutChange,
-                onOpenOptions = onOpenOptions,
-                onApplyPreset = onApplyPreset,
-                modifier = Modifier.weight(1f),
-            )
+        // Hidden while a selection is active: the pinned bar owns the selection actions, and a second
+        // entry here would only re-enter the mode the page is already in.
+        if (!selectionMode) {
             IconButton(onClick = onStartSelecting) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.lists_select))
             }

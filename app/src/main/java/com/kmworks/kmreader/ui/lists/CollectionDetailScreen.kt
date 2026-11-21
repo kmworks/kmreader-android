@@ -153,6 +153,21 @@ fun CollectionDetailScreen(
     // first series' thumbnail
     val heroHue = visible.firstOrNull()?.hue ?: 210f
 
+    // Selection actions, hoisted so the pinned bottom bar and the list rows share one implementation.
+    val toggleSelectAll: () -> Unit = {
+        selected = if (selected.size == series.size) emptySet() else series.map { it.id }.toSet()
+    }
+    val exitSelection: () -> Unit = {
+        selecting = false
+        selected = emptySet()
+    }
+    val onSelectedRemove: () -> Unit = {
+        viewModel.removeSeries(selected) { ok ->
+            if (!ok) removedIds = removedIds + selected
+            exitSelection()
+        }
+    }
+
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
     // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
     val barHazeState = rememberHazeState()
@@ -161,6 +176,23 @@ fun CollectionDetailScreen(
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Pinned to the page bottom: the series grid is long, and the inline row scrolled away with
+        // it, forcing the user back to the top to act on the selection they had just made.
+        bottomBar = {
+            if (selecting) {
+                SelectionToolbar(
+                    selectedCount = selected.size,
+                    totalCount = series.size,
+                    onSelectAll = toggleSelectAll,
+                    onMarkRead = { onSelectedMarkRead(true) },
+                    onMarkUnread = { onSelectedMarkRead(false) },
+                    onDownload = onSelectedDownload,
+                    onAddToReadList = onSelectedAddToReadList,
+                    onDelete = onSelectedRemove,
+                    onDone = exitSelection,
+                )
+            }
+        },
         // Keep the page under the status bar: the Scaffold inset would clip every scroller at the
         // status bar and leave the bar's top strip without a backdrop (a hard seam).
         contentWindowInsets = glassPageContentWindowInsets(),
@@ -270,34 +302,13 @@ fun CollectionDetailScreen(
                             ),
                     ) {
                         SeriesToolbar(
-                            selecting = selecting,
-                            selectedCount = selected.size,
-                            totalCount = series.size,
+                            selectionMode = selecting,
                             options = options,
                             layout = layout,
                             onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
                             onApplyPreset = { options = it.options },
                             onStartSelecting = { selecting = true },
-                            onSelectAll = {
-                                selected = if (selected.size == series.size) emptySet()
-                                else series.map { it.id }.toSet()
-                            },
-                            onMarkRead = { onSelectedMarkRead(true) },
-                            onMarkUnread = { onSelectedMarkRead(false) },
-                            onDownload = onSelectedDownload,
-                            onAddToReadList = onSelectedAddToReadList,
-                            onDeleteSelected = {
-                                viewModel.removeSeries(selected) { ok ->
-                                    if (!ok) removedIds = removedIds + selected
-                                    selected = emptySet()
-                                    selecting = false
-                                }
-                            },
-                            onDoneSelecting = {
-                                selecting = false
-                                selected = emptySet()
-                            },
                         )
                         SeriesContent(
                             series = series,
@@ -340,34 +351,13 @@ fun CollectionDetailScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     SeriesToolbar(
-                        selecting = selecting,
-                        selectedCount = selected.size,
-                        totalCount = series.size,
+                        selectionMode = selecting,
                         options = options,
                         layout = layout,
                         onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
                         onApplyPreset = { options = it.options },
                         onStartSelecting = { selecting = true },
-                        onSelectAll = {
-                            selected = if (selected.size == series.size) emptySet()
-                            else series.map { it.id }.toSet()
-                        },
-                        onMarkRead = { onSelectedMarkRead(true) },
-                        onMarkUnread = { onSelectedMarkRead(false) },
-                        onDownload = onSelectedDownload,
-                        onAddToReadList = onSelectedAddToReadList,
-                        onDeleteSelected = {
-                            viewModel.removeSeries(selected) { ok ->
-                                if (!ok) removedIds = removedIds + selected
-                                selected = emptySet()
-                                selecting = false
-                            }
-                        },
-                        onDoneSelecting = {
-                            selecting = false
-                            selected = emptySet()
-                        },
                     )
                     SeriesContent(
                         series = series,
@@ -534,49 +524,31 @@ private fun CollectionHero(
     }
 }
 
-/** Toolbar row: filter chip flow + enter multi-select; switches to SelectionToolbar
- *  while selecting (mirrors CollectionSeriesListView). */
+/** Toolbar row: filter chip flow + enter multi-select. The selection actions live in the pinned
+ *  bottom bar instead, so they stay reachable while the series list is scrolled (mirrors
+ *  CollectionSeriesListView). */
 @Composable
 private fun SeriesToolbar(
-    selecting: Boolean,
-    selectedCount: Int,
-    totalCount: Int,
+    selectionMode: Boolean,
     options: BookBrowseOptions,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
     onApplyPreset: (com.kmworks.kmreader.data.SavedFilter) -> Unit,
     onStartSelecting: () -> Unit,
-    onSelectAll: () -> Unit,
-    onMarkRead: () -> Unit,
-    onMarkUnread: () -> Unit,
-    onDownload: () -> Unit,
-    onAddToReadList: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    onDoneSelecting: () -> Unit,
 ) {
-    if (selecting) {
-        SelectionToolbar(
-            selectedCount = selectedCount,
-            totalCount = totalCount,
-            onSelectAll = onSelectAll,
-            onMarkRead = onMarkRead,
-            onMarkUnread = onMarkUnread,
-            onDownload = onDownload,
-            onAddToReadList = onAddToReadList,
-            onDelete = onDeleteSelected,
-            onDone = onDoneSelecting,
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        BrowseFilterChipFlow(
+            options = options,
+            layout = layout,
+            onLayoutChange = onLayoutChange,
+            onOpenOptions = onOpenOptions,
+            onApplyPreset = onApplyPreset,
+            modifier = Modifier.weight(1f),
         )
-    } else {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BrowseFilterChipFlow(
-                options = options,
-                layout = layout,
-                onLayoutChange = onLayoutChange,
-                onOpenOptions = onOpenOptions,
-                onApplyPreset = onApplyPreset,
-                modifier = Modifier.weight(1f),
-            )
+        // Hidden while a selection is active: the pinned bar owns the selection actions, and a second
+        // entry here would only re-enter the mode the page is already in.
+        if (!selectionMode) {
             IconButton(onClick = onStartSelecting) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.lists_select))
             }
