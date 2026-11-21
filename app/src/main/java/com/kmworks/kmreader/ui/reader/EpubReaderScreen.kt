@@ -59,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -504,6 +505,10 @@ private fun RealEpubReader(
     var scrub by remember { mutableStateOf<Float?>(null) }
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    // The WebView stays invisible until the restored progression has been applied: the chapter is
+    // loaded from its top, so without this the first paint shows the chapter start and the injected
+    // scroll only lands one or more frames later (same first-frame jump as the pager's cell 0)
+    var restorePositioned by remember { mutableStateOf(false) }
 
     val bridge = remember {
         EpubJsBridge(
@@ -517,6 +522,10 @@ private fun RealEpubReader(
             pendingScroll = it
             viewModel.consumeScroll()
         }
+    }
+    // Never leave the WebView hidden if the chapter failed to load (onPageReady may not fire)
+    LaunchedEffect(state.error) {
+        if (state.error != null) restorePositioned = true
     }
     LaunchedEffect(themeConfig) {
         webView?.evaluateJavascript(
@@ -567,16 +576,29 @@ private fun RealEpubReader(
                     resolveResource = viewModel::fetchResource,
                     onPageReady = { view ->
                         view.evaluateJavascript(EpubJs.injectScript(latestConfig), null)
-                        pendingScroll?.let { fraction ->
-                            view.evaluateJavascript("window.__kmScrollToFraction($fraction)", null)
-                            pendingScroll = null
+                        val fraction = pendingScroll
+                        pendingScroll = null
+                        if (fraction != null && fraction > 0f) {
+                            // Apply the saved progression first, then reveal the WebView once the
+                            // scrolled frame has had a chance to commit; revealing inside the JS
+                            // callback can still paint the chapter top for a frame
+                            view.evaluateJavascript("window.__kmScrollToFraction($fraction)") {
+                                view.postDelayed({ restorePositioned = true }, 48L)
+                            }
+                        } else {
+                            // Chapter start (or no saved progression): the first paint is correct
+                            restorePositioned = true
                         }
                     },
                     resolveFont = viewModel::fetchLocalFont,
                 )
                 createEpubWebView(context, bridge, client).also { webView = it }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    // Hidden until the restored page position has been applied (see onPageReady)
+                    .alpha(if (restorePositioned) 1f else 0f),
         )
 
         if (state.loading) {
