@@ -12,24 +12,25 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -43,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -60,6 +62,10 @@ import com.kmworks.kmreader.core.tracker.TrackerLinkGroupDto
 import com.kmworks.kmreader.core.tracker.TrackerPreferencesDto
 import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.SettingsMenuRow
+import com.kmworks.kmreader.ui.settings.SettingsPickerRow
+import com.kmworks.kmreader.ui.settings.SettingsRowDivider
+import com.kmworks.kmreader.ui.settings.SettingsSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -143,7 +149,8 @@ fun TrackerSettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             if (hasSession && !supported) {
                 Text(
@@ -155,133 +162,149 @@ fun TrackerSettingsScreen(
                 return@Column
             }
 
-            TrackerSettingsTitle(stringResource(R.string.tracker_accounts))
-            accounts.forEach { account ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ProviderLogo(account.provider)
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+            SettingsSection(
+                title = stringResource(R.string.tracker_accounts),
+                footer = stringResource(R.string.tracker_accounts_footer),
+            ) {
+                accounts.forEachIndexed { index, account ->
+                    if (index > 0) SettingsRowDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ProviderLogo(account.provider)
                         Text(
-                            account.provider.displayName,
+                            text = account.provider.displayName,
                             style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
                         )
-                        Text(
-                            account.connectedUser?.let {
-                                stringResource(R.string.tracker_connected_user, it)
-                            } ?: stringResource(R.string.tracker_not_connected),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (account.connectedUser != null) {
-                        TextButton(onClick = {
-                            if (realMode) pendingDisconnect = account.provider
-                        }) { Text(stringResource(R.string.tracker_disconnect)) }
-                    } else {
-                        TextButton(
-                            onClick = { authorizationUrl?.let(uriHandler::openUri) },
-                            enabled = realMode && authorizationUrl != null,
-                        ) { Text(stringResource(R.string.tracker_connect_on_web)) }
-                    }
-                }
-            }
-            Text(
-                stringResource(R.string.tracker_accounts_footer),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-
-            TrackerSettingsTitle(stringResource(R.string.tracker_default_tracker))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TrackerProvider.entries.forEach { provider ->
-                    FilterChip(
-                        selected = defaultTracker == provider,
-                        onClick = {
-                            if (realMode) viewModel.setDefaultTracker(provider)
-                            else demoDefaultTracker = provider
-                        },
-                        label = { Text(provider.displayName) },
-                    )
-                }
-            }
-
-            TrackerSettingsTitle(stringResource(R.string.tracker_libraries))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (realMode) {
-                    libraries.forEach { (libraryId, name) ->
-                        FilterChip(
-                            selected = libraryId in preferences?.libraries.orEmpty(),
-                            onClick = { viewModel.toggleLibrary(libraryId) },
-                            label = { Text(name) },
-                        )
-                    }
-                } else {
-                    demoLibraries.forEach { library ->
-                        FilterChip(
-                            selected = library in demoSelectedLibraries,
-                            onClick = {
-                                demoSelectedLibraries =
-                                    if (library in demoSelectedLibraries) {
-                                        demoSelectedLibraries - library
-                                    } else {
-                                        demoSelectedLibraries + library
-                                    }
-                            },
-                            label = { Text(library) },
-                        )
-                    }
-                }
-            }
-            Text(
-                stringResource(R.string.tracker_libraries_footer),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-            SettingsEntryRow(
-                title = stringResource(R.string.tracker_linked_series),
-                subtitle = stringResource(R.string.tracker_bindings_subtitle),
-                onClick = {
-                    showBindings = true
-                    if (realMode) viewModel.loadBindings(refresh = true)
-                },
-            )
-            SettingsEntryRow(
-                title = stringResource(R.string.tracker_recent_updates),
-                subtitle = stringResource(R.string.tracker_ledger_subtitle),
-                expanded = showLedger,
-                onClick = {
-                    showLedger = !showLedger
-                    if (showLedger && realMode) viewModel.loadLedger()
-                },
-            )
-            if (showLedger) {
-                val items = if (realMode) ledger.orEmpty() else emptyList()
-                if (items.isEmpty()) {
-                    Text(
-                        if (realMode) {
-                            stringResource(R.string.tracker_no_updates)
+                        if (account.connectedUser != null) {
+                            Text(
+                                text = account.connectedUser,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 120.dp),
+                            )
+                            TextButton(
+                                onClick = {
+                                    if (realMode) pendingDisconnect = account.provider
+                                },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                            ) { Text(stringResource(R.string.tracker_disconnect)) }
                         } else {
-                            stringResource(R.string.tracker_demo_no_ledger)
-                        },
+                            TextButton(
+                                onClick = { authorizationUrl?.let(uriHandler::openUri) },
+                                enabled = realMode && authorizationUrl != null,
+                            ) { Text(stringResource(R.string.tracker_connect_on_web)) }
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(title = stringResource(R.string.tracker_preferences_section)) {
+                SettingsPickerRow(
+                    title = stringResource(R.string.tracker_default_tracker),
+                    selectedLabel = defaultTracker.displayName,
+                    options = TrackerProvider.entries.map { it to it.displayName },
+                    onSelect = { provider ->
+                        if (realMode) viewModel.setDefaultTracker(provider)
+                        else demoDefaultTracker = provider
+                    },
+                    icon = Icons.Outlined.Sync,
+                )
+                SettingsRowDivider()
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(
+                        text = stringResource(R.string.tracker_libraries),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        if (realMode) {
+                            libraries.forEach { (libraryId, name) ->
+                                FilterChip(
+                                    selected = libraryId in preferences?.libraries.orEmpty(),
+                                    onClick = { viewModel.toggleLibrary(libraryId) },
+                                    label = { Text(name) },
+                                )
+                            }
+                        } else {
+                            demoLibraries.forEach { library ->
+                                FilterChip(
+                                    selected = library in demoSelectedLibraries,
+                                    onClick = {
+                                        demoSelectedLibraries =
+                                            if (library in demoSelectedLibraries) {
+                                                demoSelectedLibraries - library
+                                            } else {
+                                                demoSelectedLibraries + library
+                                            }
+                                    },
+                                    label = { Text(library) },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = stringResource(R.string.tracker_libraries_footer),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(top = 6.dp),
                     )
                 }
-                items.forEach { item ->
-                    LedgerRow(item)
+            }
+
+            SettingsSection {
+                SettingsMenuRow(
+                    title = stringResource(R.string.tracker_linked_series),
+                    subtitle = stringResource(R.string.tracker_bindings_subtitle),
+                    icon = Icons.Outlined.Link,
+                    onClick = {
+                        showBindings = true
+                        if (realMode) viewModel.loadBindings(refresh = true)
+                    },
+                )
+                SettingsRowDivider()
+                SettingsMenuRow(
+                    title = stringResource(R.string.tracker_recent_updates),
+                    subtitle = stringResource(R.string.tracker_ledger_subtitle),
+                    icon = Icons.Outlined.History,
+                    onClick = {
+                        showLedger = !showLedger
+                        if (showLedger && realMode) viewModel.loadLedger()
+                    },
+                )
+                if (showLedger) {
+                    SettingsRowDivider()
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        val items = if (realMode) ledger.orEmpty() else emptyList()
+                        if (items.isEmpty()) {
+                            Text(
+                                if (realMode) {
+                                    stringResource(R.string.tracker_no_updates)
+                                } else {
+                                    stringResource(R.string.tracker_demo_no_ledger)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                        items.forEach { item ->
+                            LedgerRow(item)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.padding(bottom = 24.dp))
         }
     }
 
@@ -508,45 +531,6 @@ private val ledgerTimeFormatter: DateTimeFormatter =
 
 private fun formatLedgerTime(epochSeconds: Double): String =
     ledgerTimeFormatter.format(Instant.ofEpochSecond(epochSeconds.toLong()))
-
-@Composable
-private fun TrackerSettingsTitle(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun SettingsEntryRow(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    expanded: Boolean? = null,
-) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                if (expanded == true) Icons.Filled.ExpandLess else Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
 
 /** Tracker settings data (accounts/preferences/libraries/ledger); everything goes through the capability-gated TrackerRepository. */
 @HiltViewModel

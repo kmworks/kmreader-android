@@ -6,14 +6,21 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -21,12 +28,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -186,3 +199,270 @@ private fun SettingsIconBadge(icon: ImageVector, accent: SettingsAccent) {
         )
     }
 }
+
+// region sub-page rows
+
+/**
+ * One titled card of a settings sub-page (iOS Form Section): an optional section label, the rounded
+ * card that holds the rows, and an optional caption footer below it. Sub-pages use this instead of
+ * bare text rows so they keep the same shape as the settings hub.
+ */
+@Composable
+internal fun SettingsSection(
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    footer: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (!title.isNullOrEmpty()) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = RowInset, bottom = 6.dp),
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(CardCorner),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        ) {
+            Column(content = content)
+        }
+        if (!footer.isNullOrEmpty()) {
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = RowInset, end = RowInset, top = 6.dp),
+            )
+        }
+    }
+}
+
+/** Hairline between the rows of a [SettingsSection]. */
+@Composable
+internal fun SettingsRowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = RowInset),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+    )
+}
+
+/** Switch row: leading icon, title/subtitle, trailing switch; the whole row toggles (like iOS). */
+@Composable
+internal fun SettingsSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(horizontal = RowInset, vertical = RowVerticalInset),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BadgeGap),
+    ) {
+        if (icon != null) SettingsRowIcon(icon, enabled)
+        SettingsRowText(
+            title = title,
+            subtitle = subtitle,
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/** Row whose trailing side shows the current value plus a chevron, opening a picker/next page. */
+@Composable
+internal fun SettingsMenuRow(
+    title: String,
+    value: String? = null,
+    onClick: () -> Unit,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = RowInset, vertical = RowVerticalInset),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BadgeGap),
+    ) {
+        if (icon != null) SettingsRowIcon(icon, true)
+        SettingsRowText(
+            title = title,
+            subtitle = subtitle,
+            enabled = true,
+            modifier = Modifier.weight(1f),
+        )
+        if (!value.isNullOrEmpty()) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Menu picker row (iOS menu Picker): the trailing value opens a dropdown of [options]. */
+@Composable
+internal fun <T> SettingsPickerRow(
+    title: String,
+    selectedLabel: String,
+    options: List<Pair<T, String>>,
+    onSelect: (T) -> Unit,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        SettingsMenuRow(
+            title = title,
+            value = selectedLabel,
+            subtitle = subtitle,
+            icon = icon,
+            onClick = { expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(value)
+                    },
+                    trailingIcon = {
+                        if (label == selectedLabel) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Read-only label/value row (iOS LabeledContent). */
+@Composable
+internal fun SettingsValueRow(
+    title: String,
+    value: String,
+    icon: ImageVector? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = RowInset, vertical = RowVerticalInset),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BadgeGap),
+    ) {
+        if (icon != null) SettingsRowIcon(icon, true)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
+/** Full-width destructive action row (iOS Button(role: .destructive)). */
+@Composable
+internal fun SettingsDangerRow(
+    text: String,
+    onClick: () -> Unit,
+    icon: ImageVector? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = RowInset, vertical = RowVerticalInset),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+@Composable
+private fun SettingsRowIcon(icon: ImageVector, enabled: Boolean) {
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        modifier = Modifier.size(20.dp),
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f),
+    )
+}
+
+@Composable
+private fun SettingsRowText(
+    title: String,
+    subtitle: String?,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val contentAlpha = if (enabled) 1f else 0.38f
+    Column(modifier = modifier) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+        )
+        if (!subtitle.isNullOrEmpty()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+// endregion

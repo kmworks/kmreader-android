@@ -190,6 +190,10 @@
     <string name="fonts_not_downloaded">Not downloaded</string>
     <string name="fonts_downloaded">Downloaded</string>
     <string name="fonts_server">Server font</string>
+    <string name="fonts_server_section">Server Fonts</string>
+    <string name="fonts_system_section">System Fonts</string>
+    <string name="fonts_empty_server">No fonts are available on the server.</string>
+    <string name="fonts_none_imported">No local fonts imported yet.</string>
     <string name="fonts_import_button">Import font files (.ttf / .otf)</string>
     <string name="fonts_imported_installed">Installed custom fonts</string>
     <string name="fonts_installed_total">%1$d custom fonts installed</string>

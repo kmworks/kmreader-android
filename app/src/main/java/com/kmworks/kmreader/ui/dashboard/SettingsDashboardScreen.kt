@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.dashboard
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.History
@@ -25,8 +27,8 @@ import androidx.compose.material.icons.outlined.LibraryAdd
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Update
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,6 +62,10 @@ import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSectionSetting
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.SettingsDangerRow
+import com.kmworks.kmreader.ui.settings.SettingsRowDivider
+import com.kmworks.kmreader.ui.settings.SettingsSection
+import com.kmworks.kmreader.ui.settings.SettingsSwitchRow
 import kotlin.math.roundToInt
 
 /**
@@ -89,6 +96,7 @@ fun SettingsDashboardScreen(
     }
     val orderedIds = dragOrder ?: visibleSections.map { it.id }
     val orderedSettings = orderedIds.mapNotNull { sectionsById[it] }
+    var showResetConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -109,127 +117,143 @@ fun SettingsDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            item { GroupHeader(stringResource(R.string.dashboard_settings_options)) }
             item {
-                SwitchRow(
-                    title = stringResource(R.string.dashboard_card_kind_menu),
-                    subtitle = stringResource(R.string.dashboard_card_kind_menu_caption),
-                    checked = state.cardKindMenu,
-                    onCheckedChange = viewModel::setCardKindMenu,
-                )
-            }
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.dashboard_readlist_continuation),
-                    subtitle = stringResource(R.string.dashboard_readlist_continuation_caption),
-                    checked = state.continuation,
-                    onCheckedChange = viewModel::setContinuation,
-                )
-            }
-            item {
-                Text(
-                    text = stringResource(R.string.dashboard_settings_scope_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-
-            item { GroupHeader(stringResource(R.string.dashboard_settings_sections)) }
-            item {
-                Text(
-                    text = stringResource(R.string.dashboard_settings_reorder_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            items(orderedSettings.size, key = { index -> orderedSettings[index].id }) { index ->
-                val setting = orderedSettings[index]
-                val isDragging = draggingId == setting.id
-                val currentIndex = orderedIds.indexOf(setting.id)
-                val dragTranslation = if (isDragging && rowHeightPx > 0f) {
-                    dragAccumPx - (currentIndex - dragStartIndex) * rowHeightPx
-                } else {
-                    0f
-                }
-                SectionSettingRow(
-                    setting = setting,
-                    effectiveKind = state.overrides[setting.id] ?: setting.defaultKind,
-                    dragging = isDragging,
-                    modifier = Modifier
-                        .zIndex(if (isDragging) 1f else 0f)
-                        .onGloballyPositioned { coordinates ->
-                            if (rowHeightPx == 0f) rowHeightPx = coordinates.size.height.toFloat()
-                        }
-                        .graphicsLayer {
-                            translationY = dragTranslation
-                            shadowElevation = if (isDragging) 6.dp.toPx() else 0f
-                        }
-                        .background(
-                            if (isDragging) {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                        ),
-                    onDragStart = {
-                        draggingId = setting.id
-                        dragStartIndex = currentIndex
-                        dragAccumPx = 0f
-                    },
-                    onDrag = { dy ->
-                        if (rowHeightPx > 0f) {
-                            dragAccumPx += dy
-                            val list = (dragOrder ?: visibleSections.map { it.id }).toMutableList()
-                            val from = list.indexOf(setting.id)
-                            val target = (dragStartIndex + (dragAccumPx / rowHeightPx).roundToInt())
-                                .coerceIn(0, list.lastIndex)
-                            if (from >= 0 && target != from) {
-                                list.add(target, list.removeAt(from))
-                                dragOrder = list
-                            }
-                        }
-                    },
-                    onDragEnd = {
-                        dragOrder?.let(viewModel::setOrder)
-                        draggingId = null
-                        dragAccumPx = 0f
-                    },
-                    onToggle = { viewModel.setVisible(setting.id, false) },
-                )
-            }
-
-            if (hiddenSections.isNotEmpty()) {
-                item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-                item { GroupHeader(stringResource(R.string.dashboard_settings_hidden_sections)) }
-                items(hiddenSections.size, key = { index -> hiddenSections[index].id }) { index ->
-                    val setting = hiddenSections[index]
-                    HiddenSectionRow(
-                        setting = setting,
-                        onShow = { viewModel.setVisible(setting.id, true) },
+                SettingsSection(
+                    title = stringResource(R.string.dashboard_settings_options),
+                    footer = stringResource(R.string.dashboard_settings_scope_note),
+                ) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.dashboard_card_kind_menu),
+                        subtitle = stringResource(R.string.dashboard_card_kind_menu_caption),
+                        checked = state.cardKindMenu,
+                        onCheckedChange = viewModel::setCardKindMenu,
+                    )
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.dashboard_readlist_continuation),
+                        subtitle = stringResource(R.string.dashboard_readlist_continuation_caption),
+                        checked = state.continuation,
+                        onCheckedChange = viewModel::setContinuation,
                     )
                 }
             }
 
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
             item {
+                SettingsSection(
+                    title = stringResource(R.string.dashboard_settings_sections),
+                    footer = stringResource(R.string.dashboard_settings_reorder_hint),
+                ) {
+                    orderedSettings.forEachIndexed { index, setting ->
+                        if (index > 0) SettingsRowDivider()
+                        val isDragging = draggingId == setting.id
+                        val currentIndex = orderedIds.indexOf(setting.id)
+                        val dragTranslation = if (isDragging && rowHeightPx > 0f) {
+                            dragAccumPx - (currentIndex - dragStartIndex) * rowHeightPx
+                        } else {
+                            0f
+                        }
+                        SectionSettingRow(
+                            setting = setting,
+                            effectiveKind = state.overrides[setting.id] ?: setting.defaultKind,
+                            dragging = isDragging,
+                            modifier = Modifier
+                                .zIndex(if (isDragging) 1f else 0f)
+                                .onGloballyPositioned { coordinates ->
+                                    if (rowHeightPx == 0f) rowHeightPx = coordinates.size.height.toFloat()
+                                }
+                                .graphicsLayer {
+                                    translationY = dragTranslation
+                                    shadowElevation = if (isDragging) 6.dp.toPx() else 0f
+                                }
+                                .background(
+                                    if (isDragging) {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                            onDragStart = {
+                                draggingId = setting.id
+                                dragStartIndex = currentIndex
+                                dragAccumPx = 0f
+                            },
+                            onDrag = { dy ->
+                                if (rowHeightPx > 0f) {
+                                    dragAccumPx += dy
+                                    val list = (dragOrder ?: visibleSections.map { it.id }).toMutableList()
+                                    val from = list.indexOf(setting.id)
+                                    val target = (dragStartIndex + (dragAccumPx / rowHeightPx).roundToInt())
+                                        .coerceIn(0, list.lastIndex)
+                                    if (from >= 0 && target != from) {
+                                        list.add(target, list.removeAt(from))
+                                        dragOrder = list
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                dragOrder?.let(viewModel::setOrder)
+                                draggingId = null
+                                dragAccumPx = 0f
+                            },
+                            onToggle = { viewModel.setVisible(setting.id, false) },
+                        )
+                    }
+                }
+            }
+
+            if (hiddenSections.isNotEmpty()) {
+                item {
+                    SettingsSection(title = stringResource(R.string.dashboard_settings_hidden_sections)) {
+                        hiddenSections.forEachIndexed { index, setting ->
+                            if (index > 0) SettingsRowDivider()
+                            HiddenSectionRow(
+                                setting = setting,
+                                onShow = { viewModel.setVisible(setting.id, true) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                SettingsSection {
+                    SettingsDangerRow(
+                        text = stringResource(R.string.dashboard_reset_default),
+                        icon = Icons.Filled.Restore,
+                        onClick = { showResetConfirm = true },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text(stringResource(R.string.dashboard_reset_default)) },
+            text = { Text(stringResource(R.string.dashboard_reset_confirm)) },
+            confirmButton = {
                 TextButton(
-                    onClick = viewModel::reset,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                    onClick = {
+                        showResetConfirm = false
+                        viewModel.reset()
+                    },
                 ) {
                     Text(
                         stringResource(R.string.dashboard_reset_default),
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-            }
-        }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -344,6 +368,7 @@ private fun HiddenSectionRow(
             Icon(
                 Icons.Filled.Add,
                 contentDescription = stringResource(R.string.dashboard_show_section),
+                tint = Color(0xFF43A047),
             )
         }
     }
@@ -360,40 +385,4 @@ private fun DashboardSectionSetting.icon(): ImageVector = when (id) {
     "recentlyUpdatedSeries" -> Icons.Outlined.Update
     "recentlyReadBooks" -> Icons.Outlined.History
     else -> Icons.Outlined.Dashboard
-}
-
-@Composable
-private fun GroupHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-}
-
-@Composable
-private fun SwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
 }

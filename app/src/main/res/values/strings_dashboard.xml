@@ -47,6 +47,7 @@
     <string name="dashboard_settings_scope_note">Scope: section content is filtered by the library scope in the dashboard top bar (All / Pinned / single library).</string>
     <string name="dashboard_settings_reorder_hint">Long-press the handle on the right to reorder; the switch controls whether a section is shown on the dashboard.</string>
     <string name="dashboard_reset_default">Reset to Default</string>
+    <string name="dashboard_reset_confirm">All sections return to their default order and visibility.</string>
     <string name="dashboard_kind_default_line">Default: %1$s</string>
     <string name="dashboard_kind_custom_line">Card kind: %1$s (Custom)</string>
     <string name="dashboard_drag_dragging">Dragging</string>

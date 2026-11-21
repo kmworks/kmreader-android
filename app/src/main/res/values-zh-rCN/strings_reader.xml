@@ -186,6 +186,10 @@
     <string name="fonts_not_downloaded">未下载</string>
     <string name="fonts_downloaded">已下载</string>
     <string name="fonts_server">服务器字体</string>
+    <string name="fonts_server_section">服务器字体</string>
+    <string name="fonts_system_section">系统字体</string>
+    <string name="fonts_empty_server">服务器上没有可用字体。</string>
+    <string name="fonts_none_imported">尚未导入本地字体。</string>
     <string name="fonts_import_button">导入字体文件（.ttf / .otf）</string>
     <string name="fonts_imported_installed">已安装的自定义字体</string>
     <string name="fonts_installed_total">已安装 %1$d 款自定义字体</string>

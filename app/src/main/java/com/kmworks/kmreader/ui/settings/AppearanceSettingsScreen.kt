@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,14 +21,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -85,56 +83,56 @@ fun AppearanceSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                AppearanceSectionTitle(stringResource(R.string.appearance_theme))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ThemeOptions.forEach { option ->
-                        FilterChip(
-                            selected = themeMode == option.first,
-                            onClick = { prefsViewModel.setThemeMode(option.first) },
-                            label = { Text(stringResource(option.second)) },
-                        )
-                    }
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                SettingsSection(
+                    title = stringResource(R.string.appearance_theme),
+                    footer = stringResource(R.string.appearance_theme_footer),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.appearance_true_black_title), style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            stringResource(R.string.appearance_true_black_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
+                    SettingsPickerRow(
+                        title = stringResource(R.string.appearance_color_scheme),
+                        selectedLabel = stringResource(
+                            ThemeOptions.firstOrNull { it.first == themeMode }?.second
+                                ?: R.string.appearance_theme_system,
+                        ),
+                        options = ThemeOptions.map { (value, label) -> value to stringResource(label) },
+                        onSelect = prefsViewModel::setThemeMode,
+                    )
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.appearance_true_black_title),
+                        subtitle = stringResource(R.string.appearance_true_black_subtitle),
                         checked = trueBlack,
-                        onCheckedChange = { prefsViewModel.setTrueBlackDark(it) },
+                        onCheckedChange = prefsViewModel::setTrueBlackDark,
                     )
                 }
             }
             item {
-                AppearanceSectionTitle(stringResource(R.string.appearance_app_icon))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Mirrors AppIconOption: primary / classic / legacy
-                    AppIconOptions.forEach { (value, label) ->
-                        AppIconCell(
-                            value = value,
-                            label = label,
-                            selected = appIcon == value,
-                            onClick = { prefsViewModel.setAppIcon(value) },
-                        )
+                SettingsSection(
+                    title = stringResource(R.string.appearance_app_icon),
+                    footer = stringResource(R.string.appearance_app_icon_footer),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // Mirrors AppIconOption: primary / classic / legacy
+                        AppIconOptions.forEach { (value, label) ->
+                            AppIconCell(
+                                value = value,
+                                label = label,
+                                selected = appIcon == value,
+                                onClick = { prefsViewModel.setAppIcon(value) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -143,9 +141,16 @@ fun AppearanceSettingsScreen(
 /**
  * Icon preview mirroring iOS AppIconPreview: the real launcher icon foreground glyph on its background fill.
  * primary/legacy use a white/dark-gray background; classic uses a blue gradient (iOS collapses it to solid dark gray in dark mode).
+ * The selected option gets the iOS outer ring and a full-strength label.
  */
 @Composable
-private fun AppIconCell(value: String, @StringRes label: Int, selected: Boolean, onClick: () -> Unit) {
+private fun AppIconCell(
+    value: String,
+    @StringRes label: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val dark = isSystemInDarkTheme()
     val foreground = when (value) {
         "classic" -> R.mipmap.ic_launcher_classic_foreground
@@ -154,65 +159,54 @@ private fun AppIconCell(value: String, @StringRes label: Int, selected: Boolean,
     }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
     ) {
         Box(
             modifier = Modifier
-                .size(64.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .then(
-                    if (value == "classic" && !dark) {
-                        Modifier.background(
-                            Brush.verticalGradient(
-                                // iOS appIconBackgroundClassicTop/Bottom
-                                listOf(Color(0xFF275CC9), Color(0xFF0088FF)),
-                            ),
-                        )
-                    } else {
-                        Modifier.background(if (dark) Color(0xFF131316) else Color.White)
-                    },
+                .size(70.dp)
+                .border(
+                    width = 2.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = RoundedCornerShape(18.dp),
                 )
-                .then(
-                    if (selected) {
-                        Modifier.border(
-                            2.dp,
-                            MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(14.dp),
-                        )
-                    } else {
-                        Modifier
-                    },
-                ),
+                .padding(4.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Image(
-                painter = painterResource(foreground),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(label), style = MaterialTheme.typography.labelMedium)
-            if (selected) {
-                Spacer(Modifier.size(4.dp))
-                Icon(
-                    Icons.Filled.Check,
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(14.dp))
+                    .then(
+                        if (value == "classic" && !dark) {
+                            Modifier.background(
+                                Brush.verticalGradient(
+                                    // iOS appIconBackgroundClassicTop/Bottom
+                                    listOf(Color(0xFF275CC9), Color(0xFF0088FF)),
+                                ),
+                            )
+                        } else {
+                            Modifier.background(if (dark) Color(0xFF131316) else Color.White)
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(foreground),
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = stringResource(label),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+        )
     }
-}
-
-@Composable
-private fun AppearanceSectionTitle(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
 }

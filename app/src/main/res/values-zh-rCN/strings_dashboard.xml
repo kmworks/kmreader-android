@@ -47,6 +47,7 @@
     <string name="dashboard_settings_scope_note">范围说明：分区内容按仪表盘顶栏的库范围（全部 / 已钉选 / 单库）过滤。</string>
     <string name="dashboard_settings_reorder_hint">长按右侧手柄拖动调整顺序；开关控制是否在仪表盘显示。</string>
     <string name="dashboard_reset_default">恢复默认</string>
+    <string name="dashboard_reset_confirm">所有分区将恢复默认顺序与显示状态。</string>
     <string name="dashboard_kind_default_line">默认：%1$s</string>
     <string name="dashboard_kind_custom_line">卡片形态：%1$s（自定义）</string>
     <string name="dashboard_drag_dragging">拖动中</string>

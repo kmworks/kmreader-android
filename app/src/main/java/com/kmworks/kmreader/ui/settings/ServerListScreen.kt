@@ -1,8 +1,8 @@
 package com.kmworks.kmreader.ui.settings
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,24 +22,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +85,7 @@ fun ServerListScreen(
 ) {
     val instances by viewModel.instances.collectAsStateWithLifecycle()
     val activeConfig by viewModel.activeConfig.collectAsStateWithLifecycle()
+    val switchingId by viewModel.switchingInstanceId.collectAsStateWithLifecycle()
     var showAddServer by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<ServerInstance?>(null) }
     var deleteTarget by remember { mutableStateOf<ServerInstance?>(null) }
@@ -141,7 +146,10 @@ fun ServerListScreen(
                 ServerCard(
                     instance = instance,
                     active = active,
-                    onClick = { if (!active) viewModel.switchTo(instance) },
+                    switching = switchingId == instance.id,
+                    onClick = {
+                        if (!active && switchingId == null) viewModel.switchTo(instance)
+                    },
                     onEdit = { editTarget = instance },
                     onDelete = { deleteTarget = instance },
                 )
@@ -149,18 +157,23 @@ fun ServerListScreen(
             }
             item {
                 Spacer(Modifier.height(4.dp))
-                Button(
+                TextButton(
                     onClick = { showAddServer = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.server_add))
                 }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
+                TextButton(
                     onClick = { showLogoutConfirm = true },
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
                 ) {
+                    Icon(Icons.Outlined.PowerSettingsNew, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.server_logout))
                 }
             }
@@ -227,147 +240,157 @@ fun ServerListScreen(
 }
 
 /**
- * Server rich card (mirrors iOS ServerRowView):
- * 22dp-corner container + circular avatar + name/URL + Active capsule + detail rows (username/role/auth method/last used).
- * The current instance is highlighted with the primary tint and border; long-press shows a delete menu (mirrors iOS contextMenu).
+ * Server rich card (mirrors iOS ServerRowView): gradient card, circular avatar (admin crown / server glyph),
+ * name/URL, Active capsule, detail rows (username/role/auth method/last used) and a switching spinner.
+ * The current instance is highlighted with the green tint and border; long-press shows the edit/delete menu.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerCard(
     instance: ServerInstance,
     active: Boolean,
+    switching: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(22.dp)
+    val accent = Color(0xFF34C759)
+    val cardBrush = if (active) {
+        Brush.linearGradient(listOf(accent.copy(alpha = 0.14f), accent.copy(alpha = 0.06f)))
+    } else {
+        Brush.linearGradient(
+            listOf(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+            ),
+        )
+    }
     Box {
-        Surface(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .shadow(if (active) 6.dp else 2.dp, shape)
                 .clip(shape)
+                .background(cardBrush)
+                .border(
+                    width = if (active) 2.dp else 1.dp,
+                    color = if (active) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
+                    shape = shape,
+                )
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = { menuOpen = true },
-                ),
-            shape = shape,
-            color = if (active) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            },
-            border = BorderStroke(
-                width = if (active) 1.5.dp else 1.dp,
-                color = if (active) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant
-                },
-            ),
+                    onLongClick = { if (!active) menuOpen = true },
+                )
+                .padding(16.dp),
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Circular avatar (iOS serverAvatar; uses a surfaceVariant background with a server icon)
-                    Box(
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Circular avatar (iOS serverAvatar): green gradient for the active server.
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (active) {
+                                Brush.linearGradient(listOf(accent, Color(0xFF30D158)))
+                            } else {
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    ),
+                                )
+                            },
+                            CircleShape,
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (instance.isAdmin) {
+                            Icons.Filled.AdminPanelSettings
+                        } else {
+                            Icons.Outlined.Dns
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = instance.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = instance.normalizedBaseUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                when {
+                    switching -> CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    active -> Row(
                         modifier = Modifier
-                            .size(40.dp)
-                            .background(
-                                if (active) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                },
-                                CircleShape,
-                            ),
-                        contentAlignment = Alignment.Center,
+                            .background(accent.copy(alpha = 0.16f), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Outlined.Dns,
+                            Icons.Filled.Check,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (active) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            modifier = Modifier.size(12.dp),
+                            tint = accent,
                         )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(Modifier.width(4.dp))
                         Text(
-                            text = instance.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = instance.normalizedBaseUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            text = stringResource(R.string.server_active_badge),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = accent,
                         )
                     }
-                    Spacer(Modifier.width(8.dp))
-                    if (active) {
-                        // Active capsule badge (mirrors iOS infoTag "Active")
-                        Row(
-                            modifier = Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                    CircleShape,
-                                )
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.server_active_badge),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    else -> Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Spacer(Modifier.height(10.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-                Spacer(Modifier.height(10.dp))
-                InfoRow(icon = { InfoIcon(Icons.Outlined.Person) }, text = instance.username)
-                Spacer(Modifier.height(6.dp))
-                InfoRow(
-                    icon = { InfoIcon(Icons.Outlined.VerifiedUser) },
-                    text = if (instance.isAdmin) {
-                        stringResource(R.string.server_role_admin)
-                    } else {
-                        stringResource(R.string.server_role_user)
-                    },
-                    emphasized = instance.isAdmin,
-                )
-                Spacer(Modifier.height(6.dp))
-                InfoRow(
-                    icon = { InfoIcon(Icons.Outlined.Key) },
-                    text = if (instance.useApiKey) "API Key" else stringResource(R.string.server_auth_username_password),
-                )
-                Spacer(Modifier.height(6.dp))
-                InfoRow(
-                    icon = { InfoIcon(Icons.Outlined.Schedule) },
-                    text = stringResource(R.string.server_last_used_format, relativeTime(instance.lastUsedAt)),
-                )
             }
+            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+            Spacer(Modifier.height(10.dp))
+            InfoRow(icon = { InfoIcon(Icons.Outlined.Person) }, text = instance.username)
+            Spacer(Modifier.height(6.dp))
+            InfoRow(
+                icon = { InfoIcon(Icons.Outlined.VerifiedUser) },
+                text = if (instance.isAdmin) {
+                    stringResource(R.string.server_role_admin)
+                } else {
+                    stringResource(R.string.server_role_user)
+                },
+                emphasized = instance.isAdmin,
+            )
+            Spacer(Modifier.height(6.dp))
+            InfoRow(
+                icon = { InfoIcon(Icons.Outlined.Key) },
+                text = if (instance.useApiKey) "API Key" else stringResource(R.string.server_auth_username_password),
+            )
+            Spacer(Modifier.height(6.dp))
+            InfoRow(
+                icon = { InfoIcon(Icons.Outlined.Schedule) },
+                text = stringResource(R.string.server_last_used_format, relativeTime(instance.lastUsedAt)),
+            )
         }
         DropdownMenu(
             expanded = menuOpen,
@@ -418,7 +441,7 @@ private fun InfoRow(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = if (emphasized) {
-                MaterialTheme.colorScheme.primary
+                Color(0xFF34C759)
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },

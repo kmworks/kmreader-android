@@ -50,12 +50,15 @@
     <!-- Appearance settings -->
     <string name="appearance_title">Appearance</string>
     <string name="appearance_theme">Theme</string>
+    <string name="appearance_color_scheme">Color Scheme</string>
+    <string name="appearance_theme_footer">System follows the device appearance.</string>
     <string name="appearance_theme_system">System</string>
     <string name="appearance_theme_light">Light</string>
     <string name="appearance_theme_dark">Dark</string>
     <string name="appearance_true_black_title">True Black</string>
     <string name="appearance_true_black_subtitle">Use a pure black background in dark mode (saves power on OLED)</string>
     <string name="appearance_app_icon">App Icon</string>
+    <string name="appearance_app_icon_footer">The launcher icon updates as soon as you switch.</string>
     <string name="appearance_icon_default">Default</string>
     <string name="appearance_icon_classic">Classic</string>
     <string name="appearance_icon_legacy">Legacy</string>
@@ -127,8 +130,10 @@
     <!-- Cache settings -->
     <string name="settings_cache_page">Page Images</string>
     <string name="settings_cache_cover">Covers</string>
-    <string name="settings_cache_usage_format">Cached Size %1$s · Cached Images %2$d</string>
-    <string name="settings_cache_cover_usage_format">Cached Size %1$s · Cached Covers %2$d</string>
+    <string name="settings_cache_used_of">Used %1$s of %2$s</string>
+    <string name="settings_cache_cached_size">Cached Size</string>
+    <string name="settings_cache_cached_images">Cached Images</string>
+    <string name="settings_cache_cached_covers">Cached Covers</string>
     <string name="settings_cache_limit">Maximum Size</string>
     <string name="settings_cache_clear_current">Clear Current Server</string>
     <string name="settings_cache_clear_all">Clear All Servers</string>
@@ -139,6 +144,7 @@
     <string name="settings_cache_cover_expiration_label">Refresh Cover After</string>
     <string name="settings_cache_cover_expiration_value">%1$d days</string>
     <string name="settings_cache_pdf">PDF Cache</string>
+    <string name="settings_cache_pdf_size">Downloaded PDFs</string>
     <string name="settings_cache_clear_pdf_message">Removes the downloaded PDF files. They are downloaded again when opened.</string>
     <string name="settings_cache_clear_action">Clear</string>
 
@@ -150,6 +156,7 @@
     <string name="settings_network_concurrency_value">%1$d</string>
     <string name="settings_network_wifi_only_title">Wi-Fi Only Preload</string>
     <string name="settings_network_wifi_only_subtitle">Only use Wi-Fi when the reader preloads the next chapter</string>
+    <string name="settings_network_footer">Changes apply from the next request. Higher concurrency downloads faster but uses more bandwidth.</string>
 
     <!-- SSE settings -->
     <string name="settings_sse_status">Status</string>
@@ -158,15 +165,24 @@
     <string name="settings_sse_retrying">Retrying in %1$d s</string>
     <string name="settings_sse_disconnected">Disconnected</string>
     <string name="settings_sse_last_event">Last event: %1$s</string>
+    <string name="settings_sse_connection_section">Connection</string>
+    <string name="settings_sse_footer">Real-time updates let the app refresh automatically when content changes on the server.</string>
     <string name="settings_sse_updates_title">Real-time Updates</string>
     <string name="settings_sse_updates_subtitle">Receive real-time server events; the connection closes when disabled</string>
+    <string name="settings_sse_auto_refresh_section">Auto-refresh</string>
     <string name="settings_sse_auto_refresh_title">Auto-refresh Dashboard</string>
     <string name="settings_sse_auto_refresh_subtitle">Automatically refresh the dashboard when content events arrive</string>
+    <string name="settings_sse_auto_refresh_footer">When disabled, the dashboard will not refresh automatically when events arrive. You can still refresh manually.</string>
+    <string name="settings_sse_notifications_section">Notifications</string>
     <string name="settings_sse_notify_title">Connection Notifications</string>
     <string name="settings_sse_notify_subtitle">Notify when the connection state changes or tasks finish</string>
+    <string name="settings_sse_notify_footer">When disabled, connection status and task completion messages are not shown.</string>
+    <string name="settings_sse_enable_first">Enable Real-time Updates above to use this feature.</string>
 
     <!-- Logs -->
     <string name="settings_logs_share">Share Logs</string>
+    <string name="settings_logs_search">Search logs</string>
+    <string name="settings_logs_all_categories">All categories</string>
     <string name="settings_logs_empty">No logs found</string>
 
     <!-- About & licenses -->

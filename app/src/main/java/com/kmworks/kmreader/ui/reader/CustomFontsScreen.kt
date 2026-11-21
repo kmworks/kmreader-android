@@ -3,29 +3,28 @@ package com.kmworks.kmreader.ui.reader
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -48,6 +48,9 @@ import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.CustomFont
 import com.kmworks.kmreader.data.SampleSystemData
 import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.SettingsMenuRow
+import com.kmworks.kmreader.ui.settings.SettingsRowDivider
+import com.kmworks.kmreader.ui.settings.SettingsSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -175,62 +178,61 @@ private fun RealFontList(
     val downloading by viewModel.downloading.collectAsStateWithLifecycle()
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
-            OutlinedButton(
-                onClick = onImport,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+            SettingsSection {
+                SettingsMenuRow(
+                    title = stringResource(R.string.fonts_import_button),
+                    icon = Icons.Filled.Add,
+                    onClick = onImport,
                 )
-                Spacer(Modifier.size(6.dp))
-                Text(stringResource(R.string.fonts_import_button))
             }
         }
         item {
-            Text(
-                stringResource(R.string.fonts_downloaded_summary, downloaded.size, families?.size?.toString() ?: "…"),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-        }
-        val list = families
-        if (list == null) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.size(10.dp))
-                    Text(
-                        stringResource(R.string.fonts_loading_list),
-                        style = MaterialTheme.typography.bodyMedium,
+            SettingsSection(
+                title = stringResource(R.string.fonts_server_section),
+                footer = stringResource(
+                    R.string.fonts_downloaded_summary,
+                    downloaded.size,
+                    families?.size?.toString() ?: "…",
+                ),
+            ) {
+                val list = families
+                when {
+                    list == null -> Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.size(10.dp))
+                        Text(
+                            stringResource(R.string.fonts_loading_list),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    list.isEmpty() -> Text(
+                        text = stringResource(R.string.fonts_empty_server),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
+                    else -> list.forEachIndexed { index, family ->
+                        if (index > 0) SettingsRowDivider()
+                        ServerFontRow(
+                            family = family,
+                            downloaded = family in downloaded,
+                            downloading = family in downloading,
+                            onDownload = { viewModel.download(family) },
+                            onDelete = { viewModel.delete(family) },
+                        )
+                    }
                 }
-            }
-        } else {
-            items(list, key = { it }) { family ->
-                ServerFontRow(
-                    family = family,
-                    downloaded = family in downloaded,
-                    downloading = family in downloading,
-                    onDownload = { viewModel.download(family) },
-                    onDelete = { viewModel.delete(family) },
-                )
-                HorizontalDivider()
             }
         }
     }
@@ -248,9 +250,16 @@ private fun ServerFontRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Icon(
+            Icons.Outlined.TextFields,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 family,
@@ -273,14 +282,14 @@ private fun ServerFontRow(
                 Icon(
                     Icons.Filled.CheckCircle,
                     contentDescription = stringResource(R.string.fonts_downloaded),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Color(0xFF34C759),
                     modifier = Modifier.size(20.dp),
                 )
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = stringResource(R.string.common_delete),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.error,
                     )
                 }
             }
@@ -307,38 +316,46 @@ private fun DemoFontList(
     val imported by viewModel.downloaded.collectAsStateWithLifecycle()
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
-            OutlinedButton(
-                onClick = onImport,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+            SettingsSection {
+                SettingsMenuRow(
+                    title = stringResource(R.string.fonts_import_button),
+                    icon = Icons.Filled.Add,
+                    onClick = onImport,
                 )
-                Spacer(Modifier.size(6.dp))
-                Text(stringResource(R.string.fonts_import_button))
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.fonts_installed_total, imported.size + fonts.size),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
         }
-        items(imported.sorted(), key = { "imported:$it" }) { family ->
-            ImportedFontRow(family = family, onDelete = { viewModel.delete(family) })
-            HorizontalDivider()
+        item {
+            SettingsSection(
+                title = stringResource(R.string.fonts_imported_installed),
+                footer = stringResource(R.string.fonts_installed_total, imported.size + fonts.size),
+            ) {
+                if (imported.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.fonts_none_imported),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                } else {
+                    imported.sorted().forEachIndexed { index, family ->
+                        if (index > 0) SettingsRowDivider()
+                        ImportedFontRow(family = family, onDelete = { viewModel.delete(family) })
+                    }
+                }
+            }
         }
-        items(fonts, key = { it.id }) { font ->
-            DemoFontRow(font = font, onDelete = { fonts.remove(font) })
-            HorizontalDivider()
+        item {
+            SettingsSection(title = stringResource(R.string.fonts_system_section)) {
+                fonts.forEachIndexed { index, font ->
+                    if (index > 0) SettingsRowDivider()
+                    DemoFontRow(font = font, onDelete = { fonts.remove(font) })
+                }
+            }
         }
     }
 }
@@ -349,9 +366,16 @@ private fun ImportedFontRow(family: String, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Icon(
+            Icons.Outlined.TextFields,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 family,
@@ -368,7 +392,7 @@ private fun ImportedFontRow(family: String, onDelete: () -> Unit) {
             Icon(
                 Icons.Filled.Delete,
                 contentDescription = stringResource(R.string.common_delete),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -379,9 +403,16 @@ private fun DemoFontRow(font: CustomFont, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Icon(
+            Icons.Outlined.TextFields,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 font.name,
@@ -398,7 +429,7 @@ private fun DemoFontRow(font: CustomFont, onDelete: () -> Unit) {
             Icon(
                 Icons.Filled.Delete,
                 contentDescription = stringResource(R.string.common_delete),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.error,
             )
         }
     }

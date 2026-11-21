@@ -2,10 +2,10 @@ package com.kmworks.kmreader.ui.settings
 
 import android.content.Context
 import android.content.Intent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,15 +17,32 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -33,10 +50,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,11 +68,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -77,6 +96,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -180,14 +200,15 @@ fun CacheSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                ImageCacheCard(
+                CacheSection(
                     title = stringResource(R.string.settings_cache_page),
                     usage = pageUsage,
-                    usageFormat = R.string.settings_cache_usage_format,
+                    countLabel = stringResource(R.string.settings_cache_cached_images),
                     limitDraft = pageLimitDraft,
                     limitRange = AppSettingsStore.PAGE_CACHE_LIMIT_MIN_MB.toFloat()..
                         AppSettingsStore.PAGE_CACHE_LIMIT_MAX_MB.toFloat(),
@@ -198,11 +219,12 @@ fun CacheSettingsScreen(
                     onClearCurrent = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_PAGES, false) },
                     onClearAll = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_PAGES, true) },
                 )
-                Spacer(Modifier.height(12.dp))
-                ImageCacheCard(
+            }
+            item {
+                CacheSection(
                     title = stringResource(R.string.settings_cache_cover),
                     usage = coverUsage,
-                    usageFormat = R.string.settings_cache_cover_usage_format,
+                    countLabel = stringResource(R.string.settings_cache_cached_covers),
                     limitDraft = coverLimitDraft,
                     limitRange = AppSettingsStore.COVER_CACHE_LIMIT_MIN_MB.toFloat()..
                         AppSettingsStore.COVER_CACHE_LIMIT_MAX_MB.toFloat(),
@@ -212,45 +234,39 @@ fun CacheSettingsScreen(
                     },
                     onClearCurrent = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_COVERS, false) },
                     onClearAll = { pendingClear = CacheClearRequest(ImageCachePaths.KIND_COVERS, true) },
-                    extraContent = {
-                        Spacer(Modifier.height(12.dp))
-                        SystemSliderRow(
-                            label = stringResource(R.string.settings_cache_cover_expiration_label),
-                            value = expirationDraft,
-                            valueRange = 1f..90f,
-                            display = stringResource(
-                                R.string.settings_cache_cover_expiration_value,
-                                expirationDraft.roundToInt(),
-                            ),
-                            onValueChange = { expirationDraft = it.roundToInt().toFloat() },
-                            onValueChangeFinished = {
-                                prefsViewModel.setCoverCacheExpirationDays(expirationDraft.roundToInt())
-                            },
-                        )
+                    extraRows = {
+                        SettingsRowDivider()
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            SystemSliderRow(
+                                label = stringResource(R.string.settings_cache_cover_expiration_label),
+                                value = expirationDraft,
+                                valueRange = 1f..90f,
+                                display = stringResource(
+                                    R.string.settings_cache_cover_expiration_value,
+                                    expirationDraft.roundToInt(),
+                                ),
+                                onValueChange = { expirationDraft = it.roundToInt().toFloat() },
+                                onValueChangeFinished = {
+                                    prefsViewModel.setCoverCacheExpirationDays(expirationDraft.roundToInt())
+                                },
+                            )
+                        }
                     },
                 )
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            stringResource(R.string.settings_cache_pdf),
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            formatCacheBytes(pdfBytes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    TextButton(onClick = { pdfClearPending = true }) {
-                        Text(stringResource(R.string.settings_cache_clear_action))
-                    }
+            }
+            item {
+                SettingsSection(title = stringResource(R.string.settings_cache_pdf)) {
+                    SettingsValueRow(
+                        title = stringResource(R.string.settings_cache_pdf_size),
+                        value = formatCacheBytes(pdfBytes),
+                    )
+                    SettingsRowDivider()
+                    SettingsDangerRow(
+                        text = stringResource(R.string.settings_cache_clear_action),
+                        icon = Icons.Filled.Delete,
+                        onClick = { pdfClearPending = true },
+                    )
                 }
-                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -315,24 +331,22 @@ fun CacheSettingsScreen(
     }
 }
 
-/** One cache kind: usage bar, cached size/count, cap slider, optional extra rows and the clear actions. */
+/** One cache kind: usage bar, size/count rows, cap slider, optional extra rows and the destructive clear actions. */
 @Composable
-private fun ImageCacheCard(
+private fun CacheSection(
     title: String,
     usage: CacheUsage,
-    usageFormat: Int,
+    countLabel: String,
     limitDraft: Float,
     limitRange: ClosedFloatingPointRange<Float>,
     onLimitChange: (Float) -> Unit,
     onLimitChangeFinished: () -> Unit,
     onClearCurrent: () -> Unit,
     onClearAll: () -> Unit,
-    extraContent: (@Composable () -> Unit)? = null,
+    extraRows: @Composable ColumnScope.() -> Unit = {},
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(8.dp))
+    SettingsSection(title = title) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             val limitBytes = limitDraft.toLong() * 1024L * 1024L
             LinearProgressIndicator(
                 progress = {
@@ -344,11 +358,17 @@ private fun ImageCacheCard(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                stringResource(usageFormat, formatCacheBytes(usage.bytes), usage.count),
+                text = stringResource(
+                    R.string.settings_cache_used_of,
+                    formatCacheBytes(usage.bytes),
+                    formatCacheMb(limitDraft.roundToInt()),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
+        }
+        SettingsRowDivider()
+        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             SystemSliderRow(
                 label = stringResource(R.string.settings_cache_limit),
                 value = limitDraft,
@@ -357,23 +377,47 @@ private fun ImageCacheCard(
                 onValueChange = onLimitChange,
                 onValueChangeFinished = onLimitChangeFinished,
             )
-            extraContent?.invoke()
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onClearCurrent, modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.settings_cache_clear_current),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                OutlinedButton(onClick = onClearAll, modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.settings_cache_clear_all),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+        }
+        extraRows()
+        SettingsRowDivider()
+        SettingsValueRow(
+            title = stringResource(R.string.settings_cache_cached_size),
+            value = formatCacheBytes(usage.bytes),
+        )
+        SettingsRowDivider()
+        SettingsValueRow(
+            title = countLabel,
+            value = formatCacheCount(usage.count),
+        )
+        SettingsRowDivider()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val destructiveColors = ButtonDefaults.textButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            )
+            TextButton(
+                onClick = onClearCurrent,
+                modifier = Modifier.weight(1f),
+                colors = destructiveColors,
+            ) {
+                Text(
+                    stringResource(R.string.settings_cache_clear_current),
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            TextButton(
+                onClick = onClearAll,
+                modifier = Modifier.weight(1f),
+                colors = destructiveColors,
+            ) {
+                Text(
+                    stringResource(R.string.settings_cache_clear_all),
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }
@@ -388,6 +432,8 @@ private fun formatCacheBytes(bytes: Long): String = when {
 
 private fun formatCacheMb(mb: Int): String =
     if (mb >= 1024) "%.1f GB".format(mb / 1024f) else "$mb MB"
+
+private fun formatCacheCount(count: Int): String = String.format(Locale.getDefault(), "%,d", count)
 
 /** Network settings (mirrors SettingsNetworkView): timeout / concurrency / Wi-Fi-only preload are all persisted. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -407,38 +453,57 @@ fun NetworkSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                SystemSectionTitle(stringResource(R.string.settings_network_requests))
-                SystemSliderRow(
-                    label = stringResource(R.string.settings_network_timeout),
-                    value = timeoutDraft,
-                    valueRange = 5f..120f,
-                    display = stringResource(R.string.settings_network_timeout_value, timeoutDraft.roundToInt()),
-                    onValueChange = { timeoutDraft = it.roundToInt().toFloat() },
-                    onValueChangeFinished = {
-                        prefsViewModel.setNetworkTimeoutSeconds(timeoutDraft.roundToInt())
-                    },
-                )
-                SystemSliderRow(
-                    label = stringResource(R.string.settings_network_concurrency),
-                    value = concurrencyDraft,
-                    valueRange = 1f..8f,
-                    display = stringResource(R.string.settings_network_concurrency_value, concurrencyDraft.roundToInt()),
-                    onValueChange = { concurrencyDraft = it.roundToInt().toFloat() },
-                    onValueChangeFinished = {
-                        prefsViewModel.setDownloadConcurrency(concurrencyDraft.roundToInt())
-                    },
-                )
-                SystemSwitchRow(
-                    title = stringResource(R.string.settings_network_wifi_only_title),
-                    subtitle = stringResource(R.string.settings_network_wifi_only_subtitle),
-                    checked = wifiOnlyPreload,
-                    onCheckedChange = prefsViewModel::setWifiOnlyPreload,
-                )
-                Spacer(Modifier.height(24.dp))
+                SettingsSection(
+                    title = stringResource(R.string.settings_network_requests),
+                    footer = stringResource(R.string.settings_network_footer),
+                ) {
+                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        SystemSliderRow(
+                            label = stringResource(R.string.settings_network_timeout),
+                            value = timeoutDraft,
+                            valueRange = 5f..120f,
+                            display = stringResource(
+                                R.string.settings_network_timeout_value,
+                                timeoutDraft.roundToInt(),
+                            ),
+                            icon = Icons.Outlined.Schedule,
+                            onValueChange = { timeoutDraft = it.roundToInt().toFloat() },
+                            onValueChangeFinished = {
+                                prefsViewModel.setNetworkTimeoutSeconds(timeoutDraft.roundToInt())
+                            },
+                        )
+                    }
+                    SettingsRowDivider()
+                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        SystemSliderRow(
+                            label = stringResource(R.string.settings_network_concurrency),
+                            value = concurrencyDraft,
+                            valueRange = 1f..8f,
+                            display = stringResource(
+                                R.string.settings_network_concurrency_value,
+                                concurrencyDraft.roundToInt(),
+                            ),
+                            icon = Icons.Outlined.Download,
+                            onValueChange = { concurrencyDraft = it.roundToInt().toFloat() },
+                            onValueChangeFinished = {
+                                prefsViewModel.setDownloadConcurrency(concurrencyDraft.roundToInt())
+                            },
+                        )
+                    }
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_network_wifi_only_title),
+                        subtitle = stringResource(R.string.settings_network_wifi_only_subtitle),
+                        checked = wifiOnlyPreload,
+                        onCheckedChange = prefsViewModel::setWifiOnlyPreload,
+                        icon = Icons.Outlined.Wifi,
+                    )
+                }
             }
         }
     }
@@ -471,67 +536,90 @@ fun SseSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                SystemSectionTitle(stringResource(R.string.settings_sse_status))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                SettingsSection(title = stringResource(R.string.settings_sse_status)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (connected) Icons.Filled.CheckCircle else Icons.Filled.CloudOff,
+                            contentDescription = null,
+                            tint = if (connected) Color(0xFF43A047) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.size(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                statusText,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                stringResource(R.string.settings_sse_last_event, lastEventText),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                SettingsSection(
+                    title = stringResource(R.string.settings_sse_connection_section),
+                    footer = stringResource(R.string.settings_sse_footer),
                 ) {
-                    Icon(
-                        imageVector = if (connected) Icons.Filled.CheckCircle else Icons.Filled.CloudOff,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_sse_updates_title),
+                        subtitle = stringResource(R.string.settings_sse_updates_subtitle),
+                        checked = sseEnabled,
+                        onCheckedChange = rootViewModel::setSseEnabled,
+                        icon = Icons.Outlined.Sensors,
                     )
-                    Spacer(Modifier.size(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            statusText,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Text(
-                            stringResource(R.string.settings_sse_last_event, lastEventText),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.settings_sse_updates_title), style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            stringResource(R.string.settings_sse_updates_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = sseEnabled, onCheckedChange = rootViewModel::setSseEnabled)
-                }
+            }
+            item {
                 // Mirrors SettingsSSEView: the sub-switches are disabled while the master switch is off
-                SystemSwitchRow(
-                    title = stringResource(R.string.settings_sse_auto_refresh_title),
-                    subtitle = stringResource(R.string.settings_sse_auto_refresh_subtitle),
-                    checked = autoRefresh,
-                    onCheckedChange = prefsViewModel::setSseAutoRefresh,
-                    enabled = sseEnabled,
-                )
-                SystemSwitchRow(
-                    title = stringResource(R.string.settings_sse_notify_title),
-                    subtitle = stringResource(R.string.settings_sse_notify_subtitle),
-                    checked = notify,
-                    onCheckedChange = prefsViewModel::setSseNotify,
-                    enabled = sseEnabled,
-                )
-                Spacer(Modifier.height(24.dp))
+                SettingsSection(
+                    title = stringResource(R.string.settings_sse_auto_refresh_section),
+                    footer = if (sseEnabled) {
+                        stringResource(R.string.settings_sse_auto_refresh_footer)
+                    } else {
+                        stringResource(R.string.settings_sse_enable_first)
+                    },
+                ) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_sse_auto_refresh_title),
+                        subtitle = stringResource(R.string.settings_sse_auto_refresh_subtitle),
+                        checked = autoRefresh,
+                        onCheckedChange = prefsViewModel::setSseAutoRefresh,
+                        enabled = sseEnabled,
+                        icon = Icons.Outlined.Sync,
+                    )
+                }
+            }
+            item {
+                SettingsSection(
+                    title = stringResource(R.string.settings_sse_notifications_section),
+                    footer = if (sseEnabled) {
+                        stringResource(R.string.settings_sse_notify_footer)
+                    } else {
+                        stringResource(R.string.settings_sse_enable_first)
+                    },
+                ) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_sse_notify_title),
+                        subtitle = stringResource(R.string.settings_sse_notify_subtitle),
+                        checked = notify,
+                        onCheckedChange = prefsViewModel::setSseNotify,
+                        enabled = sseEnabled,
+                        icon = Icons.Outlined.Notifications,
+                    )
+                }
             }
         }
     }
@@ -543,15 +631,34 @@ private fun formatSseTime(millis: Long): String =
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
-/** Log viewer (mirrors SettingsLogsView): real log lines + level filter + FileProvider sharing. */
+/** Full local timestamp shown on the right of a log row (iOS yyyy-MM-dd HH:mm:ss.SSS). */
+private val logDateFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+
+/** Log viewer (mirrors SettingsLogsView): level/category/search filters, full timestamps and FileProvider sharing. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val entries by AppLog.entries.collectAsStateWithLifecycle()
     var levelFilter by remember { mutableStateOf<AppLogLevel?>(null) }
-    val filtered = remember(entries, levelFilter) {
-        entries.filter { levelFilter == null || it.level == levelFilter }.asReversed()
+    var categoryFilter by remember { mutableStateOf<String?>(null) }
+    var categoryMenuOpen by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val categories = remember(entries) {
+        entries.groupingBy { it.tag }.eachCount().toList().sortedByDescending { it.second }
+    }
+    val filtered = remember(entries, levelFilter, categoryFilter, query) {
+        val text = query.trim()
+        entries.asReversed().filter { entry ->
+            (levelFilter == null || entry.level == levelFilter) &&
+                (categoryFilter == null || entry.tag == categoryFilter) &&
+                (
+                    text.isEmpty() ||
+                        entry.message.contains(text, ignoreCase = true) ||
+                        entry.tag.contains(text, ignoreCase = true)
+                    )
+        }
     }
 
     Scaffold(
@@ -576,6 +683,25 @@ fun LogsScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text(stringResource(R.string.settings_logs_search)) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = if (query.isEmpty()) {
+                    null
+                } else {
+                    {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = null)
+                        }
+                    }
+                },
+                singleLine = true,
+            )
             FlowRow(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -592,6 +718,39 @@ fun LogsScreen(onBack: () -> Unit) {
                         label = { Text(level.label) },
                     )
                 }
+                Box {
+                    FilterChip(
+                        selected = categoryFilter != null,
+                        onClick = { categoryMenuOpen = true },
+                        label = {
+                            Text(categoryFilter ?: stringResource(R.string.settings_logs_all_categories))
+                        },
+                        trailingIcon = {
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                        },
+                    )
+                    DropdownMenu(
+                        expanded = categoryMenuOpen,
+                        onDismissRequest = { categoryMenuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.settings_logs_all_categories)) },
+                            onClick = {
+                                categoryFilter = null
+                                categoryMenuOpen = false
+                            },
+                        )
+                        categories.forEach { (tag, count) ->
+                            DropdownMenuItem(
+                                text = { Text("$tag ($count)") },
+                                onClick = {
+                                    categoryFilter = tag
+                                    categoryMenuOpen = false
+                                },
+                            )
+                        }
+                    }
+                }
             }
             LazyColumn(
                 modifier = Modifier
@@ -604,7 +763,10 @@ fun LogsScreen(onBack: () -> Unit) {
                             stringResource(R.string.settings_logs_empty),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 16.dp),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
                         )
                     }
                 }
@@ -613,49 +775,40 @@ fun LogsScreen(onBack: () -> Unit) {
                     SelectionContainer {
                         Column(modifier = Modifier.padding(vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Level badge: errors get a solid red tint, the rest stay muted outlines
+                                // Level keeps the iOS colored level text; errors stand out in red.
                                 val levelColor = when (entry.level) {
                                     AppLogLevel.ERROR -> MaterialTheme.colorScheme.error
-                                    AppLogLevel.WARN -> MaterialTheme.colorScheme.onSurface
+                                    AppLogLevel.WARN -> Color(0xFFEF6C00)
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .background(
-                                            levelColor.copy(
-                                                alpha = if (entry.level == AppLogLevel.ERROR) 0.14f else 0.08f,
-                                            ),
-                                            RoundedCornerShape(4.dp),
-                                        )
-                                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                                ) {
-                                    Text(
-                                        entry.level.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = levelColor,
-                                        fontFamily = FontFamily.Monospace,
-                                    )
-                                }
-                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    entry.timeLabel,
+                                    text = entry.level.label,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = levelColor,
+                                    fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    entry.tag,
+                                    text = entry.tag,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontFamily = FontFamily.Monospace,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = logDateFormatter.format(Instant.ofEpochMilli(entry.atMillis)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                entry.message,
+                                text = entry.message,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                                 color = if (entry.level == AppLogLevel.ERROR) {
@@ -663,6 +816,8 @@ fun LogsScreen(onBack: () -> Unit) {
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
                                 },
+                                maxLines = 5,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -685,7 +840,7 @@ private fun shareLogs(context: Context) {
     context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_logs_share)))
 }
 
-/** About page (mirrors SettingsAboutView). */
+/** About page (mirrors SettingsAboutView): icon link rows and the version centered below. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
@@ -699,35 +854,45 @@ fun AboutScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                Spacer(Modifier.height(16.dp))
-                Text("KMReader", style = MaterialTheme.typography.titleMedium)
+                SettingsSection {
+                    AboutLinkRow(
+                        title = stringResource(R.string.settings_about_project),
+                        value = "github.com/kmworks/kmreader-android",
+                        icon = Icons.Outlined.Code,
+                    )
+                    SettingsRowDivider()
+                    AboutLinkRow(
+                        title = stringResource(R.string.settings_about_original),
+                        value = "kmworks.date/reader/",
+                        icon = Icons.Outlined.Public,
+                    )
+                    SettingsRowDivider()
+                    AboutLinkRow(
+                        title = stringResource(R.string.settings_about_server),
+                        value = "kmworks.date/server/",
+                        icon = Icons.Outlined.Dns,
+                    )
+                    SettingsRowDivider()
+                    AboutLinkRow(
+                        title = stringResource(R.string.settings_about_feedback),
+                        value = "github.com/kmworks/kmreader-android/issues",
+                        icon = Icons.Outlined.BugReport,
+                    )
+                }
+            }
+            item {
                 Text(
-                    stringResource(R.string.settings_about_version_format, versionName),
+                    text = stringResource(R.string.settings_about_version_format, versionName),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(20.dp))
-                AboutLinkRow(
-                    title = stringResource(R.string.settings_about_project),
-                    value = "github.com/kmworks/kmreader-android",
-                )
-                AboutLinkRow(
-                    title = stringResource(R.string.settings_about_original),
-                    value = "kmworks.date/reader/",
-                )
-                AboutLinkRow(
-                    title = stringResource(R.string.settings_about_server),
-                    value = "kmworks.date/server/",
-                )
-                AboutLinkRow(
-                    title = stringResource(R.string.settings_about_feedback),
-                    value = "github.com/kmworks/kmreader-android/issues",
-                )
-                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -749,25 +914,41 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            items(licenses) { (name, license) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            item {
+                SettingsSection(
+                    title = stringResource(R.string.settings_licenses),
+                    footer = stringResource(R.string.settings_licenses_subtitle),
                 ) {
-                    Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Text(
-                        license,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace,
-                    )
+                    licenses.forEachIndexed { index, (name, license) ->
+                        if (index > 0) SettingsRowDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    license,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
-                HorizontalDivider()
             }
         }
     }
@@ -796,42 +977,6 @@ internal fun SystemScaffold(
 }
 
 @Composable
-private fun SystemSectionTitle(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun SystemSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-    }
-}
-
-@Composable
 private fun SystemSliderRow(
     label: String,
     value: Float,
@@ -839,9 +984,19 @@ private fun SystemSliderRow(
     display: String,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
+    icon: ImageVector? = null,
 ) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(12.dp))
+            }
             Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Text(
                 display,
@@ -858,25 +1013,44 @@ private fun SystemSliderRow(
     }
 }
 
-/** About row whose [value] is shown as a link and opens [url] in the browser. */
+/** About row whose [value] is shown under the title and opens [url] in the browser. */
 @Composable
-private fun AboutLinkRow(title: String, value: String, url: String = "https://$value") {
+private fun AboutLinkRow(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    url: String = "https://$value",
+) {
     val uriHandler = LocalUriHandler.current
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
             .clickable { runCatching { uriHandler.openUri(url) } }
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                value,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.OpenInNew,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

@@ -1,24 +1,23 @@
 package com.kmworks.kmreader.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.ViewAgenda
+import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -26,7 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -87,88 +85,84 @@ fun ReaderDefaultsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                DefaultsSectionTitle(stringResource(R.string.reader_defaults_divina_section))
-                val directionLabels = mutableListOf<String>()
-                for (direction in ReadingDirection.entries) directionLabels.add(stringResource(direction.labelRes))
-                DefaultsChipRow(
-                    label = stringResource(R.string.reader_defaults_reading_direction),
-                    options = directionLabels,
-                    selected = stringResource(divinaDirection.labelRes),
-                    onSelect = { label ->
-                        val index = directionLabels.indexOf(label)
-                        if (index >= 0) {
-                            prefsViewModel.setDivinaDefaultDirection(ReadingDirection.entries[index].name.lowercase())
-                        }
-                    },
-                )
-                DefaultsSwitchRow(
-                    label = stringResource(R.string.reader_defaults_force_direction),
-                    checked = divinaSettings.forceDefaultDirection,
-                    onCheckedChange = { value ->
-                        readerSettingsViewModel.update { it.copy(forceDefaultDirection = value) }
-                    },
-                )
-                DefaultsHintText(stringResource(R.string.reader_defaults_force_direction_hint))
-                // Mirrors DivinaPreferencesView: page layout single/auto/dual
-                val pageLayoutLabels = mutableListOf<String>()
-                for (layout in PageLayout.entries) pageLayoutLabels.add(stringResource(layout.labelRes))
-                DefaultsChipRow(
-                    label = stringResource(R.string.reader_defaults_page_layout),
-                    options = pageLayoutLabels,
-                    selected = stringResource(divinaSettings.defaultPageLayout.labelRes),
-                    onSelect = { label ->
-                        val index = pageLayoutLabels.indexOf(label)
-                        if (index >= 0) {
-                            readerSettingsViewModel.update { it.copy(defaultPageLayout = PageLayout.entries[index]) }
-                        }
-                    },
-                )
-                // Split wide pages is a 4-option picker (none/auto/ltr/rtl), not a switch (the
-                // original's scroll mode was removed: whole-spread panning does not render reliably)
-                val splitModeLabels = mutableListOf<String>()
-                for (mode in SplitWidePageMode.entries) splitModeLabels.add(stringResource(mode.labelRes))
-                DefaultsChipRow(
-                    label = stringResource(R.string.reader_defaults_split_wide),
-                    options = splitModeLabels,
-                    selected = stringResource(divinaSettings.defaultSplitWideMode.labelRes),
-                    onSelect = { label ->
-                        val index = splitModeLabels.indexOf(label)
-                        if (index >= 0) {
-                            readerSettingsViewModel.update { it.copy(defaultSplitWideMode = SplitWidePageMode.entries[index]) }
-                        }
-                    },
-                )
-                DefaultsHintText(stringResource(divinaSettings.defaultSplitWideMode.hintRes))
-                DefaultsSwitchRow(
-                    label = stringResource(R.string.reader_defaults_solo_cover),
-                    checked = divinaSettings.defaultSoloCoverPage,
-                    onCheckedChange = { value ->
-                        readerSettingsViewModel.update { it.copy(defaultSoloCoverPage = value) }
-                    },
-                )
+                SettingsSection(title = stringResource(R.string.reader_defaults_divina_section)) {
+                    SettingsPickerRow(
+                        title = stringResource(R.string.reader_defaults_reading_direction),
+                        selectedLabel = stringResource(divinaDirection.labelRes),
+                        options = ReadingDirection.entries.map {
+                            it to stringResource(it.labelRes)
+                        },
+                        onSelect = { direction ->
+                            prefsViewModel.setDivinaDefaultDirection(direction.name.lowercase())
+                        },
+                        icon = Icons.Outlined.SwapHoriz,
+                    )
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_defaults_force_direction),
+                        subtitle = stringResource(R.string.reader_defaults_force_direction_hint),
+                        checked = divinaSettings.forceDefaultDirection,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(forceDefaultDirection = value) }
+                        },
+                    )
+                    SettingsRowDivider()
+                    SettingsPickerRow(
+                        title = stringResource(R.string.reader_defaults_page_layout),
+                        selectedLabel = stringResource(divinaSettings.defaultPageLayout.labelRes),
+                        options = PageLayout.entries.map {
+                            it to stringResource(it.labelRes)
+                        },
+                        onSelect = { layout ->
+                            readerSettingsViewModel.update { it.copy(defaultPageLayout = layout) }
+                        },
+                        icon = Icons.Outlined.ViewAgenda,
+                    )
+                    SettingsRowDivider()
+                    // Split wide pages is a 4-option picker (none/auto/ltr/rtl), not a switch (the
+                    // original's scroll mode was removed: whole-spread panning does not render reliably)
+                    SettingsPickerRow(
+                        title = stringResource(R.string.reader_defaults_split_wide),
+                        selectedLabel = stringResource(divinaSettings.defaultSplitWideMode.labelRes),
+                        options = SplitWidePageMode.entries.map {
+                            it to stringResource(it.labelRes)
+                        },
+                        onSelect = { mode ->
+                            readerSettingsViewModel.update { it.copy(defaultSplitWideMode = mode) }
+                        },
+                        subtitle = stringResource(divinaSettings.defaultSplitWideMode.hintRes),
+                        icon = Icons.Outlined.ViewWeek,
+                    )
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_defaults_solo_cover),
+                        checked = divinaSettings.defaultSoloCoverPage,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(defaultSoloCoverPage = value) }
+                        },
+                    )
+                }
             }
             item {
                 // Mirrors the original ReaderPreferencesView "Reading Progress" section (options 0/1/3/5/10 pages)
-                DefaultsSectionTitle(stringResource(R.string.reader_defaults_progress_section))
-                val thresholdOptions = listOf(0, 1, 3, 5, 10)
-                val thresholdLabels = mutableListOf<String>()
-                for (threshold in thresholdOptions) thresholdLabels.add(progressThresholdLabel(threshold))
-                DefaultsChipRow(
-                    label = stringResource(R.string.reader_defaults_record_after),
-                    options = thresholdLabels,
-                    selected = progressThresholdLabel(progressThreshold),
-                    onSelect = { label ->
-                        val index = thresholdLabels.indexOf(label)
-                        if (index >= 0) {
-                            prefsViewModel.setProgressRecordingThreshold(thresholdOptions[index])
-                        }
-                    },
-                )
-                DefaultsHintText(stringResource(R.string.reader_defaults_record_after_hint))
+                SettingsSection(
+                    title = stringResource(R.string.reader_defaults_progress_section),
+                    footer = stringResource(R.string.reader_defaults_record_after_hint),
+                ) {
+                    val thresholdOptions = listOf(0, 1, 3, 5, 10)
+                    SettingsPickerRow(
+                        title = stringResource(R.string.reader_defaults_record_after),
+                        selectedLabel = progressThresholdLabel(progressThreshold),
+                        options = thresholdOptions.map { it to progressThresholdLabel(it) },
+                        onSelect = prefsViewModel::setProgressRecordingThreshold,
+                        icon = Icons.Outlined.Schedule,
+                    )
+                }
             }
             item {
                 DefaultsSectionTitle("EPUB")
@@ -207,8 +201,9 @@ fun ReaderDefaultsScreen(
 private fun DefaultsSectionTitle(title: String) {
     Text(
         title,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
     )
 }
 
@@ -217,55 +212,4 @@ private fun DefaultsSectionTitle(title: String) {
 private fun progressThresholdLabel(value: Int): String = when (value) {
     0 -> stringResource(R.string.settings_progress_immediately)
     else -> pluralStringResource(R.plurals.book_pages, value, value)
-}
-
-@Composable
-private fun DefaultsChipRow(
-    label: String,
-    options: List<String>,
-    selected: String,
-    onSelect: (String) -> Unit,
-) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            options.forEach { option ->
-                FilterChip(
-                    selected = selected == option,
-                    onClick = { onSelect(option) },
-                    label = { Text(option, style = MaterialTheme.typography.labelMedium) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DefaultsHintText(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 2.dp),
-    )
-}
-
-@Composable
-private fun DefaultsSwitchRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
 }
