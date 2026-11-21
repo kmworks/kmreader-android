@@ -219,8 +219,7 @@
     <string name="pdf_reading_background">阅读背景</string>
     <string name="pdf_section_overlay">阅读覆盖层</string>
     <string name="pdf_show_progress">阅读时显示进度条</string>
-    <string name="pdf_native_engine">原生 PDF 渲染器</string>
-    <string name="pdf_native_engine_hint">使用 Android PdfRenderer 在本地渲染页面；不支持文字选择与搜索</string>
-    <string name="pdf_reader_volume">第 %1$d 册 · PDF</string>
-    <string name="pdf_page_content">第 %1$d 页</string>
-    <string name="pdf_page_placeholder">PDF 第 %1$d 页</string></resources>
+    <string name="pdf_native_engine">使用原生 PDF 阅读器</string>
+    <string name="pdf_native_engine_hint">PDF 使用 PDF 阅读器（系统引擎）打开，文字较多的 PDF 可选中文字与搜索。</string>
+    <string name="pdf_comic_engine_hint">PDF 使用 DIVINA 漫画阅读器打开，适合漫画/条漫 PDF；已下载的 PDF 离线时按页渲染。</string>
+</resources>

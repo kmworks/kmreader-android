@@ -182,17 +182,27 @@ fun ReaderDefaultsScreen(
                 SettingsSection {
                     SettingsSwitchRow(
                         title = stringResource(R.string.pdf_native_engine),
-                        subtitle = stringResource(R.string.pdf_native_engine_hint),
+                        subtitle = stringResource(
+                            if (useNativePdfReader) {
+                                R.string.pdf_native_engine_hint
+                            } else {
+                                R.string.pdf_comic_engine_hint
+                            },
+                        ),
                         checked = useNativePdfReader,
                         onCheckedChange = prefsViewModel::setUseNativePdfReader,
                         icon = Icons.Outlined.PictureAsPdf,
                     )
                 }
-                Spacer(Modifier.height(12.dp))
-                PdfSettingsContent(
-                    settings = pdfSettings,
-                    onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
-                )
+                // Reading options below belong to the PDF reader; the comic reader has its own
+                // defaults page, exactly as the "Use Native PDF Reader" switch gates them on iOS.
+                if (useNativePdfReader) {
+                    Spacer(Modifier.height(12.dp))
+                    PdfSettingsContent(
+                        settings = pdfSettings,
+                        onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
+                    )
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
