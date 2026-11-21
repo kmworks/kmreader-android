@@ -9,7 +9,14 @@ import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Write operations repository: mark read/unread, read-progress reporting, add to collection/read list. */
+/**
+ * Write operations repository: mark read/unread, read-progress reporting, add to collection/read list.
+ *
+ * Komga answers these endpoints with 204 No Content (or 202 Accepted), so success is the HTTP status
+ * alone: [awaitSuccess], never `awaitBody() != null`. Retrofit hands a 204 back as a null body, which
+ * would read every successful write as a failure — and [notifyOn] would then skip the local broadcast
+ * that patches the affected rows.
+ */
 @Singleton
 class ActionRepository @Inject constructor(
     private val sessionManager: SessionManager,
@@ -18,13 +25,13 @@ class ActionRepository @Inject constructor(
 
     suspend fun markSeriesRead(seriesDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.markSeriesAsRead(seriesDtoId).awaitBody() != null
+        val ok = clients.series.markSeriesAsRead(seriesDtoId).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.ReadStateChanged, read = true) }
     }
 
     suspend fun markSeriesUnread(seriesDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.markSeriesAsUnread(seriesDtoId).awaitBody() != null
+        val ok = clients.series.markSeriesAsUnread(seriesDtoId).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.ReadStateChanged, read = false) }
     }
 
@@ -32,13 +39,13 @@ class ActionRepository @Inject constructor(
         val clients = sessionManager.clients.value ?: return false
         val ok = clients.books
             .markBookReadProgress(bookDtoId, ReadProgressUpdateDto(completed = true))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.ReadStateChanged, read = true) }
     }
 
     suspend fun markBookUnread(bookDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.books.deleteBookReadProgress(bookDtoId).awaitBody() != null
+        val ok = clients.books.deleteBookReadProgress(bookDtoId).awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.ReadStateChanged, read = false) }
     }
 
@@ -46,7 +53,7 @@ class ActionRepository @Inject constructor(
     suspend fun updateBookReadProgress(bookDtoId: String, page: Int, completed: Boolean = false): Boolean {
         val clients = sessionManager.clients.value ?: return false
         val body = ReadProgressUpdateDto(completed = if (completed) true else null, page = page)
-        return clients.books.markBookReadProgress(bookDtoId, body).awaitBody() != null
+        return clients.books.markBookReadProgress(bookDtoId, body).awaitSuccess()
     }
 
     /**
@@ -74,7 +81,7 @@ class ActionRepository @Inject constructor(
         val ids = current.seriesIds + seriesDtoId
         val ok = clients.collections
             .updateCollectionById(collectionDtoId, CollectionUpdateDto(seriesIds = ids))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { collectionsChanged(listOf(collectionDtoId), ContentChangeKind.MembershipChanged) }
     }
 
@@ -91,63 +98,63 @@ class ActionRepository @Inject constructor(
         val ids = current.bookIds + newIds
         val ok = clients.readlists
             .updateReadListById(readListDtoId, ReadListUpdateDto(bookIds = ids))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { readListsChanged(listOf(readListDtoId), ContentChangeKind.MembershipChanged) }
     }
 
     /** Re-analyze a book (POST /api/v1/books/{bookId}/analyze, admin). */
     suspend fun analyzeBook(bookDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.books.bookAnalyze(bookDtoId).awaitBody() != null
+        val ok = clients.books.bookAnalyze(bookDtoId).awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.MetadataChanged) }
     }
 
     /** Refresh book metadata (POST /api/v1/books/{bookId}/metadata/refresh, admin). */
     suspend fun refreshBookMetadata(bookDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.books.bookRefreshMetadata(bookDtoId).awaitBody() != null
+        val ok = clients.books.bookRefreshMetadata(bookDtoId).awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.MetadataChanged) }
     }
 
     /** Re-analyze a series (POST /api/v1/series/{seriesId}/analyze, admin). */
     suspend fun analyzeSeries(seriesDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.seriesAnalyze(seriesDtoId).awaitBody() != null
+        val ok = clients.series.seriesAnalyze(seriesDtoId).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.MetadataChanged) }
     }
 
     /** Refresh series metadata (POST /api/v1/series/{seriesId}/metadata/refresh, admin). */
     suspend fun refreshSeriesMetadata(seriesDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.seriesRefreshMetadata(seriesDtoId).awaitBody() != null
+        val ok = clients.series.seriesRefreshMetadata(seriesDtoId).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.MetadataChanged) }
     }
 
     /** Delete the series file (DELETE /api/v1/series/{seriesId}/file, admin). */
     suspend fun deleteSeries(seriesDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.deleteSeriesFile(seriesDtoId).awaitBody() != null
+        val ok = clients.series.deleteSeriesFile(seriesDtoId).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.Deleted) }
     }
 
     /** Komga's book deletion maps to deleting the book file (DELETE /api/v1/books/{bookId}/file). */
     suspend fun deleteBook(bookDtoId: String): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.books.deleteBookFile(bookDtoId).awaitBody() != null
+        val ok = clients.books.deleteBookFile(bookDtoId).awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.Deleted) }
     }
 
     /** Update book metadata (PATCH /api/v1/books/{bookId}/metadata; only locked fields are sent). */
     suspend fun updateBookMetadata(bookDtoId: String, body: BookMetadataUpdateDto): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.books.updateBookMetadata(bookDtoId, body).awaitBody() != null
+        val ok = clients.books.updateBookMetadata(bookDtoId, body).awaitSuccess()
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.MetadataChanged) }
     }
 
     /** Update series metadata (PATCH /api/v1/series/{seriesId}/metadata; only locked fields are sent). */
     suspend fun updateSeriesMetadata(seriesDtoId: String, body: SeriesMetadataUpdateDto): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.updateSeriesMetadata(seriesDtoId, body).awaitBody() != null
+        val ok = clients.series.updateSeriesMetadata(seriesDtoId, body).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.MetadataChanged) }
     }
 
@@ -158,7 +165,7 @@ class ActionRepository @Inject constructor(
         if (ids.size == current.seriesIds.size) return true
         val ok = clients.collections
             .updateCollectionById(collectionDtoId, CollectionUpdateDto(seriesIds = ids))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { collectionsChanged(listOf(collectionDtoId), ContentChangeKind.MembershipChanged) }
     }
 
@@ -169,7 +176,7 @@ class ActionRepository @Inject constructor(
         if (ids.size == current.bookIds.size) return true
         val ok = clients.readlists
             .updateReadListById(readListDtoId, ReadListUpdateDto(bookIds = ids))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { readListsChanged(listOf(readListDtoId), ContentChangeKind.MembershipChanged) }
     }
 

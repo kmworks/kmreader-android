@@ -112,31 +112,35 @@ class ListRepository @Inject constructor(
         }
     }
 
+    /** Rename a collection (PATCH api/v1/collections/{id}, 204 without a body — see [awaitSuccess]). */
     suspend fun updateCollection(dtoId: String, name: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
         val ok = api.updateCollectionById(dtoId, CollectionUpdateDto(name = name, ordered = ordered))
-            .awaitBody() != null
+            .awaitSuccess()
         return notifyOn(ok) { collectionsChanged(listOf(dtoId), ContentChangeKind.MetadataChanged) }
     }
 
+    /** Delete a collection (DELETE api/v1/collections/{id}, 204 without a body — see [awaitSuccess]). */
     suspend fun deleteCollection(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.collections ?: return false
-        val ok = api.deleteCollectionById(dtoId).awaitBody() != null
+        val ok = api.deleteCollectionById(dtoId).awaitSuccess()
         return notifyOn(ok) { collectionsChanged(listOf(dtoId), ContentChangeKind.Deleted) }
     }
 
+    /** Rename a read list (PATCH api/v1/readlists/{id}, 204 without a body — see [awaitSuccess]). */
     suspend fun updateReadList(dtoId: String, name: String, summary: String, ordered: Boolean): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
         val ok = api.updateReadListById(
             dtoId,
             ReadListUpdateDto(name = name, summary = summary, ordered = ordered),
-        ).awaitBody() != null
+        ).awaitSuccess()
         return notifyOn(ok) { readListsChanged(listOf(dtoId), ContentChangeKind.MetadataChanged) }
     }
 
+    /** Delete a read list (DELETE api/v1/readlists/{id}, 204 without a body — see [awaitSuccess]). */
     suspend fun deleteReadList(dtoId: String): Boolean {
         val api = sessionManager.clients.value?.readlists ?: return false
-        val ok = api.deleteReadListById(dtoId).awaitBody() != null
+        val ok = api.deleteReadListById(dtoId).awaitSuccess()
         return notifyOn(ok) { readListsChanged(listOf(dtoId), ContentChangeKind.Deleted) }
     }
 
