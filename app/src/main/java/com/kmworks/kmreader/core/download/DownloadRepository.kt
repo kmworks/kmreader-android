@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.CoverUrlRegistry
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.logging.AppLog
@@ -16,9 +17,11 @@ import com.kmworks.kmreader.core.settings.AppSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -26,6 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +44,7 @@ class DownloadRepository @Inject constructor(
     @Suppress("unused") private val sessionManager: SessionManager,
     appSettings: AppSettingsStore,
     private val appScope: CoroutineScope,
+    private val catalogCache: CatalogCache,
 ) {
 
     private val workManager get() = WorkManager.getInstance(context)
@@ -62,7 +67,21 @@ class DownloadRepository @Inject constructor(
                 .distinctUntilChanged()
                 .collect { refreshDownloadedIndex() }
         }
+        // Refreshed catalog rows carry the series id, which backfills downloads enqueued before it existed.
+        // Debounced because a single screen load writes several pages in a row.
+        appScope.launch {
+            catalogCache.savedBooks.collectLatest {
+                delay(500)
+                refreshDownloadedIndex()
+            }
+        }
     }
+
+    /**
+     * Series identity recovered from the catalog cache for downloads enqueued before #series existed,
+     * memoized so a queue tick does not hit the database again.
+     */
+    private val legacySeries = ConcurrentHashMap<String, Pair<String, Int>>()
 
     /** Rescan completed downloads and publish the badge index (off the main thread). */
     fun refreshDownloadedIndex() {
@@ -71,17 +90,36 @@ class DownloadRepository @Inject constructor(
         }
     }
 
-    private fun scanDownloadedIndex(): DownloadedIndex {
-        val books = mutableSetOf<Int>()
+    private suspend fun scanDownloadedIndex(): DownloadedIndex {
+        val completed = downloadsDir.listFiles()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { dir -> DownloadMeta.read(dir)?.takeIf { it.isComplete(dir) }?.let { dir to it } }
+            .orEmpty()
+        val books = completed.mapTo(mutableSetOf()) { (dir, _) -> StableIds.book(dir.name) }
+
+        // Downloads made before the series was recorded recover it from the cached catalog, and the result is
+        // written back into their metadata so the offline list and its detail menu pick it up too.
+        val missing = completed.map { (dir, _) -> dir.name }
+            .filter { enqueueMeta.getString("$it#series", null) == null && !legacySeries.containsKey(it) }
+        if (missing.isNotEmpty()) {
+            runCatching { catalogCache.downloadSeriesIdentity(missing) }
+                .getOrDefault(emptyMap())
+                .forEach { (bookId, identity) -> legacySeries[bookId] = identity }
+            missing.forEach { bookId ->
+                val identity = legacySeries[bookId] ?: return@forEach
+                val editor = enqueueMeta.edit().putString("$bookId#series", identity.first)
+                if (identity.second > 0) editor.putInt("$bookId#seriesCount", identity.second)
+                editor.apply()
+            }
+        }
+
         val seriesDownloaded = mutableMapOf<String, Int>()
         val seriesTotals = mutableMapOf<String, Int>()
-        downloadsDir.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
-            val meta = DownloadMeta.read(dir) ?: return@forEach
-            if (!meta.isComplete(dir)) return@forEach
-            books += StableIds.book(dir.name)
-            val seriesDtoId = enqueueMeta.getString("${dir.name}#series", null) ?: return@forEach
+        completed.forEach { (dir, _) ->
+            val bookId = dir.name
+            val seriesDtoId = enqueueMeta.getString("$bookId#series", null) ?: return@forEach
             seriesDownloaded[seriesDtoId] = (seriesDownloaded[seriesDtoId] ?: 0) + 1
-            val total = enqueueMeta.getInt("${dir.name}#seriesCount", 0)
+            val total = enqueueMeta.getInt("$bookId#seriesCount", 0)
             if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
         }
         return DownloadedIndex(

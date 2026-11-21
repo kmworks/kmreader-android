@@ -24,6 +24,9 @@ import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -44,6 +47,14 @@ class CatalogCache @Inject constructor(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    private val _savedBooks = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * A book page was written to the cache. Download metadata written before this app version has no series
+     * id; [com.kmworks.kmreader.core.download.DownloadRepository] listens so a refreshed catalog can backfill it.
+     */
+    val savedBooks: SharedFlow<Unit> = _savedBooks
 
     /** Server instance the rows belong to (server base URL + user), or null when logged out. */
     private fun instanceKey(): String? =
@@ -71,6 +82,7 @@ class CatalogCache @Inject constructor(
                     title = book.title,
                     number = book.number,
                     seriesTitle = book.seriesTitle,
+                    seriesId = book.seriesDtoId,
                     hue = book.hue,
                     pageCount = book.pageCount,
                     progress = book.progress,
@@ -84,6 +96,8 @@ class CatalogCache @Inject constructor(
             },
         )
         writeListRows(instanceKey, listKey, refs.map { it.first }, ITEM_KIND_BOOK)
+        // Newly cached rows carry seriesId; let downloads enqueued before that column exist pick it up.
+        _savedBooks.tryEmit(Unit)
     }
 
     /** Persist the series currently rendered for [listKey] plus their order. */
@@ -131,6 +145,7 @@ class CatalogCache @Inject constructor(
                 number = entity.number,
                 title = entity.title,
                 seriesTitle = entity.seriesTitle,
+                seriesDtoId = entity.seriesId,
                 hue = entity.hue,
                 pageCount = entity.pageCount,
                 progress = entity.progress,
@@ -141,6 +156,23 @@ class CatalogCache @Inject constructor(
                 lastReadAtMs = entity.lastReadAtMs,
             )
         }
+    }
+
+    /**
+     * Series identity of downloaded books (legacy download folders were enqueued before the download
+     * metadata recorded the series). Returns book dtoId → (series dtoId, known series book count or 0).
+     */
+    suspend fun downloadSeriesIdentity(dtoIds: Collection<String>): Map<String, Pair<String, Int>> {
+        if (dtoIds.isEmpty()) return emptyMap()
+        val instanceKey = instanceKey() ?: return emptyMap()
+        val rows = dao.books(instanceKey, dtoIds.toList()).filter { it.seriesId != null }
+        if (rows.isEmpty()) return emptyMap()
+        val counts = dao.series(instanceKey, rows.mapNotNull { it.seriesId }.distinct())
+            .associate { it.dtoId to it.bookCount }
+        return rows.mapNotNull { row ->
+            val seriesId = row.seriesId ?: return@mapNotNull null
+            row.dtoId to (seriesId to (counts[seriesId] ?: 0))
+        }.toMap()
     }
 
     /** Restore the series last written for [listKey] (empty when nothing cached). */
