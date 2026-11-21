@@ -75,8 +75,8 @@ data class DashboardUiState(
     val kindOverrides: Map<String, DashboardCardKind> = emptyMap(),
     /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
-    /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); session-level choice on the dashboard, defaults to pinned. */
-    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); persisted per server, defaults to all. */
+    val libraryScope: String = AppSettingsStore.SCOPE_ALL,
     /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
     val pinnedIds: Set<String> = emptySet(),
     /** Whether the current account is an admin (gates the analyze/refresh-metadata/add-to-list menu items). */
@@ -140,20 +140,29 @@ class DashboardViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val isAdmin = serverAdminRepository.isAdmin()
-            _state.update { it.copy(isAdmin = isAdmin) }
-            // The profile probe lands after the first render; follow it so the komf entries appear without
-            // re-entering the screen.
-            serverProfileStore.profile.collect { profile ->
-                val komfAvailable = isAdmin && profile?.features?.contains(ServerFeature.Komf) == true
-                _state.update { it.copy(komfAvailable = komfAvailable) }
+            // Follow the active session: the admin role gates the card menus, and a server switch must
+            // re-evaluate them instead of keeping the previous server's answer.
+            combine(
+                serverAdminRepository.adminStatus,
+                serverProfileStore.profile,
+            ) { isAdmin, profile ->
+                isAdmin to (isAdmin && profile?.features?.contains(ServerFeature.Komf) == true)
+            }.collect { (isAdmin, komfAvailable) ->
+                _state.update { it.copy(isAdmin = isAdmin, komfAvailable = komfAvailable) }
             }
         }
         viewModelScope.launch {
+            var instanceKey: String? = null
             sessionManager.clients.collect { clients ->
                 if (clients == null) {
                     _state.update { it.copy(hasSession = false, loading = false, sections = null) }
                 } else {
+                    if (clients.cacheNamespace != instanceKey) {
+                        // Scope and pins are stored per server; drop the one-time read so the first load below
+                        // adopts this server's own choice instead of the server we just left.
+                        instanceKey = clients.cacheNamespace
+                        scopeLoaded = false
+                    }
                     load()
                 }
             }
@@ -277,12 +286,12 @@ class DashboardViewModel @Inject constructor(
         loadMutex.withLock { loadLocked() }
     }
 
-    /** One-time read of the persisted scope before the first feed query (otherwise the "pinned" default wins). */
+    /** One-time read of the persisted scope before the first feed query (otherwise the "all libraries" default wins). */
     private suspend fun ensureScopeLoaded() {
         if (scopeLoaded) return
         scopeLoaded = true
         val stored = runCatching { appSettings.dashboardBrowseScope.first() }
-            .getOrDefault(AppSettingsStore.SCOPE_PINNED)
+            .getOrDefault(AppSettingsStore.SCOPE_ALL)
         if (stored != _state.value.libraryScope) {
             _state.update { it.copy(libraryScope = stored) }
         }

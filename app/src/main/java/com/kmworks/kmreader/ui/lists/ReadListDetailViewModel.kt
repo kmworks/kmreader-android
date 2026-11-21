@@ -85,7 +85,10 @@ class ReadListDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _uiState.update { it.copy(isAdmin = serverAdminRepository.isAdmin()) }
+            // Follow the active session: the admin role gates the book card menus.
+            serverAdminRepository.adminStatus.collect { isAdmin ->
+                _uiState.update { it.copy(isAdmin = isAdmin) }
+            }
         }
         observeContentChanges()
     }

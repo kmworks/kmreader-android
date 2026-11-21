@@ -7,15 +7,21 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kmworks.kmreader.core.network.ServerConfigStore
+import com.kmworks.kmreader.core.network.instanceStorageKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -39,10 +45,17 @@ data class AppSettingChange(
 /**
  * App-level settings, same pattern as ServerConfigStore.
  * set* writes locally and emits a change (triggers cloud sync upstream); write* writes locally only without emitting (used for applying remote downlink).
+ *
+ * Everything that describes libraries or filters of one server (library scope, pinned libraries) is stored
+ * under a preference name carrying that server's instance key, so switching servers neither shows the other
+ * server's selection nor resolves its library ids against the wrong server. The other settings are
+ * device-level (theme, cache caps, timeout, dashboard layout) and stay shared.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class AppSettingsStore @Inject constructor(
     @ApplicationContext context: Context,
+    private val serverConfig: ServerConfigStore,
     scope: CoroutineScope,
 ) {
 
@@ -91,84 +104,113 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.DIVINA_DIRECTION, direction)
     }
 
-    /** Pinned library id set (aligned with iOS dashboard.libraryIds; local only, not synced through client-settings). */
-    val pinnedLibraryIds: Flow<Set<String>> = store.data.map { prefs ->
-        prefs[Keys.PINNED_LIBRARY_IDS]
-            ?.split(',')
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
+    // --- Per-server-instance preferences -------------------------------------------------------
+    // Library scope and pinned libraries name Komga library ids, which only mean something on the server
+    // they came from. Their preference names therefore carry the instance key, and a scope read on a
+    // server that never recorded one falls back to [SCOPE_ALL]: entering a server lists every library,
+    // and only an explicit choice by the user makes "pinned" the active scope.
+
+    /** Instance key of the active session (empty while no server is configured). */
+    private val activeInstanceKey: Flow<String> = serverConfig.config
+        .map { it.instanceStorageKey() }
+        .distinctUntilChanged()
+
+    private suspend fun currentInstanceKey(): String = serverConfig.config.first().instanceStorageKey()
+
+    /**
+     * Preference name of [prefix] for one instance. `@` never occurs in an instance key (it is sanitized
+     * to `_`), so a scoped name cannot collide with a plain one or with another instance's name.
+     */
+    private fun scopedName(prefix: String, instance: String): String =
+        "$prefix@${instance.ifBlank { NO_INSTANCE }}"
+
+    /** [prefix] of the active instance, read as [default] when this server never recorded a value. */
+    private fun scopedString(prefix: String, default: String): Flow<String> =
+        activeInstanceKey.flatMapLatest { instance ->
+            store.data.map { prefs -> prefs[stringPreferencesKey(scopedName(prefix, instance))] ?: default }
+        }
+
+    private suspend fun writeScopedString(prefix: String, value: String) {
+        val key = stringPreferencesKey(scopedName(prefix, currentInstanceKey()))
+        store.edit { prefs -> prefs[key] = value }
+    }
+
+    /**
+     * Pinned library id set of the active server (aligned with iOS dashboard.libraryIds; local only, not
+     * synced through client-settings). Empty until the user pins libraries on this server.
+     */
+    val pinnedLibraryIds: Flow<Set<String>> = scopedString(Keys.PINNED_LIBRARY_IDS.name, "").map { raw ->
+        raw.split(',').filter { it.isNotBlank() }.toSet()
     }
 
     suspend fun setPinnedLibraryIds(ids: Set<String>) {
-        store.edit { prefs -> prefs[Keys.PINNED_LIBRARY_IDS] = ids.joinToString(",") }
+        writeScopedString(Keys.PINNED_LIBRARY_IDS.name, ids.joinToString(","))
     }
 
-    /** Pinned collection id set (aligned with iOS Collection isPinned: local storage only, pinned items sort first in the list). */
-    val pinnedCollectionIds: Flow<Set<String>> = store.data.map { prefs ->
-        prefs[Keys.PINNED_COLLECTION_IDS]
-            ?.split(',')
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
-    }
+    /**
+     * Pinned collection id set of the active server (aligned with iOS Collection isPinned: local storage only,
+     * pinned items sort first in the list). Collection ids belong to one server, so the set is kept per server
+     * and a server never shows the pins of the server the user just left.
+     */
+    val pinnedCollectionIds: Flow<Set<String>> =
+        scopedString(Keys.PINNED_COLLECTION_IDS.name, "").map { raw ->
+            raw.split(',').filter { it.isNotBlank() }.toSet()
+        }
 
     suspend fun setPinnedCollectionIds(ids: Set<String>) {
-        store.edit { prefs -> prefs[Keys.PINNED_COLLECTION_IDS] = ids.joinToString(",") }
+        writeScopedString(Keys.PINNED_COLLECTION_IDS.name, ids.joinToString(","))
     }
 
-    /** Pinned read-list id set (aligned with iOS ReadList isPinned: local storage only, pinned items sort first in the list). */
-    val pinnedReadListIds: Flow<Set<String>> = store.data.map { prefs ->
-        prefs[Keys.PINNED_READLIST_IDS]
-            ?.split(',')
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
-    }
+    /**
+     * Pinned read-list id set of the active server (aligned with iOS ReadList isPinned: local storage only,
+     * pinned items sort first in the list); per server for the same reason as [pinnedCollectionIds].
+     */
+    val pinnedReadListIds: Flow<Set<String>> =
+        scopedString(Keys.PINNED_READLIST_IDS.name, "").map { raw ->
+            raw.split(',').filter { it.isNotBlank() }.toSet()
+        }
 
     suspend fun setPinnedReadListIds(ids: Set<String>) {
-        store.edit { prefs -> prefs[Keys.PINNED_READLIST_IDS] = ids.joinToString(",") }
+        writeScopedString(Keys.PINNED_READLIST_IDS.name, ids.joinToString(","))
     }
 
-    /** Library browse scope (aligned with iOS LibraryBrowseScope rawValue: pinned/all/library:{id}). */
-    val libraryBrowseScope: Flow<String> = store.data.map { prefs ->
-        prefs[Keys.LIBRARY_BROWSE_SCOPE] ?: SCOPE_PINNED
-    }
+    /**
+     * Library browse scope of the library tab (aligned with iOS LibraryBrowseScope rawValue: pinned/all/library:{id}).
+     *
+     * Per server, defaulting to [SCOPE_ALL]: a fresh server shows every library instead of an empty "pinned"
+     * selection, and switching servers never carries the previous server's choice (or its library ids) over.
+     */
+    val libraryBrowseScope: Flow<String> = scopedString(Keys.LIBRARY_BROWSE_SCOPE.name, SCOPE_ALL)
 
     suspend fun setLibraryBrowseScope(scope: String) {
-        store.edit { prefs -> prefs[Keys.LIBRARY_BROWSE_SCOPE] = scope }
+        writeScopedString(Keys.LIBRARY_BROWSE_SCOPE.name, scope)
     }
 
-    /** Library browse scope of the search tab (aligned with iOS `@AppStorage("searchBrowseScope")`, persisted, default pinned). */
-    val searchBrowseScope: Flow<String> = store.data.map { prefs ->
-        prefs[Keys.SEARCH_BROWSE_SCOPE] ?: SCOPE_PINNED
-    }
+    /** Library browse scope of the search tab (aligned with iOS `@AppStorage("searchBrowseScope")`, persisted per server, default all). */
+    val searchBrowseScope: Flow<String> = scopedString(Keys.SEARCH_BROWSE_SCOPE.name, SCOPE_ALL)
 
     suspend fun setSearchBrowseScope(scope: String) {
-        store.edit { prefs -> prefs[Keys.SEARCH_BROWSE_SCOPE] = scope }
+        writeScopedString(Keys.SEARCH_BROWSE_SCOPE.name, scope)
     }
 
     /**
      * Library scope of the dashboard content (pinned/all/library:{id}).
      *
-     * Persisted (the iOS DashboardLibraryScopeStore is session-only and resets to pinned on every launch;
-     * here the last choice survives so the dashboard does not fall back to "pinned" every time).
+     * Persisted per server (the iOS DashboardLibraryScopeStore is session-only and resets to pinned on every
+     * launch; here the last choice survives so the dashboard does not fall back every time), and defaulting to
+     * [SCOPE_ALL] for a server that has not chosen one yet.
      */
-    val dashboardBrowseScope: Flow<String> = store.data.map { prefs ->
-        prefs[Keys.DASHBOARD_BROWSE_SCOPE] ?: SCOPE_PINNED
-    }
+    val dashboardBrowseScope: Flow<String> = scopedString(Keys.DASHBOARD_BROWSE_SCOPE.name, SCOPE_ALL)
 
     suspend fun setDashboardBrowseScope(scope: String) {
-        store.edit { prefs -> prefs[Keys.DASHBOARD_BROWSE_SCOPE] = scope }
+        writeScopedString(Keys.DASHBOARD_BROWSE_SCOPE.name, scope)
     }
 
-    /** Library scope of the Lists tab (same value shape as the library tab's browse scope; persisted, default pinned). */
-    val listsBrowseScope: Flow<String> = store.data.map { prefs ->
-        prefs[Keys.LISTS_BROWSE_SCOPE] ?: SCOPE_PINNED
-    }
+    /** Library scope of the Lists tab (same value shape as the library tab's browse scope; persisted per server, default all). */
+    val listsBrowseScope: Flow<String> = scopedString(Keys.LISTS_BROWSE_SCOPE.name, SCOPE_ALL)
 
     suspend fun setListsBrowseScope(scope: String) {
-        store.edit { prefs -> prefs[Keys.LISTS_BROWSE_SCOPE] = scope }
+        writeScopedString(Keys.LISTS_BROWSE_SCOPE.name, scope)
     }
 
     /** Dashboard section order (ids of visible sections in display order; aligned with the iOS dashboard.sections ordered array). */
@@ -475,6 +517,9 @@ class AppSettingsStore @Inject constructor(
 
         const val DEFAULT_PROGRESS_RECORDING_THRESHOLD = 3
         fun scopeForLibrary(libraryId: String): String = "library:$libraryId"
+
+        /** Instance placeholder of the per-server preference names while no server is configured. */
+        private const val NO_INSTANCE = "none"
     }
 
     private object Keys {

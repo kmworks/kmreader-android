@@ -8,6 +8,7 @@ import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.Paged
 import com.kmworks.kmreader.core.data.SearchRepository
+import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
@@ -34,8 +35,8 @@ data class DashboardSectionDetailUiState(
     val hasMore: Boolean = false,
     /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
-    /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); session-level choice, defaults to pinned. */
-    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); persisted per server, defaults to all. */
+    val libraryScope: String = AppSettingsStore.SCOPE_ALL,
     /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
     val pinnedIds: Set<String> = emptySet(),
 )
@@ -50,6 +51,7 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val serverProfileStore: ServerProfileStore,
     private val appSettings: AppSettingsStore,
+    private val sessionManager: SessionManager,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -65,6 +67,32 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private var scopeLoaded = false
 
     init {
+        // Server switch: scope and pins are stored per server, so this page must not keep showing the
+        // previous server's scope, library list or items.
+        viewModelScope.launch {
+            var instanceKey: String? = null
+            sessionManager.clients.collect { clients ->
+                val key = clients?.cacheNamespace
+                if (key == instanceKey) return@collect
+                instanceKey = key
+                scopeLoaded = false
+                if (sectionId == null) return@collect
+                generation++
+                page = 0
+                loadingMore = false
+                _state.update {
+                    it.copy(
+                        items = emptyList(),
+                        hasMore = false,
+                        error = null,
+                        libraries = emptyList(),
+                        loading = true,
+                    )
+                }
+                loadPage(0)
+                refreshLibraries()
+            }
+        }
         // Pinned-set change: re-query when the current scope is pinned (aligned with the iOS libraryIds-driven refresh)
         viewModelScope.launch {
             appSettings.pinnedLibraryIds.collect { pinned ->
@@ -99,19 +127,25 @@ class DashboardSectionDetailViewModel @Inject constructor(
             libraryScope = _state.value.libraryScope,
         )
         viewModelScope.launch { loadPage(0) }
-        viewModelScope.launch {
-            val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
-            val previous = _state.value.libraryScope
-            val normalized = normalizeLibraryScope(previous, libraries)
-            _state.update { it.copy(libraries = libraries, libraryScope = normalized) }
-            if (normalized != previous) {
-                // The persisted single-library scope points at a library that is gone: query again with the fallback.
-                appSettings.setDashboardBrowseScope(normalized)
-                generation++
-                page = 0
-                loadingMore = false
-                loadPage(0)
-            }
+        viewModelScope.launch { refreshLibraries() }
+    }
+
+    /**
+     * Refresh the library list (scope-menu data) and re-query when the single-library scope points at a
+     * library the server no longer has.
+     */
+    private suspend fun refreshLibraries() {
+        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+        val previous = _state.value.libraryScope
+        val normalized = normalizeLibraryScope(previous, libraries)
+        _state.update { it.copy(libraries = libraries, libraryScope = normalized) }
+        if (normalized != previous) {
+            // The persisted single-library scope points at a library that is gone: query again with the fallback.
+            appSettings.setDashboardBrowseScope(normalized)
+            generation++
+            page = 0
+            loadingMore = false
+            loadPage(0)
         }
     }
 
@@ -154,7 +188,7 @@ class DashboardSectionDetailViewModel @Inject constructor(
         if (scopeLoaded) return
         scopeLoaded = true
         val stored = runCatching { appSettings.dashboardBrowseScope.first() }
-            .getOrDefault(AppSettingsStore.SCOPE_PINNED)
+            .getOrDefault(AppSettingsStore.SCOPE_ALL)
         if (stored != _state.value.libraryScope) {
             _state.update { it.copy(libraryScope = stored) }
         }

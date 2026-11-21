@@ -32,6 +32,24 @@ data class ServerConfig(
     val cacheNamespace: String get() = "$normalizedBaseUrl#$username"
 }
 
+/**
+ * Stable, non-secret token of an instance identity ([ServerConfig.cacheNamespace]) that is safe inside a
+ * preference key name, an on-disk directory name and a Room column: letters, digits and `-._#` survive,
+ * everything else becomes `_`.
+ *
+ * Two accounts of the same server are two instances (the username is part of the identity), so per-instance
+ * state never leaks between them.
+ */
+fun serverInstanceKey(namespace: String): String {
+    val cleaned = namespace.map { ch ->
+        if (ch.isLetterOrDigit() || ch in "-._#") ch else '_'
+    }.joinToString("")
+    return cleaned.trim('.', '_', '#').take(96).ifBlank { "default" }
+}
+
+/** [serverInstanceKey] of this configuration's identity (empty while no server is configured). */
+fun ServerConfig?.instanceStorageKey(): String = this?.let { serverInstanceKey(it.cacheNamespace) }.orEmpty()
+
 private val Context.serverConfigStore by preferencesDataStore(name = "server_config")
 
 /** Persistence of the instance configuration (DataStore). */

@@ -83,6 +83,7 @@ import com.kmworks.kmreader.ui.library.LibraryContentType
 import com.kmworks.kmreader.ui.library.LibraryFilterRequest
 import com.kmworks.kmreader.ui.library.LibraryScreen
 import com.kmworks.kmreader.ui.lists.CollectionDetailScreen
+import com.kmworks.kmreader.ui.lists.ListsGroupKind
 import com.kmworks.kmreader.ui.lists.ListsScreen
 import com.kmworks.kmreader.ui.lists.ReadListDetailScreen
 import com.kmworks.kmreader.ui.lists.SmartListDetailScreen
@@ -141,6 +142,15 @@ private data class ReadListDetailRoute(val id: Int) : Route {
 
 private data class SmartListDetailRoute(val id: Int) : Route {
     override val key: String get() = "smartList:$id"
+}
+
+/**
+ * One Lists-tab group opened as a page ("see all"): every collection / read list / smart list of that
+ * kind in a vertical grid, paged through the Lists tab's own view model so the strip and the page never
+ * disagree about what has been loaded.
+ */
+private data class ListsGroupRoute(val kind: ListsGroupKind) : Route {
+    override val key: String get() = "listsGroup:${kind.name}"
 }
 
 private data class DashboardSectionRoute(val section: DashboardSection<out Any>) : Route {
@@ -415,6 +425,7 @@ fun AppRoot(
                         onOpenCollection = { push(CollectionDetailRoute(it)) },
                         onOpenReadList = { push(ReadListDetailRoute(it)) },
                         onOpenSmartList = { push(SmartListDetailRoute(it)) },
+                        onOpenGroup = { push(ListsGroupRoute(it)) },
                     )
 
                     AppTab.Offline -> OfflineScreen()
@@ -598,6 +609,14 @@ fun AppRoot(
                         onReadBook = { book, incognito -> openReader(book, incognito) },
                     )
                 }
+
+                is ListsGroupRoute -> ListsScreen(
+                    initialGroup = route.kind,
+                    onBack = pop,
+                    onOpenCollection = { push(CollectionDetailRoute(it)) },
+                    onOpenReadList = { push(ReadListDetailRoute(it)) },
+                    onOpenSmartList = { push(SmartListDetailRoute(it)) },
+                )
 
                 is SettingsRoute -> SettingsScreen(
                     onBack = pop,

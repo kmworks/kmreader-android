@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.data
 
 import com.kmworks.kmreader.core.network.ServerConfig
+import com.kmworks.kmreader.core.network.serverInstanceKey
 import java.io.File
 
 /**
@@ -38,13 +39,8 @@ object ImageCachePaths {
     /** Stable namespace name from the raw `baseUrl#username` identity of a live client. */
     fun instanceKey(namespace: String): String = sanitize(namespace)
 
-    /** Stable namespace name from the raw `baseUrl#username` identity. */
-    fun sanitize(raw: String): String {
-        val cleaned = raw.map { ch ->
-            if (ch.isLetterOrDigit() || ch in "-._#") ch else '_'
-        }.joinToString("")
-        return cleaned.trim('.', '_', '#').take(96).ifBlank { "default" }
-    }
+    /** Stable namespace name from the raw `baseUrl#username` identity (one implementation, see [serverInstanceKey]). */
+    fun sanitize(raw: String): String = serverInstanceKey(raw)
 
     /** Directory of one cache kind for one instance (`kinds` are [KIND_PAGES] / [KIND_COVERS]). */
     fun directory(cacheDir: File, instanceKey: String, kind: String): File =

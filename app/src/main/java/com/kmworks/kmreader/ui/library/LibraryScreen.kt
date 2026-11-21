@@ -108,7 +108,8 @@ import dev.chrisbanes.haze.rememberHazeState
 
 /** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
  *  with counts), below it the scope summary (scope title + size caption); the scope
- *  (all/pinned/single library) is switched in place from the toolbar menu and defaults to pinned.
+ *  (all/pinned/single library) is switched in place from the toolbar menu, is persisted per server
+ *  and defaults to all libraries.
  *  Mirrors KMReader LibraryBrowseView + BrowseContentView. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
