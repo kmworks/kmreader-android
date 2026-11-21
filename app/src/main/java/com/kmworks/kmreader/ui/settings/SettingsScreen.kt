@@ -153,6 +153,7 @@ fun SettingsScreen(
         trackersSupported = trackersSupported,
         statsSupported = statsSupported,
         currentInstance = serverConfig?.normalizedBaseUrl,
+        isAdmin = serverConfig?.isAdmin == true,
         account = when {
             serverConfig == null -> null
             serverConfig?.useApiKey == true -> "API Key"
@@ -266,6 +267,7 @@ private fun settingsGroups(
     trackersSupported: Boolean,
     statsSupported: Boolean,
     currentInstance: String?,
+    isAdmin: Boolean,
     account: String?,
 ): List<SettingsGroup> = listOf(
     SettingsGroup(
@@ -419,36 +421,48 @@ private fun settingsGroups(
     ),
     SettingsGroup(
         title = stringResource(R.string.settings_account),
-        rows = listOf(
-            SettingsRow(
-                title = stringResource(R.string.settings_current_instance),
-                icon = Icons.Outlined.Dns,
-                accent = SettingsAccent.Green,
-                value = currentInstance ?: stringResource(R.string.settings_not_connected),
-            ),
-            SettingsRow(
-                title = stringResource(R.string.settings_account),
-                icon = Icons.Outlined.Person,
-                accent = SettingsAccent.Green,
-                value = account ?: "—",
-            ),
-            SettingsRow(
-                title = stringResource(R.string.server_list_title),
-                subtitle = stringResource(R.string.settings_server_accounts_subtitle),
-                icon = Icons.Outlined.Storage,
-                accent = SettingsAccent.Gray,
-                selected = selectedPage == SettingsPage.Account,
-                onClick = { navigate(SettingsPage.Account) },
-            ),
-            SettingsRow(
-                title = stringResource(R.string.settings_server_title),
-                subtitle = stringResource(R.string.settings_server_subtitle),
-                icon = Icons.Outlined.AdminPanelSettings,
-                accent = SettingsAccent.Gray,
-                selected = selectedPage == SettingsPage.Server,
-                onClick = { navigate(SettingsPage.Server) },
-            ),
-        ),
+        rows = buildList {
+            add(
+                SettingsRow(
+                    title = stringResource(R.string.settings_current_instance),
+                    icon = Icons.Outlined.Dns,
+                    accent = SettingsAccent.Green,
+                    value = currentInstance ?: stringResource(R.string.settings_not_connected),
+                ),
+            )
+            add(
+                SettingsRow(
+                    title = stringResource(R.string.settings_account),
+                    icon = Icons.Outlined.Person,
+                    accent = SettingsAccent.Green,
+                    value = account ?: "—",
+                ),
+            )
+            add(
+                SettingsRow(
+                    title = stringResource(R.string.server_list_title),
+                    subtitle = stringResource(R.string.settings_server_accounts_subtitle),
+                    icon = Icons.Outlined.Storage,
+                    accent = SettingsAccent.Gray,
+                    selected = selectedPage == SettingsPage.Account,
+                    onClick = { navigate(SettingsPage.Account) },
+                ),
+            )
+            // Server administration is admin-only (mirrors iOS SettingsView: the server-management
+            // section is gated by current.isAdmin).
+            if (isAdmin) {
+                add(
+                    SettingsRow(
+                        title = stringResource(R.string.settings_server_title),
+                        subtitle = stringResource(R.string.settings_server_subtitle),
+                        icon = Icons.Outlined.AdminPanelSettings,
+                        accent = SettingsAccent.Gray,
+                        selected = selectedPage == SettingsPage.Server,
+                        onClick = { navigate(SettingsPage.Server) },
+                    ),
+                )
+            }
+        },
     ),
     SettingsGroup(
         title = stringResource(R.string.settings_about),
