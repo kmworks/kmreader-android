@@ -621,7 +621,7 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
                         userScrollEnabled = !zoomed,
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(0.dp),
                         // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
                         // native pager): no loading placeholder flash while turning pages
                         beyondViewportPageCount = 1,
@@ -642,8 +642,10 @@ fun ReaderScreen(
                         modifier = Modifier.fillMaxSize().then(zoomModifier).then(gestureModifier),
                         userScrollEnabled = !zoomed,
                         reverseLayout = directionNow == ReadingDirection.Rtl,
-                        contentPadding = PaddingValues(horizontal = 4.dp),
-                        pageSpacing = if (settings.pageTransition == PageTransitionStyle.Cover) 0.dp else 8.dp,
+                        contentPadding = PaddingValues(0.dp),
+                        // The iOS pager lays pages out edge to edge with no spacing for
+                        // either transition, so pages must not be inset here either.
+                        pageSpacing = 0.dp,
                         // Pre-compose adjacent pages (mirroring the offscreen preload of the iOS
                         // native pager): no loading placeholder flash while turning pages
                         beyondViewportPageCount = 1,
@@ -989,14 +991,12 @@ private fun WebtoonReader(
     LazyColumn(
         state = state,
         modifier = modifier,
-        contentPadding = PaddingValues(vertical = 4.dp),
+        contentPadding = PaddingValues(0.dp),
     ) {
         items(items.size) { index ->
             val item = items[index]
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 1.dp),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 WebtoonItem(
@@ -1102,7 +1102,7 @@ private fun ViewerPage(
 
             // Dual-page pair (mirrors the original: no spacing; the two pages align toward the gutter)
             is ReaderViewItem.Dual -> Row(
-                modifier = Modifier.fillMaxWidth(0.96f),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PageImage(
@@ -1160,8 +1160,19 @@ private fun PageImage(
     /** Content alignment inside the cell (toward the gutter in dual pairs; mirrors the original trailing/leading). */
     alignment: Alignment = Alignment.Center,
 ) {
-    val rawRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 0.7f
-    val fullRatio = if (rawRatio.isFinite() && rawRatio > 0f) rawRatio else 0.7f
+    // Mirrors the iOS page layout, which sizes the page from the loaded image instead of the
+    // server metadata (NativePageItem_iOS.swift): use the decoded size once the request has
+    // finished, keep the metadata ratio while loading (a no-op when both agree).
+    var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
+    val decodedRatio = (imageState as? AsyncImagePainter.State.Success)
+        ?.painter
+        ?.intrinsicSize
+        ?.takeIf { it.width > 0f && it.height > 0f }
+        ?.let { it.width / it.height }
+    val metadataRatio = if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height.toFloat() else 0f
+    val fullRatio = decodedRatio?.takeIf { it.isFinite() && it > 0f }
+        ?: metadataRatio.takeIf { it.isFinite() && it > 0f }
+        ?: 0.7f
 
     val rotationModifier = Modifier.graphicsLayer {
         if (rotationDegrees != 0) {
@@ -1213,7 +1224,6 @@ private fun PageImage(
     // The page container stays transparent (mirrors the original backgroundColor=.clear: the reader
     // background shows through while loading); the shadow is applied only after the image loads
     // (mirrors the original showPageShadow && image != nil)
-    var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
     val pageLoaded = imageState is AsyncImagePainter.State.Success
 
     if (url == null || request == null) {
