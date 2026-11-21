@@ -117,6 +117,8 @@
     <string name="filter_excluded">Excluded %1$s</string>
     <string name="filter_title">Filter &amp; Sort</string>
     <string name="filter_sort">Sort</string>
+    <string name="filter_sort_by">Sort By</string>
+    <string name="filter_metadata">Metadata</string>
     <string name="filter_ascending">Ascending</string>
     <string name="filter_descending">Descending</string>
     <string name="filter_read_status">Read Status</string>

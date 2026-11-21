@@ -39,7 +39,8 @@ import androidx.compose.ui.window.DialogProperties
  * as is, because the height cap gives `weight(1f)` a bounded parent to divide.
  *
  * @param fullHeight fill the available height instead of capping at the card width; for embedded
- * pages (the in-reader book detail) that are a screen of content rather than a form.
+ * pages (the in-reader book detail) or long forms (the filter panel) that need a full sheet rather
+ * than a compact card.
  */
 @Composable
 fun AppModalDialog(

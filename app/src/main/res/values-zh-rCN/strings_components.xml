@@ -111,6 +111,8 @@
     <string name="filter_excluded">排除 %1$s</string>
     <string name="filter_title">筛选与排序</string>
     <string name="filter_sort">排序</string>
+    <string name="filter_sort_by">排序方式</string>
+    <string name="filter_metadata">元数据</string>
     <string name="filter_ascending">升序</string>
     <string name="filter_descending">降序</string>
     <string name="filter_read_status">阅读状态</string>

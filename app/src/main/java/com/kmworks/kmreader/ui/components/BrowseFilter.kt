@@ -3,31 +3,39 @@ package com.kmworks.kmreader.ui.components
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -41,6 +49,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -69,6 +81,7 @@ import com.kmworks.kmreader.data.TriState
 import com.kmworks.kmreader.data.filterKey
 import com.kmworks.kmreader.data.notableEntityFromFilterKey
 import dagger.hilt.android.EntryPointAccessors
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /** Layout mode (mirrors BrowseLayoutMode: list/grid/largeGrid), cycled. */
@@ -217,6 +230,7 @@ fun BrowseFilterChipFlow(
 @Composable
 fun BookBrowseOptions.activeFilterLabels(): List<ActiveFilter> {
     val context = LocalContext.current
+    val displayLocale = context.resources.configuration.locales[0]
     return buildList {
     readStatuses.forEach { (status, state) ->
         when (state) {
@@ -253,8 +267,10 @@ fun BookBrowseOptions.activeFilterLabels(): List<ActiveFilter> {
     }
     if (publishers.isNotEmpty()) add(ActiveFilter(publishers.joinToString(" ∨ "), negative = false))
     if (genres.isNotEmpty()) add(ActiveFilter(genres.joinToString(" ∨ "), negative = false))
-    if (ageRatings.isNotEmpty()) add(ActiveFilter(ageRatings.joinToString(" ∨ "), negative = false))
-    if (languages.isNotEmpty()) add(ActiveFilter(languages.joinToString(" ∨ "), negative = false))
+    if (ageRatings.isNotEmpty()) add(ActiveFilter(ageRatings.joinToString(" ∨ ") { "$it+" }, negative = false))
+    if (languages.isNotEmpty()) {
+        add(ActiveFilter(languages.joinToString(" ∨ ") { languageDisplayName(it, displayLocale) }, negative = false))
+    }
     if (releaseYears.isNotEmpty()) add(ActiveFilter(releaseYears.joinToString(" ∨ "), negative = false))
     if (seriesStatuses.isNotEmpty()) {
         val statusLabels = seriesStatuses.map { context.getString(it.labelRes) }
@@ -283,13 +299,13 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Filter & sort panel (mirrors the original BookBrowseOptionsSheet):
- * sort field + direction; tri-state read status; one-shot/deleted flags; author/tag
- * multi-select with ∧/∨ logic; save as preset; done.
+ * Filter & sort panel, laid out like the iOS BookBrowseOptionsSheet/SeriesBrowseOptionsSheet Form:
+ * a full-height sheet with rounded section cards (Sort, Read Status, Series Status, Flags,
+ * Metadata), trailing state glyphs instead of chip walls, and a fixed Save/Done bar.
  * The suggestion* parameters scope the Referential candidate values (empty lists hide
  * the suggestions).
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseOptionsSheet(
     initialOptions: BookBrowseOptions,
@@ -327,9 +343,69 @@ fun BrowseOptionsSheet(
     var pickerDimId by remember { mutableStateOf<String?>(null) }
     val browsePresets = rememberBrowseFilterPresets()
     val context = LocalContext.current
-    AppModalDialog(onDismissRequest = onDismiss) {
+    // Follow the app's own locale (per-app language), not just the system default.
+    val displayLocale = context.resources.configuration.locales[0]
+    // Row order mirrors the iOS MetadataFilterSection: publisher, authors, genres, tags,
+    // notable entities, languages, age ratings and release years.
+    val metadataDimensions = mutableListOf<MetaDimension>()
+    if (showSeriesFilters) {
+        metadataDimensions += MetaDimension(
+            stringResource(R.string.filter_publisher),
+            options.publishers,
+            null,
+            "publishers",
+        )
+    }
+    metadataDimensions += MetaDimension(
+        stringResource(R.string.common_author),
+        options.authors,
+        if (options.authorLogicAnd) "∧" else "∨",
+        "authors",
+    )
+    if (showSeriesFilters) {
+        metadataDimensions += MetaDimension(
+            stringResource(R.string.filter_genre),
+            options.genres,
+            null,
+            "genres",
+        )
+    }
+    metadataDimensions += MetaDimension(
+        stringResource(R.string.common_tag),
+        options.tags,
+        if (options.tagLogicAnd) "∧" else "∨",
+        "tags",
+    )
+    metadataDimensions += MetaDimension(
+        stringResource(R.string.filter_notable_entities),
+        options.notableEntities.map { "${it.kindLabel(context)} · ${it.name}" },
+        if (options.notableEntitiesAllMatch) "∧" else "∨",
+        "notableEntities",
+    )
+    if (showSeriesFilters) {
+        metadataDimensions += MetaDimension(
+            stringResource(R.string.filter_language),
+            options.languages.map { languageDisplayName(it, displayLocale) },
+            null,
+            "languages",
+        )
+        metadataDimensions += MetaDimension(
+            stringResource(R.string.filter_age_rating),
+            options.ageRatings.map { "$it+" },
+            null,
+            "ageRatings",
+        )
+        metadataDimensions += MetaDimension(
+            stringResource(R.string.filter_release_year),
+            options.releaseYears,
+            null,
+            "releaseYears",
+        )
+    }
+
+    AppModalDialog(onDismissRequest = onDismiss, fullHeight = true) {
         Column(modifier = Modifier.padding(bottom = 20.dp)) {
-            // Fixed header: title + reset + close (mirrors SheetView title/onReset)
+            // Fixed header: title + reset + close (mirrors the iOS sheet navigation bar)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -349,102 +425,59 @@ fun BrowseOptionsSheet(
                 }
             }
 
-            val activeFilterLabels = options.activeFilterLabels()
+            // iOS Form body: one rounded card per dimension group, with the group label above it.
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
             ) {
-                // Selected-condition preview (mirrors the selected chips at the top of the original optionsSection)
-                if (activeFilterLabels.isNotEmpty()) {
-                    item {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(bottom = 4.dp),
-                        ) {
-                            activeFilterLabels.forEach { filter ->
-                                if (filter.negative) {
-                                    NegativeFilterChip(label = filter.label, onClick = {})
-                                } else {
-                                    FilterChip(
-                                        selected = true,
-                                        onClick = {},
-                                        label = { Text(filter.label) },
-                                    )
-                                }
-                            }
-                        }
+                item {
+                    FilterSection(stringResource(R.string.filter_sort)) {
+                        SortFieldRow(
+                            selectedField = options.sortField,
+                            onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
+                        )
+                        FilterRowDivider()
+                        SortDirectionRow(
+                            ascending = options.sortAscending,
+                            onChange = { ascending -> onOptionsChange(options.copy(sortAscending = ascending)) },
+                        )
                     }
                 }
 
                 item {
-                    SheetSectionTitle(stringResource(R.string.filter_sort))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BookSortFields.forEach { field ->
-                            FilterChip(
-                                selected = options.sortField == field,
-                                onClick = { onOptionsChange(options.copy(sortField = field)) },
-                                label = { Text(bookSortFieldLabel(field)) },
+                    FilterSection(stringResource(R.string.filter_read_status)) {
+                        ReadStatus.entries.forEachIndexed { index, status ->
+                            if (index > 0) FilterRowDivider()
+                            FilterTriStateRow(
+                                label = stringResource(status.labelRes),
+                                state = options.readStatuses[status] ?: TriState.Off,
+                                onCycle = {
+                                    // Mirrors the original applyReadStatusToggle: includes are mutually exclusive, excludes may coexist with includes
+                                    onOptionsChange(
+                                        options.copy(
+                                            readStatuses = options.readStatuses.applyReadStatusToggle(
+                                                status,
+                                                (options.readStatuses[status] ?: TriState.Off).next,
+                                            ),
+                                        ),
+                                    )
+                                },
                             )
                         }
                     }
-                    Row(
-                        modifier = Modifier.padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FilterChip(
-                            selected = options.sortAscending,
-                            onClick = { onOptionsChange(options.copy(sortAscending = true)) },
-                            label = { Text(stringResource(R.string.filter_ascending)) },
-                        )
-                        FilterChip(
-                            selected = !options.sortAscending,
-                            onClick = { onOptionsChange(options.copy(sortAscending = false)) },
-                            label = { Text(stringResource(R.string.filter_descending)) },
-                        )
-                    }
-                }
-
-                item {
-                    SheetSectionTitle(stringResource(R.string.filter_read_status))
-                    ReadStatus.entries.forEach { status ->
-                        val state = options.readStatuses[status] ?: TriState.Off
-                        TriStateRow(
-                            label = stringResource(status.labelRes),
-                            state = state,
-                            onCycle = {
-                                onOptionsChange(
-                                    // Mirrors the original applyReadStatusToggle: includes are mutually exclusive, excludes may coexist with includes
-                                    options.copy(readStatuses = options.readStatuses.applyReadStatusToggle(status, state.next))
-                                )
-                            },
-                        )
-                    }
-                }
-
-                item {
-                    SheetSectionTitle(stringResource(R.string.filter_flags))
-                    TriStateRow(
-                        label = stringResource(R.string.filter_oneshot),
-                        state = options.oneshot,
-                        onCycle = { onOptionsChange(options.copy(oneshot = options.oneshot.next)) },
-                    )
-                    TriStateRow(
-                        label = stringResource(R.string.filter_deleted),
-                        state = options.deleted,
-                        onCycle = { onOptionsChange(options.copy(deleted = options.deleted.next)) },
-                    )
                 }
 
                 if (showSeriesFilters) {
                     item {
-                        SheetSectionTitle(stringResource(R.string.filter_series_status))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SeriesStatus.entries.forEach { status ->
-                                FilterChip(
+                        FilterSection(stringResource(R.string.filter_series_status)) {
+                            SeriesStatus.entries.forEachIndexed { index, status ->
+                                if (index > 0) FilterRowDivider()
+                                FilterSelectionRow(
+                                    label = stringResource(status.labelRes),
                                     selected = status in options.seriesStatuses,
-                                    onClick = {
+                                    onToggle = {
                                         onOptionsChange(
                                             options.copy(
                                                 seriesStatuses = if (status in options.seriesStatuses) {
@@ -455,82 +488,43 @@ fun BrowseOptionsSheet(
                                             ),
                                         )
                                     },
-                                    label = { Text(stringResource(status.labelRes)) },
                                 )
                             }
                         }
                     }
-                    item {
-                        MetaFilterRow(
-                            title = stringResource(R.string.filter_publisher),
-                            values = options.publishers,
-                            logicSymbol = null,
-                            onClick = { pickerDimId = "publishers" },
+                }
+
+                item {
+                    FilterSection(stringResource(R.string.filter_flags)) {
+                        FilterTriStateRow(
+                            label = stringResource(R.string.filter_oneshot),
+                            state = options.oneshot,
+                            onCycle = { onOptionsChange(options.copy(oneshot = options.oneshot.next)) },
                         )
-                    }
-                    item {
-                        MetaFilterRow(
-                            title = stringResource(R.string.filter_genre),
-                            values = options.genres,
-                            logicSymbol = null,
-                            onClick = { pickerDimId = "genres" },
-                        )
-                    }
-                    item {
-                        MetaFilterRow(
-                            title = stringResource(R.string.filter_age_rating),
-                            values = options.ageRatings,
-                            logicSymbol = null,
-                            onClick = { pickerDimId = "ageRatings" },
-                        )
-                    }
-                    item {
-                        MetaFilterRow(
-                            title = stringResource(R.string.filter_language),
-                            values = options.languages,
-                            logicSymbol = null,
-                            onClick = { pickerDimId = "languages" },
-                        )
-                    }
-                    item {
-                        MetaFilterRow(
-                            title = stringResource(R.string.filter_release_year),
-                            values = options.releaseYears,
-                            logicSymbol = null,
-                            onClick = { pickerDimId = "releaseYears" },
+                        FilterRowDivider()
+                        FilterTriStateRow(
+                            label = stringResource(R.string.filter_deleted),
+                            state = options.deleted,
+                            onCycle = { onOptionsChange(options.copy(deleted = options.deleted.next)) },
                         )
                     }
                 }
 
                 item {
-                    SheetSectionTitle(stringResource(R.string.common_author))
-                    MetaFilterRow(
-                        title = stringResource(R.string.common_author),
-                        values = options.authors,
-                        logicSymbol = if (options.authorLogicAnd) "∧" else "∨",
-                        onClick = { pickerDimId = "authors" },
-                    )
+                    FilterSection(stringResource(R.string.filter_metadata)) {
+                        metadataDimensions.forEachIndexed { index, dimension ->
+                            if (index > 0) FilterRowDivider()
+                            MetaFilterRow(
+                                title = dimension.title,
+                                values = dimension.values,
+                                logicSymbol = dimension.logicSymbol,
+                                onClick = { pickerDimId = dimension.id },
+                            )
+                        }
+                    }
                 }
 
-                item {
-                    SheetSectionTitle(stringResource(R.string.common_tag))
-                    MetaFilterRow(
-                        title = stringResource(R.string.common_tag),
-                        values = options.tags,
-                        logicSymbol = if (options.tagLogicAnd) "∧" else "∨",
-                        onClick = { pickerDimId = "tags" },
-                    )
-                }
-
-                item {
-                    SheetSectionTitle(stringResource(R.string.filter_notable_entities))
-                    MetaFilterRow(
-                        title = stringResource(R.string.filter_notable_entities),
-                        values = options.notableEntities.map { "${it.kindLabel(context)} · ${it.name}" },
-                        logicSymbol = if (options.notableEntitiesAllMatch) "∧" else "∨",
-                        onClick = { pickerDimId = "notableEntities" },
-                    )
-                }
+                item { Spacer(Modifier.height(8.dp)) }
             }
 
             HorizontalDivider()
@@ -544,7 +538,7 @@ fun BrowseOptionsSheet(
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Filled.BookmarkAdd, contentDescription = null)
-                    Spacer(Modifier.padding(2.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.filter_save_preset))
                 }
                 Button(
@@ -638,65 +632,218 @@ fun BrowseOptionsSheet(
                 }
                 else -> null
             },
-            displayLabel = if (isNotableEntities) {
-                { key ->
+            displayLabel = when {
+                isNotableEntities -> { key ->
                     notableEntityFromFilterKey(key)
                         ?.let { "${it.kindLabel(context)} · ${it.name}" }
                         ?: key
                 }
-            } else {
-                null
+                id == "ageRatings" -> { value -> "$value+" }
+                id == "languages" -> { value -> languageDisplayName(value, displayLocale) }
+                else -> null
             },
             onDismiss = { pickerDimId = null },
         )
     }
 }
 
+/** One labeled group of rows: the iOS inset-grouped Form section on the modal's surface. */
 @Composable
-private fun SheetSectionTitle(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
-}
-
-/** Tri-state row: the trailing button cycles off → ✓ include → ✕ exclude. */
-@Composable
-private fun TriStateRow(label: String, state: TriState, onCycle: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun FilterSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = when (state) {
-                TriState.Off -> MaterialTheme.colorScheme.onSurface
-                TriState.Include -> MaterialTheme.colorScheme.onSurface
-                TriState.Exclude -> MaterialTheme.colorScheme.error
-            },
-            modifier = Modifier.weight(1f),
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),
         )
-        FilterChip(
-            selected = state != TriState.Off,
-            onClick = onCycle,
-            label = {
-                when (state) {
-                    TriState.Off -> Text(stringResource(R.string.common_off))
-                    TriState.Include -> Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.filter_include))
-                    TriState.Exclude -> Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.filter_exclude))
-                }
-            },
-        )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            // One step above the dialog surface, otherwise the card would vanish into it.
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(content = content)
+        }
     }
 }
 
-/** Metadata dimension row: title + selected summary (∨/∧ joined, single-line truncated) + trailing arrow; tapping opens the full multi-select page
- * (mirrors the NavigationLink row of the original MetadataFilterSection). */
+/** Inset separator between the rows of a [FilterSection] (iOS keeps the left text gutter). */
+@Composable
+private fun FilterRowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 16.dp),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+    )
+}
+
+/** Sort-field menu row (iOS Form menu Picker): label left, current value + chevron right. */
+@Composable
+private fun SortFieldRow(selectedField: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .heightIn(min = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.filter_sort_by),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        // Anchored to the trailing value so the menu drops from the control, like the iOS picker.
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = bookSortFieldLabel(selectedField),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.widthIn(min = 200.dp),
+            ) {
+                BookSortFields.forEach { field ->
+                    DropdownMenuItem(
+                        text = { Text(bookSortFieldLabel(field)) },
+                        onClick = {
+                            expanded = false
+                            onSelect(field)
+                        },
+                        trailingIcon = {
+                            if (field == selectedField) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Direction picker (iOS segmented Picker): arrows + Ascending/Descending across the row. */
+@Composable
+private fun SortDirectionRow(ascending: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = ascending,
+                onClick = { onChange(true) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                icon = {
+                    Icon(
+                        Icons.Filled.ArrowUpward,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+            ) { Text(stringResource(R.string.filter_ascending)) }
+            SegmentedButton(
+                selected = !ascending,
+                onClick = { onChange(false) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                icon = {
+                    Icon(
+                        Icons.Filled.ArrowDownward,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+            ) { Text(stringResource(R.string.filter_descending)) }
+        }
+    }
+}
+
+/** Tri-state row: tapping cycles off → include → exclude; the trailing glyph carries the state (iOS). */
+@Composable
+private fun FilterTriStateRow(label: String, state: TriState, onCycle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onCycle)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .heightIn(min = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        FilterStateIcon(state)
+    }
+}
+
+/** Multi-select row (series status): a check confirms the value, an empty circle leaves it off. */
+@Composable
+private fun FilterSelectionRow(label: String, selected: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .heightIn(min = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        FilterStateIcon(if (selected) TriState.Include else TriState.Off)
+    }
+}
+
+/** Include/exclude/off glyph (mirrors iOS TriStateSelectionIcon). */
+@Composable
+private fun FilterStateIcon(state: TriState) {
+    Icon(
+        imageVector = when (state) {
+            TriState.Off -> Icons.Outlined.RadioButtonUnchecked
+            TriState.Include -> Icons.Filled.CheckCircle
+            TriState.Exclude -> Icons.Filled.Cancel
+        },
+        contentDescription = when (state) {
+            TriState.Off -> stringResource(R.string.common_off)
+            TriState.Include -> stringResource(R.string.filter_include)
+            TriState.Exclude -> stringResource(R.string.filter_exclude)
+        },
+        tint = when (state) {
+            TriState.Off -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            TriState.Include -> MaterialTheme.colorScheme.onSurface
+            TriState.Exclude -> MaterialTheme.colorScheme.error
+        },
+        modifier = Modifier.size(22.dp),
+    )
+}
+
+/** Metadata dimension row: title + selected summary (∧/∨ joined, single line) + chevron; opens the multi-select page. */
 @Composable
 private fun MetaFilterRow(
     title: String,
@@ -708,14 +855,15 @@ private fun MetaFilterRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .heightIn(min = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.padding(6.dp))
+        Spacer(Modifier.width(12.dp))
         if (values.isNotEmpty()) {
             Text(
-                values.joinToString(" ${logicSymbol ?: "∨"} "),
+                text = values.joinToString(" ${logicSymbol ?: "∨"} "),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -723,15 +871,32 @@ private fun MetaFilterRow(
                 textAlign = TextAlign.End,
                 modifier = Modifier.weight(1f),
             )
+            Spacer(Modifier.width(4.dp))
         } else {
             Spacer(Modifier.weight(1f))
         }
         Icon(
-            Icons.Filled.KeyboardArrowRight,
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** One metadata row of the filter panel and the picker page it opens. */
+private data class MetaDimension(
+    val title: String,
+    val values: List<String>,
+    val logicSymbol: String?,
+    val id: String,
+)
+
+/** Localized display name for a language token (mirrors iOS LanguageCodeHelper). */
+private fun languageDisplayName(code: String, displayLocale: Locale): String {
+    if (code.isBlank()) return code
+    val locale = Locale.forLanguageTag(code)
+    if (locale.language.isEmpty()) return code
+    return locale.getDisplayLanguage(displayLocale).ifBlank { code }
 }
 
 /**
@@ -747,12 +912,13 @@ private fun MetadataPickerSheet(
     onSelectedChange: (List<String>) -> Unit,
     logicAnd: Boolean?,
     onToggleLogic: (() -> Unit)?,
-    // Value key → display text (the notable-entities dimension renders kind␟name as "kindLabel · name")
-    displayLabel: (@Composable (String) -> String)? = null,
+    // Value key → display text (age ratings "+", language names, and kind␟name as "kindLabel · name")
+    displayLabel: ((String) -> String)? = null,
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    AppModalDialog(onDismissRequest = onDismiss) {
+    // A metadata dimension can run long; fill the dialog like the iOS pushed page instead of capping it at a square.
+    AppModalDialog(onDismissRequest = onDismiss, fullHeight = true) {
         Column(modifier = Modifier.padding(bottom = 20.dp)) {
             Row(
                 modifier = Modifier
@@ -771,24 +937,26 @@ private fun MetadataPickerSheet(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_done))
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
             if (logicAnd != null && onToggleLogic != null) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                // iOS segmented logic picker (All / Any) instead of two loose chips.
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
                 ) {
-                    FilterChip(
+                    SegmentedButton(
                         selected = logicAnd,
                         onClick = { if (!logicAnd) onToggleLogic() },
-                        label = { Text(stringResource(R.string.filter_match_all)) },
-                    )
-                    FilterChip(
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) { Text(stringResource(R.string.filter_match_all)) }
+                    SegmentedButton(
                         selected = !logicAnd,
                         onClick = { if (logicAnd) onToggleLogic() },
-                        label = { Text(stringResource(R.string.filter_match_any)) },
-                    )
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) { Text(stringResource(R.string.filter_match_any)) }
                 }
             }
             OutlinedTextField(
@@ -803,6 +971,7 @@ private fun MetadataPickerSheet(
                     )
                 },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 textStyle = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -823,31 +992,44 @@ private fun MetadataPickerSheet(
                     modifier = Modifier.padding(20.dp),
                 )
             } else {
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(shown, key = { it }) { item ->
-                        val isSelected = item in selected
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onSelectedChange(
-                                        if (isSelected) selected - item else selected + item,
+                // Grouped list card, matching the form cards of the filter panel and the iOS grouped List.
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        itemsIndexed(shown, key = { _, item -> item }) { index, item ->
+                            if (index > 0) FilterRowDivider()
+                            val isSelected = item in selected
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSelectedChange(
+                                            if (isSelected) selected - item else selected + item,
+                                        )
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .heightIn(min = 24.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    displayLabel?.invoke(item) ?: item,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = stringResource(R.string.filter_selected),
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(22.dp),
                                     )
                                 }
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                displayLabel?.invoke(item) ?: item,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = stringResource(R.string.filter_selected),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
                             }
                         }
                     }
