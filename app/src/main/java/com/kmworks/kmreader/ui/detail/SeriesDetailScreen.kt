@@ -238,6 +238,10 @@ fun SeriesDetailScreen(
             ?: setOf(book.id)
     }
 
+    val toggleSelectAll: () -> Unit = {
+        selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
+    }
+
     val selectionFailure: suspend (String) -> Unit = { action ->
         snackbarHostState.showSnackbar(
             context.getString(R.string.detail_selection_no_data, action),
@@ -289,6 +293,24 @@ fun SeriesDetailScreen(
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Pinned to the page bottom: the book list is long, and the inline row scrolled away with it,
+        // forcing the user back to the top to act on the books they had just selected.
+        bottomBar = {
+            val selection = selectedIds
+            if (selection != null) {
+                SelectionToolbar(
+                    selectedCount = selection.size,
+                    totalCount = books.size,
+                    onSelectAll = toggleSelectAll,
+                    onMarkRead = { onSelectedMarkRead(true) },
+                    onMarkUnread = { onSelectedMarkRead(false) },
+                    onDownload = onSelectedDownload,
+                    onAddToReadList = onSelectedAddToReadList,
+                    onDelete = onSelectedDelete,
+                    onDone = { selectedIds = null },
+                )
+            }
+        },
         contentWindowInsets = glassPageContentWindowInsets(),
     ) { padding ->
         BoxWithConstraints(
@@ -510,18 +532,8 @@ fun SeriesDetailScreen(
                                 onOptionsChange = { browseOptions = it },
                                 onOpenOptions = { showOptionsSheet = true },
                                 onCycleLayout = { setBooksLayout(booksLayout.next) },
-                                selection = selectedIds,
-                                totalCount = books.size,
+                                selectionMode = selectedIds != null,
                                 onEnterSelection = { selectedIds = emptySet() },
-                                onToggleSelectAll = {
-                                    selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
-                                },
-                                onDoneSelection = { selectedIds = null },
-                                onMarkRead = { onSelectedMarkRead(true) },
-                                onMarkUnread = { onSelectedMarkRead(false) },
-                                onDownload = onSelectedDownload,
-                                onAddToReadList = onSelectedAddToReadList,
-                                onDelete = onSelectedDelete,
                             )
                         }
                         item(key = "books") {
@@ -594,18 +606,8 @@ fun SeriesDetailScreen(
                         onOptionsChange = { browseOptions = it },
                         onOpenOptions = { showOptionsSheet = true },
                         onCycleLayout = { setBooksLayout(booksLayout.next) },
-                        selection = selectedIds,
-                        totalCount = books.size,
+                        selectionMode = selectedIds != null,
                         onEnterSelection = { selectedIds = emptySet() },
-                        onToggleSelectAll = {
-                            selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
-                        },
-                        onDoneSelection = { selectedIds = null },
-                        onMarkRead = { onSelectedMarkRead(true) },
-                        onMarkUnread = { onSelectedMarkRead(false) },
-                        onDownload = onSelectedDownload,
-                        onAddToReadList = onSelectedAddToReadList,
-                        onDelete = onSelectedDelete,
                     )
                     BooksSection(
                         books = books,
@@ -1420,8 +1422,9 @@ private fun BooksGrid(
     }
 }
 
-/** Books toolbar: in selection mode it shows the SelectionToolbar (mirroring SelectionActionsToolbar),
- *  otherwise the filter chip flow (layout / presets / sort / active conditions, mirroring BookFilterView) plus the enter-selection action. */
+/** Books toolbar: the filter chip flow (layout / presets / sort / active conditions, mirroring
+ *  BookFilterView) plus the enter-selection action. Selection actions live in the pinned bottom bar
+ *  instead, so they stay reachable while the list is scrolled. */
 @Composable
 private fun BooksToolbar(
     options: BookBrowseOptions,
@@ -1429,31 +1432,9 @@ private fun BooksToolbar(
     onOptionsChange: (BookBrowseOptions) -> Unit,
     onOpenOptions: () -> Unit,
     onCycleLayout: () -> Unit,
-    selection: Set<Int>?,
-    totalCount: Int,
+    selectionMode: Boolean,
     onEnterSelection: () -> Unit,
-    onToggleSelectAll: () -> Unit,
-    onDoneSelection: () -> Unit,
-    onMarkRead: () -> Unit,
-    onMarkUnread: () -> Unit,
-    onDownload: () -> Unit,
-    onAddToReadList: () -> Unit,
-    onDelete: () -> Unit,
 ) {
-    if (selection != null) {
-        SelectionToolbar(
-            selectedCount = selection.size,
-            totalCount = totalCount,
-            onSelectAll = onToggleSelectAll,
-            onMarkRead = onMarkRead,
-            onMarkUnread = onMarkUnread,
-            onDownload = onDownload,
-            onAddToReadList = onAddToReadList,
-            onDelete = onDelete,
-            onDone = onDoneSelection,
-        )
-        return
-    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -1467,8 +1448,12 @@ private fun BooksToolbar(
                 onApplyPreset = { onOptionsChange(it.options) },
             )
         }
-        IconButton(onClick = onEnterSelection) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.detail_multi_select))
+        // Hidden while a selection is active: the pinned bar owns the selection actions, and a second
+        // entry here would just re-enter the mode the page is already in.
+        if (!selectionMode) {
+            IconButton(onClick = onEnterSelection) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.detail_multi_select))
+            }
         }
     }
 }
