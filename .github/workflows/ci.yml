@@ -38,6 +38,10 @@ jobs:
       - name: Install SDK platform
         run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
 
+      # Plain JVM unit tests (the reader progress-gate math); no emulator needed
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --console=plain
 

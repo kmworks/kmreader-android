@@ -155,8 +155,10 @@ constructor(
     }
 
     /**
-     * Exit flush: reports the page reached even when the session never crossed the recording threshold, then tells
-     * the screens showing this book so they patch the new progress instead of waiting for SSE.
+     * Exit flush: reports the page reached, but only through the same recording gate as [reportProgress], so opening
+     * a book and closing it without moving records nothing. When the gate passes the write survives this view model
+     * being cleared, and the screens showing this book are told about it so they patch the new progress instead of
+     * waiting for SSE.
      */
     fun flushProgress(page: Int) {
         if (incognito) return
@@ -164,8 +166,11 @@ constructor(
         val pageCount = _uiState.value.pageCount
         if (pageCount <= 0 || page <= 0) return
         if (page == lastReportedPage) return
-        lastReportedPage = page
+        if (sessionStartPage == null) sessionStartPage = page
         val completed = page >= pageCount
+        // Below the threshold this leaves lastReportedPage untouched, so a later report/flush can still record.
+        if (!admitsRecording(page, completed, pageCount)) return
+        lastReportedPage = page
         val progress = (page.toFloat() / pageCount).coerceIn(0f, 1f)
         appScope.launch {
             runCatching { actionRepository.updateBookReadProgress(dtoId, page, completed) }
@@ -178,14 +183,13 @@ constructor(
         }
     }
 
-    /** Mirrors the original ReaderProgressRecordingGate: threshold from settings, clamped to pageCount-1, req=1 for books already in progress. */
+    /** Mirrors the original ReaderProgressRecordingGate: threshold from settings, clamped to the page count; req=1 for books already in progress. */
     private fun admitsRecording(page: Int, completed: Boolean, pageCount: Int): Boolean {
         if (completed || hasRecorded) return true
         val start = sessionStartPage ?: return false
-        val threshold = minOf(progressThreshold, pageCount - 1)
-        val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
-        if (requiredDistance <= 0) return true
-        return abs(page - start) >= requiredDistance
+        val requiredDistance = ReaderProgressRecordingGate
+            .requiredDistance(progressThreshold, pageCount, wasInProgress)
+        return requiredDistance <= 0 || abs(page - start) >= requiredDistance
     }
 
     fun retry() {

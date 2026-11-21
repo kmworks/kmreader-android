@@ -303,7 +303,7 @@ class EpubReaderViewModel @Inject constructor(
     fun flushReport() {
         reportJob?.cancel()
         reportJob = null
-        doReport(force = true)
+        doReport(flush = true)
     }
 
     /** Forwards resource interception (called synchronously on the WebViewClient thread). */
@@ -348,11 +348,12 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     /**
-     * Reports the current position. Scheduled reports go through the recording gate; [force] is the exit flush,
-     * which skips the gate so a short session still leaves its position, survives this view model being cleared,
-     * and announces the new progress so the screens showing this book do not wait for SSE.
+     * Reports the current position. Every report goes through the recording gate (mirrors the original
+     * flushProgress guard), so an unread or finished book only records after the reader moves the configured number
+     * of pages. [flush] is the leaving-the-reader path: it survives this view model being cleared and announces the
+     * new progress so the screens showing this book do not wait for SSE.
      */
-    private fun doReport(force: Boolean = false) {
+    private fun doReport(flush: Boolean = false) {
         // Incognito: skip progress reporting (restoring is still kept)
         if (incognito) return
         val state = _uiState.value
@@ -363,8 +364,8 @@ class EpubReaderViewModel @Inject constructor(
         // Completed = last chapter scrolled to its end (approximates the original reachedLastPage:
         // Android only knows the in-chapter fraction)
         val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
-        if (!force && !admitsRecording(total, completed)) return
-        val launchScope = if (force) appScope else viewModelScope
+        if (!admitsRecording(total, completed)) return
+        val launchScope = if (flush) appScope else viewModelScope
         launchScope.launch {
             val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
@@ -376,22 +377,27 @@ class EpubReaderViewModel @Inject constructor(
             )
             if (ok) {
                 hasRecorded = true
-                if (force) actionRepository.announceBookProgress(dtoId, completed, total)
+                if (flush) actionRepository.announceBookProgress(dtoId, completed, total)
             }
         }
     }
 
-    /** Mirrors the original ReaderProgressRecordingGate: threshold from settings, clamped to pageCount-1; a book already in progress requires 1. */
+    /**
+     * Mirrors the original ReaderProgressRecordingGate: 0 disables the gate, completion or an earlier recording
+     * always passes, the threshold is clamped to the estimated page count, and a book already in progress only
+     * needs one page.
+     */
     private fun admitsRecording(currentTotal: Float, completed: Boolean): Boolean {
         if (completed || hasRecorded) return true
         val start = sessionStartTotalProgression ?: return false
         val pageCount = estimatedTotalPages
-        if (pageCount <= 0) return false
-        val threshold = minOf(progressThreshold, pageCount - 1)
-        val requiredDistance = if (wasInProgress) minOf(threshold, 1) else threshold
+        val requiredDistance = ReaderProgressRecordingGate
+            .requiredDistance(progressThreshold, pageCount, wasInProgress)
         if (requiredDistance <= 0) return true
-        val distance = abs(currentTotal - start) * pageCount
-        return distance.toInt() >= requiredDistance
+        // Without positions the whole-book percentage stands in for pages (a 100-page book) so these books still
+        // follow the reader instead of never recording.
+        val scale = if (pageCount > 0) pageCount.toFloat() else 100f
+        return (abs(currentTotal - start) * scale).toInt() >= requiredDistance
     }
 
     private fun weightOf(chapter: EpubChapter): Float =

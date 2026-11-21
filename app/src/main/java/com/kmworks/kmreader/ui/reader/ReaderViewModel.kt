@@ -173,16 +173,11 @@ class ReaderViewModel @Inject constructor(
         val state = _uiState.value
         val dtoId = state.bookDtoId ?: return
         val pageCount = state.pages.size
+        if (pageCount <= 0) return
         if (sessionStartPage == null) sessionStartPage = page
 
-        val completed = pageCount > 0 && page >= pageCount
-        if (!completed && !hasRecordedProgress) {
-            // Mirrors the original gate: requiredDistance = min(threshold, pageCount-1), relaxed to 1 when wasInProgress
-            val threshold = min(progressThreshold, maxOf(pageCount - 1, 0))
-            val requiredDistance = if (state.wasInProgress) min(threshold, 1) else threshold
-            val distance = abs(page - (sessionStartPage ?: page))
-            if (distance < requiredDistance) return
-        }
+        val completed = page >= pageCount
+        if (!admitsRecording(page, completed, pageCount)) return
         hasRecordedProgress = true
         if (page == lastReportedPage) return
         lastReportedPage = page
@@ -198,9 +193,10 @@ class ReaderViewModel @Inject constructor(
     }
 
     /**
-     * Flush on exit (mirrors the original flushProgress()=enqueue(from:current,to:nil)), but without the gate: a
-     * session that never crossed the three-page threshold still leaves the page it reached, and the screens that
-     * show this book are told about it so they do not wait for SSE to catch up.
+     * Flush on exit (mirrors the original flushProgress()=enqueue(from:current,to:nil)): the same recording gate
+     * applies, so opening a book and closing it without moving records nothing. When the gate passes, the write
+     * survives this view model being cleared and the screens showing this book are told about it, so they do not
+     * wait for SSE to catch up.
      */
     fun flushProgress(currentPage: Int) {
         if (incognito) return
@@ -209,8 +205,13 @@ class ReaderViewModel @Inject constructor(
         val pageCount = state.pages.size
         if (pageCount <= 0 || currentPage <= 0) return
         if (currentPage == lastReportedPage) return
-        lastReportedPage = currentPage
+        if (sessionStartPage == null) sessionStartPage = currentPage
         val completed = currentPage >= pageCount
+        // The exit flush is gated like every other report: a session that never crossed the threshold must not
+        // turn an unread (or finished) book into an in-progress one just because the reader was opened.
+        if (!admitsRecording(currentPage, completed, pageCount)) return
+        hasRecordedProgress = true
+        lastReportedPage = currentPage
         val progress = (currentPage.toFloat() / pageCount).coerceIn(0f, 1f)
         appScope.launch {
             runCatching { actionRepository.updateBookReadProgress(dtoId, currentPage, completed) }
@@ -220,9 +221,36 @@ class ReaderViewModel @Inject constructor(
                 .onFailure { AppLog.w("ReaderVM", "final progress PUT failed page=$currentPage: ${it.message}") }
         }
     }
+
+    /**
+     * Mirrors the original ReaderProgressRecordingGate: 0 disables the gate, completion or an earlier recording
+     * always passes, the required distance is clamped to the page count, and a book already in progress only needs
+     * one page.
+     */
+    private fun admitsRecording(page: Int, completed: Boolean, pageCount: Int): Boolean {
+        if (completed || hasRecordedProgress) return true
+        val start = sessionStartPage ?: return false
+        val requiredDistance = ReaderProgressRecordingGate
+            .requiredDistance(progressThreshold, pageCount, _uiState.value.wasInProgress)
+        return requiredDistance <= 0 || abs(page - start) >= requiredDistance
+    }
 }
 
-/** Progress-gate constants (mirrors the original ReaderProgressRecordingGate + AppConfig.progressRecordingThreshold). */
+/** Progress-gate constants and math (mirrors the original ReaderProgressRecordingGate + AppConfig.progressRecordingThreshold). */
 object ReaderProgressRecordingGate {
     const val THRESHOLD = 3
+
+    /**
+     * How far the reader has to move before a report may be recorded; 0 means the gate is off. The threshold never
+     * exceeds pageCount-1 so a short book can still be finished, and a book already in progress only needs one page.
+     * A non-positive page count (positions unavailable) leaves the threshold unclamped.
+     */
+    fun requiredDistance(threshold: Int, pageCount: Int, wasInProgress: Boolean): Int {
+        if (threshold <= 0) return 0
+        var required = threshold
+        if (pageCount > 0) required = min(required, pageCount - 1)
+        if (wasInProgress) required = min(required, 1)
+        return required
+    }
 }
+
