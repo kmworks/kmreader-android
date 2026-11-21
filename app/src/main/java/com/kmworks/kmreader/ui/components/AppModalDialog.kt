@@ -32,15 +32,17 @@ import androidx.compose.ui.window.DialogProperties
  * visible end and no stable place to look; a short one still pinned itself to the bottom, miles
  * away from the finger that opened it. A centered card fixes both: the window is always in the
  * same place, its width is the width the sheet had (screen width capped at 640dp, 16dp of screen
- * margin), and the height follows the content but never exceeds the card's own width — a square
- * outline at most. Anything taller than that scrolls inside the body.
+ * margin), and the height follows the content up to the available height — the window minus the
+ * system bars and this card's own 24dp margins. A short card stays short; a long body grows to
+ * that height and then scrolls inside the card instead of being squeezed into a square.
  *
  * The body owns its scrolling: a plain Column body adds `verticalScroll`, a LazyColumn body works
  * as is, because the height cap gives `weight(1f)` a bounded parent to divide.
  *
- * @param fullHeight fill the available height instead of capping at the card width; for embedded
- * pages (the in-reader book detail) or long forms (the filter panel) that need a full sheet rather
- * than a compact card.
+ * @param fullHeight fill the available height even when the body does not do it on its own; for a
+ * panel whose body is a short list that is still meant to occupy the whole card. A body that
+ * already fills (a Scaffold, a `fillMaxSize` Box, a `weight(1f)` list) needs nothing — the default
+ * cap gives it the available height anyway.
  */
 @Composable
 fun AppModalDialog(
@@ -76,8 +78,8 @@ fun AppModalDialog(
                         if (fullHeight) {
                             Modifier.fillMaxHeight()
                         } else {
-                            // Height follows the content, capped at the card's own width.
-                            Modifier.heightIn(max = minOf(cardWidth, maxHeight))
+                            // Height follows the content, capped only by the available height.
+                            Modifier.heightIn(max = maxHeight)
                         },
                     ),
             ) {

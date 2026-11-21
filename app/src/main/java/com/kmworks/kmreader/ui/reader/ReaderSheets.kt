@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -413,11 +415,25 @@ private fun OptionPickerDialog(
 }
 
 /**
+ * Page-jump panel vertical sizing.
+ *
+ * The preview card takes the height left over after the fixed chrome around it (title, spacer,
+ * page label, slider, counter row, spacer, actions row and bottom padding). Deriving the preview
+ * height from the available height keeps the whole panel inside the modal card on short screens,
+ * instead of a fixed 300dp preview pushing the slider and jump button out of the visible card.
+ */
+private val PageJumpFixedChromeHeight = 214.dp
+private val PageJumpMinPreviewHeight = 120.dp
+private val PageJumpMaxPreviewHeight = 340.dp
+
+/**
  * Go to Page (mirrors the original PageJumpSheetView: horizontally snapping large thumbnail cards + slider + jump button):
  * - cards scroll horizontally and snap to center (iOS scrollTargetBehavior(.viewAligned)); the centered item is the target page;
  * - the selected card has scale 1.0 + border + deep shadow, unselected 0.9 (iOS PageJumpPreviewCard);
  * - the slider syncs with rounding (iOS sliderBinding); jump is disabled when the target equals the current page;
- * - the horizontal layout mirrors for RTL direction (iOS layoutDirection right-to-left).
+ * - the horizontal layout mirrors for RTL direction (iOS layoutDirection right-to-left);
+ * - the preview height follows the available height so the panel is never clipped (the body also
+ *   scrolls as a last resort on very short screens).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -438,6 +454,11 @@ fun ReaderPageJumpSheet(
             // Card width = panel width * 0.72 (mirrors iOS PageJumpPreviewCard.widthRatio)
             val cardWidth = this.maxWidth * 0.72f
             val sidePadding = (this.maxWidth - cardWidth) / 2
+            // Preview height = what the panel can afford after its fixed chrome (see the constants
+            // above); clamped so it stays a usable preview on short screens and does not grow
+            // absurdly tall on tablets.
+            val previewHeight = (this.maxHeight - PageJumpFixedChromeHeight)
+                .coerceIn(PageJumpMinPreviewHeight, PageJumpMaxPreviewHeight)
             val listState = rememberLazyListState(
                 initialFirstVisibleItemIndex = (currentPage - 1).coerceAtLeast(0),
             )
@@ -457,7 +478,11 @@ fun ReaderPageJumpSheet(
             LaunchedEffect(centeredPage) {
                 if (centeredPage != target) target = centeredPage
             }
-            Column(modifier = Modifier.padding(bottom = 28.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 28.dp),
+            ) {
                 Text(
                     stringResource(R.string.reader_go_to_page),
                     style = MaterialTheme.typography.titleLarge,
@@ -497,7 +522,7 @@ fun ReaderPageJumpSheet(
                                         modifier = Modifier
                                             .padding(horizontal = 8.dp)
                                             .fillMaxWidth()
-                                            .height(300.dp)
+                                            .height(previewHeight)
                                             .shadow(
                                                 elevation = if (selected) 8.dp else 4.dp,
                                                 shape = RoundedCornerShape(8.dp),

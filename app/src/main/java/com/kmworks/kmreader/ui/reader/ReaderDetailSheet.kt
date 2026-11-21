@@ -27,9 +27,9 @@ fun ReaderDetailSheet(
     onOpenReadList: (Int) -> Unit,
     onBrowseFilter: (String) -> Unit,
 ) {
-    // Full page content (hero + tabs + scrolling body), so it uses the tall card instead of the
-    // square-capped one.
-    AppModalDialog(onDismissRequest = onDismiss, fullHeight = true) {
+    // Full page content (hero + tabs + scrolling body): the card takes the whole available height,
+    // which is the default now that a card grows with its content instead of being square-capped.
+    AppModalDialog(onDismissRequest = onDismiss) {
         BookDetailBody(
             book = book,
             seriesTitle = if (book.oneshot) null else book.seriesTitle,
