@@ -90,7 +90,7 @@ data class DashboardUiState(
 private data class DashboardLayout(
     val order: List<String> = emptyList(),
     val hidden: Set<String> = emptySet(),
-    val continuation: Boolean = true,
+    val continuation: Boolean = false,
     val kindMenu: Boolean = true,
     val overrides: Map<String, DashboardCardKind> = emptyMap(),
 )
@@ -173,7 +173,9 @@ class DashboardViewModel @Inject constructor(
             combine(
                 appSettings.dashboardSectionOrder,
                 appSettings.dashboardHiddenSections,
-                appSettings.dashboardContinuationEnabled,
+                // The section is opt-in through the read-list continuation switch (as on iOS), not through a
+                // separately defaulted "show the section" flag: it has nothing to show until that is on.
+                appSettings.readListContinuationEnabled,
                 appSettings.dashboardCardKindMenu,
                 appSettings.dashboardKindOverrides,
             ) { order, hidden, continuation, kindMenu, overrides ->
@@ -376,30 +378,33 @@ class DashboardViewModel @Inject constructor(
             val readLists = readListDtos.map { dto ->
                 ListEntry(StableIds.readList(dto.id), dto.name, dto.bookIds.size, hueFor(dto.id), false)
             }
-            // Continuation cards: fetch each list's books and find the first unfinished one (aligned with ReadListContinuation semantics)
+            // Continuation cards: fetch each list's books and pick the one it continues with. Lists nobody has
+            // started have no continuation, so a freshly created list never shows up as "in progress".
             val continuations = coroutineScope {
                 readListDtos.map { dto ->
                     async {
                         if (dto.bookIds.isEmpty()) return@async null
                         val books = detailRepository.readListBooks(dto.id).items.map { b -> b.toUiBook() }
-                        if (books.isEmpty()) return@async null
-                        val booksRead = books.count { it.progress == 1f }
-                        if (booksRead >= books.size) return@async null
-                        val nextIdx = books.indexOfFirst { it.progress == null || it.progress < 1f }
-                            .let { if (it < 0) 0 else it }
-                        val next = books[nextIdx]
-                        ReadListContinuationUi(
+                        val pick = resolveReadListContinuation(
+                            progresses = books.map { it.progress },
+                            readDatesMs = books.map { it.lastReadAtMs },
+                        ) ?: return@async null
+                        val next = books[pick.nextBookIndex]
+                        pick to ReadListContinuationUi(
                             readListId = StableIds.readList(dto.id),
                             readListName = dto.name,
-                            nextBookIndex = nextIdx + 1,
+                            nextBookIndex = pick.nextBookIndex + 1,
                             nextBookTitle = next.title,
                             hue = hueFor(dto.id),
                             bookProgress = next.progress,
-                            booksRead = booksRead,
+                            booksRead = pick.booksRead,
                             bookCount = books.size,
                         )
                     }
                 }.mapNotNull { it.await() }
+                    // Most recently read list first (iOS sorts continuations on lastReadAt).
+                    .sortedWith(compareByDescending { it.first.lastReadAtMs ?: Long.MIN_VALUE })
+                    .map { it.second }
             }
             // readListsInProgress comes first in the iOS allCases order (opt-in via the settings toggle)
             val allSections = if (continuations.isNotEmpty()) {
