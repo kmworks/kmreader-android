@@ -129,6 +129,7 @@
     <string name="offline_pause">暂停</string>
     <string name="offline_resume">继续</string>
     <string name="offline_status_downloading">下载中</string>
+    <string name="offline_status_queued">排队中</string>
     <string name="offline_status_paused">已暂停</string>
     <string name="offline_status_failed">失败</string>
     <string name="offline_completed">已完成</string>

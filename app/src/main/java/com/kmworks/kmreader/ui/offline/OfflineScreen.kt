@@ -123,7 +123,9 @@ fun OfflineScreen(
         rightListState.hasScrolled()
     val onPauseResume: (DownloadTaskUi) -> Unit = { task ->
         when (task.status) {
-            DownloadTaskUi.Status.Downloading -> viewModel.pause(task)
+            DownloadTaskUi.Status.Downloading,
+            DownloadTaskUi.Status.Queued,
+            -> viewModel.pause(task)
             DownloadTaskUi.Status.Paused -> viewModel.resume(task)
             DownloadTaskUi.Status.Failed -> viewModel.retry(task)
         }
@@ -581,6 +583,22 @@ private fun DownloadTaskRow(
                     )
                 }
 
+                DownloadTaskUi.Status.Queued -> {
+                    LinearProgressIndicator(
+                        progress = { task.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.offline_status_queued),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 DownloadTaskUi.Status.Paused -> {
                     LinearProgressIndicator(
                         progress = { task.progress },
@@ -614,13 +632,17 @@ private fun DownloadTaskRow(
         IconButton(onClick = onPauseResume) {
             Icon(
                 imageVector = when (task.status) {
-                    DownloadTaskUi.Status.Downloading -> Icons.Filled.Pause
+                    DownloadTaskUi.Status.Downloading,
+                    DownloadTaskUi.Status.Queued,
+                    -> Icons.Filled.Pause
                     DownloadTaskUi.Status.Paused -> Icons.Filled.PlayArrow
                     DownloadTaskUi.Status.Failed -> Icons.Filled.Refresh
                 },
                 contentDescription = stringResource(
                     when (task.status) {
-                        DownloadTaskUi.Status.Downloading -> R.string.offline_pause
+                        DownloadTaskUi.Status.Downloading,
+                        DownloadTaskUi.Status.Queued,
+                        -> R.string.offline_pause
                         DownloadTaskUi.Status.Paused -> R.string.offline_resume
                         DownloadTaskUi.Status.Failed -> R.string.common_retry
                     },
