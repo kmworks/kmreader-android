@@ -657,15 +657,6 @@ fun ReaderScreen(
                                 pageUrl = viewModel::pageUrl,
                                 firstHalfOnLeft = firstHalfOnLeft,
                             )
-                            if (cover) {
-                                // The shadow between pages gives the cover effect depth
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .width(1.dp)
-                                        .background(Color.Black.copy(alpha = 0.25f)),
-                                )
-                            }
                         }
                     }
                 }
