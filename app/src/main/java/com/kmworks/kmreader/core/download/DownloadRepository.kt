@@ -114,6 +114,7 @@ class DownloadRepository @Inject constructor(
         val seriesDownloaded = mutableMapOf<String, Int>()
         val seriesTotals = mutableMapOf<String, Int>()
         val seriesDownloading = mutableMapOf<String, Int>()
+        val seriesQueued = mutableMapOf<String, Int>()
         val seriesPaused = mutableMapOf<String, Int>()
         val seriesFailed = mutableMapOf<String, Int>()
         completed.forEach { (dir, _) ->
@@ -135,6 +136,8 @@ class DownloadRepository @Inject constructor(
             when (mark) {
                 DownloadMark.Downloading ->
                     seriesDownloading[seriesDtoId] = (seriesDownloading[seriesDtoId] ?: 0) + 1
+                DownloadMark.Queued ->
+                    seriesQueued[seriesDtoId] = (seriesQueued[seriesDtoId] ?: 0) + 1
                 DownloadMark.Paused ->
                     seriesPaused[seriesDtoId] = (seriesPaused[seriesDtoId] ?: 0) + 1
                 DownloadMark.Failed ->
@@ -145,7 +148,7 @@ class DownloadRepository @Inject constructor(
             if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
         }
 
-        val seriesIds = seriesDownloaded.keys + seriesDownloading.keys + seriesPaused.keys + seriesFailed.keys
+        val seriesIds = seriesDownloaded.keys + seriesDownloading.keys + seriesQueued.keys + seriesPaused.keys + seriesFailed.keys
         return DownloadedIndex(
             books = books,
             tasks = tasks,
@@ -154,6 +157,7 @@ class DownloadRepository @Inject constructor(
                     downloaded = seriesDownloaded[seriesDtoId] ?: 0,
                     total = seriesTotals[seriesDtoId] ?: 0,
                     downloading = seriesDownloading[seriesDtoId] ?: 0,
+                    queued = seriesQueued[seriesDtoId] ?: 0,
                     paused = seriesPaused[seriesDtoId] ?: 0,
                     failed = seriesFailed[seriesDtoId] ?: 0,
                 )
@@ -329,15 +333,22 @@ class DownloadRepository @Inject constructor(
                             pageTotal = pageTotal,
                             status = DownloadTaskUi.Status.Paused,
                         )
-                        info.state == WorkInfo.State.ENQUEUED ||
-                            info.state == WorkInfo.State.RUNNING ||
-                            info.state == WorkInfo.State.BLOCKED -> DownloadTaskUi(
+                        info.state == WorkInfo.State.RUNNING -> DownloadTaskUi(
                             bookDtoId = bookId,
                             title = title,
                             kind = kind,
                             pageDone = pageDone,
                             pageTotal = pageTotal,
                             status = DownloadTaskUi.Status.Downloading,
+                        )
+                        info.state == WorkInfo.State.ENQUEUED ||
+                            info.state == WorkInfo.State.BLOCKED -> DownloadTaskUi(
+                            bookDtoId = bookId,
+                            title = title,
+                            kind = kind,
+                            pageDone = pageDone,
+                            pageTotal = pageTotal,
+                            status = DownloadTaskUi.Status.Queued,
                         )
                         info.state == WorkInfo.State.FAILED -> DownloadTaskUi(
                             bookDtoId = bookId,

@@ -50,7 +50,8 @@ internal fun seriesDownloadedMark(series: Series): DownloadMark =
 /**
  * Downloaded-state glyph drawn at the trailing edge of a card's detail line, matching the placement of
  * iOS `DownloadStatusIcon` in GridCardView: a check when complete, a partial glyph for a partly downloaded
- * series, a spinning arrow while a worker runs, a pause icon while paused, and a red error mark.
+ * series, a still arrow while the task waits in the queue, a spinning arrow while a worker runs, a pause icon
+ * while paused, and a red error mark.
  *
  * iOS lets the glyph inherit the detail label's font, so the icon is always exactly as tall as the text
  * beside it. Passing [textSize] here keeps that coupling: the badge cannot drift larger than the line, and
@@ -77,6 +78,10 @@ internal fun DownloadedMarkIcon(
         DownloadMark.Downloading -> {
             icon = Icons.Filled.Refresh
             description = R.string.download_badge_downloading
+        }
+        DownloadMark.Queued -> {
+            icon = Icons.Filled.Refresh
+            description = R.string.download_badge_queued
         }
         DownloadMark.Paused -> {
             icon = Icons.Filled.Pause

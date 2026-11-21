@@ -129,6 +129,7 @@
     <string name="offline_pause">Pause</string>
     <string name="offline_resume">Resume</string>
     <string name="offline_status_downloading">Downloading</string>
+    <string name="offline_status_queued">Queued</string>
     <string name="offline_status_paused">Paused</string>
     <string name="offline_status_failed">Failed</string>
     <string name="offline_completed">Completed</string>

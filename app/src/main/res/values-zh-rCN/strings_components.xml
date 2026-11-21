@@ -85,6 +85,7 @@
     <string name="download_badge_downloaded">已下载</string>
     <string name="download_badge_partial">部分已下载</string>
     <string name="download_badge_paused">已暂停</string>
+    <string name="download_badge_queued">等待下载</string>
     <string name="download_badge_downloading">正在下载</string>
     <string name="download_badge_failed">下载失败</string>
     <string name="menu_add_to_collection">加入收藏</string>

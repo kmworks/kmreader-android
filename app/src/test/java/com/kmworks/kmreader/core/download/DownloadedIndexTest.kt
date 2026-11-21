@@ -67,6 +67,10 @@ class DownloadedIndexTest {
             DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Downloading)).bookMark(bookA),
         )
         assertEquals(
+            DownloadMark.Queued,
+            DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Queued)).bookMark(bookA),
+        )
+        assertEquals(
             DownloadMark.Paused,
             DownloadedIndex(tasks = mapOf(bookA to DownloadMark.Paused)).bookMark(bookA),
         )
@@ -96,6 +100,17 @@ class DownloadedIndexTest {
         )
         assertEquals(DownloadMark.Paused, paused.seriesMark("series-1"))
 
+        val queued = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, queued = 1)),
+        )
+        assertEquals(DownloadMark.Queued, queued.seriesMark("series-1"))
+
+        // A queued book outranks a paused or failed one, but a running worker still wins.
+        val mixed = DownloadedIndex(
+            series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, queued = 1, paused = 1)),
+        )
+        assertEquals(DownloadMark.Queued, mixed.seriesMark("series-1"))
+
         val failed = DownloadedIndex(
             series = mapOf("series-1" to SeriesDownloadAggregate(total = 3, failed = 1)),
         )
@@ -111,6 +126,7 @@ class DownloadedIndexTest {
     @Test
     fun queueStatusMapsToBadgeMarks() {
         assertEquals(DownloadMark.Downloading, DownloadTaskUi.Status.Downloading.toDownloadMark())
+        assertEquals(DownloadMark.Queued, DownloadTaskUi.Status.Queued.toDownloadMark())
         assertEquals(DownloadMark.Paused, DownloadTaskUi.Status.Paused.toDownloadMark())
         assertEquals(DownloadMark.Failed, DownloadTaskUi.Status.Failed.toDownloadMark())
     }

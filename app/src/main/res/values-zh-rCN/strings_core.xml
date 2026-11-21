@@ -4,6 +4,7 @@
     <string name="download_no_session">无会话</string>
     <string name="download_failed">下载失败</string>
     <string name="download_status_downloading">下载中</string>
+    <string name="download_status_queued">排队中</string>
     <string name="download_status_paused">已暂停</string>
     <string name="download_status_failed">失败</string>
     <string name="core_volume_number">第 %1$s 卷</string>

@@ -4,6 +4,7 @@
     <string name="download_no_session">No active session</string>
     <string name="download_failed">Download failed</string>
     <string name="download_status_downloading">Downloading</string>
+    <string name="download_status_queued">Queued</string>
     <string name="download_status_paused">Paused</string>
     <string name="download_status_failed">Failed</string>
     <string name="core_volume_number">Vol. %1$s</string>

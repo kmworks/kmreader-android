@@ -91,6 +91,7 @@
     <string name="download_badge_downloaded">Downloaded</string>
     <string name="download_badge_partial">Partially downloaded</string>
     <string name="download_badge_paused">Download paused</string>
+    <string name="download_badge_queued">Download queued</string>
     <string name="download_badge_downloading">Downloading</string>
     <string name="download_badge_failed">Download failed</string>
     <string name="menu_add_to_collection">Add to Collection</string>

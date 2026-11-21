@@ -17,6 +17,7 @@ data class DownloadTaskUi(
 
     enum class Status(@StringRes val labelRes: Int) {
         Downloading(R.string.download_status_downloading),
+        Queued(R.string.download_status_queued),
         Paused(R.string.download_status_paused),
         Failed(R.string.download_status_failed),
     }
