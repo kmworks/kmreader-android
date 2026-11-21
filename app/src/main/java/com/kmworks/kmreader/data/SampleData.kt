@@ -94,6 +94,12 @@ data class Book(
     val author: String? = null,
     /** Media status (READY/ERROR/UNSUPPORTED/OUTDATED/UNKNOWN, mirrors iOS MediaStatus). */
     val mediaStatus: String = "READY",
+    /**
+     * Server media type (application/x-cbz, application/epub+zip, application/pdf, …), empty when the
+     * row does not know it. Carried on the book itself so opening the reader never needs a round trip:
+     * the format has to be known before the reader page is pushed (see [readerFormat]).
+     */
+    val mediaType: String = "",
     /** Marked deleted on the server (mirrors iOS book.deleted; shown in red as "Unavailable" on the detail page). */
     val deleted: Boolean = false,
     /** External metadata links (komf identification candidates; series links are often empty for one-shots so fall back to the book). */
@@ -105,6 +111,17 @@ data class Book(
 ) {
     /** Mirrors iOS BookDisplayItem.bookTitleLine: one-shots carry no number prefix. */
     val titleLine: String get() = if (oneshot) title else "$number - $title"
+
+    /**
+     * Reader route decided from [mediaType]: EPUB / PDF / everything else is the DIVINA reader, matching
+     * the server's media types. An empty/unknown value opens DIVINA, the same fallback the old lookup had.
+     */
+    val readerFormat: String
+        get() = when {
+            "epub" in mediaType.lowercase() -> "EPUB"
+            "pdf" in mediaType.lowercase() -> "PDF"
+            else -> "CBZ"
+        }
 }
 
 /** Mirrors KMReader LayoutConfig (iPhone values, calibrated against Apple Books): large 152 / medium 116 / small 80 / horizontal 250. */

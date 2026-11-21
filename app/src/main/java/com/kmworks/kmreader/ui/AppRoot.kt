@@ -3,14 +3,11 @@ package com.kmworks.kmreader.ui
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -28,7 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -160,6 +157,7 @@ private data class SettingsPageRoute(val page: SettingsPage) : Route {
     override val key: String get() = "settings:${page.name}"
 }
 
+/** [format] is [Book.readerFormat], known before the page is pushed, so opening a book needs no lookup. */
 private data class ReaderRoute(val book: Book, val format: String, val incognito: Boolean) : Route {
     override val key: String get() = "reader:${book.id}:$incognito"
 }
@@ -327,20 +325,11 @@ fun AppRoot(
             }
         }
     }
-    // The reader stacks like any page, but only once the server said which reader to open: until the media
-    // type arrives a black cover with a spinner holds the screen (see the loading layer below), so opening a
-    // book never shows the wrong reader sliding in.
-    var resolvingReader by remember { mutableStateOf(false) }
+    // The reader route needs the format before the page is pushed, and every book already carries it
+    // (Book.readerFormat, from the server mediaType): the page slides in immediately, over the page it
+    // leaves, instead of holding a cover screen while the format is looked up.
     val openReader: (Book, Boolean) -> Unit = { book, incognito ->
-        scope.launch {
-            resolvingReader = true
-            try {
-                val format = rootViewModel.resolveBookFormat(book.id) ?: "CBZ"
-                push(ReaderRoute(book = book, format = format, incognito = incognito))
-            } finally {
-                resolvingReader = false
-            }
-        }
+        push(ReaderRoute(book = book, format = book.readerFormat, incognito = incognito))
     }
 
     // The page the system back gesture drags: the stack keeps it pointing at the page in front, and the
@@ -435,21 +424,6 @@ fun AppRoot(
                         onSelect = { next -> tab = next },
                     )
                 }
-            }
-        }
-
-        // The reader's media type is still in flight: hold the screen with the black the readers open on, so
-        // the page slides in over the same black instead of a cover handing over to a page.
-        AnimatedVisibility(
-            visible = resolvingReader,
-            enter = fadeIn(tween(80)),
-            exit = fadeOut(tween(200)),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = Color.White)
             }
         }
 
@@ -655,8 +629,8 @@ fun AppRoot(
                     )
                 }
 
-                // Route the reader by real format (server mediaType): CBZ/CBR -> Divina, EPUB -> EPUB, PDF -> PDF.
-                // The format was resolved before the page was pushed, so this layer only picks the reader.
+                // Route the reader by the format the book carries (Book.readerFormat, from the server
+                // mediaType): CBZ/CBR -> Divina, EPUB -> EPUB, PDF -> PDF.
                 is ReaderRoute -> when (route.format) {
                     // Cross-page navigation actions from the in-reader detail sheet push the target page
                     // above the reader, so back returns into the book being read.

@@ -4,8 +4,9 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
 /**
- * Local catalog cache. Version 1; the schema is a pure cache, so a schema change simply drops the
- * rows (see DatabaseModule) instead of running migrations.
+ * Local catalog cache. Version 2 added cached_books.mediaType; the schema is a pure cache, so a schema
+ * change may still drop the rows (see DatabaseModule) — version 1→2 migrates them with an ALTER TABLE so
+ * an upgrade does not blank the cached catalog, and anything newer falls back to the destructive path.
  */
 @Database(
     entities = [
@@ -15,7 +16,7 @@ import androidx.room.RoomDatabase
         CachedListRowEntity::class,
         CachedDashboardSectionEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class KmReaderDatabase : RoomDatabase() {

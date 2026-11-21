@@ -108,6 +108,8 @@ fun BookDto.toUiBook(): Book {
         oneshot = oneshot,
         author = metadata.authors.firstOrNull()?.name?.ifBlank { null },
         mediaStatus = media.status,
+        // Carried on the row so the reader opens without a format lookup (EPUB / PDF / DIVINA).
+        mediaType = media.mediaType,
         deleted = deleted,
         links = metadata.links.map { it.label to it.url },
         notableEntities = metadata.notableEntities.map { it.toNotableEntity() },

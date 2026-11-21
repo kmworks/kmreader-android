@@ -77,6 +77,7 @@ class CatalogCache @Inject constructor(
                     oneshot = book.oneshot,
                     author = book.author,
                     mediaStatus = book.mediaStatus,
+                    mediaType = book.mediaType,
                     lastReadAtMs = book.lastReadAtMs,
                     updatedAt = now,
                 )
@@ -136,6 +137,7 @@ class CatalogCache @Inject constructor(
                 oneshot = entity.oneshot,
                 author = entity.author,
                 mediaStatus = entity.mediaStatus,
+                mediaType = entity.mediaType,
                 lastReadAtMs = entity.lastReadAtMs,
             )
         }
@@ -347,6 +349,7 @@ class CatalogCache @Inject constructor(
                         oneshot = book.oneshot,
                         author = book.author,
                         mediaStatus = book.mediaStatus,
+                        mediaType = book.mediaType,
                         lastReadAtMs = book.lastReadAtMs,
                         updatedAt = now,
                     )
@@ -387,6 +390,7 @@ class CatalogCache @Inject constructor(
             oneshot = oneshot,
             author = author,
             mediaStatus = mediaStatus,
+            mediaType = mediaType,
             lastReadAtMs = lastReadAtMs,
         )
     }

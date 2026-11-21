@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 
 /**
@@ -23,6 +24,12 @@ data class CachedBookEntity(
     val oneshot: Boolean,
     val author: String?,
     val mediaStatus: String,
+    /**
+     * Server media type; decides which reader opens (EPUB / PDF / DIVINA). The SQL default is declared so
+     * the v1 -> v2 ALTER TABLE and a fresh install both produce the same column Room validates against.
+     */
+    @ColumnInfo(defaultValue = "''")
+    val mediaType: String = "",
     val lastReadAtMs: Long?,
     /** Wall-clock write time; kept for diagnostics/future expiry, not read by the UI yet. */
     val updatedAt: Long,

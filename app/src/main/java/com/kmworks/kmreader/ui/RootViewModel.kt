@@ -80,10 +80,6 @@ class RootViewModel @Inject constructor(
         }
     }
 
-    /** Reader real-format routing (by server mediaType; null = unresolvable, the caller falls back to DIVINA). */
-    suspend fun resolveBookFormat(stableId: Int): String? =
-        detailRepository.bookFormat(stableId)
-
     /** "Visit Series" navigation: book -> owning series stableId. */
     suspend fun seriesStableIdForBook(bookStableId: Int): Int? =
         detailRepository.seriesStableIdForBook(bookStableId)

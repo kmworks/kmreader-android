@@ -102,17 +102,6 @@ class DetailRepository @Inject constructor(
         return api.getBookById(dtoId).awaitBody()
     }
 
-    /** Real reader route format, decided from the server mediaType (EPUB / PDF / everything else DIVINA). */
-    suspend fun bookFormat(stableId: Int): String? {
-        val dtoId = DetailIdRegistry.bookDtoId(stableId) ?: return null
-        val mediaType = bookDetail(dtoId)?.media?.mediaType?.lowercase() ?: return null
-        return when {
-            "epub" in mediaType -> "EPUB"
-            "pdf" in mediaType -> "PDF"
-            else -> "CBZ"
-        }
-    }
-
     /**
      * Book → owning series stableId (used by the "Visit Series" navigation).
      * Uses the registry when present; otherwise assigns a unique stable id via StableIds (consistent with Mappers).
