@@ -142,10 +142,17 @@ class CollectionDetailViewModel @Inject constructor(
             }
         }
         is ContentChange.Collections -> {
-            // This collection's own membership/metadata: re-read. Its deletion closes the page,
-            // so there is nothing left to refresh.
             val dtoId = currentDtoId
-            dtoId == null || dtoId !in change.dtoIds || change.kind == ContentChangeKind.Deleted
+            when {
+                // Some other collection changed: not this page's business.
+                dtoId == null || dtoId !in change.dtoIds -> true
+                // The page renders only the name/ordered pair, and [save] has already put the
+                // written values in the state: re-reading would blank the grid for nothing.
+                change.kind == ContentChangeKind.MetadataChanged -> true
+                // Membership, or this collection's deletion (which closes the page): the server
+                // owns the new rows.
+                else -> false
+            }
         }
         // Books and read lists are not this page's subject.
         else -> true
@@ -352,6 +359,25 @@ class CollectionDetailViewModel @Inject constructor(
             }
             onDone(ok)
         }
+    }
+
+    /**
+     * Rename/reorder the collection (PATCH api/v1/collections/{id}). The new values are applied to
+     * the state here so the content-change broadcast can be patched instead of forcing a reload.
+     */
+    fun save(name: String, ordered: Boolean, onDone: (Boolean) -> Unit) {
+        val dtoId = currentDtoId ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = listRepository.updateCollection(dtoId, name, ordered)
+            if (ok) _uiState.update { it.copy(name = name, ordered = ordered) }
+            onDone(ok)
+        }
+    }
+
+    /** Delete the collection; the caller closes the page when the write succeeds. */
+    fun delete(onDone: (Boolean) -> Unit) {
+        val dtoId = currentDtoId ?: return onDone(false)
+        viewModelScope.launch { onDone(listRepository.deleteCollection(dtoId)) }
     }
 
     /** Create a read list from the picker's selection (its books, or the books of its series); returns the new entry. */

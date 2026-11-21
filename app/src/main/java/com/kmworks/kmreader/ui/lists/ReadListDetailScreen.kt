@@ -101,8 +101,6 @@ fun ReadListDetailScreen(
     onReadIncognito: (Book) -> Unit = {},
     onOpenBook: (Book) -> Unit = {},
     onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
     onRemoveBooks: (List<Int>) -> Unit = {},
     viewModel: ReadListDetailViewModel = hiltViewModel(),
 ) {
@@ -129,6 +127,8 @@ fun ReadListDetailScreen(
     var selected by remember { mutableStateOf(setOf<Int>()) }
     var removedIds by remember { mutableStateOf(setOf<Int>()) }
     var menuOpen by remember { mutableStateOf(false) }
+    var editListOpen by remember { mutableStateOf(false) }
+    var editListSaving by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     val wideListScrollState = rememberScrollState()
     val narrowListScrollState = rememberScrollState()
@@ -258,7 +258,7 @@ fun ReadListDetailScreen(
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
-                                    onEdit()
+                                    editListOpen = true
                                 },
                             )
                             DropdownMenuItem(
@@ -565,11 +565,47 @@ fun ReadListDetailScreen(
             )
         }
     }
+    if (editListOpen) {
+        // Edit from the detail page writes through this page's ViewModel (the sheet only changes
+        // the name/summary/ordered triple it renders).
+        ReadListEditSheet(
+            onSave = { name, summary, ordered ->
+                editListSaving = true
+                viewModel.save(name, summary, ordered) { ok ->
+                    editListSaving = false
+                    if (ok) {
+                        editListOpen = false
+                    } else {
+                        // Keep the sheet open so the typed name/summary is not lost
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_save)) }
+                    }
+                }
+            },
+            onDismiss = { editListOpen = false },
+            initialName = displayReadList.name,
+            initialSummary = displayReadList.summary.orEmpty(),
+            initialOrdered = displayReadList.ordered,
+            isEdit = true,
+            onDelete = {
+                editListOpen = false
+                deleteConfirm = true
+            },
+            busy = editListSaving,
+        )
+    }
     if (deleteConfirm) {
         ConfirmDeleteDialog(
             title = stringResource(R.string.lists_delete_item_title, stringResource(R.string.common_readlist)),
             message = stringResource(R.string.readlist_delete_message, displayReadList.name),
-            onConfirm = onDelete,
+            onConfirm = {
+                viewModel.delete { ok ->
+                    if (ok) {
+                        onBack()
+                    } else {
+                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
+                    }
+                }
+            },
             onDismiss = { deleteConfirm = false },
         )
     }

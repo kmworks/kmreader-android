@@ -90,8 +90,6 @@ fun CollectionDetailScreen(
     onOpenSeries: (Series) -> Unit,
     modifier: Modifier = Modifier,
     onTogglePin: () -> Unit = {},
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
     viewModel: CollectionDetailViewModel = hiltViewModel(),
 ) {
     // Real data: resolves the collection DTO and fetches its series; falls back to
@@ -114,6 +112,8 @@ fun CollectionDetailScreen(
     var selected by remember { mutableStateOf(setOf<Int>()) }
     var removedIds by remember { mutableStateOf(setOf<Int>()) }
     var menuOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
+    var editSaving by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -240,7 +240,7 @@ fun CollectionDetailScreen(
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     menuOpen = false
-                                    onEdit()
+                                    editOpen = true
                                 },
                             )
                             DropdownMenuItem(
@@ -423,11 +423,46 @@ fun CollectionDetailScreen(
             onDismiss = { addToReadListOpen = false },
         )
     }
+    if (editOpen) {
+        // Edit from the detail page writes through this page's ViewModel: the name/ordered pair it
+        // renders is the only thing the sheet changes, so no state has to travel through AppRoot.
+        CollectionEditSheet(
+            onSave = { name, ordered ->
+                editSaving = true
+                viewModel.save(name, ordered) { ok ->
+                    editSaving = false
+                    if (ok) {
+                        editOpen = false
+                    } else {
+                        // Keep the sheet open so the typed name is not lost
+                        scope.launch { notifyFailure(context.getString(R.string.collection_save)) }
+                    }
+                }
+            },
+            onDismiss = { editOpen = false },
+            initialName = displayCollection.name,
+            initialOrdered = displayCollection.ordered,
+            isEdit = true,
+            onDelete = {
+                editOpen = false
+                deleteConfirm = true
+            },
+            busy = editSaving,
+        )
+    }
     if (deleteConfirm) {
         ConfirmDeleteDialog(
             title = stringResource(R.string.lists_delete_item_title, stringResource(R.string.common_collection)),
-            message = stringResource(R.string.collection_delete_message, collection.name),
-            onConfirm = onDelete,
+            message = stringResource(R.string.collection_delete_message, displayCollection.name),
+            onConfirm = {
+                viewModel.delete { ok ->
+                    if (ok) {
+                        onBack()
+                    } else {
+                        scope.launch { notifyFailure(context.getString(R.string.collection_delete)) }
+                    }
+                }
+            },
             onDismiss = { deleteConfirm = false },
         )
     }
