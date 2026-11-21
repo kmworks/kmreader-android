@@ -312,6 +312,7 @@ fun CollectionDetailScreen(
                         )
                         SeriesContent(
                             series = series,
+                            loading = state.loading,
                             layout = layout,
                             selecting = selecting,
                             selected = selected,
@@ -361,6 +362,7 @@ fun CollectionDetailScreen(
                     )
                     SeriesContent(
                         series = series,
+                        loading = state.loading,
                         layout = layout,
                         selecting = selecting,
                         selected = selected,
@@ -560,12 +562,24 @@ private fun SeriesToolbar(
 @Composable
 private fun SeriesContent(
     series: List<Series>,
+    loading: Boolean,
     layout: BrowseLayout,
     selecting: Boolean,
     selected: Set<Int>,
     onOpenSeries: (Series) -> Unit,
     onToggleSelect: (Int) -> Unit,
 ) {
+    if (loading && series.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        }
+        return
+    }
     when (layout) {
         BrowseLayout.List -> Column {
             series.forEach { item ->

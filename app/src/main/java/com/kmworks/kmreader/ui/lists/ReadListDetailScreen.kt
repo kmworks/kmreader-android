@@ -338,6 +338,7 @@ fun ReadListDetailScreen(
                         )
                         ReadListBookList(
                             books = books,
+                            loading = state.loading,
                             selecting = selecting,
                             selected = selected,
                             onRead = onRead,
@@ -393,6 +394,7 @@ fun ReadListDetailScreen(
                     )
                     ReadListBookList(
                         books = books,
+                        loading = state.loading,
                         selecting = selecting,
                         selected = selected,
                         onRead = onRead,
@@ -739,12 +741,24 @@ private fun ReadListToolbar(
 @Composable
 private fun ReadListBookList(
     books: List<Book>,
+    loading: Boolean,
     selecting: Boolean,
     selected: Set<Int>,
     onRead: (Book) -> Unit,
     onToggleSelect: (Int) -> Unit,
     onMenu: (Book) -> Unit,
 ) {
+    if (loading && books.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        }
+        return
+    }
     Column {
         books.forEachIndexed { index, book ->
             ReadListBookRow(

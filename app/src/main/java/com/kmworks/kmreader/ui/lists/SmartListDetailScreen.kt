@@ -259,6 +259,7 @@ fun SmartListDetailScreen(
                             smartList = display,
                             books = books,
                             series = series,
+                            loading = state.loading,
                             layout = layout,
                             onReadBook = onRead,
                             onBookLongClick = { menuBook = it },
@@ -304,6 +305,7 @@ fun SmartListDetailScreen(
                         smartList = display,
                         books = books,
                         series = series,
+                        loading = state.loading,
                         layout = layout,
                         onReadBook = onRead,
                         onBookLongClick = { menuBook = it },
@@ -535,11 +537,24 @@ private fun SmartListContent(
     smartList: SmartListDetail,
     books: List<Book>,
     series: List<Series>,
+    loading: Boolean,
     layout: BrowseLayout,
     onReadBook: (Book) -> Unit,
     onBookLongClick: (Book) -> Unit,
     onOpenSeries: (Series) -> Unit,
 ) {
+    val itemsEmpty = if (smartList.target == SmartListTarget.Book) books.isEmpty() else series.isEmpty()
+    if (loading && itemsEmpty) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        }
+        return
+    }
     val minCell = if (layout == BrowseLayout.LargeGrid) 160 else 108
     BoxWithConstraints(
         modifier = Modifier
