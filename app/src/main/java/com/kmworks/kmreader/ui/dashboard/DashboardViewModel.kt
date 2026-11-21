@@ -140,13 +140,15 @@ class DashboardViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val isAdmin = serverAdminRepository.isAdmin()
-            _state.update { it.copy(isAdmin = isAdmin) }
-            // The profile probe lands after the first render; follow it so the komf entries appear without
-            // re-entering the screen.
-            serverProfileStore.profile.collect { profile ->
-                val komfAvailable = isAdmin && profile?.features?.contains(ServerFeature.Komf) == true
-                _state.update { it.copy(komfAvailable = komfAvailable) }
+            // Follow the active session: the admin role gates the card menus, and a server switch must
+            // re-evaluate them instead of keeping the previous server's answer.
+            combine(
+                serverAdminRepository.adminStatus,
+                serverProfileStore.profile,
+            ) { isAdmin, profile ->
+                isAdmin to (isAdmin && profile?.features?.contains(ServerFeature.Komf) == true)
+            }.collect { (isAdmin, komfAvailable) ->
+                _state.update { it.copy(isAdmin = isAdmin, komfAvailable = komfAvailable) }
             }
         }
         viewModelScope.launch {

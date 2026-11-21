@@ -24,6 +24,7 @@ import com.kmworks.kmreader.core.data.toCreator
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.download.DownloadRepository
+import com.kmworks.kmreader.core.network.ApiClients
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
@@ -103,6 +104,20 @@ class BookDetailViewModel @Inject constructor(
 
     init {
         observeContentChanges()
+        // The admin role gates the book card/menu entries; follow the active server so switching servers
+        // re-evaluates them instead of keeping the previous server's answer.
+        viewModelScope.launch {
+            var instanceKey: String? = null
+            var primed = false
+            sessionManager.clients.collect { clients ->
+                val key = clients?.cacheNamespace
+                val changed = primed && key != instanceKey
+                primed = true
+                instanceKey = key
+                if (!changed || clients == null) return@collect
+                _uiState.update { it.copy(isAdmin = resolveIsAdmin(clients)) }
+            }
+        }
     }
 
     /**
@@ -159,6 +174,13 @@ class BookDetailViewModel @Inject constructor(
         load(stableId)
     }
 
+    /** Admin role of [clients]' session: the recorded role, else a live lookup (an API-key login records none). */
+    private suspend fun resolveIsAdmin(clients: ApiClients): Boolean =
+        configStore.config.first()?.isAdmin == true ||
+            runCatching {
+                clients.currentUser.getCurrentUser().awaitBody()?.roles?.contains("ADMIN") == true
+            }.getOrDefault(false)
+
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
@@ -177,12 +199,7 @@ class BookDetailViewModel @Inject constructor(
         _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         loadJob = viewModelScope.launch {
             try {
-                val isAdmin = configStore.config.first()?.isAdmin == true ||
-                    runCatching {
-                        clients.currentUser.getCurrentUser().awaitBody()
-                            ?.roles
-                            ?.contains("ADMIN") == true
-                    }.getOrDefault(false)
+                val isAdmin = resolveIsAdmin(clients)
                 val dto = detailRepository.bookDetail(dtoId)
                 if (dto == null) {
                     _uiState.update { it.copy(loading = false, isAdmin = isAdmin) }

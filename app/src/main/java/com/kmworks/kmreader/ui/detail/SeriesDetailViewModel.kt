@@ -44,6 +44,7 @@ import com.kmworks.kmreader.core.komf.KomfRepository
 import com.kmworks.kmreader.core.komf.KomfSearchResultDto
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.tracker.TrackerRepository
@@ -68,6 +69,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
@@ -119,6 +121,7 @@ class SeriesDetailViewModel @Inject constructor(
     private val komfRepository: KomfRepository,
     private val trackerRepository: TrackerRepository,
     private val serverProfileStore: ServerProfileStore,
+    private val serverAdminRepository: ServerAdminRepository,
     private val configStore: ServerConfigStore,
     @ApplicationContext private val context: Context,
     private val imageCacheStore: ImageCacheStore,
@@ -158,6 +161,21 @@ class SeriesDetailViewModel @Inject constructor(
     /** DTO id of the current detail (used by komf calls and for refreshing after a job completes). */
     private var dtoId: String? = null
     private var komfSearchJob: Job? = null
+
+    init {
+        // The admin role gates the series/book card menus and the komf entries; follow the active session so a
+        // server switch re-evaluates them instead of keeping the previous server's answer.
+        viewModelScope.launch {
+            combine(
+                serverAdminRepository.adminStatus,
+                serverProfileStore.profile,
+            ) { isAdmin, profile ->
+                isAdmin to (isAdmin && profile?.features?.contains(ServerFeature.Komf) == true)
+            }.collect { (isAdmin, komfAvailable) ->
+                _uiState.update { it.copy(isAdmin = isAdmin, komfAvailable = komfAvailable) }
+            }
+        }
+    }
 
     fun load(stableId: Int) {
         if (loadedId == stableId) return

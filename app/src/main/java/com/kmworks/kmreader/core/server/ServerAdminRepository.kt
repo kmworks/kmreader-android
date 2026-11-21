@@ -29,7 +29,10 @@ import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -103,6 +106,14 @@ class ServerAdminRepository @Inject constructor(
 
     /** Current account is an administrator (every management screen is gated on this, like iOS). */
     suspend fun isAdmin(): Boolean = configStore.config.first()?.isAdmin == true
+
+    /**
+     * The same answer as [isAdmin] as a flow that follows the active session, so a capability gate does not
+     * keep the role of the server the user just left after switching servers.
+     */
+    val adminStatus: Flow<Boolean> = configStore.config
+        .map { it?.isAdmin == true }
+        .distinctUntilChanged()
 
     suspend fun username(): String = configStore.config.first()?.username.orEmpty()
 
