@@ -20,6 +20,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
@@ -29,12 +31,14 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -67,6 +71,8 @@ import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.detail.BookEditSheet
+import com.kmworks.kmreader.ui.detail.KomfSeriesContextDialogs
+import com.kmworks.kmreader.ui.detail.KomfSeriesViewModel
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.util.shareText
@@ -84,9 +90,15 @@ fun DashboardScreen(
     onOpenContinuation: (ReadListContinuationUi) -> Unit = {},
     onVisitSeries: (Book) -> Unit = {},
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
+    komfViewModel: KomfSeriesViewModel = hiltViewModel(),
 ) {
     val viewModel: DashboardViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
+    val komfState by komfViewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(komfViewModel) {
+        komfViewModel.events.collect { snackbarHostState.showSnackbar(it) }
+    }
     // real sections only; empty state when there is no session or nothing loaded
     val sections = state.sections ?: emptyList()
     // Library-scope switch (Pinned/All/single library + pin editing), aligned with iOS LibraryScopeMenu;
@@ -106,6 +118,9 @@ fun DashboardScreen(
     var addTarget by remember { mutableStateOf<Any?>(null) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
+    // komf identify sheet + reset confirmation targets (series context menu)
+    var komfIdentifyTarget by remember { mutableStateOf<Series?>(null) }
+    var komfResetTarget by remember { mutableStateOf<Series?>(null) }
 
     // The frosted bar floats over the page: the sections scroll underneath it instead of below a
     // full-width toolbar, so the dashboard keeps its content-first density.
@@ -247,6 +262,12 @@ fun DashboardScreen(
                 }
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LocalNavOverlaySpace.current + 8.dp),
+        )
     }
 
     // Long-press menus: series / book (the book one includes a "Go to Series" navigation, aligned with the original BookContextMenu)
@@ -260,15 +281,39 @@ fun DashboardScreen(
                 onMarkRead = { viewModel.markSeriesRead(series, true) },
                 onMarkUnread = { viewModel.markSeriesRead(series, false) },
                 onDownload = { viewModel.downloadSeries(series.id) },
-                onAddToCollection = {
-                    addTarget = series
-                    addToCollectionOpen = true
+                onAddToCollection = if (state.isAdmin) {
+                    {
+                        addTarget = series
+                        addToCollectionOpen = true
+                    }
+                } else {
+                    null
                 },
-                onAddToReadList = {
-                    addTarget = series
-                    addToReadListOpen = true
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        addTarget = series
+                        addToReadListOpen = true
+                    }
+                } else {
+                    null
                 },
                 onEdit = { editSeries = series },
+                onAnalyze = if (state.isAdmin) ({ viewModel.analyzeSeries(series.id) {} }) else null,
+                onRefresh = if (state.isAdmin) ({ viewModel.refreshSeriesMetadata(series.id) {} }) else null,
+                onKomfIdentify = if (state.komfAvailable) {
+                    {
+                        komfViewModel.prepare(series.id) { viewModel.refresh() }
+                        komfIdentifyTarget = series
+                    }
+                } else {
+                    null
+                },
+                onKomfMatch = if (state.komfAvailable) {
+                    { komfViewModel.komfMatch(series.id) { viewModel.refresh() } }
+                } else {
+                    null
+                },
+                onKomfReset = if (state.komfAvailable) ({ komfResetTarget = series }) else null,
                 onRefreshCover = { viewModel.refreshCover(series.id) },
                 onShare = {
                     viewModel.seriesWebUrl(series.id)?.let { url -> shareText(context, url) }
@@ -292,13 +337,17 @@ fun DashboardScreen(
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
                 onDownload = { viewModel.downloadBook(book.id, book.title, book.pageCount) },
-                onAddToReadList = {
-                    addTarget = book
-                    addToReadListOpen = true
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        addTarget = book
+                        addToReadListOpen = true
+                    }
+                } else {
+                    null
                 },
                 onEdit = { editBook = book },
-                onAnalyze = { viewModel.analyzeBook(book.id) {} },
-                onRefresh = { viewModel.refreshBookMetadata(book.id) {} },
+                onAnalyze = if (state.isAdmin) ({ viewModel.analyzeBook(book.id) {} }) else null,
+                onRefresh = if (state.isAdmin) ({ viewModel.refreshBookMetadata(book.id) {} }) else null,
                 onShare = {
                     viewModel.bookWebUrl(book.id)?.let { url -> shareText(context, url) }
                 },
@@ -416,6 +465,15 @@ fun DashboardScreen(
             else -> Unit
         }
     }
+    KomfSeriesContextDialogs(
+        identifyTarget = komfIdentifyTarget,
+        resetTarget = komfResetTarget,
+        state = komfState,
+        viewModel = komfViewModel,
+        onRefresh = { viewModel.refresh() },
+        onDismissIdentify = { komfIdentifyTarget = null },
+        onDismissReset = { komfResetTarget = null },
+    )
 }
 
 @Composable

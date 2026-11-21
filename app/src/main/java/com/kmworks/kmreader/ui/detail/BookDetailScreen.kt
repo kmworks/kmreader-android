@@ -318,16 +318,18 @@ internal fun BookDetailBody(
                                     },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.book_add_to_readlist)) },
-                                leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    viewModel.ensureReadListsLoaded()
-                                    addToReadListOpen = true
-                                    onAddToReadList(displayed)
-                                },
-                            )
+                            if (state.isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_add_to_readlist)) },
+                                    leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        viewModel.ensureReadListsLoaded()
+                                        addToReadListOpen = true
+                                        onAddToReadList(displayed)
+                                    },
+                                )
+                            }
                             val completed = displayed.progress == 1f
                             val hasStarted = displayed.progress != null
                             if (!completed) {

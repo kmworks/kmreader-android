@@ -57,6 +57,8 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.PlaylistAdd
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.TextFormat
 import androidx.compose.material.icons.outlined.TheaterComedy
@@ -179,16 +181,28 @@ fun SeriesDetailScreen(
     // fall back to the demo data when there is no session or the series is not registered
     val state by viewModel.uiState.collectAsState()
     LaunchedEffect(series.id) { viewModel.load(series.id) }
-    // Instant local feedback for "mark as read" on the demo data (no session)
-    var demoMarkedRead by remember(series.id) { mutableStateOf(false) }
+    // Instant local feedback for "mark as read"/"mark as unread" on the demo data (no session)
+    var demoReadOverride by remember(series.id) { mutableStateOf<Boolean?>(null) }
     val collections by viewModel.collections.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
     val scope = rememberCoroutineScope()
-    val displaySeries = (state.series ?: series).let {
-        if (demoMarkedRead && state.series == null) it.copy(progress = 1f, unreadCount = 0) else it
+    val displaySeries = (state.series ?: series).let { s ->
+        if (state.series != null) {
+            s
+        } else {
+            when (demoReadOverride) {
+                true -> s.copy(progress = 1f, unreadCount = 0)
+                false -> s.copy(progress = null, unreadCount = s.bookCount)
+                null -> s
+            }
+        }
     }
     val rawBooks = state.books ?: emptyList()
-    val books = if (demoMarkedRead && state.books == null) rawBooks.map { it.copy(progress = 1f) } else rawBooks
+    val books = if (state.books == null && demoReadOverride != null) {
+        rawBooks.map { it.copy(progress = if (demoReadOverride == true) 1f else 0f) }
+    } else {
+        rawBooks
+    }
     // reading target: first in-progress, else first unread, else first book (mirrors SeriesContinueReadingResolver)
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
@@ -208,6 +222,7 @@ fun SeriesDetailScreen(
     var showTrackerSheet by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
+    var addSeriesToReadListOpen by remember { mutableStateOf(false) }
     var addSelectedToReadListOpen by remember { mutableStateOf(false) }
     var deleteSelectedOpen by remember { mutableStateOf(false) }
     // Book long-press menu (mirrors iOS: long-pressing in the grid shows BookContextMenu; entering
@@ -447,29 +462,60 @@ fun SeriesDetailScreen(
                                     },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.series_add_to_collection)) },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null)
-                                },
-                                onClick = {
-                                    moreOpen = false
-                                    viewModel.ensureCollectionsLoaded()
-                                    addToCollectionOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.book_mark_read)) },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null)
-                                },
-                                onClick = {
-                                    moreOpen = false
-                                    // Real data goes through the API (updated inside the VM);
-                                    // demo data gets local feedback
-                                    if (!viewModel.markSeriesRead()) demoMarkedRead = true
-                                },
-                            )
+                            if (state.isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.series_add_to_collection)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.ensureCollectionsLoaded()
+                                        addToCollectionOpen = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_add_to_read_list)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.PlaylistAdd, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        viewModel.ensureReadListsLoaded()
+                                        addSeriesToReadListOpen = true
+                                    },
+                                )
+                            }
+                            // Mirrors the series context menu: "mark as read" only while there are
+                            // unread books, "mark as unread" once reading has started.
+                            val seriesStarted = displaySeries.progress != null
+                            val seriesCompleted = displaySeries.progress == 1f
+                            if (!seriesCompleted) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_mark_read)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.CheckCircle, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        // Real data goes through the API (updated inside the VM);
+                                        // demo data gets local feedback
+                                        if (!viewModel.markSeriesRead(true)) demoReadOverride = true
+                                    },
+                                )
+                            }
+                            if (seriesStarted) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_mark_unread)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+                                        if (!viewModel.markSeriesRead(false)) demoReadOverride = false
+                                    },
+                                )
+                            }
                             if (state.isAdmin) {
                                 DropdownMenuItem(
                                     text = {
@@ -680,7 +726,15 @@ fun SeriesDetailScreen(
     if (showKomfSheet) {
         KomfIdentifySheet(
             series = displaySeries,
-            viewModel = viewModel,
+            books = state.books.orEmpty(),
+            ready = true,
+            searching = state.komfSearching,
+            searchFailed = state.komfSearchFailed,
+            results = state.komfSearchResults,
+            onSearch = viewModel::komfSearch,
+            onIdentify = { provider, providerSeriesId, onSubmitted, onFailed ->
+                viewModel.komfIdentify(provider, providerSeriesId, onSubmitted, onFailed)
+            },
             onDismiss = { showKomfSheet = false },
         )
     }
@@ -761,6 +815,22 @@ fun SeriesDetailScreen(
             onDismiss = { addToCollectionOpen = false },
         )
     }
+    // "Add to read list" picker: every book of the series is appended (Komga read lists accept books only)
+    if (addSeriesToReadListOpen) {
+        AddToListSheet(
+            collections = emptyList(),
+            readLists = readLists ?: emptyList(),
+            onCreateReadList = viewModel::createReadListEntry,
+            onCreateCollection = viewModel::createCollectionEntry,
+            onSelect = { entry ->
+                if (!viewModel.addSeriesToReadList(entry)) {
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.book_add_to_readlist)) }
+                }
+                addSeriesToReadListOpen = false
+            },
+            onDismiss = { addSeriesToReadListOpen = false },
+        )
+    }
     if (addSelectedToReadListOpen) {
         val ids = selectedIds.orEmpty()
         AddToListSheet(
@@ -793,32 +863,44 @@ fun SeriesDetailScreen(
                 onMarkRead = { viewModel.markBooksRead(setOf(target.id), true) },
                 onMarkUnread = { viewModel.markBooksRead(setOf(target.id), false) },
                 onDownload = { viewModel.downloadBooks(setOf(target.id)) },
-                onAddToReadList = {
-                    viewModel.ensureReadListsLoaded()
-                    addMenuBookToReadListOpen = true
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        viewModel.ensureReadListsLoaded()
+                        addMenuBookToReadListOpen = true
+                    }
+                } else {
+                    null
                 },
                 onEdit = { editBook = target },
-                onAnalyze = {
-                    viewModel.analyzeBook(target.id) { ok ->
-                        if (!ok) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    context.getString(R.string.detail_analyze_failed),
-                                )
+                onAnalyze = if (state.isAdmin) {
+                    {
+                        viewModel.analyzeBook(target.id) { ok ->
+                            if (!ok) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        context.getString(R.string.detail_analyze_failed),
+                                    )
+                                }
                             }
                         }
                     }
+                } else {
+                    null
                 },
-                onRefresh = {
-                    viewModel.refreshBookMetadata(target.id) { ok ->
-                        if (!ok) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    context.getString(R.string.detail_refresh_failed),
-                                )
+                onRefresh = if (state.isAdmin) {
+                    {
+                        viewModel.refreshBookMetadata(target.id) { ok ->
+                            if (!ok) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        context.getString(R.string.detail_refresh_failed),
+                                    )
+                                }
                             }
                         }
                     }
+                } else {
+                    null
                 },
                 onShare = {
                     val url = viewModel.bookWebUrl(target.id)

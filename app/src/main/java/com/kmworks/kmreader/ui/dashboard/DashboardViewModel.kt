@@ -24,6 +24,8 @@ import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseEventKind
@@ -75,6 +77,10 @@ data class DashboardUiState(
     val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
     /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
     val pinnedIds: Set<String> = emptySet(),
+    /** Whether the current account is an admin (gates the analyze/refresh-metadata/add-to-list menu items). */
+    val isAdmin: Boolean = false,
+    /** kmf capability: admin + server feature; when false the three komf menu items are not rendered. */
+    val komfAvailable: Boolean = false,
 )
 
 /** Dashboard layout configuration (persisted in AppSettingsStore, aligned with iOS DashboardConfiguration). */
@@ -105,6 +111,7 @@ class DashboardViewModel @Inject constructor(
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
     private val contentChangeBus: ContentChangeBus,
+    private val serverAdminRepository: ServerAdminRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
@@ -130,6 +137,16 @@ class DashboardViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            val isAdmin = serverAdminRepository.isAdmin()
+            _state.update { it.copy(isAdmin = isAdmin) }
+            // The profile probe lands after the first render; follow it so the komf entries appear without
+            // re-entering the screen.
+            serverProfileStore.profile.collect { profile ->
+                val komfAvailable = isAdmin && profile?.features?.contains(ServerFeature.Komf) == true
+                _state.update { it.copy(komfAvailable = komfAvailable) }
+            }
+        }
         viewModelScope.launch {
             sessionManager.clients.collect { clients ->
                 if (clients == null) {
@@ -498,6 +515,26 @@ class DashboardViewModel @Inject constructor(
             val ok = actionRepository.refreshBookMetadata(dtoId)
             onDone(ok)
         }
+    }
+
+    /** Re-analyze the series. */
+    fun analyzeSeries(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch { onDone(actionRepository.analyzeSeries(dtoId)) }
+    }
+
+    /** Refresh the series metadata; ContentChangeBus triggers the reload. */
+    fun refreshSeriesMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch { onDone(actionRepository.refreshSeriesMetadata(dtoId)) }
     }
 
     /** Delete the series files; ContentChangeBus triggers the reload. */

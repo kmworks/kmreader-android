@@ -33,7 +33,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +44,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.komf.KomfSearchResultDto
 import com.kmworks.kmreader.core.komf.parseKomfProviderLinks
+import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
 
@@ -61,35 +62,48 @@ import com.kmworks.kmreader.ui.components.CoverArt
 @Composable
 fun KomfIdentifySheet(
     series: Series,
-    viewModel: SeriesDetailViewModel,
+    books: List<Book>,
+    ready: Boolean,
+    searching: Boolean,
+    searchFailed: Boolean,
+    results: List<KomfSearchResultDto>,
+    onSearch: (String) -> Unit,
+    onIdentify: (
+        provider: String,
+        providerSeriesId: String,
+        onSubmitted: () -> Unit,
+        onFailed: () -> Unit,
+    ) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val state by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf(series.title) }
     var pendingKey by remember { mutableStateOf<String?>(null) }
     var submitFailed by remember { mutableStateOf(false) }
 
     // Mirrors iOS KomfIdentifySheet:29-33: for one-shots without series links, fall back to the book's metadata.links
-    val providerLinks = remember(series, state.books) {
+    val providerLinks = remember(series, books) {
         val links = if (series.oneshot && series.links.isEmpty()) {
-            state.books.orEmpty().firstOrNull()?.links.orEmpty()
+            books.firstOrNull()?.links.orEmpty()
         } else {
             series.links
         }
         parseKomfProviderLinks(links)
     }
 
-    // 300ms debounce lives in the VM; forward every query change (the VM clears results on an empty query)
-    LaunchedEffect(query) { viewModel.komfSearch(query) }
+    // 300ms debounce lives in the owner; forward every query change (the owner clears results on an empty query).
+    // Re-run once the ids are ready so the pre-filled title is searched without the user editing it.
+    LaunchedEffect(query, ready) {
+        if (ready) onSearch(query)
+    }
 
     val submit: (String, String, String) -> Unit = { key, provider, providerSeriesId ->
         pendingKey = key
         submitFailed = false
-        viewModel.komfIdentify(
-            provider = provider,
-            providerSeriesId = providerSeriesId,
-            onSubmitted = onDismiss,
-            onFailed = {
+        onIdentify(
+            provider,
+            providerSeriesId,
+            { onDismiss() },
+            {
                 pendingKey = null
                 submitFailed = true
             },
@@ -196,7 +210,7 @@ fun KomfIdentifySheet(
                 item {
                     KomfGroupCard {
                         when {
-                            state.komfSearching && state.komfSearchResults.isEmpty() -> {
+                            (!ready || searching) && results.isEmpty() -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -206,7 +220,7 @@ fun KomfIdentifySheet(
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 }
                             }
-                            state.komfSearchFailed -> {
+                            searchFailed -> {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -219,12 +233,12 @@ fun KomfIdentifySheet(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    TextButton(onClick = { viewModel.komfSearch(query) }) {
+                                    TextButton(onClick = { onSearch(query) }) {
                                         Text(stringResource(R.string.common_retry))
                                     }
                                 }
                             }
-                            query.isNotBlank() && state.komfSearchResults.isEmpty() && !state.komfSearching -> {
+                            query.isNotBlank() && results.isEmpty() && !searching -> {
                                 Text(
                                     stringResource(R.string.komf_no_results),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -233,7 +247,7 @@ fun KomfIdentifySheet(
                                 )
                             }
                             else -> {
-                                state.komfSearchResults.forEach { result ->
+                                results.forEach { result ->
                                     KomfResultRow(
                                         title = result.title,
                                         metaText = result.metaText,

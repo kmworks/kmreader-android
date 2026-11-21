@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CollectionsBookmark
@@ -23,7 +24,9 @@ import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Icon
@@ -100,6 +103,11 @@ fun seriesContextMenuItems(
     onAddToCollection: (() -> Unit)? = null,
     onAddToReadList: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    onAnalyze: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    onKomfIdentify: (() -> Unit)? = null,
+    onKomfMatch: (() -> Unit)? = null,
+    onKomfReset: (() -> Unit)? = null,
     onRefreshCover: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -131,6 +139,11 @@ fun seriesContextMenuItems(
     onAddToCollection?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_collection), Icons.Outlined.CollectionsBookmark, onClick = it)) }
     onAddToReadList?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_read_list), Icons.Outlined.PlaylistAdd, onClick = it)) }
     onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onAnalyze?.let { add(ContextMenuItem(stringResource(R.string.menu_analyze), Icons.Outlined.Analytics, onClick = it)) }
+    onRefresh?.let { add(ContextMenuItem(stringResource(R.string.menu_refresh_metadata), Icons.Outlined.Refresh, onClick = it)) }
+    onKomfIdentify?.let { add(ContextMenuItem(stringResource(R.string.komf_identify_menu), Icons.Outlined.AutoAwesome, onClick = it)) }
+    onKomfMatch?.let { add(ContextMenuItem(stringResource(R.string.komf_match), Icons.Outlined.Sync, onClick = it)) }
+    onKomfReset?.let { add(ContextMenuItem(stringResource(R.string.komf_reset), Icons.Outlined.RestartAlt, destructive = true, onClick = it)) }
     onRefreshCover?.let { add(ContextMenuItem(stringResource(R.string.common_refresh_cover), Icons.Outlined.Image, onClick = it)) }
     onShare?.let { add(ContextMenuItem(stringResource(R.string.common_share), Icons.Outlined.Share, onClick = it)) }
     onDelete?.let { add(ContextMenuItem(stringResource(R.string.common_delete), Icons.Outlined.Delete, destructive = true, onClick = it)) }

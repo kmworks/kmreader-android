@@ -27,8 +27,12 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Schedule
@@ -575,18 +579,22 @@ private fun LibraryAdminRow(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_scan_deep)) },
                         onClick = { menuOpen = false; onDeepScan() },
+                        leadingIcon = { Icon(Icons.Filled.Sync, contentDescription = null) },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_analyze)) },
                         onClick = { menuOpen = false; onAnalyze() },
+                        leadingIcon = { Icon(Icons.Filled.MonitorHeart, contentDescription = null) },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_empty_trash)) },
                         onClick = { menuOpen = false; onEmptyTrash() },
+                        leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_refresh_metadata)) },
                         onClick = { menuOpen = false; onRefreshMetadata() },
+                        leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
                     )
                     DropdownMenuItem(
                         text = {

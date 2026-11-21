@@ -45,6 +45,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,6 +97,8 @@ import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 import com.kmworks.kmreader.ui.detail.BookEditSheet
+import com.kmworks.kmreader.ui.detail.KomfSeriesContextDialogs
+import com.kmworks.kmreader.ui.detail.KomfSeriesViewModel
 import com.kmworks.kmreader.ui.detail.SeriesEditSheet
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.util.shareText
@@ -119,6 +123,7 @@ fun LibraryScreen(
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
     // A pushed filtered list gets a page-scoped view model from the AppRoot; the library tab keeps its own
     viewModel: LibraryViewModel = hiltViewModel(),
+    komfViewModel: KomfSeriesViewModel = hiltViewModel(),
 ) {
     var contentType by remember { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
     // The route restricting this page (null = none). The applied condition lives in the view model, so it
@@ -143,6 +148,9 @@ fun LibraryScreen(
     var addTarget by remember { mutableStateOf<Any?>(null) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
     var addToReadListOpen by remember { mutableStateOf(false) }
+    // komf identify sheet + reset confirmation targets (series context menu)
+    var komfIdentifyTarget by remember { mutableStateOf<Series?>(null) }
+    var komfResetTarget by remember { mutableStateOf<Series?>(null) }
     var showOptionsSheet by remember { mutableStateOf(false) }
     // Long-press context menu target (mirrors the original card contextMenu)
     var menuSeries by remember { mutableStateOf<Series?>(null) }
@@ -158,6 +166,11 @@ fun LibraryScreen(
     val context = LocalContext.current
 
     val state by viewModel.state.collectAsState()
+    val komfState by komfViewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(komfViewModel) {
+        komfViewModel.events.collect { snackbarHostState.showSnackbar(it) }
+    }
     // real content only; empty state when there is no session or nothing loaded
     val series = state.series ?: emptyList()
     val allBooks = state.books ?: emptyList()
@@ -474,6 +487,12 @@ fun LibraryScreen(
                 }
             },
         )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LocalNavOverlaySpace.current + 8.dp),
+        )
     }
 
     if (showOptionsSheet) {
@@ -506,15 +525,39 @@ fun LibraryScreen(
                 onMarkRead = { viewModel.markSeriesRead(series, true) },
                 onMarkUnread = { viewModel.markSeriesRead(series, false) },
                 onDownload = { viewModel.downloadSeries(series.id) },
-                onAddToCollection = {
-                    addTarget = series
-                    addToCollectionOpen = true
+                onAddToCollection = if (state.isAdmin) {
+                    {
+                        addTarget = series
+                        addToCollectionOpen = true
+                    }
+                } else {
+                    null
                 },
-                onAddToReadList = {
-                    addTarget = series
-                    addToReadListOpen = true
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        addTarget = series
+                        addToReadListOpen = true
+                    }
+                } else {
+                    null
                 },
                 onEdit = { editSeries = series },
+                onAnalyze = if (state.isAdmin) ({ viewModel.analyzeSeries(series.id) {} }) else null,
+                onRefresh = if (state.isAdmin) ({ viewModel.refreshSeriesMetadata(series.id) {} }) else null,
+                onKomfIdentify = if (state.komfAvailable) {
+                    {
+                        komfViewModel.prepare(series.id) { viewModel.refresh() }
+                        komfIdentifyTarget = series
+                    }
+                } else {
+                    null
+                },
+                onKomfMatch = if (state.komfAvailable) {
+                    { komfViewModel.komfMatch(series.id) { viewModel.refresh() } }
+                } else {
+                    null
+                },
+                onKomfReset = if (state.komfAvailable) ({ komfResetTarget = series }) else null,
                 onRefreshCover = { viewModel.refreshCover(series.id) },
                 onShare = {
                     viewModel.seriesWebUrl(series.id)?.let { url -> shareText(context, url) }
@@ -538,13 +581,17 @@ fun LibraryScreen(
                 onMarkRead = { viewModel.markBookRead(book, true) },
                 onMarkUnread = { viewModel.markBookRead(book, false) },
                 onDownload = { viewModel.downloadBook(book.id, book.title, book.pageCount) },
-                onAddToReadList = {
-                    addTarget = book
-                    addToReadListOpen = true
+                onAddToReadList = if (state.isAdmin) {
+                    {
+                        addTarget = book
+                        addToReadListOpen = true
+                    }
+                } else {
+                    null
                 },
                 onEdit = { editBook = book },
-                onAnalyze = { viewModel.analyzeBook(book.id) {} },
-                onRefresh = { viewModel.refreshBookMetadata(book.id) {} },
+                onAnalyze = if (state.isAdmin) ({ viewModel.analyzeBook(book.id) {} }) else null,
+                onRefresh = if (state.isAdmin) ({ viewModel.refreshBookMetadata(book.id) {} }) else null,
                 onShare = {
                     viewModel.bookWebUrl(book.id)?.let { url -> shareText(context, url) }
                 },
@@ -652,6 +699,15 @@ fun LibraryScreen(
             else -> Unit
         }
     }
+    KomfSeriesContextDialogs(
+        identifyTarget = komfIdentifyTarget,
+        resetTarget = komfResetTarget,
+        state = komfState,
+        viewModel = komfViewModel,
+        onRefresh = { viewModel.refresh() },
+        onDismissIdentify = { komfIdentifyTarget = null },
+        onDismissReset = { komfResetTarget = null },
+    )
 }
 
 /** Inline error line of the library page; the grid already applies its own horizontal content padding. */

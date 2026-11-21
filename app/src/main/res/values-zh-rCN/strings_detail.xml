@@ -160,6 +160,7 @@
     <string name="komf_no_results">无结果</string>
     <string name="komf_event_match_submitted">komf 匹配任务已提交</string>
     <string name="komf_event_match_failed">komf 匹配提交失败</string>
+    <string name="komf_event_identify_submitted">komf 识别任务已提交</string>
     <string name="komf_event_reset_done">已重置 komf 元数据</string>
     <string name="komf_event_reset_failed">komf 重置失败</string>
     <string name="komf_event_job_completed">komf 任务已完成</string>

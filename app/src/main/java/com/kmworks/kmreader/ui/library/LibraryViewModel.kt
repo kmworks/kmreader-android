@@ -29,6 +29,8 @@ import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.core.server.ServerFeature
+import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -81,6 +83,10 @@ data class LibraryUiState(
     val browseOptions: BookBrowseOptions = BookBrowseOptions(),
     val collections: List<ListEntry>? = null,
     val readLists: List<ListEntry>? = null,
+    /** Whether the current account is an admin (gates the analyze/refresh-metadata/add-to-list menu items). */
+    val isAdmin: Boolean = false,
+    /** kmf capability: admin + server feature; when false the three komf menu items are not rendered. */
+    val komfAvailable: Boolean = false,
 )
 
 /** Real library content (scope + filters drive paged POST list queries). */
@@ -103,6 +109,7 @@ class LibraryViewModel @Inject constructor(
     private val imageCacheStore: ImageCacheStore,
     private val catalogCache: CatalogCache,
     private val serverAdminRepository: ServerAdminRepository,
+    private val serverProfileStore: ServerProfileStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -129,6 +136,16 @@ class LibraryViewModel @Inject constructor(
     private var lastLoadAtMs = 0L
 
     init {
+        viewModelScope.launch {
+            val isAdmin = serverAdminRepository.isAdmin()
+            _state.update { it.copy(isAdmin = isAdmin) }
+            // The profile probe lands after the first render; follow it so the komf entries appear without
+            // re-entering the screen.
+            serverProfileStore.profile.collect { profile ->
+                val komfAvailable = isAdmin && profile?.features?.contains(ServerFeature.Komf) == true
+                _state.update { it.copy(komfAvailable = komfAvailable) }
+            }
+        }
         // Re-query whenever session × scope × pins × filters change (mirrors the original where
         // scope/filters drive the query directly)
         viewModelScope.launch {
@@ -707,6 +724,26 @@ class LibraryViewModel @Inject constructor(
             return
         }
         viewModelScope.launch { onDone(actionRepository.refreshBookMetadata(dtoId)) }
+    }
+
+    /** Re-analyze the series. */
+    fun analyzeSeries(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch { onDone(actionRepository.analyzeSeries(dtoId)) }
+    }
+
+    /** Refresh the series metadata; the write signal re-queries the current list (or the row in place). */
+    fun refreshSeriesMetadata(stableId: Int, onDone: (Boolean) -> Unit) {
+        val dtoId = detailRepository.seriesDtoId(stableId)
+        if (dtoId == null) {
+            onDone(false)
+            return
+        }
+        viewModelScope.launch { onDone(actionRepository.refreshSeriesMetadata(dtoId)) }
     }
 
     /** Delete the series files; the write signal re-queries the current list (or drops the row in place). */

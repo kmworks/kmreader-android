@@ -163,6 +163,7 @@
     <string name="komf_no_results">No results</string>
     <string name="komf_event_match_submitted">komf match job submitted</string>
     <string name="komf_event_match_failed">komf match request failed</string>
+    <string name="komf_event_identify_submitted">komf identify job submitted</string>
     <string name="komf_event_reset_done">komf metadata reset</string>
     <string name="komf_event_reset_failed">komf reset failed</string>
     <string name="komf_event_job_completed">komf job completed</string>

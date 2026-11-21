@@ -285,15 +285,28 @@ class SeriesDetailViewModel @Inject constructor(
         }
     }
 
-    /** Marks the whole series as read; false means there is no DTO mapping (demo data, handled locally by the UI). */
-    fun markSeriesRead(): Boolean {
+    /** Marks the whole series as read/unread; false means there is no DTO mapping (demo data, handled locally by the UI). */
+    fun markSeriesRead(read: Boolean = true): Boolean {
         val dtoId = loadedId?.let { detailRepository.seriesDtoId(it) } ?: return false
         viewModelScope.launch {
-            if (actionRepository.markSeriesRead(dtoId)) {
-                _uiState.update {
-                    it.copy(
-                        series = it.series?.copy(progress = 1f, unreadCount = 0),
-                        books = it.books?.map { b -> b.copy(progress = 1f) },
+            val ok = if (read) {
+                actionRepository.markSeriesRead(dtoId)
+            } else {
+                actionRepository.markSeriesUnread(dtoId)
+            }
+            if (ok) {
+                _uiState.update { state ->
+                    val series = state.series
+                    state.copy(
+                        series = if (series == null) {
+                            null
+                        } else {
+                            series.copy(
+                                progress = if (read) 1f else null,
+                                unreadCount = if (read) 0 else series.bookCount,
+                            )
+                        },
+                        books = state.books?.map { b -> b.copy(progress = if (read) 1f else 0f) },
                     )
                 }
             }
@@ -307,6 +320,19 @@ class SeriesDetailViewModel @Inject constructor(
         val collectionDtoId = detailRepository.collectionDtoId(entry.id) ?: return false
         viewModelScope.launch {
             actionRepository.addSeriesToCollection(collectionDtoId, seriesDtoId)
+        }
+        return true
+    }
+
+    /** Adds every book of the series to a read list (Komga read lists accept books only); false means there is no DTO mapping. */
+    fun addSeriesToReadList(entry: ListEntry): Boolean {
+        val seriesDtoId = loadedId?.let { detailRepository.seriesDtoId(it) } ?: return false
+        val readListDtoId = detailRepository.readListDtoId(entry.id) ?: return false
+        viewModelScope.launch {
+            val bookDtoIds = detailRepository.seriesBooks(seriesDtoId).map { it.id }
+            if (bookDtoIds.isNotEmpty()) {
+                actionRepository.addBooksToReadList(readListDtoId, bookDtoIds)
+            }
         }
         return true
     }
@@ -503,6 +529,7 @@ class SeriesDetailViewModel @Inject constructor(
             val jobId = komfRepository.identify(_uiState.value.libraryId, dtoId, provider, providerSeriesId)
             if (jobId != null) {
                 onSubmitted()
+                _komfEvents.emit(context.getString(R.string.komf_event_identify_submitted))
                 trackKomfJob(jobId)
             } else {
                 onFailed()
