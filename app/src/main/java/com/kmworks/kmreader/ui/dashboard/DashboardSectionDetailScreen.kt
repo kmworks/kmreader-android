@@ -75,6 +75,7 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
+import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -96,7 +97,11 @@ fun DashboardSectionDetailScreen(
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
     viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
 ) {
-    val (layout, setLayout) = rememberPersistentBrowseLayout("dashboardSection", BrowseLayout.LargeGrid)
+    // Large grid on tablets, the normal grid on phones
+    val (layout, setLayout) = rememberPersistentBrowseLayout(
+        "dashboardSection",
+        deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
+    )
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }

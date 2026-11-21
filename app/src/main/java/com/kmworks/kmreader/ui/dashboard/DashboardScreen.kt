@@ -70,6 +70,7 @@ import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
+import com.kmworks.kmreader.ui.components.isPhoneWindow
 import com.kmworks.kmreader.ui.detail.BookEditSheet
 import com.kmworks.kmreader.ui.detail.KomfSeriesContextDialogs
 import com.kmworks.kmreader.ui.detail.KomfSeriesViewModel
@@ -256,6 +257,7 @@ fun DashboardScreen(
                         onReadBook = { book -> onReadBook(book, false) },
                         continuations = state.continuations,
                         kindMenuEnabled = state.kindMenuEnabled,
+                        kindOverrides = state.kindOverrides,
                         onKindChange = { kind -> viewModel.setSectionKind(section.id, kind) },
                     )
                     Spacer(Modifier.height(8.dp))
@@ -488,9 +490,18 @@ private fun DashboardSectionRow(
     onReadBook: (Book) -> Unit = {},
     continuations: List<ReadListContinuationUi> = emptyList(),
     kindMenuEnabled: Boolean = false,
+    kindOverrides: Map<String, DashboardCardKind> = emptyMap(),
     onKindChange: (DashboardCardKind?) -> Unit = {},
 ) {
-    val defaultKind = SampleDashboardData.section(section.id)?.defaultKind ?: section.kind
+    // Phone windows use medium cards for every section except the horizontal ones; an explicit
+    // card-kind choice still wins, and tablets/wide windows keep the stored default.
+    val storedDefaultKind = SampleDashboardData.section(section.id)?.defaultKind ?: section.kind
+    val defaultKind = if (isPhoneWindow() && storedDefaultKind != DashboardCardKind.Horizontal) {
+        DashboardCardKind.Medium
+    } else {
+        storedDefaultKind
+    }
+    val cardKind = kindOverrides[section.id] ?: defaultKind
     val availableKinds = SampleDashboardData.section(section.id)?.availableKinds
         ?: DashboardCardKind.entries.toList()
     var kindMenuOpen by remember(section.id) { mutableStateOf(false) }
@@ -505,7 +516,7 @@ private fun DashboardSectionRow(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text(stringResource(dashboardCardKindLabelRes(section.kind)))
+                    Text(stringResource(dashboardCardKindLabelRes(cardKind)))
                 }
                 DropdownMenu(
                     expanded = kindMenuOpen,
@@ -558,7 +569,7 @@ private fun DashboardSectionRow(
         } else {
             items(section.items) { item ->
                 when {
-                    item is Book && section.kind == DashboardCardKind.Horizontal ->
+                    item is Book && cardKind == DashboardCardKind.Horizontal ->
                         BookHorizontalCard(
                             book = item,
                             onClick = { onReadBook(item) },
@@ -571,7 +582,7 @@ private fun DashboardSectionRow(
                             book = item,
                             onClick = { onReadBook(item) },
                             onLongClick = { onBookLongClick(item) },
-                            modifier = Modifier.width(section.kind.widthDp.dp),
+                            modifier = Modifier.width(cardKind.widthDp.dp),
                             reserveProgressSpace = true,
                         )
 
@@ -580,7 +591,7 @@ private fun DashboardSectionRow(
                             series = item,
                             onClick = { onOpenSeries(item) },
                             onLongClick = { onSeriesLongClick(item) },
-                            modifier = Modifier.width(section.kind.widthDp.dp),
+                            modifier = Modifier.width(cardKind.widthDp.dp),
                             reserveProgressSpace = true,
                         )
                 }

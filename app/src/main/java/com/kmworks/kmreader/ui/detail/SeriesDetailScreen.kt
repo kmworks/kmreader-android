@@ -127,6 +127,7 @@ import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
 import com.kmworks.kmreader.ui.components.BrowseLayout
+import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
@@ -207,8 +208,12 @@ fun SeriesDetailScreen(
     val continueBook = books.firstOrNull { it.progress != null && it.progress < 1f }
         ?: books.firstOrNull { it.progress == null }
         ?: books.firstOrNull()
-    // Mirrors seriesDetailLayout: list / medium grid / large grid, large grid by default, persisted per page
-    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("seriesDetail", BrowseLayout.LargeGrid)
+    // Mirrors seriesDetailLayout: list / medium grid / large grid, persisted per page;
+    // large grid on tablets, the normal grid on phones
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout(
+        "seriesDetail",
+        deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
+    )
     // Filter state (mirrors BookBrowseOptions; the real implementation persists per page via AppStorage)
     var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
     // Selection state: null = selection mode off; once on, tapping a book toggles it

@@ -93,6 +93,7 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.libraryMetricsCaption
+import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
@@ -136,10 +137,16 @@ fun LibraryScreen(
         contentType = request.contentType
         activeFilter = request
     }
-    // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout,
-    // large grid by default)
-    val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout("librarySeries", BrowseLayout.LargeGrid)
-    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout("libraryBooks", BrowseLayout.LargeGrid)
+    // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout):
+    // large grid on tablets, the normal grid on phones
+    val (seriesLayout, setSeriesLayout) = rememberPersistentBrowseLayout(
+        "librarySeries",
+        deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
+    )
+    val (booksLayout, setBooksLayout) = rememberPersistentBrowseLayout(
+        "libraryBooks",
+        deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
+    )
     val layout = if (contentType == LibraryContentType.Series) seriesLayout else booksLayout
     val setLayout = if (contentType == LibraryContentType.Series) setSeriesLayout else setBooksLayout
     var scopeMenuOpen by remember { mutableStateOf(false) }

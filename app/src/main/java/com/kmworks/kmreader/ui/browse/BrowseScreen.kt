@@ -87,6 +87,7 @@ import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
+import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 
 /** Search tab: search field + scope chips + grouped results. Mirrors the KMReader browse (search role) tab. */
@@ -108,8 +109,12 @@ fun BrowseScreen(
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
-    // Results grid layout (list/grid/large grid, persisted per page, mirroring iOS per-page layout memory)
-    val (resultsLayout, setResultsLayout) = rememberPersistentBrowseLayout("search", BrowseLayout.LargeGrid)
+    // Results grid layout (list/grid/large grid, persisted per page, mirroring iOS per-page layout memory):
+    // large grid on tablets, the normal grid on phones
+    val (resultsLayout, setResultsLayout) = rememberPersistentBrowseLayout(
+        "search",
+        deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
+    )
     var showFilterSheet by remember { mutableStateOf(false) }
     val browseOptions by viewModel.browseOptionsFlow.collectAsStateWithLifecycle()
 

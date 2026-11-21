@@ -61,6 +61,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSectionSetting
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
+import com.kmworks.kmreader.ui.components.isPhoneWindow
 import com.kmworks.kmreader.ui.settings.SettingsBackIcon
 import com.kmworks.kmreader.ui.settings.SettingsDangerRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
@@ -158,6 +159,7 @@ fun SettingsDashboardScreen(
                         SectionSettingRow(
                             setting = setting,
                             effectiveKind = state.overrides[setting.id] ?: setting.defaultKind,
+                            isCustom = state.overrides.containsKey(setting.id),
                             dragging = isDragging,
                             modifier = Modifier
                                 .zIndex(if (isDragging) 1f else 0f)
@@ -262,6 +264,7 @@ fun SettingsDashboardScreen(
 private fun SectionSettingRow(
     setting: DashboardSectionSetting,
     effectiveKind: DashboardCardKind,
+    isCustom: Boolean,
     dragging: Boolean,
     modifier: Modifier = Modifier,
     onDragStart: () -> Unit,
@@ -286,14 +289,20 @@ private fun SectionSettingRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            val defaultKindLabel = stringResource(dashboardCardKindLabelRes(setting.defaultKind))
+            // Phone windows default every non-horizontal section to medium cards (see DashboardSectionRow)
+            val defaultKind = if (isPhoneWindow() && setting.defaultKind != DashboardCardKind.Horizontal) {
+                DashboardCardKind.Medium
+            } else {
+                setting.defaultKind
+            }
+            val defaultKindLabel = stringResource(dashboardCardKindLabelRes(defaultKind))
             Text(
                 text = dashboardSectionTitleRes(setting.id)?.let { stringResource(it) } ?: setting.title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = if (effectiveKind == setting.defaultKind) {
+                text = if (!isCustom) {
                     stringResource(R.string.dashboard_kind_default_line, defaultKindLabel)
                 } else {
                     stringResource(

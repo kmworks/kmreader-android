@@ -71,6 +71,8 @@ data class DashboardUiState(
     val readLists: List<ListEntry>? = null,
     /** Whether the card-kind menu is shown next to section titles (persisted in the settings screen). */
     val kindMenuEnabled: Boolean = true,
+    /** Explicit card-kind choices per section id (persisted in the settings screen). */
+    val kindOverrides: Map<String, DashboardCardKind> = emptyMap(),
     /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
     /** Library scope (pinned/all/library:{id}, aligned with iOS LibraryBrowseScope); session-level choice on the dashboard, defaults to pinned. */
@@ -181,6 +183,7 @@ class DashboardViewModel @Inject constructor(
                     it.copy(
                         sections = sections ?: it.sections,
                         kindMenuEnabled = next.kindMenu,
+                        kindOverrides = next.overrides,
                     )
                 }
             }
@@ -353,7 +356,7 @@ class DashboardViewModel @Inject constructor(
                 if (addedBooks.isNotEmpty()) DashboardSection("recentlyAddedBooks", context.getString(R.string.dashboard_section_recently_added_books), DashboardCardKind.Large, addedBooks) else null,
                 if (addedSeries.isNotEmpty()) DashboardSection("recentlyAddedSeries", context.getString(R.string.dashboard_section_recently_added_series), DashboardCardKind.Large, addedSeries) else null,
                 if (updatedSeries.isNotEmpty()) DashboardSection("recentlyUpdatedSeries", context.getString(R.string.dashboard_section_recently_updated_series), DashboardCardKind.Large, updatedSeries) else null,
-                if (readBooks.isNotEmpty()) DashboardSection("recentlyReadBooks", context.getString(R.string.dashboard_section_recently_read_books), DashboardCardKind.Small, readBooks) else null,
+                if (readBooks.isNotEmpty()) DashboardSection("recentlyReadBooks", context.getString(R.string.dashboard_section_recently_read_books), DashboardCardKind.Large, readBooks) else null,
             )
             val collectionDtos = listRepository.collections()
             val readListDtos = listRepository.readLists()

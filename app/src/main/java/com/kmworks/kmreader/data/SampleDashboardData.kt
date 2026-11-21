@@ -59,7 +59,9 @@ data class DashboardSectionSetting(
 object SampleDashboardData {
 
     /** Real dashboard sections: ids / titles / default card kinds match what DashboardViewModel produces
-     *  (aligned with the iOS DashboardSection.allCases order and defaultCardKind). */
+     *  (order aligned with the iOS DashboardSection.allCases). Defaults are the tablet/wide-window kinds;
+     *  phone windows show every non-horizontal section as Medium. Recently Read Books deliberately uses the
+     *  large card where iOS still defaults to the small one. */
     val dashboardSections: List<DashboardSectionSetting> = listOf(
         DashboardSectionSetting(ReadListsInProgressSectionId, "Read Lists in Progress", DashboardCardKind.Horizontal),
         DashboardSectionSetting("keepReading", "Keep Reading", DashboardCardKind.Horizontal),
@@ -72,7 +74,7 @@ object SampleDashboardData {
         DashboardSectionSetting(
             "recentlyUpdatedSeries", "Recently Updated Series", DashboardCardKind.Large, seriesContent = true,
         ),
-        DashboardSectionSetting("recentlyReadBooks", "Recently Read Books", DashboardCardKind.Small),
+        DashboardSectionSetting("recentlyReadBooks", "Recently Read Books", DashboardCardKind.Large),
     )
 
     fun section(id: String): DashboardSectionSetting? = dashboardSections.firstOrNull { it.id == id }
