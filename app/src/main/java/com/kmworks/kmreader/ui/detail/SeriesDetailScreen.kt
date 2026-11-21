@@ -36,9 +36,14 @@ import androidx.compose.material.icons.automirrored.filled.FormatTextdirectionRT
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Brush
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -339,6 +344,9 @@ fun SeriesDetailScreen(
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.common_share)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Share, contentDescription = null)
+                                },
                                 onClick = {
                                     moreOpen = false
                                     val url = viewModel.seriesWebUrl()
@@ -355,6 +363,9 @@ fun SeriesDetailScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.series_edit_title)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Edit, contentDescription = null)
+                                },
                                 onClick = {
                                     moreOpen = false
                                     showEditSheet = true
@@ -364,6 +375,9 @@ fun SeriesDetailScreen(
                             if (state.isAdmin) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_analyze)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.MonitorHeart, contentDescription = null)
+                                    },
                                     onClick = {
                                         moreOpen = false
                                         viewModel.analyzeSeries { ok ->
@@ -379,6 +393,9 @@ fun SeriesDetailScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_refresh_metadata)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Refresh, contentDescription = null)
+                                    },
                                     onClick = {
                                         moreOpen = false
                                         viewModel.refreshSeriesMetadata { ok ->
@@ -432,6 +449,9 @@ fun SeriesDetailScreen(
                             }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.series_add_to_collection)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null)
+                                },
                                 onClick = {
                                     moreOpen = false
                                     viewModel.ensureCollectionsLoaded()
@@ -440,6 +460,9 @@ fun SeriesDetailScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.book_mark_read)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null)
+                                },
                                 onClick = {
                                     moreOpen = false
                                     // Real data goes through the API (updated inside the VM);
@@ -453,6 +476,13 @@ fun SeriesDetailScreen(
                                         Text(
                                             text = stringResource(R.string.detail_delete_menu),
                                             color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
                                         )
                                     },
                                     onClick = {
