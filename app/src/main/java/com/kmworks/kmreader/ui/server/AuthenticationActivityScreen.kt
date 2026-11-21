@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.server
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -25,11 +27,11 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -50,6 +52,7 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.AuthenticationActivityDto
 import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.ui.settings.SettingsRowDivider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,32 +141,38 @@ fun AuthenticationActivityScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             when {
                 state.loading && state.entries.isEmpty() -> CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                 )
                 state.failed -> CenteredMessage(R.string.server_admin_admin_required)
                 state.entries.isEmpty() -> CenteredMessage(R.string.server_admin_auth_activity_empty)
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                else -> Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    ),
                 ) {
-                    itemsIndexed(state.entries) { index, entry ->
-                        AuthenticationActivityRow(entry)
-                        if (index < state.entries.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                            )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        itemsIndexed(state.entries) { index, entry ->
+                            AuthenticationActivityRow(entry)
+                            if (index < state.entries.lastIndex) {
+                                SettingsRowDivider()
+                            }
+                            // The iOS list pages itself once the last few rows appear.
+                            if (index >= state.entries.lastIndex - 2 && state.hasMore && !state.loading) {
+                                LaunchedEffect(entry.dateTime) { viewModel.load(reset = false) }
+                            }
                         }
-                        // The iOS list pages itself once the last few rows appear.
-                        if (index >= state.entries.lastIndex - 2 && state.hasMore && !state.loading) {
-                            LaunchedEffect(entry.dateTime) { viewModel.load(reset = false) }
-                        }
+                        if (state.loading) item { LoadingRow() }
                     }
-                    if (state.loading) item { LoadingRow() }
                 }
             }
         }
@@ -173,7 +182,7 @@ fun AuthenticationActivityScreen(
 @Composable
 private fun AuthenticationActivityRow(entry: AuthenticationActivityDto) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {

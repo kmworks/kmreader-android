@@ -299,6 +299,7 @@ internal fun SettingsMenuRow(
     onClick: () -> Unit,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    badge: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -315,6 +316,16 @@ internal fun SettingsMenuRow(
             enabled = true,
             modifier = Modifier.weight(1f),
         )
+        if (!badge.isNullOrEmpty()) {
+            Text(
+                text = badge,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(percent = 50))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
         if (!value.isNullOrEmpty()) {
             Text(
                 text = value,
@@ -441,11 +452,14 @@ internal fun SettingsDangerRow(
     text: String,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
 ) {
+    val color = if (enabled) MaterialTheme.colorScheme.error
+    else MaterialTheme.colorScheme.error.copy(alpha = 0.38f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = RowInset, vertical = RowVerticalInset),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -455,14 +469,14 @@ internal fun SettingsDangerRow(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.error,
+                tint = color,
             )
             Spacer(Modifier.width(8.dp))
         }
         Text(
             text = text,
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error,
+            color = color,
         )
     }
 }
