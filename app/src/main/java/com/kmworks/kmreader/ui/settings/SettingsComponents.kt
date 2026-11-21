@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -150,7 +151,12 @@ private fun SettingsRowContent(row: SettingsRow) {
     ) {
         SettingsIconBadge(row.icon, row.accent)
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             val subtitle = row.subtitle
             if (!subtitle.isNullOrEmpty()) {
                 Text(
@@ -167,11 +173,11 @@ private fun SettingsRowContent(row: SettingsRow) {
             toggle != null -> Switch(checked = row.checked, onCheckedChange = toggle)
             value != null -> Text(
                 text = value,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 200.dp),
+                modifier = Modifier.widthIn(max = 180.dp),
             )
             row.onClick != null -> Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -326,7 +332,7 @@ internal fun SettingsMenuRow(
     }
 }
 
-/** Menu picker row (iOS menu Picker): the trailing value opens a dropdown of [options]. */
+/** Menu picker row (iOS menu Picker): the trailing value opens a dropdown anchored below it. */
 @Composable
 internal fun <T> SettingsPickerRow(
     title: String,
@@ -337,32 +343,64 @@ internal fun <T> SettingsPickerRow(
     icon: ImageVector? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
-        SettingsMenuRow(
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = true }
+            .padding(horizontal = RowInset, vertical = RowVerticalInset),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BadgeGap),
+    ) {
+        if (icon != null) SettingsRowIcon(icon, true)
+        SettingsRowText(
             title = title,
-            value = selectedLabel,
             subtitle = subtitle,
-            icon = icon,
-            onClick = { expanded = true },
+            enabled = true,
+            modifier = Modifier.weight(1f),
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, label) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    onClick = {
-                        expanded = false
-                        onSelect(value)
-                    },
-                    trailingIcon = {
-                        if (label == selectedLabel) {
-                            Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    },
+        // The menu is anchored to the value (not the whole row) so it opens under the trailing
+        // control, the way the iOS menu picker does.
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = selectedLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.widthIn(min = 200.dp),
+            ) {
+                options.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            expanded = false
+                            onSelect(value)
+                        },
+                        trailingIcon = {
+                            if (label == selectedLabel) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                }
             }
         }
     }

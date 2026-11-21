@@ -51,11 +51,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -258,12 +258,12 @@ private fun ServerCard(
     val shape = RoundedCornerShape(22.dp)
     val accent = Color(0xFF34C759)
     val cardBrush = if (active) {
-        Brush.linearGradient(listOf(accent.copy(alpha = 0.14f), accent.copy(alpha = 0.06f)))
+        Brush.linearGradient(listOf(accent.copy(alpha = 0.10f), accent.copy(alpha = 0.04f)))
     } else {
         Brush.linearGradient(
             listOf(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f),
             ),
         )
     }
@@ -271,12 +271,11 @@ private fun ServerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(if (active) 6.dp else 2.dp, shape)
                 .clip(shape)
                 .background(cardBrush)
                 .border(
-                    width = if (active) 2.dp else 1.dp,
-                    color = if (active) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
+                    width = if (active) 1.5.dp else 1.dp,
+                    color = if (active) accent.copy(alpha = 0.30f) else MaterialTheme.colorScheme.outlineVariant,
                     shape = shape,
                 )
                 .combinedClickable(
@@ -323,6 +322,7 @@ private fun ServerCard(
                     Text(
                         text = instance.displayName,
                         style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
