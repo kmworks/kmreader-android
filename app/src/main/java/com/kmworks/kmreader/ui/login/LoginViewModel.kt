@@ -30,6 +30,8 @@ enum class AuthMode(@param:StringRes val labelRes: Int) {
 /** Login page form and progress state. */
 data class LoginUiState(
     val serverUrl: String = "",
+    /** Optional custom display name for the saved instance (blank = fall back to the server host). */
+    val instanceName: String = "",
     val authMode: AuthMode = AuthMode.Password,
     val username: String = "",
     val password: String = "",
@@ -57,6 +59,7 @@ class LoginViewModel @Inject constructor(
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
     fun updateServerUrl(value: String) = _uiState.update { it.copy(serverUrl = value, error = null) }
+    fun updateInstanceName(value: String) = _uiState.update { it.copy(instanceName = value, error = null) }
     fun updateUsername(value: String) = _uiState.update { it.copy(username = value, error = null) }
     fun updatePassword(value: String) = _uiState.update { it.copy(password = value, error = null) }
     fun updateApiKey(value: String) = _uiState.update { it.copy(apiKey = value, error = null) }
@@ -81,8 +84,9 @@ class LoginViewModel @Inject constructor(
                 val finalConfig = config.copy(isAdmin = user.roles.contains("ADMIN"))
                 // The admin flag is saved with the session (capability gates such as komf read ServerConfig.isAdmin)
                 configStore.save(finalConfig)
-                // Upsert into the instance list (mirrors iOS upsertInstance: repeat logins dedupe and refresh)
-                configStore.upsertInstance(finalConfig)
+                // Upsert into the instance list (mirrors iOS upsertInstance: repeat logins dedupe and refresh);
+                // the instance name entered on this form is persisted with the row.
+                configStore.upsertInstance(finalConfig, state.instanceName)
                 _uiState.update { it.copy(loading = false, connectedUser = user) }
             } catch (e: HttpException) {
                 val message = if (e.code() == 401 || e.code() == 403) {

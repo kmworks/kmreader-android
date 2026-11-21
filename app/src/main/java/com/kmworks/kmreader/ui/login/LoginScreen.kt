@@ -37,8 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
 
 /**
- * Login / connect server (mirrors LoginView): a centered narrow column with the server URL plus either
- * username-password or API Key authentication; a successful probe enters the main UI automatically.
+ * Login / connect server (mirrors LoginView): a centered narrow column with the server URL, an optional
+ * instance display name, plus either username-password or API Key authentication; a successful probe
+ * enters the main UI automatically.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +79,19 @@ fun LoginScreen(
                     label = { Text(stringResource(R.string.login_server_url)) },
                     placeholder = { Text("https://komga.example.com") },
                     leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null) },
+                    singleLine = true,
+                    enabled = !state.loading,
+                )
+                Spacer(Modifier.height(12.dp))
+                // Optional instance name (mirrors iOS LoginView "Instance Name (Optional)"),
+                // persisted into the saved server row instead of falling back to the host.
+                OutlinedTextField(
+                    value = state.instanceName,
+                    onValueChange = viewModel::updateInstanceName,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.login_instance_name)) },
+                    placeholder = { Text(stringResource(R.string.login_instance_name_placeholder)) },
+                    supportingText = { Text(stringResource(R.string.server_edit_display_name_hint)) },
                     singleLine = true,
                     enabled = !state.loading,
                 )
