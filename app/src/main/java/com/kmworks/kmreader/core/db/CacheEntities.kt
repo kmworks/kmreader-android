@@ -18,6 +18,8 @@ data class CachedBookEntity(
     val title: String,
     val number: String,
     val seriesTitle: String,
+    /** Owning series dto id; lets offline downloads recover their series badge and series detail. */
+    val seriesId: String? = null,
     val hue: Float,
     val pageCount: Int,
     val progress: Float?,

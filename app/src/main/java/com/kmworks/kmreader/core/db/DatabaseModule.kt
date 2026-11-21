@@ -23,6 +23,14 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/** v2 -> v3: cached books remember their series, so old downloads can be matched to a series card. */
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Nullable: rows cached before this column simply have no series until the next refresh rewrites them.
+        db.execSQL("ALTER TABLE cached_books ADD COLUMN seriesId TEXT")
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -31,9 +39,9 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): KmReaderDatabase =
         Room.databaseBuilder(context, KmReaderDatabase::class.java, "kmreader_cache.db")
-            // Keep the cached catalog across the mediaType column (the cache is still allowed to be dropped
-            // by any later schema bump, which is what the destructive fallback is for).
-            .addMigrations(MIGRATION_1_2)
+            // Keep the cached catalog across the mediaType and seriesId columns (the cache is still allowed
+            // to be dropped by any later schema bump, which is what the destructive fallback is for).
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
