@@ -82,6 +82,8 @@ data class EpubThemeConfig(
     val publisherStyles: Boolean = true,
     /** Local @font-face css (urls already rewritten to the fake-domain fonts route); null = no custom fonts. */
     val fontCss: String? = null,
+    /** The story reads right-to-left: the document root gets dir="rtl" (mirrors the iOS page builder). */
+    val rtl: Boolean = false,
 ) {
 
     /** JS object literal (values are whitelisted/formatted — no injection surface). */
@@ -89,7 +91,7 @@ data class EpubThemeConfig(
         val safeFamily = fontFamily.replace("'", "")
         return "{bg:'$background',fg:'$foreground',fontSize:$fontSizePx," +
             "fontFamily:'$safeFamily',lineHeight:$lineHeight," +
-            "marginH:$marginHPx,publisherStyles:$publisherStyles}"
+            "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl}"
     }
 }
 
@@ -122,6 +124,17 @@ object EpubJs {
             if (!fontStyle) { fontStyle = document.createElement('style'); fontStyle.id = 'km-fonts'; document.head.appendChild(fontStyle); }
             fontStyle.textContent = window.__kmFontCss || '';
             document.documentElement.style.background = c.bg;
+            // Reading direction: a right-to-left story gets dir='rtl' on the root element, which is
+            // what the iOS page builder does. Attributes set here are marked, and only those are
+            // removed again: a publisher-declared dir='rtl' must survive when the series says LTR.
+            var root = document.documentElement;
+            if (c.rtl) {
+              if (root.getAttribute('dir') !== 'rtl') root.setAttribute('dir', 'rtl');
+              root.setAttribute('data-km-rtl', '1');
+            } else if (root.getAttribute('data-km-rtl') === '1') {
+              root.removeAttribute('dir');
+              root.removeAttribute('data-km-rtl');
+            }
             window.__kmReport();
           };
           var timer = null;

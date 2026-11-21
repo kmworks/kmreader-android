@@ -39,6 +39,12 @@ data class PdfReaderUiState(
     val document: PdfDocument? = null,
     /** Books adjacent to this one (read list order, else series); resolved after the file opens. */
     val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
+    /**
+     * Reading direction the series declares (`LEFT_TO_RIGHT` / `RIGHT_TO_LEFT` / `VERTICAL` /
+     * `WEBTOON`); null while the lookup is in flight or when it failed, so the reader stays on the
+     * global default (mirrors the original PdfReaderView.fetchSeries fallback).
+     */
+    val seriesDirection: String? = null,
 )
 
 @HiltViewModel
@@ -118,7 +124,8 @@ constructor(
                 return@launch
             }
             document = doc
-            val progress = detailRepository.bookDetail(dtoId)?.readProgress
+            val detail = detailRepository.bookDetail(dtoId)
+            val progress = detail?.readProgress
             wasInProgress = progress != null && !progress.completed
             hasRecorded = false
             val initialPage =
@@ -139,8 +146,25 @@ constructor(
                 )
             }
 
+            resolveSeriesDirection(dtoId, detail?.seriesId)
             resolveAdjacent(dtoId, readListStableId)
         }
+    }
+
+    /**
+     * Reads the series reading direction the same way the DIVINA reader does
+     * (`series.metadata.readingDirection`), after the first page so the lookup never delays opening
+     * the book. A failure keeps the global default (runCatching, not an error state): the direction
+     * is a presentation hint, not something that can break the session.
+     */
+    private suspend fun resolveSeriesDirection(dtoId: String, seriesId: String?) {
+        if (seriesId.isNullOrBlank()) return
+        val direction = runCatching {
+            detailRepository.seriesDetail(seriesId)?.metadata?.readingDirection
+        }.getOrNull()
+        // A different book was opened while the lookup was in flight
+        if (_uiState.value.bookDtoId != dtoId) return
+        _uiState.update { it.copy(seriesDirection = direction) }
     }
 
     /**

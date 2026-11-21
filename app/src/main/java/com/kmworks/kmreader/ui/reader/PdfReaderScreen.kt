@@ -104,6 +104,17 @@ fun PdfReaderScreen(
     // PDF preferences are persisted globally (mirroring the original pdf* @AppStorage);
     // the reader and the defaults page share the same values
     val pdfSettings by settingsViewModel.pdfSettings.collectAsStateWithLifecycle()
+    // Reading direction: series metadata, overridable by the forced default (same precedence as the
+    // DIVINA and EPUB readers). PdfView lays the pages out top-to-bottom and cannot mirror page
+    // order, so the direction reaches the chrome that has one — the page-jump strip and the
+    // settings summary — instead of the page grid itself.
+    val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
+    val readingDirection = resolveReadingDirection(
+        seriesDirection = readingDirectionFromSeriesToken(state.seriesDirection),
+        forceDefault = readerSettings.forceDefaultDirection,
+        defaultDirection = defaultDirection,
+    ).forPdfReader()
     var chromeVisible by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -519,6 +530,7 @@ fun PdfReaderScreen(
     if (showSettings) {
         PdfPreferencesSheet(
             settings = pdfSettings,
+            readingDirection = readingDirection,
             onSettingsChange = { new -> settingsViewModel.updatePdf { new } },
             onDismiss = { showSettings = false },
         )
@@ -532,6 +544,9 @@ fun PdfReaderScreen(
                 showPageJump = false
             },
             onDismiss = { showPageJump = false },
+            // Right-to-left series: the preview strip starts at the right (mirrors the iOS
+            // PageJumpSheetView layoutDirection), so the strip reads in the book's own page order.
+            isRtl = readingDirection == ReadingDirection.Rtl,
         )
     }
     if (showDetailSheet) {

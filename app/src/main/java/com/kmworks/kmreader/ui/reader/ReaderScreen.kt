@@ -302,7 +302,7 @@ fun ReaderScreen(
         page = uiState.initialPage ?: 1
         if (direction == null) {
             direction = resolveReadingDirection(
-                seriesDirection = uiState.seriesDirection,
+                seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
                 forceDefault = settings.forceDefaultDirection,
                 defaultDirection = defaultDirection,
             )
@@ -1220,25 +1220,6 @@ fun ReaderScreen(
             onDismiss = { contextMenuPage = null },
         )
     }
-}
-
-/** Resolves the session direction (mirrors the original loadBook resolution: forced default → series direction → global default). */
-private fun resolveReadingDirection(
-    seriesDirection: String?,
-    forceDefault: Boolean,
-    defaultDirection: ReadingDirection,
-): ReadingDirection {
-    if (forceDefault) return defaultDirection
-    val series = seriesDirection?.uppercase()?.let {
-        when (it) {
-            "LEFT_TO_RIGHT" -> ReadingDirection.Ltr
-            "RIGHT_TO_LEFT" -> ReadingDirection.Rtl
-            "VERTICAL" -> ReadingDirection.Vertical
-            "WEBTOON" -> ReadingDirection.Webtoon
-            else -> null
-        }
-    }
-    return series ?: defaultDirection
 }
 
 /** Whether the network is Wi-Fi (or Ethernet): used by the "preload on Wi-Fi only" gate (mirrors the original wifiOnlyPreload). */
