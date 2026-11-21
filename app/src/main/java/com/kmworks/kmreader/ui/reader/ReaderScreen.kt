@@ -61,6 +61,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -311,10 +312,24 @@ fun ReaderScreen(
             noCover = noCover,
         )
     }
-    val pagerState = rememberPagerState(
-        initialPage = 0,
-    ) { items.size.coerceAtLeast(1) }
-    val webtoonState = rememberLazyListState()
+    // The resume page has to be the pager's initial page, not a scroll applied after the first frame:
+    // the pager state is created while the list is still loading, so opening a book mid-way would
+    // paint cell 0 for a frame and only then jump to the restored cell (the first-page flash). Both
+    // scroll states are therefore rebuilt when the list becomes ready, so their first layout is
+    // already the cell that holds the resume page.
+    val initialViewIndex = remember(ready) {
+        if (!ready) {
+            0
+        } else {
+            items.indexOfFirst { it.pages.contains(uiState.initialPage ?: 1) }.coerceAtLeast(0)
+        }
+    }
+    val pagerState = key(ready) {
+        rememberPagerState(initialPage = initialViewIndex) { items.size.coerceAtLeast(1) }
+    }
+    val webtoonState = key(ready) {
+        rememberLazyListState(initialFirstVisibleItemIndex = initialViewIndex)
+    }
     val scope = rememberCoroutineScope()
 
     // Page-load lifecycle in the trail: a death before Ready (or right after it) reads very differently
