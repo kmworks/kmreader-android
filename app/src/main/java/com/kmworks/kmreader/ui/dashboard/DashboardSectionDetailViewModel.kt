@@ -13,6 +13,7 @@ import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.normalizeLibraryScope
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,6 +61,8 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private var loadingMore = false
     /** Generation counter: after a scope switch or rebind, discard results of in-flight stale queries. */
     private var generation = 0
+    /** The persisted dashboard scope is read once; the state is authoritative after that. */
+    private var scopeLoaded = false
 
     init {
         // Pinned-set change: re-query when the current scope is pinned (aligned with the iOS libraryIds-driven refresh)
@@ -90,11 +93,25 @@ class DashboardSectionDetailViewModel @Inject constructor(
         page = 0
         loadingMore = false
         generation++
-        _state.value = DashboardSectionDetailUiState(loading = true)
+        // Keep the current scope: this page shares the persisted dashboard scope, so the reset must not drop it.
+        _state.value = DashboardSectionDetailUiState(
+            loading = true,
+            libraryScope = _state.value.libraryScope,
+        )
         viewModelScope.launch { loadPage(0) }
         viewModelScope.launch {
             val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
-            _state.update { it.copy(libraries = libraries) }
+            val previous = _state.value.libraryScope
+            val normalized = normalizeLibraryScope(previous, libraries)
+            _state.update { it.copy(libraries = libraries, libraryScope = normalized) }
+            if (normalized != previous) {
+                // The persisted single-library scope points at a library that is gone: query again with the fallback.
+                appSettings.setDashboardBrowseScope(normalized)
+                generation++
+                page = 0
+                loadingMore = false
+                loadPage(0)
+            }
         }
     }
 
@@ -104,6 +121,7 @@ class DashboardSectionDetailViewModel @Inject constructor(
         generation++
         page = 0
         loadingMore = false
+        scopeLoaded = true
         _state.update {
             it.copy(
                 libraryScope = scope,
@@ -114,6 +132,8 @@ class DashboardSectionDetailViewModel @Inject constructor(
                 loadingMore = false,
             )
         }
+        // Persisted so the dashboard and the next launch use the same scope (the dashboard follows it live).
+        viewModelScope.launch { appSettings.setDashboardBrowseScope(scope) }
         viewModelScope.launch { loadPage(0) }
     }
 
@@ -129,9 +149,21 @@ class DashboardSectionDetailViewModel @Inject constructor(
         viewModelScope.launch { loadPage(page + 1) }
     }
 
+    /** One-time read of the persisted dashboard scope before the first page query (the "More" page shares it). */
+    private suspend fun ensureScopeLoaded() {
+        if (scopeLoaded) return
+        scopeLoaded = true
+        val stored = runCatching { appSettings.dashboardBrowseScope.first() }
+            .getOrDefault(AppSettingsStore.SCOPE_PINNED)
+        if (stored != _state.value.libraryScope) {
+            _state.update { it.copy(libraryScope = stored) }
+        }
+    }
+
     private suspend fun loadPage(target: Int) {
         val id = sectionId ?: return
         val gen = generation
+        ensureScopeLoaded()
         _state.update { it.copy(loadingMore = true) }
         try {
             val result = fetch(id, target, PAGE_SIZE)

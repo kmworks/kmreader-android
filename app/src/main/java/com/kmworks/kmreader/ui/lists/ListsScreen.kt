@@ -31,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +62,7 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.SampleData.ListGroup
 import com.kmworks.kmreader.ui.components.CoverArt
@@ -68,6 +70,7 @@ import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.collectionContextMenuItems
+import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.PullRefreshBox
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
@@ -75,6 +78,7 @@ import com.kmworks.kmreader.ui.components.smartListContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
+import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.util.shareText
 import kotlinx.coroutines.launch
 import dev.chrisbanes.haze.hazeSource
@@ -93,10 +97,9 @@ fun ListsScreen(
     val groupCollectionsLabel = stringResource(R.string.lists_group_collections)
     val groupReadListsLabel = stringResource(R.string.lists_group_readlists)
     val groupSmartListsLabel = stringResource(R.string.lists_group_smartlists)
-    val scopePinnedLabel = stringResource(R.string.lists_scope_pinned)
-    val scopeAllLibrariesLabel = stringResource(R.string.common_all_libraries)
-    var scope by remember { mutableStateOf(scopePinnedLabel) }
     var scopeMenuOpen by remember { mutableStateOf(false) }
+    // Pin-editing sheet opened from the scope menu
+    var showPinSheet by remember { mutableStateOf(false) }
     // Long-press context menu target (group name + entry)
     var menuTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
     // Edit sheet target (entered from the context menu "Edit")
@@ -142,22 +145,57 @@ fun ListsScreen(
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text(scope)
+                        Text(libraryScopeLabel(state.libraryScope, state.libraries))
                     }
                     DropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
-                        // Demo library names are fixture data.
-                        listOf(scopeAllLibrariesLabel, scopePinnedLabel, "Comics", "Manga", "Manhua").forEach { s ->
+                        // Aligned with iOS LibraryScopeMenu / the dashboard: Pinned (when any pinned) /
+                        // All Libraries / single library / pin editing. The choice is persisted, and the
+                        // view model re-queries both strips against the resolved libraryIds.
+                        if (state.pinnedIds.isNotEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(s) },
+                                text = { Text(stringResource(R.string.lists_scope_pinned)) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.PushPin, contentDescription = null)
+                                },
                                 onClick = {
-                                    scope = s
+                                    viewModel.setScope(AppSettingsStore.SCOPE_PINNED)
                                     scopeMenuOpen = false
                                 },
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_all_libraries)) },
+                            onClick = {
+                                viewModel.setScope(AppSettingsStore.SCOPE_ALL)
+                                scopeMenuOpen = false
+                            },
+                        )
+                        state.libraries.forEach { library ->
+                            val libraryScope = AppSettingsStore.scopeForLibrary(library.id)
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (libraryScope == state.libraryScope) "✓ ${library.name}"
+                                        else library.name,
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.setScope(libraryScope)
+                                    scopeMenuOpen = false
+                                },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.dashboard_pin_libraries)) },
+                            onClick = {
+                                scopeMenuOpen = false
+                                showPinSheet = true
+                            },
+                        )
                     }
                 }
             },
@@ -231,6 +269,19 @@ fun ListsScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = LocalNavOverlaySpace.current),
+        )
+    }
+
+    // Pin-editing sheet (aligned with iOS LibraryPickerSheet / the dashboard)
+    if (showPinSheet) {
+        LibraryPinSheet(
+            libraries = state.libraries,
+            pinnedIds = state.pinnedIds,
+            onSave = { ids ->
+                viewModel.setPinnedLibraries(ids)
+                showPinSheet = false
+            },
+            onDismiss = { showPinSheet = false },
         )
     }
 

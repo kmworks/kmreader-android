@@ -41,6 +41,16 @@ fun resolveLibraryScopeIds(scope: String, pinnedIds: Set<String>): List<String>?
     else -> pinnedIds.toList().takeIf { it.isNotEmpty() }
 }
 
+/**
+ * A persisted single-library scope whose library disappeared falls back to "all libraries" (mirrors the
+ * iOS browse fallback; an empty list is ignored because the library list may not have answered yet).
+ */
+fun normalizeLibraryScope(scope: String, libraries: List<LibraryDto>): String {
+    if (libraries.isEmpty() || !scope.startsWith("library:")) return scope
+    val id = scope.removePrefix("library:")
+    return if (libraries.any { it.id == id }) scope else AppSettingsStore.SCOPE_ALL
+}
+
 /** Display name of a library scope (mirrors the iOS LibraryScopeMenu labels). */
 @Composable
 fun libraryScopeLabel(scope: String, libraries: List<LibraryDto>): String = when {

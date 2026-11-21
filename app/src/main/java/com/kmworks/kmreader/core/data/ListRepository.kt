@@ -37,10 +37,10 @@ class ListRepository @Inject constructor(
             }
     }
 
-    /** One page of collections; registers stable id → dto id for detail pages. */
-    suspend fun collectionsPage(page: Int = 0, size: Int = 20): Paged<CollectionDto> {
+    /** One page of collections, optionally limited to [libraryIds] (GET api/v1/collections?library_id=…); registers stable id → dto id for detail pages. */
+    suspend fun collectionsPage(page: Int = 0, size: Int = 20, libraryIds: List<String>? = null): Paged<CollectionDto> {
         val api = sessionManager.clients.value?.collections ?: return Paged(emptyList(), false)
-        val body = api.getCollections(page = page, size = size).awaitBody()
+        val body = api.getCollections(page = page, size = size, libraryId = libraryIds).awaitBody()
             ?: return Paged(emptyList(), false)
         val items = body.content.orEmpty()
         items.forEach {
@@ -50,10 +50,10 @@ class ListRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body.last != true)
     }
 
-    /** One page of read lists; registers stable id → dto id for detail pages. */
-    suspend fun readListsPage(page: Int = 0, size: Int = 20): Paged<ReadListDto> {
+    /** One page of read lists, optionally limited to [libraryIds] (GET api/v1/readlists?library_id=…); registers stable id → dto id for detail pages. */
+    suspend fun readListsPage(page: Int = 0, size: Int = 20, libraryIds: List<String>? = null): Paged<ReadListDto> {
         val api = sessionManager.clients.value?.readlists ?: return Paged(emptyList(), false)
-        val body = api.getReadLists(page = page, size = size).awaitBody()
+        val body = api.getReadLists(page = page, size = size, libraryId = libraryIds).awaitBody()
             ?: return Paged(emptyList(), false)
         val items = body.content.orEmpty()
         items.forEach {

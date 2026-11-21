@@ -148,6 +148,29 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.SEARCH_BROWSE_SCOPE] = scope }
     }
 
+    /**
+     * Library scope of the dashboard content (pinned/all/library:{id}).
+     *
+     * Persisted (the iOS DashboardLibraryScopeStore is session-only and resets to pinned on every launch;
+     * here the last choice survives so the dashboard does not fall back to "pinned" every time).
+     */
+    val dashboardBrowseScope: Flow<String> = store.data.map { prefs ->
+        prefs[Keys.DASHBOARD_BROWSE_SCOPE] ?: SCOPE_PINNED
+    }
+
+    suspend fun setDashboardBrowseScope(scope: String) {
+        store.edit { prefs -> prefs[Keys.DASHBOARD_BROWSE_SCOPE] = scope }
+    }
+
+    /** Library scope of the Lists tab (same value shape as the library tab's browse scope; persisted, default pinned). */
+    val listsBrowseScope: Flow<String> = store.data.map { prefs ->
+        prefs[Keys.LISTS_BROWSE_SCOPE] ?: SCOPE_PINNED
+    }
+
+    suspend fun setListsBrowseScope(scope: String) {
+        store.edit { prefs -> prefs[Keys.LISTS_BROWSE_SCOPE] = scope }
+    }
+
     /** Dashboard section order (ids of visible sections in display order; aligned with the iOS dashboard.sections ordered array). */
     val dashboardSectionOrder: Flow<List<String>> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_SECTION_ORDER].toCsvList()
@@ -454,6 +477,8 @@ class AppSettingsStore @Inject constructor(
         val PINNED_READLIST_IDS = stringPreferencesKey("pinned_readlist_ids")
         val LIBRARY_BROWSE_SCOPE = stringPreferencesKey("library_browse_scope")
         val SEARCH_BROWSE_SCOPE = stringPreferencesKey("search_browse_scope")
+        val DASHBOARD_BROWSE_SCOPE = stringPreferencesKey("dashboard_browse_scope")
+        val LISTS_BROWSE_SCOPE = stringPreferencesKey("lists_browse_scope")
         val DASHBOARD_SECTION_ORDER = stringPreferencesKey("dashboard_section_order")
         val DASHBOARD_HIDDEN_SECTIONS = stringPreferencesKey("dashboard_hidden_sections")
         val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")

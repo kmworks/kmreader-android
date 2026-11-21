@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailIdRegistry
+import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.SmartListRepository
@@ -18,6 +20,8 @@ import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.SampleData.ListEntry
+import com.kmworks.kmreader.ui.components.normalizeLibraryScope
+import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -28,13 +32,18 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Lists screen state; each list is null when there is no session (UI shows the empty state). */
+/**
+ * Lists screen state; each list is null when there is no session (UI shows the empty state).
+ * The library scope/pinned set mirror the dashboard: the toolbar menu filters the two strips.
+ */
 data class ListsUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
@@ -45,6 +54,12 @@ data class ListsUiState(
     val smartLists: List<ListEntry>? = null,
     val collectionsHasMore: Boolean = true,
     val readListsHasMore: Boolean = true,
+    /** Library-scope menu data: the real library list from the server. */
+    val libraries: List<LibraryDto> = emptyList(),
+    /** Library scope of the strips (pinned/all/library:{id}); persisted, defaults to pinned. */
+    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
+    val pinnedIds: Set<String> = emptySet(),
 )
 
 /** Real collections / read lists / smart lists (a failing smart list hides its whole group, no error). */
@@ -52,6 +67,7 @@ data class ListsUiState(
 class ListsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val listRepository: ListRepository,
+    private val libraryRepository: LibraryRepository,
     private val contentChangeBus: ContentChangeBus,
     private val smartListRepository: SmartListRepository,
     private val appSettingsStore: AppSettingsStore,
@@ -68,28 +84,32 @@ class ListsViewModel @Inject constructor(
     private var loadingMoreCollections = false
     private var loadingMoreReadLists = false
 
+    /** Resolved libraryIds filter of the current query (null = every library); load-more reuses it. */
+    private var currentLibraryIds: List<String>? = null
+
+    /** Generation counter: after a scope change, discard results of in-flight stale queries and pages. */
+    private var generation = 0
+
+    /** The scope/pins the visible strips were fetched with (null before the first load); a different query clears them. */
+    private var displayedScope: String? = null
+    private var displayedPinned: Set<String>? = null
+
     init {
+        // The persisted scope and pinned set are the source of truth (like the library tab): changing either
+        // re-queries the two strips with the resolved libraryIds.
         viewModelScope.launch {
-            sessionManager.clients.collect { clients ->
-                if (clients == null) {
-                    collectionsPage = 0
-                    readListsPage = 0
-                    _state.update {
-                        it.copy(
-                            hasSession = false,
-                            loading = false,
-                            loadingMore = false,
-                            collections = null,
-                            readLists = null,
-                            smartLists = null,
-                            collectionsHasMore = true,
-                            readListsHasMore = true,
-                        )
+            combine(
+                sessionManager.clients,
+                appSettingsStore.listsBrowseScope,
+                appSettingsStore.pinnedLibraryIds,
+            ) { clients, scope, pinned -> Triple(clients, scope, pinned) }
+                .collectLatest { (clients, scope, pinned) ->
+                    if (clients == null) {
+                        resetForSignedOut()
+                    } else {
+                        load(scope, pinned)
                     }
-                } else {
-                    load()
                 }
-            }
         }
         // These strips only show names, counts and covers, so a list write (here or on another screen)
         // re-reads once instead of patching: same cost as before, one shared debounce. Book and series
@@ -116,27 +136,81 @@ class ListsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun load() {
-        _state.update { it.copy(hasSession = true, loading = true, error = null) }
+    private fun resetForSignedOut() {
+        generation++
         collectionsPage = 0
         readListsPage = 0
-        // The reload replaces both strips wholesale, so the paging request state goes with the pages.
         loadingMoreCollections = false
         loadingMoreReadLists = false
+        currentLibraryIds = null
+        displayedScope = null
+        displayedPinned = null
+        _state.update {
+            it.copy(
+                hasSession = false,
+                loading = false,
+                loadingMore = false,
+                libraries = emptyList(),
+                collections = null,
+                readLists = null,
+                smartLists = null,
+                collectionsHasMore = true,
+                readListsHasMore = true,
+            )
+        }
+    }
+
+    /**
+     * Reload both strips for [scope]/[pinned]. The resolved libraryIds filter request, paging and the
+     * data cache alike; smart lists are not library-scoped (same as the iOS ListsBrowseView).
+     */
+    private suspend fun load(scope: String, pinned: Set<String>) {
+        val gen = ++generation
+        // The reload replaces both strips wholesale, so the paging request state goes with the pages.
+        collectionsPage = 0
+        readListsPage = 0
+        loadingMoreCollections = false
+        loadingMoreReadLists = false
+        // A changed query must not keep the previous scope's rows on screen; a plain refresh may keep them.
+        val sameQuery = displayedScope == scope && displayedPinned == pinned
+        _state.update {
+            it.copy(
+                hasSession = true,
+                loading = true,
+                error = null,
+                libraryScope = scope,
+                pinnedIds = pinned,
+                collections = if (sameQuery) it.collections else null,
+                readLists = if (sameQuery) it.readLists else null,
+            )
+        }
+        // The scope menu needs the real library list; read it first so a persisted single-library scope whose
+        // library disappeared can fall back to "all libraries" before the feeds are queried against a dead filter.
+        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+        val resolvedScope = normalizeLibraryScope(scope, libraries)
+        if (resolvedScope != scope) {
+            // Persisted, so the normalized choice survives; the collector then re-runs this load.
+            appSettingsStore.setListsBrowseScope(resolvedScope)
+        }
+        val libraryIds = resolveLibraryScopeIds(resolvedScope, pinned)
+        currentLibraryIds = libraryIds
+        _state.update { it.copy(libraryScope = resolvedScope, libraries = libraries) }
         // Data-cache parity: paint the cached Lists rows before the network answers (empty screen only).
-        if (_state.value.collections == null && _state.value.readLists == null) {
+        // The cache is written unfiltered (also by the library tab), so it can only seed an unfiltered query.
+        if (libraryIds == null && _state.value.collections == null && _state.value.readLists == null) {
             val cached = runCatching { catalogCache.seedLists() }.getOrNull()
-            if (cached != null) {
+            if (cached != null && gen == generation) {
                 _state.update { it.copy(collections = cached.first, readLists = cached.second) }
             }
         }
         try {
             val (collectionPage, readListPage, smartLists) = coroutineScope {
-                val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE) }
-                val r = async { listRepository.readListsPage(page = 0, size = PAGE_SIZE) }
+                val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
+                val r = async { listRepository.readListsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
                 val s = async { smartListRepository.smartLists() }
                 Triple(c.await(), r.await(), s.await())
             }
+            if (gen != generation) return // a newer scope/pins load started; discard this stale result
             val pinnedCollectionIds = appSettingsStore.pinnedCollectionIds.first()
             val pinnedReadListIds = appSettingsStore.pinnedReadListIds.first()
             val collectionEntries = collectionPage.items.map { dto ->
@@ -159,6 +233,8 @@ class ListsViewModel @Inject constructor(
                     ),
                 )
             }
+            displayedScope = resolvedScope
+            displayedPinned = pinned
             _state.update {
                 it.copy(
                     loading = false,
@@ -170,11 +246,15 @@ class ListsViewModel @Inject constructor(
                     readListsHasMore = readListPage.hasMore,
                 )
             }
-            // Persist the Lists rows so the next launch can paint them before the network answers.
-            runCatching { catalogCache.saveLists(collectionEntries, readListEntries) }
+            // Persist the Lists rows so the next launch can paint them before the network answers; only the
+            // unfiltered set is cached, because the cache has no scope dimension shared with the library tab.
+            if (libraryIds == null) {
+                runCatching { catalogCache.saveLists(collectionEntries, readListEntries) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (gen != generation) return
             _state.update {
                 it.copy(
                     loading = false,
@@ -194,7 +274,20 @@ class ListsViewModel @Inject constructor(
      * meanwhile while the work itself stays in this view model's scope.
      */
     fun refresh(): Job = viewModelScope.launch {
-        if (_state.value.hasSession) load()
+        val state = _state.value
+        if (state.hasSession) load(state.libraryScope, state.pinnedIds)
+    }
+
+    /** Library scope switch of this tab (pinned/all/library:{id}); persisted so the tab remembers it across launches. */
+    fun setScope(scope: String) {
+        if (_state.value.libraryScope == scope) return
+        _state.update { it.copy(libraryScope = scope) }
+        viewModelScope.launch { appSettingsStore.setListsBrowseScope(scope) }
+    }
+
+    /** Overwrite the pinned library set (saved from the pin-editing sheet; persisted in AppSettingsStore). */
+    fun setPinnedLibraries(ids: Set<String>) {
+        viewModelScope.launch { appSettingsStore.setPinnedLibraryIds(ids) }
     }
 
     /** Load the next page when the collections strip hits bottom. */
@@ -202,11 +295,14 @@ class ListsViewModel @Inject constructor(
         val state = _state.value
         if (loadingMoreCollections || state.loading || !state.collectionsHasMore) return
         loadingMoreCollections = true
+        val gen = generation
+        val libraryIds = currentLibraryIds
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
                 val nextPage = collectionsPage + 1
-                val result = listRepository.collectionsPage(page = nextPage, size = PAGE_SIZE)
+                val result = listRepository.collectionsPage(page = nextPage, size = PAGE_SIZE, libraryIds = libraryIds)
+                if (gen != generation) return@launch // the scope changed meanwhile; the new load owns the strips
                 collectionsPage = nextPage
                 val pinnedIds = appSettingsStore.pinnedCollectionIds.first()
                 _state.update { st ->
@@ -239,11 +335,14 @@ class ListsViewModel @Inject constructor(
         val state = _state.value
         if (loadingMoreReadLists || state.loading || !state.readListsHasMore) return
         loadingMoreReadLists = true
+        val gen = generation
+        val libraryIds = currentLibraryIds
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
                 val nextPage = readListsPage + 1
-                val result = listRepository.readListsPage(page = nextPage, size = PAGE_SIZE)
+                val result = listRepository.readListsPage(page = nextPage, size = PAGE_SIZE, libraryIds = libraryIds)
+                if (gen != generation) return@launch // the scope changed meanwhile; the new load owns the strips
                 readListsPage = nextPage
                 val pinnedIds = appSettingsStore.pinnedReadListIds.first()
                 _state.update { st ->

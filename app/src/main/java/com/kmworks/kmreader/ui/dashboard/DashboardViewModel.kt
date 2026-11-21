@@ -35,6 +35,7 @@ import com.kmworks.kmreader.data.ReadListContinuationUi
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.ui.components.normalizeLibraryScope
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.detail.BookMetadataDraft
 import com.kmworks.kmreader.ui.detail.toUpdateDto
@@ -116,6 +117,9 @@ class DashboardViewModel @Inject constructor(
     /** Serializes reloads: an SSE burst and a local write can each request one at nearly the same instant. */
     private val loadMutex = Mutex()
 
+    /** The persisted dashboard scope is read once (before the first feed query); the state is authoritative after that. */
+    private var scopeLoaded = false
+
     /**
      * Re-fetch the section contents (content sync after a successful action, an SSE event or a
      * pull-to-refresh). The returned job completes when the reload landed, so a caller can keep its
@@ -177,6 +181,16 @@ class DashboardViewModel @Inject constructor(
                 }
             }
         }
+        // The section detail page edits the same persisted dashboard scope; follow it while this screen is alive
+        // (the "More" page writes AppSettingsStore.dashboardBrowseScope, this collector keeps the dashboard in step).
+        viewModelScope.launch {
+            appSettings.dashboardBrowseScope.collect { stored ->
+                if (!scopeLoaded) return@collect
+                if (stored == _state.value.libraryScope) return@collect
+                _state.update { it.copy(libraryScope = stored) }
+                if (_state.value.hasSession) refresh()
+            }
+        }
         // Refresh after aggregating SSE content-change events over 3s (does not follow events when "auto refresh" is off in settings)
         viewModelScope.launch {
             combine(
@@ -222,10 +236,15 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    /** Library scope switch (pinned/all/library:{id}; session-level, not persisted, aligned with iOS DashboardLibraryScopeStore). */
+    /**
+     * Library scope switch (pinned/all/library:{id}). The choice is persisted in AppSettingsStore so the
+     * dashboard remembers it across launches (the iOS DashboardLibraryScopeStore only keeps it in memory).
+     */
     fun setScope(scope: String) {
         if (_state.value.libraryScope == scope) return
         _state.update { it.copy(libraryScope = scope) }
+        scopeLoaded = true
+        viewModelScope.launch { appSettings.setDashboardBrowseScope(scope) }
         if (_state.value.hasSession) refresh()
     }
 
@@ -238,8 +257,34 @@ class DashboardViewModel @Inject constructor(
         loadMutex.withLock { loadLocked() }
     }
 
+    /** One-time read of the persisted scope before the first feed query (otherwise the "pinned" default wins). */
+    private suspend fun ensureScopeLoaded() {
+        if (scopeLoaded) return
+        scopeLoaded = true
+        val stored = runCatching { appSettings.dashboardBrowseScope.first() }
+            .getOrDefault(AppSettingsStore.SCOPE_PINNED)
+        if (stored != _state.value.libraryScope) {
+            _state.update { it.copy(libraryScope = stored) }
+        }
+    }
+
+    /** A persisted single-library scope whose library disappeared falls back to "all libraries" (as on iOS). */
+    private suspend fun normalizeScope(libraries: List<LibraryDto>) {
+        val current = _state.value.libraryScope
+        val normalized = normalizeLibraryScope(current, libraries)
+        if (normalized != current) {
+            _state.update { it.copy(libraryScope = normalized) }
+            appSettings.setDashboardBrowseScope(normalized)
+        }
+    }
+
     private suspend fun loadLocked() {
+        ensureScopeLoaded()
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
+        // Read the library list first: the scope menu needs it anyway, and the single-library fallback above
+        // must not query the feeds with a library id the server no longer knows.
+        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+        normalizeScope(libraries)
         // Data-cache parity (iOS DashboardSectionCacheStore): paint the cached first page immediately,
         // then replace it with the server response below. Only seeds an empty screen, never overrides.
         if (_state.value.sections == null) {
@@ -295,7 +340,6 @@ class DashboardViewModel @Inject constructor(
             )
             val collectionDtos = listRepository.collections()
             val readListDtos = listRepository.readLists()
-            val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
             val collections = collectionDtos.map { dto ->
                 ListEntry(StableIds.collection(dto.id), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
             }
