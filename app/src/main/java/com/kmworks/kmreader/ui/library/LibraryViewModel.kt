@@ -77,8 +77,8 @@ data class LibraryUiState(
     val metricsByLibrary: Map<String, LibraryMetricValues> = emptyMap(),
     /** Server-wide metric totals, used by the all/pinned scopes. */
     val metricsTotal: LibraryMetricValues? = null,
-    /** LibraryBrowseScope rawValue: pinned / all / library:{id}. */
-    val scope: String = AppSettingsStore.SCOPE_PINNED,
+    /** LibraryBrowseScope rawValue: pinned / all / library:{id}. A server without a recorded choice shows all. */
+    val scope: String = AppSettingsStore.SCOPE_ALL,
     val pinnedIds: Set<String> = emptySet(),
     val browseOptions: BookBrowseOptions = BookBrowseOptions(),
     val collections: List<ListEntry>? = null,
@@ -135,6 +135,9 @@ class LibraryViewModel @Inject constructor(
     /** [SystemClock.elapsedRealtime] of the last load start, used to skip a redundant settle re-read. */
     private var lastLoadAtMs = 0L
 
+    /** Instance key the in-memory filter state belongs to (the filters are dropped when the server changes). */
+    private var filterInstanceKey: String? = null
+
     init {
         viewModelScope.launch {
             val isAdmin = serverAdminRepository.isAdmin()
@@ -154,8 +157,24 @@ class LibraryViewModel @Inject constructor(
                 appSettings.libraryBrowseScope,
                 appSettings.pinnedLibraryIds,
                 browseOptionsFlow,
-            ) { clients, scope, pinned, options -> ScopeQuery(clients != null, scope, pinned, options) }
+            ) { clients, scope, pinned, options ->
+                ScopeQuery(clients?.cacheNamespace, clients != null, scope, pinned, options)
+            }
                 .collectLatest { snapshot ->
+                    // The scope and the pins are stored per server, but the filter is session state: drop it on a
+                    // server switch. Its conditions (authors, tags, library ids) belong to the previous server, so
+                    // carrying it over would silently narrow the new server's list to rows it cannot match.
+                    val instanceChanged = snapshot.instanceKey != filterInstanceKey
+                    if (instanceChanged) {
+                        filterInstanceKey = snapshot.instanceKey
+                        appliedMetadataRoute = null
+                        if (browseOptionsFlow.value != BookBrowseOptions()) {
+                            // Clearing re-emits this query; let that pass do the work instead of loading filters
+                            // of the server we just left.
+                            browseOptionsFlow.value = BookBrowseOptions()
+                            return@collectLatest
+                        }
+                    }
                     if (!snapshot.hasSession) {
                         generation++
                         query = null
@@ -821,6 +840,8 @@ class LibraryViewModel @Inject constructor(
 
     /** Query snapshot (session + scope + pins + filters). */
     private data class ScopeQuery(
+        /** Instance key of the session the snapshot was built for (null while signed out). */
+        val instanceKey: String?,
         val hasSession: Boolean,
         val scope: String,
         val pinned: Set<String>,

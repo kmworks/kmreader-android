@@ -56,8 +56,8 @@ data class ListsUiState(
     val readListsHasMore: Boolean = true,
     /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
-    /** Library scope of the strips (pinned/all/library:{id}); persisted, defaults to pinned. */
-    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Library scope of the strips (pinned/all/library:{id}); persisted per server, defaults to all. */
+    val libraryScope: String = AppSettingsStore.SCOPE_ALL,
     /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
     val pinnedIds: Set<String> = emptySet(),
 )

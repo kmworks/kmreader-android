@@ -105,7 +105,7 @@ fun BrowseScreen(
     var query by remember { mutableStateOf("") }
     var scope by remember { mutableStateOf(SearchScope.All) }
     // Library scope switch (pinned/all/single library + pin editing), mirroring iOS LibraryScopeMenu;
-    // the search tab scope is persisted (searchBrowseScope) and defaults to Pinned
+    // the search tab scope is persisted per server and defaults to all libraries
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     var menuBook by remember { mutableStateOf<Book?>(null) }

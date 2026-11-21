@@ -59,6 +59,8 @@ usage, and cleanup of downloaded books. Offline browsing mode is intentionally o
 ### Server and sync
 
 - Multiple Komga servers with instant switching; sign in with username/password or an API key.
+  Library scope, pinned libraries and saved filter presets are kept per server, so a switch never
+  shows another server's selection and every server starts with all libraries in scope.
 - Komga API **v1 and v2** through a Retrofit client generated from the pinned
   [`api/openapi.json`](api/openapi.json) snapshot, so the wire contract is versioned with the app.
 - Server-sent events for real-time library updates, client settings sync, reading stats, and an

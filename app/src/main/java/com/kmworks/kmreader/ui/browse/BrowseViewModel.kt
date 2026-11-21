@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -56,8 +57,8 @@ data class BrowseUiState(
     val collectionsHasMore: Boolean = false,
     /** Whether the current scope has another page (for bottom-of-list detection). */
     val hasMore: Boolean = false,
-    /** Library scope (pinned/all/library:{id}; mirrors iOS LibraryBrowseScope, persisted, defaults to pinned). */
-    val libraryScope: String = AppSettingsStore.SCOPE_PINNED,
+    /** Library scope (pinned/all/library:{id}; mirrors iOS LibraryBrowseScope, persisted per server, defaults to all). */
+    val libraryScope: String = AppSettingsStore.SCOPE_ALL,
     /** Pinned library ids (resolved into a libraryIds filter for the pinned scope). */
     val pinnedIds: Set<String> = emptySet(),
 ) {
@@ -117,7 +118,7 @@ class BrowseViewModel @Inject constructor(
                 }
             }
         }
-        // debounced search pipeline (library scope persisted as searchBrowseScope; iOS search tab also defaults to pinned)
+        // debounced search pipeline (library scope persisted as searchBrowseScope per server, default all)
         viewModelScope.launch {
             combine(
                 combine(
@@ -133,6 +134,17 @@ class BrowseViewModel @Inject constructor(
             ) { request, options -> request.copy(options = options) }
                 .distinctUntilChanged()
                 .collectLatest { request -> performSearch(request) }
+        }
+        // The search filter is session state, not a persisted setting: it must not follow the user to another
+        // server, where its authors/tags/library ids (and the read-status semantics under a different account)
+        // would silently narrow the result set. Drop it whenever the session's instance changes.
+        viewModelScope.launch {
+            sessionManager.clients
+                .map { it?.cacheNamespace }
+                .distinctUntilChanged()
+                .collect {
+                    if (browseOptions.value != BookBrowseOptions()) browseOptions.value = BookBrowseOptions()
+                }
         }
         // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
         viewModelScope.launch {
