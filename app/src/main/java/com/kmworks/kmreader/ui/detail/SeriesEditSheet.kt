@@ -42,7 +42,7 @@ import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.WebLinkUpdateDto
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.SeriesStatus
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import com.kmworks.kmreader.ui.components.LockableChoiceRow
 import com.kmworks.kmreader.ui.components.LockableListSection
 import com.kmworks.kmreader.ui.components.LockableTextField
@@ -182,7 +182,7 @@ fun SeriesEditSheet(
     val sharingLabels = remember(initial) { initial.sharingLabels.toMutableStateList() }
     var sharingLabelsLocked by remember(initial) { mutableStateOf(initialLocks.sharingLabelsLock) }
 
-    AppModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
+    AppModalDialog(onDismissRequest = { if (!saving) onDismiss() }) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 20.dp)

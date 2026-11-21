@@ -50,7 +50,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -1440,7 +1440,7 @@ private fun ReaderPageMenuSheet(
     val context = LocalContext.current
     val pageLabel = stringResource(R.string.common_page_number, page.number)
     val shareLabel = stringResource(R.string.reader_share_page)
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 24.dp)) {
             Text(
                 pageLabel,

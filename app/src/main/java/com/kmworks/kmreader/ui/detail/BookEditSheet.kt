@@ -28,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -50,7 +49,7 @@ import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.BookMetadataLocks
 import com.kmworks.kmreader.data.Creator
 import com.kmworks.kmreader.data.NotableEntity
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import com.kmworks.kmreader.ui.components.LockToggle
 import com.kmworks.kmreader.ui.components.LockableTextField
 import com.kmworks.kmreader.ui.components.NotableEntitiesContent
@@ -214,7 +213,6 @@ fun BookEditSheet(
     onSave: (BookMetadataDraft) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var tab by rememberSaveable { mutableStateOf(BookEditTab.General) }
     val locks = remember(meta) { meta?.locks ?: BookMetadataLocks() }
 
@@ -242,7 +240,7 @@ fun BookEditSheet(
     }
     var notableEntitiesLocked by remember(meta) { mutableStateOf(locks.notableEntitiesLock) }
 
-    AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

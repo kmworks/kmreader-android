@@ -327,7 +327,7 @@ fun BrowseOptionsSheet(
     var pickerDimId by remember { mutableStateOf<String?>(null) }
     val browsePresets = rememberBrowseFilterPresets()
     val context = LocalContext.current
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 20.dp)) {
             // Fixed header: title + reset + close (mirrors SheetView title/onReset)
             Row(
@@ -752,7 +752,7 @@ private fun MetadataPickerSheet(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 20.dp)) {
             Row(
                 modifier = Modifier

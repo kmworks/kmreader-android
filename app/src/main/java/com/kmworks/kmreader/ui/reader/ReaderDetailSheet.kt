@@ -3,7 +3,7 @@ package com.kmworks.kmreader.ui.reader
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import com.kmworks.kmreader.ui.detail.BookDetailBody
 
 /**
@@ -27,7 +27,9 @@ fun ReaderDetailSheet(
     onOpenReadList: (Int) -> Unit,
     onBrowseFilter: (String) -> Unit,
 ) {
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    // Full page content (hero + tabs + scrolling body), so it uses the tall card instead of the
+    // square-capped one.
+    AppModalDialog(onDismissRequest = onDismiss, fullHeight = true) {
         BookDetailBody(
             book = book,
             seriesTitle = if (book.oneshot) null else book.seriesTitle,

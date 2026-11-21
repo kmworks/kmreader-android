@@ -33,7 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -433,7 +433,7 @@ fun ReaderPageJumpSheet(
 ) {
     var target by remember { mutableIntStateOf(currentPage) }
     val scope = rememberCoroutineScope()
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         BoxWithConstraints {
             // Card width = panel width * 0.72 (mirrors iOS PageJumpPreviewCard.widthRatio)
             val cardWidth = this.maxWidth * 0.72f

@@ -30,7 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -126,7 +126,7 @@ fun TrackerLinkEditSheet(
         if (existing == null) linkSuggestion?.second?.let { viewModel.loadSuggestion(it) }
     }
 
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .widthIn(max = 560.dp)

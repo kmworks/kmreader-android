@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 
 /** PDF reader prefs (mirrors PdfPreferencesView / PdfReaderSettingsSheet). */
 data class PdfReaderSettings(
@@ -166,7 +166,7 @@ fun PdfPreferencesSheet(
     onSettingsChange: (PdfReaderSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())

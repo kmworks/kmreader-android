@@ -30,7 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -202,7 +202,7 @@ fun TrackerSeriesSheet(
     val supported by viewModel.supported.collectAsStateWithLifecycle()
     var editingProvider by remember { mutableStateOf<TrackerProvider?>(null) }
 
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 28.dp)) {
             // Fixed header (aligned with the iOS SheetView navigation bar title)
             Row(

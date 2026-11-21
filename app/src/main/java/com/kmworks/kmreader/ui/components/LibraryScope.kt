@@ -86,7 +86,7 @@ fun LibraryPinSheet(
     onDismiss: () -> Unit,
 ) {
     var selection by remember { mutableStateOf(pinnedIds) }
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 // Many libraries can exceed the screen; scrollable and height-capped so the sheet stays in bounds

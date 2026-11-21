@@ -37,7 +37,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.SmartListRepository
 import com.kmworks.kmreader.core.data.SmartListShareTargetDto
 import com.kmworks.kmreader.core.network.ServerConfigStore
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,7 +164,7 @@ fun SmartListShareSheet(
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(stableId) { viewModel.load(stableId) }
 
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())

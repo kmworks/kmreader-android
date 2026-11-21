@@ -2,6 +2,8 @@ package com.kmworks.kmreader.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,7 +26,6 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,15 +46,18 @@ data class ContextMenuItem(
     val onClick: () -> Unit,
 )
 
-/** Generic long-press context menu (mirrors the KMReader ContextMenus, presented as a ModalBottomSheet). */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Generic long-press context menu (mirrors the KMReader ContextMenus, presented as a centered dialog). */
 @Composable
 fun ContextMenuSheet(
     items: List<ContextMenuItem>,
     onDismiss: () -> Unit,
 ) {
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(bottom = 28.dp)) {
+    AppModalDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(bottom = 28.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
             items.forEach { item ->
                 val tint = if (item.destructive) {
                     MaterialTheme.colorScheme.error

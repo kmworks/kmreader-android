@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,7 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.kmworks.kmreader.ui.components.AppModalBottomSheet
+import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -889,15 +888,15 @@ private fun EpubChapterSheet(
         if (index >= 0) onJump(index)
     }
 
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
+    AppModalDialog(onDismissRequest = onDismiss) {
         Text(
             stringResource(R.string.epub_toc),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
-        // Toc sheet: fixed height with a stable anchor (a bare LazyColumn would fill the screen and
-        // run into the status bar area)
-        LazyColumn(modifier = Modifier.fillMaxHeight(0.9f)) {
+        // Dialog card bounds the height, so the toc list just takes the remaining space below the
+        // title and scrolls inside the card.
+        LazyColumn(modifier = Modifier.weight(1f)) {
             if (rows.isEmpty()) {
                 // Missing toc: fall back to a flat readingOrder list
                 items(chapters.size) { index ->
