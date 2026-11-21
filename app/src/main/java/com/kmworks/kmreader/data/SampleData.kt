@@ -139,7 +139,6 @@ data class DashboardSection<T>(
 /** Shared UI model container (demo fixtures were removed entirely; all content comes from the server). */
 object SampleData {
 
-    data class ListGroup(val title: String, val items: List<ListEntry>)
     data class ListEntry(
         val id: Int,
         val title: String,
