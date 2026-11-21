@@ -125,6 +125,12 @@ data class EpubUiState(
     val scrollToFraction: Float? = null,
     /** Books adjacent to this one (read list order, else series); resolved after the first page shows. */
     val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
+    /**
+     * The publication's own reading progression from the manifest (`ltr` / `rtl` / `ttb` / `btt` /
+     * `auto`), which Komga derives from the series reading direction. Null while loading or when the
+     * manifest omits it, so the reader falls back to the global default.
+     */
+    val readingProgression: String? = null,
 )
 
 /**
@@ -266,6 +272,7 @@ class EpubReaderViewModel @Inject constructor(
                 currentChapterIndex = startIndex,
                 scrollToFraction = startFraction,
                 totalProgression = totalFor(chapters, startIndex, startFraction ?: 0f),
+                readingProgression = manifest?.metadata?.readingProgression,
             )
 
             resolveAdjacent(dtoId, readListStableId)
@@ -529,6 +536,17 @@ private fun RealEpubReader(
     // the reader and the defaults page share the same copy
     val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
     val dark = isSystemInDarkTheme()
+    // Reading direction: the manifest's reading progression (Komga derives it from the series
+    // reading direction), overridable by the forced default. A reflowable WebView has no page turn,
+    // so the direction reaches the document itself — dir="rtl" on the root element, exactly what the
+    // iOS page builder does — instead of the chrome.
+    val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
+    val rtl = resolveReadingDirection(
+        seriesDirection = readingDirectionFromProgression(state.readingProgression),
+        forceDefault = readerSettings.forceDefaultDirection,
+        defaultDirection = defaultDirection,
+    ) == ReadingDirection.Rtl
     val downloadedFamilies by viewModel.downloadedFamilies.collectAsStateWithLifecycle()
     val fontCss = remember(epubSettings.typeface, downloadedFamilies) {
         if (epubSettings.typeface in downloadedFamilies) {
@@ -537,8 +555,8 @@ private fun RealEpubReader(
             null
         }
     }
-    val themeConfig = remember(epubSettings, dark, fontCss) {
-        mapEpubThemeConfig(epubSettings, dark, fontCss)
+    val themeConfig = remember(epubSettings, dark, fontCss, rtl) {
+        mapEpubThemeConfig(epubSettings, dark, fontCss, rtl)
     }
     var latestConfig by remember { mutableStateOf(themeConfig) }
     SideEffect { latestConfig = themeConfig }
@@ -1130,6 +1148,7 @@ private fun mapEpubThemeConfig(
     settings: EpubReaderSettings,
     dark: Boolean,
     fontCss: String?,
+    rtl: Boolean = false,
 ): EpubThemeConfig {
     val (background, foreground) = when (normalizeEpubTheme(settings.theme)) {
         EPUB_THEME_QUIET -> "#FAFAFA" to "#1E1E1E"
@@ -1151,6 +1170,7 @@ private fun mapEpubThemeConfig(
         marginHPx = (settings.margins * 24f).toInt().coerceIn(8, 64),
         publisherStyles = settings.publisherStyles,
         fontCss = fontCss,
+        rtl = rtl,
     )
 }
 

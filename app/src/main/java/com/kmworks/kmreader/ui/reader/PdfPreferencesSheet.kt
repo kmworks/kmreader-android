@@ -165,6 +165,8 @@ fun PdfPreferencesSheet(
     settings: PdfReaderSettings,
     onSettingsChange: (PdfReaderSettings) -> Unit,
     onDismiss: () -> Unit,
+    /** Resolved reading direction (series metadata / forced default); shown read-only. */
+    readingDirection: ReadingDirection? = null,
 ) {
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
@@ -178,8 +180,35 @@ fun PdfPreferencesSheet(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
+            // The direction has no control here (it comes from the series, or from Reader Defaults
+            // when forced), but this is the only place the reader can state which one it resolved:
+            // page order cannot flip in PdfView, so the page-jump strip is the one visible effect.
+            if (readingDirection != null) {
+                PdfInfoRow(
+                    label = stringResource(R.string.reader_menu_direction),
+                    value = stringResource(readingDirection.labelRes),
+                )
+            }
             PdfSettingsContent(settings = settings, onSettingsChange = onSettingsChange)
         }
+    }
+}
+
+/** Read-only label/value row (a resolved setting, not a control). */
+@Composable
+private fun PdfInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

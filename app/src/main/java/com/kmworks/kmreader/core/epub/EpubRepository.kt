@@ -26,12 +26,25 @@ data class EpubLinkDto(
     val children: List<EpubLinkDto>? = null,
 )
 
+/**
+ * Readium WebPub manifest metadata (only the fields the reader consumes).
+ *
+ * [readingProgression] is the story's own reading direction (ltr / rtl / ttb / btt / auto). Komga
+ * derives it from the series reading direction (WebPubGenerator.withSeriesMetadata), so the value
+ * arrives with the manifest and needs no second request.
+ */
+@Serializable
+data class EpubManifestMetadataDto(
+    val readingProgression: String? = null,
+)
+
 /** WebPub manifest（Accept: application/webpub+json）。 */
 @Serializable
 data class EpubManifestDto(
     val readingOrder: List<EpubLinkDto> = emptyList(),
     val resources: List<EpubLinkDto> = emptyList(),
     val toc: List<EpubLinkDto> = emptyList(),
+    val metadata: EpubManifestMetadataDto? = null,
 )
 
 /** Readium locator locations (progression = ratio within the chapter, totalProgression = ratio of the whole book). */
