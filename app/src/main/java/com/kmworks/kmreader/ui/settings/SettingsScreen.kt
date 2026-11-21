@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
@@ -162,19 +163,27 @@ fun SettingsScreen(
     if (detail != null && split) {
         // System back leaves the open page before it leaves the settings hub.
         BackHandler(enabled = selectedPage != null) { selectedPageName = null }
-        Row(modifier = Modifier.fillMaxSize()) {
-            SettingsHub(onBack = onBack, groups = groups, modifier = Modifier.width(SidebarWidth))
-            VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                val page = selectedPage
-                if (page == null) {
-                    SettingsDetailPlaceholder()
-                } else {
-                    detail(
-                        page,
-                        { selectedPageName = null },
-                        { target -> selectedPageName = target.name },
-                    )
+        // A page layer only paints what the page itself draws, and the split leaves part of the window to
+        // the pane. Paint the whole split on the page surface: otherwise the tab skeleton shows through the
+        // empty pane (and the floating nav bar with it), and taps on that empty space would reach it too.
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                SettingsHub(onBack = onBack, groups = groups, modifier = Modifier.width(SidebarWidth))
+                VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    val page = selectedPage
+                    if (page == null) {
+                        SettingsDetailPlaceholder()
+                    } else {
+                        detail(
+                            page,
+                            { selectedPageName = null },
+                            { target -> selectedPageName = target.name },
+                        )
+                    }
                 }
             }
         }
