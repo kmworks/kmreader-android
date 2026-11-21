@@ -14,29 +14,16 @@ import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.observeChanges
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ListRepository
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.StableIds
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.hueFor
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.toListEntry
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
-import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.data.toUiBook
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
-import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.toUiSeries
+import com.kmworks.kmreader.core.download.DownloadRepository
+import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.komf.KomfJobState
@@ -891,14 +878,29 @@ class SeriesDetailViewModel @Inject constructor(
         return "${clients.baseUrl}/book/$bookDtoId"
     }
 
-    /** Creates a reading list (the "new…" flow of the "add to list" picker); returns the new entry on success. */
-    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
+    /** Creates a collection from the picker's selection (Komga refuses empty ones); returns the new entry on success. */
+    fun createCollectionEntry(
+        name: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newCollectionEntry(listRepository, detailRepository, name, ordered, selection.seriesIds))
+        }
     }
 
-    /** Creates a collection (the "new…" flow of the "add to collection" picker); returns the new entry on success. */
-    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    /** Creates a read list from the picker's selection (its books, or the books of its series); same contract. */
+    fun createReadListEntry(
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newReadListEntry(listRepository, detailRepository, name, summary, ordered, selection))
+        }
     }
 }
 

@@ -92,4 +92,6 @@
     <string name="smartlist_share_unavailable">共享功能需要启用了智能列表的 kmrs 服务器。</string>
     <string name="smartlist_share_admin_only">只有管理员可以修改智能列表的可见性。</string>
     <string name="smartlist_save_failed">保存失败</string>
+    <!-- 加入列表选择器：新建收藏/阅读列表失败（没有可作为初始内容的条目，或服务器拒绝了请求）。 -->
+    <string name="lists_create_failed">创建列表失败。</string>
 </resources>

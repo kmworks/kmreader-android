@@ -533,8 +533,8 @@ fun ReadListDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            selection = ListSelection(bookIds = selected.toList()),
             onCreateReadList = viewModel::createReadListEntry,
-            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addBooksToReadList(entry, selected) { ok ->
                     if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_add_to_readlist)) }
@@ -551,8 +551,8 @@ fun ReadListDetailScreen(
             AddToListSheet(
                 collections = emptyList(),
                 readLists = readLists ?: emptyList(),
+                selection = ListSelection(bookIds = listOf(target.id)),
                 onCreateReadList = viewModel::createReadListEntry,
-                onCreateCollection = viewModel::createCollectionEntry,
                 onSelect = { entry ->
                     viewModel.addBookToReadList(entry, target.id)
                     addToReadListOpen = false

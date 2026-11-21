@@ -407,8 +407,8 @@ fun CollectionDetailScreen(
         AddToListSheet(
             collections = emptyList(),
             readLists = readLists ?: emptyList(),
+            selection = ListSelection(seriesIds = ids.toList()),
             onCreateReadList = viewModel::createReadListEntry,
-            onCreateCollection = viewModel::createCollectionEntry,
             onSelect = { entry ->
                 viewModel.addSeriesToReadList(entry, ids) { ok ->
                     if (ok) {

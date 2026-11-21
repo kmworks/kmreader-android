@@ -7,7 +7,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
-import com.kmworks.kmreader.ui.lists.newCollectionEntry
+import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.lists.newReadListEntry
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
@@ -467,16 +467,17 @@ class BookDetailViewModel @Inject constructor(
         return "${clients.baseUrl}/book/$dtoId"
     }
 
-    /** Create a read list (the "New…" flow of the "Add to List" picker); returns the new entry on
-     *  success. */
-    fun createReadListEntry(name: String, summary: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newReadListEntry(listRepository, name, summary, ordered)) }
-    }
-
-    /** Create a collection (the "New…" flow of the "Add to Collection" picker); returns the new
-     *  entry on success. */
-    fun createCollectionEntry(name: String, ordered: Boolean, onDone: (ListEntry?) -> Unit) {
-        viewModelScope.launch { onDone(newCollectionEntry(listRepository, name, ordered)) }
+    /** Create a read list from the picker's selection (this book, or the books of a series); returns the new entry. */
+    fun createReadListEntry(
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        selection: ListSelection,
+        onDone: (ListEntry?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onDone(newReadListEntry(listRepository, detailRepository, name, summary, ordered, selection))
+        }
     }
 }
 

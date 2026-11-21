@@ -6,6 +6,7 @@ import com.kmworks.kmreader.core.api.model.CollectionUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadListCreationDto
 import com.kmworks.kmreader.core.api.model.ReadListDto
 import com.kmworks.kmreader.core.api.model.ReadListUpdateDto
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -63,11 +64,21 @@ class ListRepository @Inject constructor(
         return Paged(items, hasMore = items.size >= size && body.last != true)
     }
 
-    /** Create a collection (POST api/v1/collections, starting empty; mirrors the original CollectionAddSheet). */
-    suspend fun createCollection(name: String, ordered: Boolean): CollectionDto? {
+    /**
+     * Create a collection holding [seriesDtoIds] (POST api/v1/collections).
+     *
+     * Komga validates `seriesIds` with `minItems: 1` (see CollectionCreationDto in api/openapi.json), so
+     * asking for an empty collection always answers 400. Such a request is refused locally instead, and
+     * the callers always pass the series they are about to add.
+     */
+    suspend fun createCollection(name: String, ordered: Boolean, seriesDtoIds: List<String>): CollectionDto? {
+        if (seriesDtoIds.isEmpty()) {
+            AppLog.w("Lists", "createCollection('$name') without series ids")
+            return null
+        }
         val api = sessionManager.clients.value?.collections ?: return null
         return api.createCollection(
-            CollectionCreationDto(name = name, ordered = ordered, seriesIds = emptyList()),
+            CollectionCreationDto(name = name, ordered = ordered, seriesIds = seriesDtoIds.distinct()),
         ).awaitBody()?.also {
             DetailIdRegistry.registerCollection(StableIds.collection(it.id), it.id)
             CoverUrlRegistry.registerCollection(StableIds.collection(it.id), it.id)
@@ -75,11 +86,25 @@ class ListRepository @Inject constructor(
         }
     }
 
-    /** Create a read list (POST api/v1/readlists, starting empty; mirrors the original ReadListAddSheet). */
-    suspend fun createReadList(name: String, summary: String, ordered: Boolean): ReadListDto? {
+    /**
+     * Create a read list holding [bookDtoIds] (POST api/v1/readlists).
+     *
+     * Komga validates `bookIds` with `minItems: 1`, so an empty list is refused locally instead of
+     * sending a request that can only answer 400.
+     */
+    suspend fun createReadList(
+        name: String,
+        summary: String,
+        ordered: Boolean,
+        bookDtoIds: List<String>,
+    ): ReadListDto? {
+        if (bookDtoIds.isEmpty()) {
+            AppLog.w("Lists", "createReadList('$name') without book ids")
+            return null
+        }
         val api = sessionManager.clients.value?.readlists ?: return null
         return api.createReadList(
-            ReadListCreationDto(bookIds = emptyList(), name = name, ordered = ordered, summary = summary),
+            ReadListCreationDto(bookIds = bookDtoIds.distinct(), name = name, ordered = ordered, summary = summary),
         ).awaitBody()?.also {
             DetailIdRegistry.registerReadList(StableIds.readList(it.id), it.id)
             CoverUrlRegistry.registerReadList(StableIds.readList(it.id), it.id)
