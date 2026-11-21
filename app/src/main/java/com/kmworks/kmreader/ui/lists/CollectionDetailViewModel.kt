@@ -287,13 +287,16 @@ class CollectionDetailViewModel @Inject constructor(
             var failed = false
             seriesDtoIds.forEach { seriesDtoId ->
                 try {
-                    detailRepository.seriesBooks(seriesDtoId).forEach { book ->
+                    val books = detailRepository.seriesBooks(seriesDtoId)
+                    books.forEach { book ->
                         downloadRepository.enqueueBook(
                             book.id,
                             book.name,
                             book.media.pagesCount,
                             mediaType = book.media.mediaType,
                             epubDivinaCompatible = book.media.epubDivinaCompatible,
+                            seriesDtoId = seriesDtoId,
+                            seriesBookCount = books.size,
                         )
                         enqueued = true
                     }

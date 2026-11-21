@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.ui.offline
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,8 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -46,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +69,8 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.download.DownloadTaskUi
 import com.kmworks.kmreader.core.download.DownloadedBookUi
+import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
@@ -78,6 +83,8 @@ import dev.chrisbanes.haze.rememberHazeState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OfflineScreen(
+    onOpenBook: (Book) -> Unit = {},
+    onOpenSeries: (Series) -> Unit = {},
     viewModel: DownloadViewModel = hiltViewModel(),
 ) {
     val tasks by viewModel.tasks.collectAsState()
@@ -88,6 +95,23 @@ fun OfflineScreen(
     val libraries by viewModel.libraries.collectAsState()
     val libraryScope by viewModel.libraryScope.collectAsState()
     var scopeMenuOpen by remember { mutableStateOf(false) }
+
+    // Downloaded rows only know the DTO ids, so the detail pages are opened from a resolved Book/Series
+    // (mirrors the iOS offline cards' context menus); the screen consumes the event once it was pushed.
+    val navigation by viewModel.navigation.collectAsState()
+    LaunchedEffect(navigation) {
+        when (val target = navigation) {
+            is OfflineNavigation.OpenBook -> {
+                onOpenBook(target.book)
+                viewModel.consumeNavigation()
+            }
+            is OfflineNavigation.OpenSeries -> {
+                onOpenSeries(target.series)
+                viewModel.consumeNavigation()
+            }
+            null -> Unit
+        }
+    }
 
     // The frosted bar floats over the page: the download lists scroll underneath it.
     val singleListState = rememberLazyListState()
@@ -197,6 +221,8 @@ fun OfflineScreen(
                         downloadedSection(
                             downloaded = downloaded,
                             onRemove = { viewModel.deleteBook(it) },
+                            onOpenBook = viewModel::openBookDetails,
+                            onOpenSeries = viewModel::openSeriesDetails,
                         )
                         item(key = "rightBottomSpacer") { Spacer(Modifier.height(16.dp)) }
                     }
@@ -228,6 +254,8 @@ fun OfflineScreen(
                     downloadedSection(
                         downloaded = downloaded,
                         onRemove = { viewModel.deleteBook(it) },
+                        onOpenBook = viewModel::openBookDetails,
+                        onOpenSeries = viewModel::openSeriesDetails,
                     )
                     item(key = "bottomSpacer") { Spacer(Modifier.height(16.dp)) }
                 }
@@ -322,6 +350,8 @@ private fun LazyListScope.policySection(
 private fun LazyListScope.downloadedSection(
     downloaded: List<DownloadedBookUi>,
     onRemove: (DownloadedBookUi) -> Unit,
+    onOpenBook: (DownloadedBookUi) -> Unit,
+    onOpenSeries: (DownloadedBookUi) -> Unit,
 ) {
     item(key = "downloadedHeader") {
         OfflineSectionHeader(
@@ -345,6 +375,8 @@ private fun LazyListScope.downloadedSection(
                 DownloadedRow(
                     item = item,
                     onRemove = { onRemove(item) },
+                    onOpenBook = { onOpenBook(item) },
+                    onOpenSeries = { onOpenSeries(item) },
                 )
             }
         }
@@ -635,48 +667,87 @@ private fun PolicySwitchRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadedRow(item: DownloadedBookUi, onRemove: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverArt(
-            title = item.title,
-            hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
-            stableId = StableIds.book(item.bookDtoId),
+private fun DownloadedRow(
+    item: DownloadedBookUi,
+    onRemove: () -> Unit,
+    onOpenBook: () -> Unit,
+    onOpenSeries: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
             modifier = Modifier
-                .width(44.dp)
-                .aspectRatio(2f / 3f),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onOpenBook,
+                    onLongClick = { menuOpen = true },
+                )
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CoverArt(
+                title = item.title,
+                hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
+                stableId = StableIds.book(item.bookDtoId),
+                modifier = Modifier
+                    .width(44.dp)
+                    .aspectRatio(2f / 3f),
             )
-            Text(
-                text = stringResource(R.string.offline_book_pages_size, item.pageCount, formatBytes(item.sizeBytes)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Icon(
-            imageVector = Icons.Filled.CheckCircle,
-            contentDescription = stringResource(R.string.offline_completed),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-        // Release storage (mirrors swipe-to-delete / delete-all)
-        IconButton(onClick = onRemove) {
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(R.string.offline_book_pages_size, item.pageCount, formatBytes(item.sizeBytes)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Icon(
-                Icons.Filled.DeleteOutline,
-                contentDescription = stringResource(R.string.offline_delete_free_space),
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = stringResource(R.string.offline_completed),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            // Mirrors the iOS offline card context menus: open the book/series detail, or release the storage.
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.common_more),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_view_details)) },
+                onClick = {
+                    menuOpen = false
+                    onOpenBook()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_open_series)) },
+                onClick = {
+                    menuOpen = false
+                    onOpenSeries()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_remove_download)) },
+                onClick = {
+                    menuOpen = false
+                    onRemove()
+                },
             )
         }
     }

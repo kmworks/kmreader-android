@@ -73,6 +73,7 @@ import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.browse.BrowseScreen
 import com.kmworks.kmreader.ui.components.AppTab
+import com.kmworks.kmreader.ui.components.LocalDownloadedIndex
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.dashboard.DashboardScreen
 import com.kmworks.kmreader.ui.dashboard.DashboardSectionDetailScreen
@@ -259,8 +260,10 @@ fun AppRoot(
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
     // (page background only) instead of flashing the login page before the saved session arrives.
     val sessionGate by rootViewModel.sessionGate.collectAsStateWithLifecycle()
-    // PDF engine selection (native PdfRenderer vs androidx.pdf); device-local preference.
+    // PDF reader selection (dedicated PDF reader vs DIVINA comic reader); device-local preference.
     val useNativePdfReader by rootViewModel.useNativePdfReader.collectAsStateWithLifecycle()
+    // Completed downloads for the card badges (books + per-series aggregates), one app-wide snapshot.
+    val downloadedIndex by rootViewModel.downloadedIndex.collectAsStateWithLifecycle()
     when (sessionGate) {
         SessionGate.Loading -> {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
@@ -401,7 +404,10 @@ fun AppRoot(
         // height and scrolls underneath it, reserving only LocalNavOverlaySpace at the bottom. Wide layouts just cap the
         // capsule width instead of switching to a different bar shape (no more NavigationBar row eating ~80dp on phones).
         val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        CompositionLocalProvider(LocalNavOverlaySpace provides (NavOverlaySpace + navigationInset)) {
+        CompositionLocalProvider(
+            LocalNavOverlaySpace provides (NavOverlaySpace + navigationInset),
+            LocalDownloadedIndex provides downloadedIndex,
+        ) {
             // The pages no longer own a Scaffold: the root paints the app background behind their edge-to-edge
             // content (status bar strip included), so the frosted top bars have something to sit on.
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -430,7 +436,10 @@ fun AppRoot(
                         onOpenGroup = { push(ListsGroupRoute(it)) },
                     )
 
-                    AppTab.Offline -> OfflineScreen()
+                    AppTab.Offline -> OfflineScreen(
+                        onOpenBook = openBook,
+                        onOpenSeries = openSeries,
+                    )
 
                     AppTab.Browse -> BrowseScreen(
                         onOpenSeries = openSeries,

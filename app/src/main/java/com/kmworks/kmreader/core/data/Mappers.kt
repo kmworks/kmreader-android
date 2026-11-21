@@ -96,6 +96,7 @@ fun BookDto.toUiBook(): Book {
         number = n,
         title = metadata.title.ifBlank { name },
         seriesTitle = seriesTitle,
+        seriesDtoId = seriesId,
         hue = hueFor(seriesId),
         pageCount = media.pagesCount,
         progress = readProgress?.let { p ->

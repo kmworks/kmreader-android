@@ -362,6 +362,7 @@ class BookDetailViewModel @Inject constructor(
             pageCount = book.pageCount,
             mediaType = book.mediaType,
             epubDivinaCompatible = book.epubDivinaCompatible,
+            seriesDtoId = book.seriesDtoId,
         )
         return true
     }

@@ -66,6 +66,7 @@ import coil3.toBitmap
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.CoverUrlRegistry
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.download.DownloadMark
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
@@ -332,6 +333,7 @@ fun SeriesGridCard(
                     subtitle = if (series.oneshot) series.oneshotLineText() else series.subtitleText(),
                     modifier = Modifier.matchParentSize(),
                     subtitleLeadingIcon = series.oneshot,
+                    downloadedMark = seriesDownloadedMark(series),
                 )
             }
         }
@@ -352,6 +354,7 @@ fun SeriesGridCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            val downloadedMark = seriesDownloadedMark(series)
             if (series.oneshot) {
                 // Mirrors iOS SeriesCardView: oneshot detail line = book.closed icon + oneshotLine, with no book count
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -368,16 +371,28 @@ fun SeriesGridCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(downloadedMark)
+                    }
                 }
             } else {
-                Text(
-                    text = series.subtitleText(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = series.subtitleText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(downloadedMark)
+                    }
+                }
             }
         }
     }
@@ -428,6 +443,7 @@ fun BookGridCard(
                     subtitleLeadingIcon = book.oneshot,
                     statusLabel = statusText,
                     statusColor = statusColor,
+                    downloadedMark = bookDownloadedMark(book),
                 )
             }
         }
@@ -478,13 +494,21 @@ fun BookGridCard(
             // Mirrors the iOS BookCardView statusContent detail line: in progress "xx% • N pages",
             // finished "✓ relative last-read time", unread "N pages"; unavailable / abnormal media use colored status text
             val (statusText, statusColor) = bookCardStatusLine(book, overlay = false)
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = statusColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val downloadedMark = bookDownloadedMark(book)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = statusColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (downloadedMark != DownloadMark.None) {
+                    Spacer(Modifier.weight(1f))
+                    DownloadedMarkIcon(downloadedMark)
+                }
+            }
         }
     }
 }
@@ -626,6 +650,8 @@ private fun CardTextOverlay(
     /** Media status text (shown under the title when not READY; mirrors overlayDetail's statusContent on iOS). */
     statusLabel: String? = null,
     statusColor: Color = Color.White,
+    /** Downloaded marker drawn at the trailing edge of the detail line (mirrors iOS DownloadStatusIcon). */
+    downloadedMark: DownloadMark = DownloadMark.None,
 ) {
     Box(
         modifier = modifier
@@ -664,7 +690,16 @@ private fun CardTextOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = TightTextStyle,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (statusLabel == null && downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(
+                            mark = downloadedMark,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            size = 10.dp,
+                        )
+                    }
                 }
             }
             Text(
@@ -677,15 +712,26 @@ private fun CardTextOverlay(
                 style = TightTextStyle,
             )
             if (statusLabel != null) {
-                Text(
-                    text = statusLabel,
-                    color = statusColor,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TightTextStyle,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = statusLabel,
+                        color = statusColor,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TightTextStyle,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(
+                            mark = downloadedMark,
+                            tint = statusColor.copy(alpha = 0.85f),
+                            size = 10.dp,
+                        )
+                    }
+                }
             }
         }
     }
@@ -959,15 +1005,23 @@ fun BookHorizontalCard(
             }
         },
         status = { palette ->
-            Text(
-                text = metaText,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                color = metaStatusColor ?: palette.meta,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TightTextStyle,
-            )
+            val downloadedMark = bookDownloadedMark(book)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = metaText,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    color = metaStatusColor ?: palette.meta,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TightTextStyle,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (downloadedMark != DownloadMark.None) {
+                    Spacer(Modifier.weight(1f))
+                    DownloadedMarkIcon(downloadedMark, tint = palette.meta, size = 11.dp)
+                }
+            }
         },
     )
 }
@@ -1009,11 +1063,19 @@ fun BookListRow(
             )
             // Mirrors the iOS BookRowView status area: colored status text replaces the page count for abnormal media
             val rowStatus = mediaStatusLabel(book.mediaStatus)
-            Text(
-                text = rowStatus?.first ?: book.pageLabelText(),
-                style = MaterialTheme.typography.bodySmall,
-                color = rowStatus?.second ?: MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            val downloadedMark = bookDownloadedMark(book)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = rowStatus?.first ?: book.pageLabelText(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = rowStatus?.second ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (downloadedMark != DownloadMark.None) {
+                    Spacer(Modifier.weight(1f))
+                    DownloadedMarkIcon(downloadedMark)
+                }
+            }
             if (display.showProgressBar) {
                 book.progress?.let { p ->
                     if (p < 1f) {
@@ -1074,6 +1136,7 @@ fun SeriesListRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val downloadedMark = seriesDownloadedMark(series)
             if (series.oneshot) {
                 // Mirrors iOS SeriesRowView: oneshot line = book.closed icon + oneshotLine
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1090,16 +1153,28 @@ fun SeriesListRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(downloadedMark)
+                    }
                 }
             } else {
-                Text(
-                    text = series.subtitleText(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = series.subtitleText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (downloadedMark != DownloadMark.None) {
+                        Spacer(Modifier.weight(1f))
+                        DownloadedMarkIcon(downloadedMark)
+                    }
+                }
             }
             if (display.showProgressBar) {
                 series.progress?.let { p ->
