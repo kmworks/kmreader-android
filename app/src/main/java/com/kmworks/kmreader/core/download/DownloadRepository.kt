@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -60,14 +62,33 @@ class DownloadRepository @Inject constructor(
      */
     private val legacySeries = ConcurrentHashMap<String, Pair<String, Int>>()
 
+    /**
+     * Latest queue state as badge marks (bookDtoId → mark). The file scan needs it to publish a single
+     * [DownloadedIndex] that carries both finished and in-flight/failed books.
+     */
+    @Volatile
+    private var latestTaskMarks: Map<String, DownloadMark> = emptyMap()
+
+    /** Serializes index publication so a slow scan cannot overwrite a newer snapshot. */
+    private val indexMutex = Mutex()
+
     /** Rescan completed downloads and publish the badge index (off the main thread). */
     fun refreshDownloadedIndex() {
         appScope.launch(Dispatchers.IO) {
-            _downloadedIndex.value = scanDownloadedIndex()
+            indexMutex.withLock {
+                _downloadedIndex.value = scanDownloadedIndex(latestTaskMarks)
+            }
         }
     }
 
-    private suspend fun scanDownloadedIndex(): DownloadedIndex {
+    /** Rebuild and publish the index inline (already on an IO dispatcher, e.g. after a delete). */
+    private suspend fun publishDownloadedIndex() {
+        indexMutex.withLock {
+            _downloadedIndex.value = scanDownloadedIndex(latestTaskMarks)
+        }
+    }
+
+    private suspend fun scanDownloadedIndex(taskMarks: Map<String, DownloadMark>): DownloadedIndex {
         val completed = downloadsDir.listFiles()
             ?.filter { it.isDirectory }
             ?.mapNotNull { dir -> DownloadMeta.read(dir)?.takeIf { it.isComplete(dir) }?.let { dir to it } }
@@ -92,6 +113,9 @@ class DownloadRepository @Inject constructor(
 
         val seriesDownloaded = mutableMapOf<String, Int>()
         val seriesTotals = mutableMapOf<String, Int>()
+        val seriesDownloading = mutableMapOf<String, Int>()
+        val seriesPending = mutableMapOf<String, Int>()
+        val seriesFailed = mutableMapOf<String, Int>()
         completed.forEach { (dir, _) ->
             val bookId = dir.name
             val seriesDtoId = enqueueMeta.getString("$bookId#series", null) ?: return@forEach
@@ -99,10 +123,40 @@ class DownloadRepository @Inject constructor(
             val total = enqueueMeta.getInt("$bookId#seriesCount", 0)
             if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
         }
+
+        // Unfinished tasks: the badge follows the queue, but a book whose files are already complete keeps its
+        // Full mark (a REPLACE restart of a finished download must not downgrade the card).
+        val tasks = mutableMapOf<Int, DownloadMark>()
+        taskMarks.forEach { (bookId, mark) ->
+            val stableId = StableIds.book(bookId)
+            if (stableId in books) return@forEach
+            tasks[stableId] = mark
+            val seriesDtoId = enqueueMeta.getString("$bookId#series", null) ?: return@forEach
+            when (mark) {
+                DownloadMark.Downloading ->
+                    seriesDownloading[seriesDtoId] = (seriesDownloading[seriesDtoId] ?: 0) + 1
+                DownloadMark.Pending ->
+                    seriesPending[seriesDtoId] = (seriesPending[seriesDtoId] ?: 0) + 1
+                DownloadMark.Failed ->
+                    seriesFailed[seriesDtoId] = (seriesFailed[seriesDtoId] ?: 0) + 1
+                else -> Unit
+            }
+            val total = enqueueMeta.getInt("$bookId#seriesCount", 0)
+            if (total > 0) seriesTotals[seriesDtoId] = maxOf(seriesTotals[seriesDtoId] ?: 0, total)
+        }
+
+        val seriesIds = seriesDownloaded.keys + seriesDownloading.keys + seriesPending.keys + seriesFailed.keys
         return DownloadedIndex(
             books = books,
-            series = seriesDownloaded.mapValues { (seriesDtoId, downloaded) ->
-                SeriesDownloadAggregate(downloaded = downloaded, total = seriesTotals[seriesDtoId] ?: 0)
+            tasks = tasks,
+            series = seriesIds.associateWith { seriesDtoId ->
+                SeriesDownloadAggregate(
+                    downloaded = seriesDownloaded[seriesDtoId] ?: 0,
+                    total = seriesTotals[seriesDtoId] ?: 0,
+                    downloading = seriesDownloading[seriesDtoId] ?: 0,
+                    pending = seriesPending[seriesDtoId] ?: 0,
+                    failed = seriesFailed[seriesDtoId] ?: 0,
+                )
             },
         )
     }
@@ -325,7 +379,7 @@ class DownloadRepository @Inject constructor(
     /** Downloaded books (file scan; the meta kind decides completeness: all pages, or the single file). */
     suspend fun downloadedBooks(): List<DownloadedBookUi> = withContext(Dispatchers.IO) {
         // Keep the badge index in sync with every explicit rescan (the offline page calls this after deletes).
-        _downloadedIndex.value = scanDownloadedIndex()
+        publishDownloadedIndex()
         downloadsDir.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
             val meta = DownloadMeta.read(dir) ?: return@mapNotNull null
             if (!meta.isComplete(dir)) return@mapNotNull null
@@ -357,7 +411,7 @@ class DownloadRepository @Inject constructor(
         AppLog.i("Download", "cancel: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         clearEnqueueMeta(bookDtoId)
         File(downloadsDir, bookDtoId).deleteRecursively()
-        _downloadedIndex.value = scanDownloadedIndex()
+        publishDownloadedIndex()
         tick.value += 1
     }
 
@@ -367,7 +421,7 @@ class DownloadRepository @Inject constructor(
         AppLog.i("Download", "delete: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         clearEnqueueMeta(bookDtoId)
         File(downloadsDir, bookDtoId).deleteRecursively()
-        _downloadedIndex.value = scanDownloadedIndex()
+        publishDownloadedIndex()
         tick.value += 1
     }
 
@@ -413,12 +467,15 @@ class DownloadRepository @Inject constructor(
         }
         refreshDownloadedIndex()
         // A task reaching SUCCEEDED/CANCELLED changes what is on disk; progress updates do not, so only
-        // (book, status) pairs are compared.
+        // (book, status) pairs are compared. The marks also feed the card badges (pending/spinning/failed).
         appScope.launch {
             downloads
-                .map { rows -> rows.map { it.bookDtoId to it.status } }
+                .map { rows -> rows.associate { it.bookDtoId to it.status.toDownloadMark() } }
                 .distinctUntilChanged()
-                .collect { refreshDownloadedIndex() }
+                .collect { marks ->
+                    latestTaskMarks = marks
+                    refreshDownloadedIndex()
+                }
         }
         // Refreshed catalog rows carry the series id, which backfills downloads enqueued before it existed.
         // Debounced because a single screen load writes several pages in a row.

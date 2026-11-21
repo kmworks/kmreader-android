@@ -90,6 +90,9 @@
     <string name="menu_remove_download">Remove Download</string>
     <string name="download_badge_downloaded">Downloaded</string>
     <string name="download_badge_partial">Partially downloaded</string>
+    <string name="download_badge_pending">Download pending</string>
+    <string name="download_badge_downloading">Downloading</string>
+    <string name="download_badge_failed">Download failed</string>
     <string name="menu_add_to_collection">Add to Collection</string>
     <string name="menu_add_to_read_list">Add to Read List</string>
     <string name="menu_edit_metadata">Edit Metadata</string>
