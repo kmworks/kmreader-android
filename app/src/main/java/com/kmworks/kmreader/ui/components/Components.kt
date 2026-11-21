@@ -762,7 +762,18 @@ internal class HorizontalCardPalette(
 /** iOS CoverAspectRatio.widthToHeight = 1/√2. */
 private const val Sqrt2CoverAspect: Float = 0.7071f
 
+/** The iOS cover width the √2 slot is derived from. The cover itself fills [HorizontalCardTextHeight] while keeping
+ *  its √2 aspect, so the extra card height widens it to ≈45.8dp instead of stretching it. */
 private val HorizontalCardCoverWidth = 43.dp
+
+/** Height of a horizontal card's text column: the √2 cover slot plus the leading Compose cannot take back.
+ *  The design's four lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) nominally fill the 60.8dp slot, but
+ *  Compose never compresses a line below its font's natural line spacing. A CJK font whose natural line height is
+ *  ~1.3em spends ~17.2dp per 15.5sp title line instead of 15.5dp, so the series line ends ~2dp below the slot edge and
+ *  [clipToBounds] slices the bottom of its glyphs (full-width parentheses and descenders are the most visible).
+ *  A fixed 4dp of slack keeps the tallest line box inside the card for every font — cards in a row must not differ in
+ *  height, so this cannot be derived from the text. */
+private val HorizontalCardTextHeight = HorizontalCardCoverWidth / Sqrt2CoverAspect + 4.dp
 
 /** Tight text style with font padding disabled: in fixed-height text columns (horizontal cards / overlays)
  *  the default includeFontPadding of the first and last lines pushes content out of the visible area, so it must be off. */
@@ -773,12 +784,12 @@ private val HorizontalCardShape = RoundedCornerShape(12.dp)
 
 /**
  * Horizontal card skeleton (mirrors iOS HorizontalCardSkeleton): corner radius 12, average cover color as the
- * background (falling back to surface without a tint), padding 8, a 43dp-wide cover cropped to the √2 slot, and a
- * text column with the same height as the cover (≈60.8dp).
+ * background (falling back to surface without a tint), padding 8, a √2 cover filling the card height (≈45.8×64.8dp),
+ * and a text column one glyph-slack taller than the √2 slot (≈64.8dp, see [HorizontalCardTextHeight]).
  *
- * The card height is fixed — exactly the cover slot — so every card in a row is the same size. [status] owns the
- * bottom of the text column, [block] (title + series) gets everything above it and is clipped to that space, so no
- * amount of text or font scaling can draw the progress line on top of the series line.
+ * The card height is fixed — the √2 slot plus the glyph slack — so every card in a row is the same size. [status]
+ * owns the bottom of the text column, [block] (title + series) gets everything above it and is clipped to that space,
+ * so no amount of text or font scaling can draw the progress line on top of the series line.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -826,7 +837,7 @@ internal fun HorizontalCardContainer(
             title = coverTitle,
             hue = hue,
             modifier = Modifier
-                .width(HorizontalCardCoverWidth)
+                .height(HorizontalCardTextHeight)
                 .aspectRatio(Sqrt2CoverAspect)
                 .then(if (blurUnread) Modifier.blur(6.dp) else Modifier),
             stableId = coverStableId,
@@ -834,9 +845,10 @@ internal fun HorizontalCardContainer(
             onCoverBitmap = reportTint,
         )
         Spacer(Modifier.width(8.dp))
-        // The four design text lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) already fill the √2 slot,
-        // so the card text is pinned to at most the design's own font scale: following a larger system font size
-        // would need a taller card, and cards in the same row must not differ in height.
+        // The four design text lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) only fit the √2 slot with
+        // the leading the design assumes, so the column keeps the slack of HorizontalCardTextHeight above the cover;
+        // the card text is also pinned to at most the design's own font scale, because following a larger system font
+        // size would need a taller card and cards in the same row must not differ in height.
         val density = LocalDensity.current
         val cardTextDensity = remember(density) {
             Density(density.density, density.fontScale.coerceAtMost(1f))
@@ -845,7 +857,7 @@ internal fun HorizontalCardContainer(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(HorizontalCardCoverWidth / Sqrt2CoverAspect),
+                    .height(HorizontalCardTextHeight),
             ) {
                 // The status line keeps its own height at the bottom edge; the block above it is clipped so a
                 // rounding remainder can never be drawn over the status line.
