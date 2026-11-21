@@ -3,6 +3,7 @@ package com.kmworks.kmreader.ui.settings
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,7 +52,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -714,9 +717,12 @@ fun AboutScreen(onBack: () -> Unit) {
                 )
                 AboutLinkRow(
                     title = stringResource(R.string.settings_about_original),
-                    value = "github.com/kmworks/kmreader",
+                    value = "kmworks.date/reader/",
                 )
-                AboutLinkRow(title = stringResource(R.string.settings_about_komga), value = "komga.org")
+                AboutLinkRow(
+                    title = stringResource(R.string.settings_about_server),
+                    value = "kmworks.date/server/",
+                )
                 AboutLinkRow(
                     title = stringResource(R.string.settings_about_feedback),
                     value = "github.com/kmworks/kmreader-android/issues",
@@ -852,18 +858,22 @@ private fun SystemSliderRow(
     }
 }
 
+/** About row whose [value] is shown as a link and opens [url] in the browser. */
 @Composable
-private fun AboutLinkRow(title: String, value: String) {
+private fun AboutLinkRow(title: String, value: String, url: String = "https://$value") {
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { runCatching { uriHandler.openUri(url) } }
+            .padding(vertical = 10.dp, horizontal = 4.dp),
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.primary,
             fontFamily = FontFamily.Monospace,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

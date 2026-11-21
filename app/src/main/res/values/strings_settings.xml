@@ -173,7 +173,7 @@
     <string name="settings_about_version_format">Version %1$s</string>
     <string name="settings_about_project">Project</string>
     <string name="settings_about_original">KMReader-iOS</string>
-    <string name="settings_about_komga">Komga Server</string>
+    <string name="settings_about_server">kmrs Server</string>
     <string name="settings_about_feedback">Feedback</string>
     <string name="settings_license_readium">Readium (EPUB engine reference)</string>
     <string name="settings_license_pdfium">PDFium (PDF engine reference)</string>

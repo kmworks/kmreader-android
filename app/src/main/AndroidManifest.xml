@@ -3,6 +3,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Package visibility (Android 11+): LocalUriHandler.openUri resolves https VIEW intents,
+         so the browser must stay visible to this app. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".KMReaderApp"
         android:label="KMReader"
