@@ -138,8 +138,12 @@ fun ServerAdminScreen(
                     }
                 },
                 actions = {
-                    if (state.page == ServerAdminPage.Info && state.isAdmin) {
-                        IconButton(onClick = { viewModel.open(ServerAdminPage.Info) }) {
+                    // Both the hub and its info sub-page show the same snapshot, so both can refresh it.
+                    if (
+                        (state.page == ServerAdminPage.Info || state.page == ServerAdminPage.ServerInfo) &&
+                        state.isAdmin
+                    ) {
+                        IconButton(onClick = { viewModel.open(state.page) }) {
                             Icon(
                                 Icons.Filled.Refresh,
                                 contentDescription = stringResource(R.string.server_admin_refresh),
@@ -154,11 +158,11 @@ fun ServerAdminScreen(
             when {
                 !state.isAdmin -> CenteredMessage(R.string.server_admin_admin_required)
                 state.page == ServerAdminPage.Info -> InfoPage(
-                    state = state,
                     onOpen = viewModel::open,
                     onDownloadLog = { viewModel.open(ServerAdminPage.Log) },
                     onShutdown = { confirmShutdown = true },
                 )
+                state.page == ServerAdminPage.ServerInfo -> ServerInfoPage(state)
                 state.page == ServerAdminPage.Libraries -> LibrariesPage(state)
                 state.page == ServerAdminPage.Tasks -> TasksPage(
                     state = state,
@@ -225,6 +229,7 @@ fun ServerAdminScreen(
 
 private fun pageTitleRes(page: ServerAdminPage): Int = when (page) {
     ServerAdminPage.Info -> R.string.server_admin_title
+    ServerAdminPage.ServerInfo -> R.string.server_admin_info
     ServerAdminPage.Libraries -> R.string.server_admin_libraries
     ServerAdminPage.LibrariesAdmin -> R.string.server_admin_libraries_manage
     ServerAdminPage.ApiKeys -> R.string.server_admin_api_keys
@@ -240,13 +245,54 @@ private fun pageTitleRes(page: ServerAdminPage): Int = when (page) {
 
 // region info page
 
+/**
+ * Hub page of the server screen: one row into the server snapshot, then the management and maintenance
+ * actions. The snapshot itself is a sub-page ([ServerInfoPage]) so this page reads as a short list of
+ * options, the same shape as the entries below it.
+ */
 @Composable
 private fun InfoPage(
-    state: ServerAdminUiState,
     onOpen: (ServerAdminPage) -> Unit,
     onDownloadLog: () -> Unit,
     onShutdown: () -> Unit,
 ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        item { SectionTitle(stringResource(R.string.server_admin_section_server)) }
+        item { NavRow(stringResource(R.string.server_admin_info)) { onOpen(ServerAdminPage.ServerInfo) } }
+
+        item { SectionTitle(stringResource(R.string.server_admin_section_manage)) }
+        item { NavRow(stringResource(R.string.server_admin_libraries)) { onOpen(ServerAdminPage.Libraries) } }
+        item { NavRow(stringResource(R.string.server_admin_libraries_manage)) { onOpen(ServerAdminPage.LibrariesAdmin) } }
+        item { NavRow(stringResource(R.string.server_admin_api_keys)) { onOpen(ServerAdminPage.ApiKeys) } }
+        item { NavRow(stringResource(R.string.server_admin_auth_activity)) { onOpen(ServerAdminPage.AuthActivity) } }
+        item { NavRow(stringResource(R.string.server_admin_media)) { onOpen(ServerAdminPage.Media) } }
+        item { NavRow(stringResource(R.string.server_admin_tasks)) { onOpen(ServerAdminPage.Tasks) } }
+        item { NavRow(stringResource(R.string.server_admin_sessions)) { onOpen(ServerAdminPage.Sessions) } }
+        item { NavRow(stringResource(R.string.server_admin_scheduled)) { onOpen(ServerAdminPage.Scheduled) } }
+        item { NavRow(stringResource(R.string.server_admin_history)) { onOpen(ServerAdminPage.History) } }
+        item { NavRow(stringResource(R.string.server_admin_files)) { onOpen(ServerAdminPage.Files) } }
+
+        item { SectionTitle(stringResource(R.string.server_admin_section_maintenance)) }
+        item { NavRow(stringResource(R.string.server_admin_log)) { onDownloadLog() } }
+        item {
+            OutlinedButton(
+                onClick = onShutdown,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) { Text(stringResource(R.string.server_admin_shutdown), color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+/**
+ * Server snapshot sub-page (version / system / uptime, update check, resources and content totals)
+ * reached from the single [ServerAdminPage.ServerInfo] row of the hub.
+ */
+@Composable
+private fun ServerInfoPage(state: ServerAdminUiState) {
     val info = state.info
     if (state.infoLoading && info.version == null && info.libraries == null) {
         Loading()
@@ -286,6 +332,9 @@ private fun InfoPage(
 
         item { SectionTitle(stringResource(R.string.server_admin_section_updates)) }
         item { UpdateCheckRow(state) }
+        if (!state.updateSupported) {
+            item { HintText(stringResource(R.string.server_admin_update_unsupported)) }
+        }
 
         if (info.cpuPercent != null || info.memoryBytes != null || info.diskTotal != null) {
             item { SectionTitle(stringResource(R.string.server_admin_section_resources)) }
@@ -349,37 +398,6 @@ private fun InfoPage(
                 info.fileSize?.let {
                     ValueRow(stringResource(R.string.server_admin_total_size), formatBytes(it))
                 }
-            }
-        }
-
-        item { SectionTitle(stringResource(R.string.server_admin_section_manage)) }
-        item { NavRow(stringResource(R.string.server_admin_libraries)) { onOpen(ServerAdminPage.Libraries) } }
-        item { NavRow(stringResource(R.string.server_admin_libraries_manage)) { onOpen(ServerAdminPage.LibrariesAdmin) } }
-        item { NavRow(stringResource(R.string.server_admin_api_keys)) { onOpen(ServerAdminPage.ApiKeys) } }
-        item { NavRow(stringResource(R.string.server_admin_auth_activity)) { onOpen(ServerAdminPage.AuthActivity) } }
-        item { NavRow(stringResource(R.string.server_admin_media)) { onOpen(ServerAdminPage.Media) } }
-        item { NavRow(stringResource(R.string.server_admin_tasks)) { onOpen(ServerAdminPage.Tasks) } }
-        item { NavRow(stringResource(R.string.server_admin_sessions)) { onOpen(ServerAdminPage.Sessions) } }
-        item { NavRow(stringResource(R.string.server_admin_scheduled)) { onOpen(ServerAdminPage.Scheduled) } }
-        item { NavRow(stringResource(R.string.server_admin_history)) { onOpen(ServerAdminPage.History) } }
-        item { NavRow(stringResource(R.string.server_admin_files)) { onOpen(ServerAdminPage.Files) } }
-
-        item { SectionTitle(stringResource(R.string.server_admin_section_maintenance)) }
-        item { NavRow(stringResource(R.string.server_admin_log)) { onDownloadLog() } }
-        item {
-            OutlinedButton(
-                onClick = onShutdown,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            ) { Text(stringResource(R.string.server_admin_shutdown), color = MaterialTheme.colorScheme.error) }
-        }
-        if (!state.updateSupported) {
-            item {
-                Text(
-                    text = stringResource(R.string.server_admin_update_unsupported),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
             }
         }
     }

@@ -31,6 +31,7 @@ import kotlinx.serialization.json.longOrNull
 /** Sub-pages of the server management screen (mirrors the iOS NavigationLinks from ServerView). */
 enum class ServerAdminPage {
     Info,
+    ServerInfo,
     Libraries,
     LibrariesAdmin,
     ApiKeys,
@@ -151,7 +152,7 @@ class ServerAdminViewModel @Inject constructor(
         if (!_state.value.isAdmin) return
         viewModelScope.launch {
             when (page) {
-                ServerAdminPage.Info -> loadInfo()
+                ServerAdminPage.Info, ServerAdminPage.ServerInfo -> loadInfo()
                 ServerAdminPage.Libraries -> loadLibraries()
                 ServerAdminPage.Tasks -> loadTasks()
                 ServerAdminPage.Sessions -> loadSessions(reset = true)

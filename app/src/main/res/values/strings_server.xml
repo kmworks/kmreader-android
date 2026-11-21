@@ -5,6 +5,7 @@
     <string name="server_admin_admin_required">Administrator access is required to manage the server.</string>
 
     <string name="server_admin_section_server">Server</string>
+    <string name="server_admin_info">Server info</string>
     <string name="server_admin_version">Version</string>
     <string name="server_admin_commit">Commit</string>
     <string name="server_admin_os">System</string>

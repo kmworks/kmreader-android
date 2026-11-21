@@ -5,6 +5,7 @@
     <string name="server_admin_admin_required">需要管理员权限才能管理服务器。</string>
 
     <string name="server_admin_section_server">服务器</string>
+    <string name="server_admin_info">服务器信息</string>
     <string name="server_admin_version">版本</string>
     <string name="server_admin_commit">提交</string>
     <string name="server_admin_os">系统</string>
