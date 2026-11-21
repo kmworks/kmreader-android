@@ -3,9 +3,13 @@ package com.kmworks.kmreader.ui.reader
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
+import com.kmworks.kmreader.core.data.ReaderReadListContext
 import com.kmworks.kmreader.core.data.ReaderRepository
 import com.kmworks.kmreader.core.logging.AppLog
+import com.kmworks.kmreader.core.reading.ReadListReadingService
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.settings.DivinaSettingsStore
 import com.kmworks.kmreader.data.Book
@@ -26,6 +30,8 @@ enum class ReaderPagesStatus { Loading, Ready, Error }
 
 data class ReaderUiState(
     val status: ReaderPagesStatus = ReaderPagesStatus.Loading,
+    /** The book these pages belong to (the reader stays open across books, so the screen keeps them apart). */
+    val bookId: Int? = null,
     /** Real pages (width/height from PageDto). */
     val pages: List<ReaderPage> = emptyList(),
     /** Komga id of the current book (null when unmapped; pages unavailable). */
@@ -39,6 +45,14 @@ data class ReaderUiState(
     val wasInProgress: Boolean = false,
     /** Series metadata direction (raw: LEFT_TO_RIGHT/RIGHT_TO_LEFT/VERTICAL/WEBTOON, mirrors SeriesDto.metadata.readingDirection). */
     val seriesDirection: String? = null,
+    /** Series unread count (`SeriesDto.booksUnreadCount`) for the end-page "N unread left" line. */
+    val unreadCount: Int? = null,
+    /** The read list this session continues in (null when it reads in series order). */
+    val readListId: String? = null,
+    /** Name of [readListId], shown instead of the series title on the end page. */
+    val readListName: String? = null,
+    /** Adjacent books for the end page (mirrors the original resolveAdjacentBooks result). */
+    val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
 )
 
 /**
@@ -52,6 +66,8 @@ class ReaderViewModel @Inject constructor(
     private val detailRepository: DetailRepository,
     private val settingsStore: DivinaSettingsStore,
     private val appSettings: AppSettingsStore,
+    private val readListReadingService: ReadListReadingService,
+    private val adjacentBooksResolver: AdjacentBooksResolver,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -64,6 +80,9 @@ class ReaderViewModel @Inject constructor(
     val soloPages: StateFlow<Set<Int>> = _soloPages.asStateFlow()
 
     private var loadedBookId: Int? = null
+
+    /** The read list this session continues in, resolved once per session so continuing keeps the order. */
+    private var sessionReadListContext: ReaderReadListContext? = null
 
     /** Incognito reading: skips progress reporting. */
     var incognito: Boolean = false
@@ -78,8 +97,18 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /** Loads the page list + progress resume + series direction; idempotent for repeated calls with the same book. */
-    fun load(book: Book) {
+    /**
+     * Loads the page list + progress resume + series direction; idempotent for repeated calls with the same book.
+     *
+     * [readListStableId] is the read list the book was opened from (null from everywhere else): it wins over
+     * the implicit "a read list the user is reading contains this book" resolution, the same precedence the
+     * original ReaderPresentationManager applies.
+     *
+     * [startAtEnd] lands on the last page instead of the resume page. No caller uses it for the backward
+     * seam any more (that one resumes the previous book's own progress, so walking back does not record the
+     * book as finished); it is kept for entries that really mean "the end of this book".
+     */
+    fun load(book: Book, readListStableId: Int? = null, startAtEnd: Boolean = false) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
         // Reset progress-gate state on book change (mirrors the original rebuilding the gate on every loadBook)
@@ -88,34 +117,47 @@ class ReaderViewModel @Inject constructor(
         lastReportedPage = 0
         val dtoId = readerRepository.bookDtoId(book.id)
         if (dtoId == null) {
-            _uiState.value = ReaderUiState(status = ReaderPagesStatus.Error)
+            _uiState.value = ReaderUiState(status = ReaderPagesStatus.Error, bookId = book.id)
             return
         }
-        _uiState.value = ReaderUiState(status = ReaderPagesStatus.Loading, bookDtoId = dtoId)
+        _uiState.value = ReaderUiState(
+            status = ReaderPagesStatus.Loading,
+            bookId = book.id,
+            bookDtoId = dtoId,
+        )
         viewModelScope.launch {
             // Solo-page set (persisted locally; failures do not block)
             runCatching { settingsStore.soloPages(dtoId).first() }
                 .onSuccess { _soloPages.value = it }
 
-            val progress = runCatching { detailRepository.bookDetail(dtoId)?.readProgress }.getOrNull()
-            val seriesDirection = runCatching {
-                detailRepository.bookDetail(dtoId)
-                    ?.seriesId
-                    ?.let { detailRepository.seriesDetail(it) }
-                    ?.metadata
-                    ?.readingDirection
+            val detail = runCatching { detailRepository.bookDetail(dtoId) }.getOrNull()
+            val progress = detail?.readProgress
+            val series = runCatching {
+                detail?.seriesId?.let { detailRepository.seriesDetail(it) }
             }.getOrNull()
+            val seriesDirection = series?.metadata?.readingDirection
+            val unreadCount = series?.booksUnreadCount
 
             val dtos = readerRepository.pages(dtoId)
             _uiState.value = when {
-                dtos.isEmpty() -> ReaderUiState(status = ReaderPagesStatus.Error, bookDtoId = dtoId)
+                dtos.isEmpty() -> ReaderUiState(
+                    status = ReaderPagesStatus.Error,
+                    bookId = book.id,
+                    bookDtoId = dtoId,
+                )
                 else -> {
-                    // Mirrors the original loadBook: incognito or completed → start from page 0
-                    val resumePage = if (incognito || progress?.completed == true) null else progress?.page
+                    // Mirrors the original loadBook: incognito or completed → start from page 0; startAtEnd
+                    // (only explicit end-of-book entries now) lands on the last page instead
+                    val resumePage = when {
+                        startAtEnd -> dtos.lastOrNull()?.number
+                        incognito || progress?.completed == true -> null
+                        else -> progress?.page
+                    }
                     // Gate anchor = resume page (otherwise the pager jumping from 0 to the resume page would count as "turned N pages" and record immediately)
                     sessionStartPage = resumePage ?: dtos.firstOrNull()?.number
                     ReaderUiState(
                         status = ReaderPagesStatus.Ready,
+                        bookId = book.id,
                         pages = dtos.map { dto ->
                             ReaderPage(
                                 id = dto.number,
@@ -129,10 +171,88 @@ class ReaderViewModel @Inject constructor(
                         initialPage = resumePage,
                         wasInProgress = progress != null && progress.completed != true,
                         seriesDirection = seriesDirection,
+                        unreadCount = unreadCount,
                     )
                 }
             }
+            // Deferred, like the original: neither the read list context nor the sibling lookup delays the
+            // first render, and both are consumed only by the end page and the continuation.
+            if (_uiState.value.status == ReaderPagesStatus.Ready) {
+                val context = resolveReadListContext(dtoId, readListStableId)
+                if (_uiState.value.bookDtoId != dtoId) return@launch
+                if (context != null) {
+                    _uiState.value = _uiState.value.copy(
+                        readListId = context.readListId,
+                        readListName = context.name,
+                    )
+                    readListReadingService.record(context.readListId, dtoId)
+                }
+                resolveAdjacent(dtoId, context?.readListId)
+            }
         }
+    }
+
+    /**
+     * The read list this session continues in: the explicit entry point wins, otherwise a read list the
+     * user is reading that contains this book (mirrors ReaderPresentationManager.resolvedReadListContext).
+     * Null when the continuation setting is off or neither applies.
+     */
+    private suspend fun resolveReadListContext(
+        dtoId: String,
+        readListStableId: Int?,
+    ): ReaderReadListContext? {
+        sessionReadListContext?.let { return it }
+        val context = adjacentBooksResolver.readListContext(dtoId, readListStableId)
+        sessionReadListContext = context
+        return context
+    }
+
+    /**
+     * Resolves the previous/next sibling books (mirrors the original resolveAdjacentBooks). Only the end
+     * page consumes the result, so a failure is recorded on the state instead of failing the load.
+     */
+    private suspend fun resolveAdjacent(dtoId: String, readListId: String?) {
+        val adjacent = adjacentBooksResolver.resolve(dtoId, readListId)
+        // A different book was opened while the lookup was in flight
+        if (_uiState.value.bookDtoId != dtoId) return
+        _uiState.value = _uiState.value.copy(adjacent = adjacent)
+    }
+
+    /** Retry the sibling lookup after it failed (offline during the end page). */
+    fun retryAdjacent() {
+        val state = _uiState.value
+        val dtoId = state.bookDtoId ?: return
+        _uiState.value = state.copy(adjacent = ReaderAdjacentBooks())
+        viewModelScope.launch { resolveAdjacent(dtoId, state.readListId) }
+    }
+
+    /**
+     * Re-reads the series unread count. Called when the end page becomes visible: a completing progress
+     * write only moves the count once the server has stored it (mirrors the original
+     * scheduleRemainingUnreadCountSettleRefresh), so the first copy of the count can be the
+     * pre-completion one.
+     */
+    fun refreshUnreadCount() {
+        val dtoId = _uiState.value.bookDtoId ?: return
+        viewModelScope.launch {
+            val detail = runCatching { detailRepository.bookDetail(dtoId) }.getOrNull()
+            val series = runCatching {
+                detail?.seriesId?.let { detailRepository.seriesDetail(it) }
+            }.getOrNull() ?: return@launch
+            if (_uiState.value.bookDtoId != dtoId) return@launch
+            _uiState.value = _uiState.value.copy(unreadCount = series.booksUnreadCount)
+        }
+    }
+
+    /**
+     * Opens a sibling book in the same reader session (mirrors the original openAdjacentBook: progress is
+     * flushed, the reader options are preserved, and only the loaded book changes). The read cursor lands
+     * on that book's own resume page; [startAtEnd] stays available for explicit end-of-book entries.
+     */
+    fun openBook(book: Book, startAtEnd: Boolean = false) {
+        if (book.id == loadedBookId && !startAtEnd) return
+        loadedBookId = null
+        load(book, startAtEnd = startAtEnd)
     }
 
     fun retry(book: Book) {
@@ -160,6 +280,13 @@ class ReaderViewModel @Inject constructor(
     /** Page thumbnail URL (for the thumbnail strip). */
     fun pageThumbnailUrl(pageNumber: Int): String? =
         _uiState.value.bookDtoId?.let { readerRepository.pageThumbnailUrl(it, pageNumber) }
+
+    /**
+     * First page of a neighbouring book: the end page and the continuation gesture open one of them
+     * straight away, so its image is warmed before the seam is crossed.
+     */
+    fun firstPageUrl(bookId: Int): String? =
+        readerRepository.bookDtoId(bookId)?.let { readerRepository.pageUrl(it, 1) }
 
     // ---- Progress reporting (mirrors the original ReaderProgressRecordingGate) ----
     /** Session start page (first observed settled page). */

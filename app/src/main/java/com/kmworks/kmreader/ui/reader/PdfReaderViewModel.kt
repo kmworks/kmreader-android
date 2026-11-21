@@ -5,10 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.pdf.PdfDocument
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.DetailRepository
+import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.pdf.PdfAndroidxLoader
 import com.kmworks.kmreader.core.pdf.PdfRepository
+import com.kmworks.kmreader.core.reading.ReadListReadingService
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,6 +37,8 @@ data class PdfReaderUiState(
     val initialPage: Int = 1,
     /** androidx.pdf document instance; rendering and the text layer are managed by PdfView. */
     val document: PdfDocument? = null,
+    /** Books adjacent to this one (read list order, else series); resolved after the file opens. */
+    val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
 )
 
 @HiltViewModel
@@ -46,6 +51,8 @@ constructor(
     private val actionRepository: ActionRepository,
     private val sessionManager: SessionManager,
     private val appSettings: AppSettingsStore,
+    private val adjacentBooksResolver: AdjacentBooksResolver,
+    private val readListReadingService: ReadListReadingService,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -76,8 +83,14 @@ constructor(
     /** Incognito reading: skips progress reporting. */
     var incognito: Boolean = false
 
-    /** Entry point: enters the error state when there is no real mapping (no demo fallback). */
-    fun load(book: Book) {
+    /**
+     * Entry point: enters the error state when there is no real mapping (no demo fallback).
+     *
+     * [readListStableId] is the read list the book was opened from, so the session continues in its
+     * order; [startAtEnd] opens the last page (explicit end-of-book entries — the backward seam resumes
+     * the previous book's own progress instead).
+     */
+    fun load(book: Book, readListStableId: Int? = null, startAtEnd: Boolean = false) {
         if (lastBook?.id == book.id) return
         lastBook = book
         val dtoId = pdfRepository.bookDtoId(book.id)
@@ -110,6 +123,7 @@ constructor(
             hasRecorded = false
             val initialPage =
                 when {
+                    startAtEnd -> doc.pageCount
                     progress == null || progress.completed -> 1
                     else -> progress.page.coerceIn(1, doc.pageCount)
                 }
@@ -124,7 +138,26 @@ constructor(
                     document = doc,
                 )
             }
+
+            resolveAdjacent(dtoId, readListStableId)
         }
+    }
+
+    /**
+     * Resolves the read list the book belongs to (recording it, so the next open lands in the same
+     * continuation junction) and then the neighbouring books, without delaying the first page.
+     */
+    private suspend fun resolveAdjacent(dtoId: String, readListStableId: Int?) {
+        val context = runCatching {
+            adjacentBooksResolver.readListContext(dtoId, readListStableId)
+        }.getOrNull()
+        if (context != null) {
+            runCatching { readListReadingService.record(context.readListId, dtoId) }
+        }
+        val adjacent = adjacentBooksResolver.resolve(dtoId, context?.readListId)
+        // A different book was opened while the lookup was in flight
+        if (_uiState.value.bookDtoId != dtoId) return
+        _uiState.update { it.copy(adjacent = adjacent) }
     }
 
     /** Full-text search: returns the list of matching page numbers (1-based, ascending). */

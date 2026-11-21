@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import okhttp3.ResponseBody
 import retrofit2.Call
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 
@@ -31,4 +32,8 @@ interface ClientSettingsApi {
     /** Each key upserts independently and never overwrites keys written by other devices. */
     @PATCH("api/v1/client-settings/user")
     fun saveUserSettings(@Body body: Map<String, ClientSettingWriteDto>): Call<ResponseBody>
+
+    /** Removes keys (deleting a key that no longer exists is not an error). */
+    @DELETE("api/v1/client-settings/user")
+    fun deleteUserSettings(@Body keys: Set<String>): Call<ResponseBody>
 }

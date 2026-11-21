@@ -145,6 +145,10 @@ fun ReaderOptionsMenu(
     onOpenSettings: () -> Unit,
     onSharePage: () -> Unit,
     onOpenPageJump: () -> Unit,
+    /** Opens the previous book; null when there is none (the entry is hidden, mirroring canOpenPreviousBook). */
+    onOpenPreviousBook: (() -> Unit)? = null,
+    /** Opens the next book; null when there is none (the entry is hidden, mirroring canOpenNextBook). */
+    onOpenNextBook: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<ReaderMenuPicker?>(null) }
@@ -241,6 +245,31 @@ fun ReaderOptionsMenu(
                 onClick = {
                     onDismiss()
                     soloAction.onToggle()
+                },
+            )
+        }
+        // Adjacent book navigation (mirrors canOpenPreviousBook/canOpenNextBook: an entry only exists
+        // when the sibling lookup found that book, and the shared divider appears for either one)
+        val openPreviousBook = onOpenPreviousBook
+        val openNextBook = onOpenNextBook
+        if (openPreviousBook != null || openNextBook != null) {
+            HorizontalDivider()
+        }
+        if (openPreviousBook != null) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_menu_previous_book)) },
+                onClick = {
+                    onDismiss()
+                    openPreviousBook()
+                },
+            )
+        }
+        if (openNextBook != null) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_menu_next_book)) },
+                onClick = {
+                    onDismiss()
+                    openNextBook()
                 },
             )
         }

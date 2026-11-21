@@ -35,6 +35,24 @@ sealed interface ReaderViewItem {
     data class Half(val page: ReaderPage, val secondHalf: Boolean) : ReaderViewItem {
         override val pages: List<Int> = listOf(page.number)
     }
+
+    /**
+     * End-of-book cell: covers no pages. Appended after the last page of the book, mirroring the
+     * original `ReaderViewItem.end`, which sits between a finished segment and its next sibling.
+     */
+    data object End : ReaderViewItem {
+        override val pages: List<Int> = emptyList()
+    }
+
+    /**
+     * End-of-book cell of the previous book: covers no pages. Prepended before the first page of the
+     * book on screen, so turning back past the first page lands on it. It is the same seam [End]
+     * provides forwards: the original appends `.end` after every segment, so the item in front of a
+     * segment's first page is always the previous segment's end page.
+     */
+    data object PreviousEnd : ReaderViewItem {
+        override val pages: List<Int> = emptyList()
+    }
 }
 
 /**

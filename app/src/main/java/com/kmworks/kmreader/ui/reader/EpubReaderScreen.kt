@@ -56,12 +56,14 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -80,7 +82,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
+import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.DetailIdRegistry
+import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.epub.EpubChapter
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
@@ -93,6 +97,7 @@ import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.createEpubWebView
 import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.reading.ReadListReadingService
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CustomFont
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -118,6 +123,8 @@ data class EpubUiState(
     val currentChapterIndex: Int = 0,
     val totalProgression: Float = 0f,
     val scrollToFraction: Float? = null,
+    /** Books adjacent to this one (read list order, else series); resolved after the first page shows. */
+    val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
 )
 
 /**
@@ -132,6 +139,8 @@ class EpubReaderViewModel @Inject constructor(
     private val appSettings: AppSettingsStore,
     @ApplicationContext private val context: Context,
     private val actionRepository: ActionRepository,
+    private val adjacentBooksResolver: AdjacentBooksResolver,
+    private val readListReadingService: ReadListReadingService,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -176,8 +185,14 @@ class EpubReaderViewModel @Inject constructor(
     private val deviceId: String = "kmreader-android"
     private val deviceName: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
 
-    /** Loads the manifest, positions and the saved progression. */
-    fun load(book: Book) {
+    /**
+     * Loads the manifest, positions and the saved progression.
+     *
+     * [readListStableId] is the read list the book was opened from, so the session continues in its
+     * order; [startAtEnd] opens the last chapter at its bottom (explicit end-of-book entries — the
+     * backward seam resumes the previous book's own progress instead).
+     */
+    fun load(book: Book, readListStableId: Int? = null, startAtEnd: Boolean = false) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
         if (sessionManager.clients.value == null) return
@@ -237,6 +252,11 @@ class EpubReaderViewModel @Inject constructor(
                     startFraction = saved.locator.locations?.progression
                 }
             }
+            // Explicit end-of-book entry: open the book on its last page instead of its saved position
+            if (startAtEnd) {
+                startIndex = chapters.lastIndex
+                startFraction = 1f
+            }
             currentChapterFraction = startFraction ?: 0f
             _uiState.value = _uiState.value.copy(
                 loading = false,
@@ -247,7 +267,26 @@ class EpubReaderViewModel @Inject constructor(
                 scrollToFraction = startFraction,
                 totalProgression = totalFor(chapters, startIndex, startFraction ?: 0f),
             )
+
+            resolveAdjacent(dtoId, readListStableId)
         }
+    }
+
+    /**
+     * Resolves the read list the book belongs to (recording it, so the next open lands in the same
+     * continuation junction) and then the neighbouring books, without delaying the first page.
+     */
+    private suspend fun resolveAdjacent(dtoId: String, readListStableId: Int?) {
+        val context = runCatching {
+            adjacentBooksResolver.readListContext(dtoId, readListStableId)
+        }.getOrNull()
+        if (context != null) {
+            runCatching { readListReadingService.record(context.readListId, dtoId) }
+        }
+        val adjacent = adjacentBooksResolver.resolve(dtoId, context?.readListId)
+        // A different book was opened while the lookup was in flight
+        if (_uiState.value.bookDtoId != dtoId) return
+        _uiState.value = _uiState.value.copy(adjacent = adjacent)
     }
 
     /** Scroll-metrics callback from the JS bridge: updates the in-chapter and whole-book fractions, then reports throttled (mirrors the original updateThrottleInterval=2s). */
@@ -421,14 +460,20 @@ fun EpubReaderScreen(
     incognito: Boolean = false,
     viewModel: EpubReaderViewModel = hiltViewModel(),
     settingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
+    /** The read list the book was opened from (null from everywhere else), kept across neighbouring books. */
+    readListStableId: Int? = null,
+    /** Open the book on its last page (explicit end-of-book entry; the backward seam resumes progress). */
+    startAtEnd: Boolean = false,
+    /** Opens a neighbouring book with the reader for its format; [startAtEnd] travels on the route. */
+    onOpenBook: (Book, Boolean) -> Unit = { _, _ -> },
     onVisitSeries: (Book) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(book.id, incognito) {
+    LaunchedEffect(book.id, incognito, startAtEnd) {
         viewModel.incognito = incognito
-        viewModel.load(book)
+        viewModel.load(book, readListStableId, startAtEnd)
     }
     if (state.hasSession) {
         RealEpubReader(
@@ -438,6 +483,7 @@ fun EpubReaderScreen(
             settingsViewModel = settingsViewModel,
             onBack = onBack,
             incognito = incognito,
+            onOpenBook = onOpenBook,
             onVisitSeries = onVisitSeries,
             onOpenReadList = onOpenReadList,
             onBrowseFilter = onBrowseFilter,
@@ -474,6 +520,7 @@ private fun RealEpubReader(
     settingsViewModel: DivinaSettingsViewModel,
     onBack: () -> Unit,
     incognito: Boolean,
+    onOpenBook: (Book, Boolean) -> Unit,
     onVisitSeries: (Book) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
@@ -509,6 +556,7 @@ private fun RealEpubReader(
     // loaded from its top, so without this the first paint shows the chapter start and the injected
     // scroll only lands one or more frames later (same first-frame jump as the pager's cell 0)
     var restorePositioned by remember { mutableStateOf(false) }
+    var showingEndPage by remember { mutableStateOf(false) }
 
     val bridge = remember {
         EpubJsBridge(
@@ -564,6 +612,20 @@ private fun RealEpubReader(
     val pageBackground = remember(themeConfig) {
         Color(android.graphics.Color.parseColor(themeConfig.background))
     }
+    // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
+    val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
+
+    // The end page opens when the last chapter is scrolled past its bottom (mirrors
+    // EpubReaderView's showingEndPage, reached there by advancing past the last page). The WebView
+    // outlives this composition, so the callback reads the current state through rememberUpdatedState.
+    val onBottomOverscroll = rememberUpdatedState {
+        if (!showingEndPage &&
+            EpubEndPageTrigger.shouldShow(state.currentChapterIndex, state.chapters.size)
+        ) {
+            showingEndPage = true
+            chromeVisible = false
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -592,7 +654,12 @@ private fun RealEpubReader(
                     },
                     resolveFont = viewModel::fetchLocalFont,
                 )
-                createEpubWebView(context, bridge, client).also { webView = it }
+                createEpubWebView(
+                    context,
+                    bridge,
+                    client,
+                    onBottomOverscroll = { onBottomOverscroll.value() },
+                ).also { webView = it }
             },
             modifier =
                 Modifier
@@ -686,18 +753,43 @@ private fun RealEpubReader(
                     }
                     EpubReaderOptionsMenu(
                         expanded = menuExpanded,
-                        items = listOf(
+                        items = buildList {
                             // The book-detail entry is the top-bar title (mirrors iOS), so it is not
                             // repeated in the menu
-                            EpubMenuItem(stringResource(R.string.reader_settings_title)) {
-                                menuExpanded = false
-                                showSettings = true
-                            },
-                            EpubMenuItem(stringResource(R.string.epub_toc)) {
-                                menuExpanded = false
-                                showToc = true
-                            },
-                        ),
+                            add(
+                                EpubMenuItem(stringResource(R.string.reader_settings_title)) {
+                                    menuExpanded = false
+                                    showSettings = true
+                                },
+                            )
+                            add(
+                                EpubMenuItem(stringResource(R.string.epub_toc)) {
+                                    menuExpanded = false
+                                    showToc = true
+                                },
+                            )
+                            // Neighbouring books: the read list order, else the series (mirrors the
+                            // Divina menu; another reader takes over through onOpenBook). Both sides
+                            // resume on their own progress, never on the end page.
+                            state.adjacent.previous?.let { previous ->
+                                add(
+                                    EpubMenuItem(stringResource(R.string.reader_menu_previous_book)) {
+                                        menuExpanded = false
+                                        viewModel.flushReport()
+                                        onOpenBook(previous, false)
+                                    },
+                                )
+                            }
+                            state.adjacent.next?.let { next ->
+                                add(
+                                    EpubMenuItem(stringResource(R.string.reader_menu_next_book)) {
+                                        menuExpanded = false
+                                        viewModel.flushReport()
+                                        onOpenBook(next, false)
+                                    },
+                                )
+                            }
+                        },
                         onDismiss = { menuExpanded = false },
                     )
                 }
@@ -746,6 +838,18 @@ private fun RealEpubReader(
                     onClick = { showToc = true },
                 )
             }
+        }
+
+        // End page (mirrors iOS EpubEndPageView): Return dismisses it, Close leaves the reader
+        if (showingEndPage) {
+            EpubEndPage(
+                book = book,
+                background = pageBackground,
+                contentColor = pageContent,
+                onReturn = { showingEndPage = false },
+                onClose = onBack,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 

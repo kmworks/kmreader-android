@@ -207,6 +207,16 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.DASHBOARD_CONTINUATION] = enabled }
     }
 
+    /**
+     * Opt-in read-list continuation (mirrors the original readListContinuationEnabled, default off):
+     * while off nothing is recorded, synced, resolved, or shown; turning it on also adds the
+     * dashboard's "Read Lists in Progress" section, because that section has nothing to show otherwise.
+     */
+    val readListContinuationEnabled: Flow<Boolean> = booleanPref(Keys.READ_LIST_CONTINUATION, false)
+
+    suspend fun setReadListContinuationEnabled(enabled: Boolean) =
+        writeBoolean(Keys.READ_LIST_CONTINUATION, enabled)
+
     /** Section card kind overrides (comma-separated "id=kind"; sections without an override follow the default). */
     val dashboardKindOverrides: Flow<Map<String, String>> = store.data.map { prefs ->
         prefs[Keys.DASHBOARD_KIND_OVERRIDES].toCsvList()
@@ -483,6 +493,7 @@ class AppSettingsStore @Inject constructor(
         val DASHBOARD_HIDDEN_SECTIONS = stringPreferencesKey("dashboard_hidden_sections")
         val DASHBOARD_CARD_KIND_MENU = booleanPreferencesKey("dashboard_card_kind_menu")
         val DASHBOARD_CONTINUATION = booleanPreferencesKey("dashboard_continuation_enabled")
+        val READ_LIST_CONTINUATION = booleanPreferencesKey("read_list_continuation_enabled")
         val DASHBOARD_KIND_OVERRIDES = stringPreferencesKey("dashboard_kind_overrides")
         val BROWSE_LAYOUT_OVERRIDES = stringPreferencesKey("browse_layout_overrides")
         val CARD_COVER_ONLY = booleanPreferencesKey("card_cover_only")

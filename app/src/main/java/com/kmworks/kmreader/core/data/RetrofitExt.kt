@@ -45,3 +45,24 @@ internal suspend fun <T> Call<T>.awaitBody(): T? = withContext(Dispatchers.IO) {
         null
     }
 }
+
+/**
+ * Execute a Retrofit [Call] on IO keeping the failure: `success(null)` means the server answered
+ * without a body (a missing neighbour), `failure` means the lookup itself failed (offline).
+ */
+internal suspend fun <T> Call<T>.awaitBodyResult(): Result<T?> = withContext(Dispatchers.IO) {
+    try {
+        val response = execute()
+        if (response.isSuccessful) {
+            Result.success(response.body())
+        } else {
+            AppLog.w("API", "HTTP ${response.code()} ${request().method} ${request().url}")
+            Result.success(null)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        AppLog.e("API", "${request().method} ${request().url}", e)
+        Result.failure(e)
+    }
+}
