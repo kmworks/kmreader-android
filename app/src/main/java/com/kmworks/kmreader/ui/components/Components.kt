@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,12 +23,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -247,11 +248,16 @@ private fun coverUrlWithVersion(base: String?, stamp: Long, manualVersion: Int):
     return base + separator + params.joinToString("&")
 }
 
-/** Section header row: title on the left, "More" on the right. Mirrors the header of KMReader DashboardSectionLayout. */
+/**
+ * Dashboard section header, aligned with the iOS DashboardSectionLayout header: the title carries a
+ * chevron and the whole title row is the "open the full section" target, so there is no separate
+ * "More" button competing with the section's own cards. [trailing] keeps the card-kind control at
+ * the far right (the iOS header does the same).
+ */
 @Composable
 fun SectionHeader(
     title: String,
-    onMore: () -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -259,13 +265,31 @@ fun SectionHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f),
-        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onClick)
+                // 10dp above/below the title line keeps the header a 48dp touch target.
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         trailing?.invoke()
-        TextButton(onClick = onMore) { Text(stringResource(R.string.common_more)) }
     }
 }
 

@@ -505,18 +505,20 @@ private fun DashboardSectionRow(
     val availableKinds = SampleDashboardData.section(section.id)?.availableKinds
         ?: DashboardCardKind.entries.toList()
     var kindMenuOpen by remember(section.id) { mutableStateOf(false) }
-    // Card-kind menu next to the section title (can be disabled in settings, aligned with the card-kind menu toggle in SettingsDashboardView)
+    // Card-kind menu at the far right of the header (can be disabled in settings, aligned with the
+    // card-kind menu toggle in SettingsDashboardView). Icon-only like the iOS DashboardCardKindMenu:
+    // the current kind already shows in the cards themselves, and a text label squeezed the section title.
     val kindTrailing: (@Composable () -> Unit)? = if (kindMenuEnabled) {
         {
             Box {
-                TextButton(onClick = { kindMenuOpen = true }) {
+                IconButton(onClick = { kindMenuOpen = true }) {
                     Icon(
                         Icons.Filled.ViewModule,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                        contentDescription = stringResource(
+                            R.string.dashboard_layout,
+                            stringResource(dashboardCardKindLabelRes(cardKind)),
+                        ),
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(dashboardCardKindLabelRes(cardKind)))
                 }
                 DropdownMenu(
                     expanded = kindMenuOpen,
@@ -548,7 +550,7 @@ private fun DashboardSectionRow(
     }
     SectionHeader(
         title = section.title,
-        onMore = { onOpenSectionDetail(section) },
+        onClick = { onOpenSectionDetail(section) },
         modifier = Modifier.padding(horizontal = 16.dp),
         trailing = kindTrailing,
     )
