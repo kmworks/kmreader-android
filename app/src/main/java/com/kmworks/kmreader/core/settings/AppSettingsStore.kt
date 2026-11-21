@@ -147,30 +147,31 @@ class AppSettingsStore @Inject constructor(
         writeScopedString(Keys.PINNED_LIBRARY_IDS.name, ids.joinToString(","))
     }
 
-    /** Pinned collection id set (aligned with iOS Collection isPinned: local storage only, pinned items sort first in the list). */
-    val pinnedCollectionIds: Flow<Set<String>> = store.data.map { prefs ->
-        prefs[Keys.PINNED_COLLECTION_IDS]
-            ?.split(',')
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
-    }
+    /**
+     * Pinned collection id set of the active server (aligned with iOS Collection isPinned: local storage only,
+     * pinned items sort first in the list). Collection ids belong to one server, so the set is kept per server
+     * and a server never shows the pins of the server the user just left.
+     */
+    val pinnedCollectionIds: Flow<Set<String>> =
+        scopedString(Keys.PINNED_COLLECTION_IDS.name, "").map { raw ->
+            raw.split(',').filter { it.isNotBlank() }.toSet()
+        }
 
     suspend fun setPinnedCollectionIds(ids: Set<String>) {
-        store.edit { prefs -> prefs[Keys.PINNED_COLLECTION_IDS] = ids.joinToString(",") }
+        writeScopedString(Keys.PINNED_COLLECTION_IDS.name, ids.joinToString(","))
     }
 
-    /** Pinned read-list id set (aligned with iOS ReadList isPinned: local storage only, pinned items sort first in the list). */
-    val pinnedReadListIds: Flow<Set<String>> = store.data.map { prefs ->
-        prefs[Keys.PINNED_READLIST_IDS]
-            ?.split(',')
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            .orEmpty()
-    }
+    /**
+     * Pinned read-list id set of the active server (aligned with iOS ReadList isPinned: local storage only,
+     * pinned items sort first in the list); per server for the same reason as [pinnedCollectionIds].
+     */
+    val pinnedReadListIds: Flow<Set<String>> =
+        scopedString(Keys.PINNED_READLIST_IDS.name, "").map { raw ->
+            raw.split(',').filter { it.isNotBlank() }.toSet()
+        }
 
     suspend fun setPinnedReadListIds(ids: Set<String>) {
-        store.edit { prefs -> prefs[Keys.PINNED_READLIST_IDS] = ids.joinToString(",") }
+        writeScopedString(Keys.PINNED_READLIST_IDS.name, ids.joinToString(","))
     }
 
     /**
