@@ -14,6 +14,8 @@ import com.kmworks.kmreader.core.api.model.PageHashCreationDto
 import com.kmworks.kmreader.core.api.model.PageHashKnownDto
 import com.kmworks.kmreader.core.api.model.PageHashMatchDto
 import com.kmworks.kmreader.core.api.model.PageHashUnknownDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.ListSearchApi
 import com.kmworks.kmreader.core.data.LocalApiFactory
 import com.kmworks.kmreader.core.data.Paged
@@ -23,6 +25,7 @@ import com.kmworks.kmreader.core.data.awaitBody
 import com.kmworks.kmreader.core.data.awaitSuccess
 import com.kmworks.kmreader.core.data.combinedCondition
 import com.kmworks.kmreader.core.data.leafCondition
+import com.kmworks.kmreader.core.data.librariesChanged
 import com.kmworks.kmreader.core.data.libraryCondition
 import com.kmworks.kmreader.core.data.searchBody
 import com.kmworks.kmreader.core.network.ServerConfigStore
@@ -97,6 +100,7 @@ class ServerAdminRepository @Inject constructor(
     private val sessionManager: SessionManager,
     private val serverProfileStore: ServerProfileStore,
     private val configStore: ServerConfigStore,
+    private val contentChangeBus: ContentChangeBus,
 ) {
 
     private fun api(): ServerAdminApi? =
@@ -374,13 +378,21 @@ class ServerAdminRepository @Inject constructor(
         sessionManager.clients.value?.libraries?.getLibraryById(id)?.awaitBody()
 
     suspend fun createLibrary(creation: LibraryCreationDto): LibraryDto? =
-        sessionManager.clients.value?.libraries?.addLibrary(creation)?.awaitBody()
+        sessionManager.clients.value?.libraries?.addLibrary(creation)?.awaitBody()?.also { created ->
+            contentChangeBus.notify(librariesChanged(listOf(created.id), ContentChangeKind.Created))
+        }
 
-    suspend fun updateLibrary(id: String, update: LibraryUpdateDto): Boolean =
-        sessionManager.clients.value?.libraries?.updateLibraryById(id, update)?.awaitSuccess() ?: false
+    suspend fun updateLibrary(id: String, update: LibraryUpdateDto): Boolean {
+        val ok = sessionManager.clients.value?.libraries?.updateLibraryById(id, update)?.awaitSuccess() ?: false
+        if (ok) contentChangeBus.notify(librariesChanged(listOf(id), ContentChangeKind.MetadataChanged))
+        return ok
+    }
 
-    suspend fun deleteLibrary(id: String): Boolean =
-        sessionManager.clients.value?.libraries?.deleteLibraryById(id)?.awaitSuccess() ?: false
+    suspend fun deleteLibrary(id: String): Boolean {
+        val ok = sessionManager.clients.value?.libraries?.deleteLibraryById(id)?.awaitSuccess() ?: false
+        if (ok) contentChangeBus.notify(librariesChanged(listOf(id), ContentChangeKind.Deleted))
+        return ok
+    }
 
     /** Queue a library scan; [deep] forces a full re-read of every file. */
     suspend fun scanLibrary(id: String, deep: Boolean = false): Boolean =

@@ -161,6 +161,8 @@ class SseContentSync @Inject constructor(
         is ContentChange.Collections -> Carrier.Collections
         is ContentChange.ReadLists -> Carrier.ReadLists
         is ContentChange.SmartLists -> Carrier.SmartLists
+        // No cover cache entry is keyed by library.
+        is ContentChange.Libraries -> null
         ContentChange.Unknown -> null
     }
 

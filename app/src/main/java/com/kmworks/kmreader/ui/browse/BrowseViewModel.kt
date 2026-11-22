@@ -5,8 +5,10 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.SearchRepository
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
@@ -23,6 +25,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -84,6 +87,7 @@ class BrowseViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val appSettings: AppSettingsStore,
     sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
@@ -116,6 +120,13 @@ class BrowseViewModel @Inject constructor(
                     }
                     _state.update { it.copy(hasSession = true, libraries = libraries) }
                 }
+            }
+        }
+        // A library was added, renamed or removed elsewhere: the scope menu shows the names, so re-read.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect {
+                val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+                _state.update { it.copy(libraries = libraries) }
             }
         }
         // debounced search pipeline (library scope persisted as searchBrowseScope per server, default all)

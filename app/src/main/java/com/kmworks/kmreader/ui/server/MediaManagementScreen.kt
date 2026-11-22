@@ -55,7 +55,9 @@ import com.kmworks.kmreader.core.api.model.BookDto
 import com.kmworks.kmreader.core.api.model.PageHashKnownDto
 import com.kmworks.kmreader.core.api.model.PageHashMatchDto
 import com.kmworks.kmreader.core.api.model.PageHashUnknownDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import dagger.hilt.android.EntryPointAccessors
@@ -110,6 +112,7 @@ data class MediaUiState(
 @HiltViewModel
 class MediaManagementViewModel @Inject constructor(
     private val repository: ServerAdminRepository,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MediaUiState())
@@ -129,6 +132,13 @@ class MediaManagementViewModel @Inject constructor(
             val libraries = repository.libraries().map { LibraryFilterOption(it.id, it.name) }
             _state.update { it.copy(libraries = libraries) }
             load(reset = true)
+        }
+        // The library filter shows names: re-read them when the library configuration changes elsewhere.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect {
+                val libraries = runCatching { repository.libraries() }.getOrNull() ?: return@collect
+                _state.update { it.copy(libraries = libraries.map { lib -> LibraryFilterOption(lib.id, lib.name) }) }
+            }
         }
     }
 

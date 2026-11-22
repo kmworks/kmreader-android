@@ -79,6 +79,8 @@ class DetailRepository @Inject constructor(
             is ContentChange.Collections -> DetailIdRegistry.collectionStableId(dtoId)
             is ContentChange.ReadLists -> DetailIdRegistry.readListStableId(dtoId)
             is ContentChange.SmartLists -> DetailIdRegistry.smartListStableId(dtoId)
+            // Libraries are not rows on any detail screen: the change names no stable id.
+            is ContentChange.Libraries -> null
             ContentChange.Unknown -> null
         }
     }.toSet()

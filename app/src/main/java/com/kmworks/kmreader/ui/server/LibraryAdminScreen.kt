@@ -335,7 +335,8 @@ class LibraryAdminViewModel @Inject constructor(
         scanDirectoryExclusions = emptySet(),
         scanEpub = data.scanEpub,
         scanForceModifiedTime = false,
-        scanInterval = LibraryCreationDto.ScanInterval.entries.first { it.value == data.scanInterval },
+        scanInterval = LibraryCreationDto.ScanInterval.entries.firstOrNull { it.value == data.scanInterval }
+            ?: LibraryCreationDto.ScanInterval.DISABLED,
         scanOnStartup = data.scanOnStartup,
         scanPdf = data.scanPdf,
         seriesCover = LibraryCreationDto.SeriesCover.FIRST,
@@ -371,7 +372,8 @@ class LibraryAdminViewModel @Inject constructor(
         scanDirectoryExclusions = current?.scanDirectoryExclusions ?: emptySet(),
         scanEpub = data.scanEpub,
         scanForceModifiedTime = current?.scanForceModifiedTime ?: false,
-        scanInterval = LibraryUpdateDto.ScanInterval.entries.first { it.value == data.scanInterval },
+        scanInterval = LibraryUpdateDto.ScanInterval.entries.firstOrNull { it.value == data.scanInterval }
+            ?: LibraryUpdateDto.ScanInterval.DISABLED,
         scanOnStartup = data.scanOnStartup,
         scanPdf = data.scanPdf,
         seriesCover = current?.seriesCover?.let { cover ->
