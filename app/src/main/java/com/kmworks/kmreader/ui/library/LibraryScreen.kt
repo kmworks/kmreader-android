@@ -72,6 +72,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.EmptyState
@@ -81,6 +82,7 @@ import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseFilterButton
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.BrowseSortChip
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
@@ -309,6 +311,17 @@ fun LibraryScreen(
                             horizontalPadding = 16.dp,
                         )
                     }
+                    item(key = "library-sort") {
+                        LibrarySortChip(
+                            options = when (contentType) {
+                                LibraryContentType.Series -> state.seriesBrowseOptions
+                                LibraryContentType.Books -> state.booksBrowseOptions
+                            },
+                            contentType = browseContentType,
+                            horizontalPadding = 16.dp,
+                            onOpenOptions = { showOptionsSheet = true },
+                        )
+                    }
                     when (contentType) {
                         LibraryContentType.Series -> items(series.size, key = { series[it].id }) { index ->
                             val item = series[index]
@@ -377,6 +390,17 @@ fun LibraryScreen(
                                 activeFilter = null
                             },
                             horizontalPadding = 0.dp,
+                        )
+                    }
+                    item(key = "library-sort", span = { GridItemSpan(maxLineSpan) }) {
+                        LibrarySortChip(
+                            options = when (contentType) {
+                                LibraryContentType.Series -> state.seriesBrowseOptions
+                                LibraryContentType.Books -> state.booksBrowseOptions
+                            },
+                            contentType = browseContentType,
+                            horizontalPadding = 0.dp,
+                            onOpenOptions = { showOptionsSheet = true },
                         )
                     }
                     when (contentType) {
@@ -755,6 +779,23 @@ private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
         color = MaterialTheme.colorScheme.error,
         modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 4.dp),
     )
+}
+
+/**
+ * Current sort of the visible tab, tappable to open the filter panel. The panel is otherwise reachable only
+ * through the filter icon in the frosted bar; this chip surfaces the active order and gives it a second,
+ * always-visible entry point (the same idea as the detail pages' sort chip).
+ */
+@Composable
+private fun LibrarySortChip(
+    options: BrowseOptions,
+    contentType: BrowseContentType,
+    horizontalPadding: Dp,
+    onOpenOptions: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 2.dp)) {
+        BrowseSortChip(options = options, contentType = contentType, onOpenOptions = onOpenOptions)
+    }
 }
 
 /**
