@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -223,6 +224,7 @@ fun BrowseScreen(
                 onOpenReadList = onOpenReadList,
                 onOpenCollection = onOpenCollection,
                 onLoadMore = viewModel::loadMore,
+                onLoadMoreKind = viewModel::loadMoreKind,
                 onReadBook = { book -> onReadBook(book, false) },
                 onBookLongClick = { menuBook = it },
             )
@@ -358,6 +360,7 @@ private fun SearchResults(
     onOpenReadList: (Int) -> Unit,
     onOpenCollection: (Int) -> Unit,
     onLoadMore: () -> Unit,
+    onLoadMoreKind: (SearchScope) -> Unit,
     onReadBook: (Book) -> Unit = {},
     onBookLongClick: (Book) -> Unit = {},
 ) {
@@ -367,6 +370,7 @@ private fun SearchResults(
             query = query,
             layout = layout,
             onShowMore = onShowMore,
+            onLoadMoreKind = onLoadMoreKind,
             onOpenSeries = onOpenSeries,
             onOpenReadList = onOpenReadList,
             onOpenCollection = onOpenCollection,
@@ -583,6 +587,7 @@ private fun GroupedSearchResults(
     query: String,
     layout: BrowseLayout,
     onShowMore: (SearchScope) -> Unit,
+    onLoadMoreKind: (SearchScope) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenReadList: (Int) -> Unit,
     onOpenCollection: (Int) -> Unit,
@@ -639,6 +644,9 @@ private fun GroupedSearchResults(
                                 title = stringResource(R.string.common_series),
                                 showMore = state.seriesHasMore,
                                 onShowMore = { onShowMore(SearchScope.Series) },
+                                hasMore = state.seriesHasMore,
+                                loadingMore = state.loadingMore,
+                                onLoadMore = { onLoadMoreKind(SearchScope.Series) },
                             ) {
                                 items(state.series, key = { "series-${it.id}" }) { series ->
                                     SeriesGridCard(
@@ -657,6 +665,9 @@ private fun GroupedSearchResults(
                                 title = stringResource(R.string.browse_scope_books),
                                 showMore = state.booksHasMore,
                                 onShowMore = { onShowMore(SearchScope.Books) },
+                                hasMore = state.booksHasMore,
+                                loadingMore = state.loadingMore,
+                                onLoadMore = { onLoadMoreKind(SearchScope.Books) },
                             ) {
                                 items(state.books, key = { "book-${it.id}" }) { book ->
                                     BookGridCard(
@@ -677,6 +688,9 @@ private fun GroupedSearchResults(
                                 title = stringResource(R.string.browse_scope_collections),
                                 showMore = state.collectionsHasMore,
                                 onShowMore = { onShowMore(SearchScope.Collections) },
+                                hasMore = state.collectionsHasMore,
+                                loadingMore = state.loadingMore,
+                                onLoadMore = { onLoadMoreKind(SearchScope.Collections) },
                             ) {
                                 items(state.collections, key = { "collection-${it.id}" }) { entry ->
                                     SearchListCard(
@@ -694,6 +708,9 @@ private fun GroupedSearchResults(
                                 title = stringResource(R.string.browse_scope_readlists),
                                 showMore = state.readListsHasMore,
                                 onShowMore = { onShowMore(SearchScope.ReadLists) },
+                                hasMore = state.readListsHasMore,
+                                loadingMore = state.loadingMore,
+                                onLoadMore = { onLoadMoreKind(SearchScope.ReadLists) },
                             ) {
                                 items(state.readLists, key = { "readlist-${it.id}" }) { entry ->
                                     SearchListCard(
@@ -712,14 +729,31 @@ private fun GroupedSearchResults(
 }
 
 /** Group container: section header (title + "More ›") + horizontal LazyRow (content slot).
- *  "More" is hidden when there are no further results. */
+ *  "More" is hidden when there are no further results; the strip itself pages when scrolled to
+ *  its end, so reaching the dedicated page is no longer the only way to see further results. */
 @Composable
 private fun SearchGroup(
     title: String,
     showMore: Boolean,
     onShowMore: () -> Unit,
+    hasMore: Boolean = false,
+    loadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
+    // Strip end detection: request this kind's next page once the last visible card is within the
+    // final 3, and keep requesting while still parked at the end after an append.
+    val stripState = rememberLazyListState()
+    val shouldLoadMore by remember(stripState) {
+        derivedStateOf {
+            val info = stripState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore, hasMore, loadingMore, stripState.layoutInfo.totalItemsCount) {
+        if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
+    }
     Column(modifier = Modifier.padding(top = 8.dp)) {
         Row(
             modifier = Modifier
@@ -741,10 +775,24 @@ private fun SearchGroup(
             }
         }
         LazyRow(
+            state = stripState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
+        ) {
+            content()
+            if (hasMore) {
+                item(key = "load-more") {
+                    Box(
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(164.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
