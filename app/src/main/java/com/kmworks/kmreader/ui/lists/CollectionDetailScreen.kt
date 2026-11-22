@@ -63,7 +63,9 @@ import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.kmworks.kmreader.R
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.CollectionDetail
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BrowseFilterChipFlow
@@ -106,7 +108,7 @@ fun CollectionDetailScreen(
         "collectionDetail",
         deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
     )
-    var options by remember { mutableStateOf(BookBrowseOptions()) }
+    var options by remember { mutableStateOf(defaultBrowseOptions(BrowseContentType.Series)) }
     var optionsOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<Int>()) }
@@ -399,6 +401,7 @@ fun CollectionDetailScreen(
             initialOptions = options,
             onConfirm = { options = it },
             onDismiss = { optionsOpen = false },
+            contentType = BrowseContentType.Series,
             suggestionCollectionStableId = collection.id,
         )
     }
@@ -571,7 +574,7 @@ private fun CollectionHero(
 @Composable
 private fun SeriesToolbar(
     selectionMode: Boolean,
-    options: BookBrowseOptions,
+    options: BrowseOptions,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
@@ -581,6 +584,7 @@ private fun SeriesToolbar(
     Row(verticalAlignment = Alignment.CenterVertically) {
         BrowseFilterChipFlow(
             options = options,
+            contentType = BrowseContentType.Series,
             layout = layout,
             onLayoutChange = onLayoutChange,
             onOpenOptions = onOpenOptions,
@@ -712,7 +716,7 @@ private fun SeriesListRow(
     }
 }
 
-private fun sortCollectionSeries(series: List<Series>, options: BookBrowseOptions): List<Series> {
+private fun sortCollectionSeries(series: List<Series>, options: BrowseOptions): List<Series> {
     // Sort-field tokens come from BookSortFields in data/BrowseFilter.kt.
     val sorted = when (options.sortField) {
         "title" -> series.sortedBy { it.title }

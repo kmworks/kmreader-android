@@ -7,7 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.data.FilterPresetStore
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.SavedFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -25,20 +26,20 @@ class BrowsePresetsViewModel @Inject constructor(
     val presets: StateFlow<List<SavedFilter>> = presetStore.presets
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun save(name: String, options: BookBrowseOptions) {
-        viewModelScope.launch { presetStore.savePreset(name, options) }
+    fun save(name: String, contentType: BrowseContentType, options: BrowseOptions) {
+        viewModelScope.launch { presetStore.savePreset(name, contentType, options) }
     }
 
-    fun delete(name: String) {
-        viewModelScope.launch { presetStore.deletePreset(name) }
+    fun delete(name: String, contentType: BrowseContentType) {
+        viewModelScope.launch { presetStore.deletePreset(name, contentType) }
     }
 }
 
 /** Preset access triple (used internally by BrowseFilterChipFlow / BrowseOptionsSheet so call sites stay unwired). */
 data class BrowseFilterPresets(
     val presets: List<SavedFilter>,
-    val save: (String, BookBrowseOptions) -> Unit,
-    val delete: (String) -> Unit,
+    val save: (String, BrowseContentType, BrowseOptions) -> Unit,
+    val delete: (String, BrowseContentType) -> Unit,
 )
 
 /** One-liner preset accessor (the VM is Activity-scoped, so the preset list is shared across pages). */

@@ -65,7 +65,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
@@ -105,10 +107,20 @@ fun DashboardSectionDetailScreen(
     var scopeMenuOpen by remember { mutableStateOf(false) }
     var showPinSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
-    var options by remember { mutableStateOf(BookBrowseOptions()) }
+    val detail by viewModel.state.collectAsStateWithLifecycle()
+    // A dashboard section is either books or series (its id says which, the loaded items confirm it),
+    // so its panel — and its default sort vocabulary — is the matching one.
+    val sectionContentType = when {
+        detail.items.firstOrNull() is Series -> BrowseContentType.Series
+        detail.items.firstOrNull() is Book -> BrowseContentType.Books
+        section.id.contains("Series", ignoreCase = true) -> BrowseContentType.Series
+        else -> BrowseContentType.Books
+    }
+    // Keyed on the type: the first frame guesses from the section id, and the options must follow
+    // that guess when the loaded items confirm (or correct) it.
+    var options by remember(sectionContentType) { mutableStateOf(defaultBrowseOptions(sectionContentType)) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
 
-    val detail by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(section.id) { viewModel.start(section) }
 
     val listState = rememberLazyListState()
@@ -326,6 +338,7 @@ fun DashboardSectionDetailScreen(
             initialOptions = options,
             onConfirm = { options = it },
             onDismiss = { showOptions = false },
+            contentType = sectionContentType,
             suggestionLibraryIds = resolveLibraryScopeIds(detail.libraryScope, detail.pinnedIds),
         )
     }

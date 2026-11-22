@@ -35,7 +35,9 @@ import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
@@ -85,7 +87,10 @@ data class LibraryUiState(
     /** LibraryBrowseScope rawValue: pinned / all / library:{id}. A server without a recorded choice shows all. */
     val scope: String = AppSettingsStore.SCOPE_ALL,
     val pinnedIds: Set<String> = emptySet(),
-    val browseOptions: BookBrowseOptions = BookBrowseOptions(),
+    /** Series tab filter/sort state: the series panel's own options (mirrors SeriesBrowseOptions). */
+    val seriesBrowseOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
+    /** Books tab filter/sort state: the book panel's own options (mirrors BookBrowseOptions). */
+    val booksBrowseOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Books),
     val collections: List<ListEntry>? = null,
     val readLists: List<ListEntry>? = null,
     /** Whether the current account is an admin (gates the analyze/refresh-metadata/add-to-list menu items). */
@@ -120,14 +125,20 @@ class LibraryViewModel @Inject constructor(
     private val _state = MutableStateFlow(LibraryUiState())
     val state = _state.asStateFlow()
 
-    private val browseOptionsFlow = MutableStateFlow(BookBrowseOptions())
+    // The two tabs filter independently (the original keeps separate SeriesBrowseOptions and
+    // BookBrowseOptions), so each tab owns one flow; either change re-queries both lists.
+    private val seriesBrowseOptionsFlow =
+        MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
+    private val booksBrowseOptionsFlow =
+        MutableStateFlow(defaultBrowseOptions(BrowseContentType.Books))
 
     /** Snapshot of the current query; paging reuses the same conditions. A query change bumps
      *  generation so late results are discarded. */
     private data class Query(
         val scope: String,
         val pinned: Set<String>,
-        val options: BookBrowseOptions,
+        val seriesOptions: BrowseOptions,
+        val booksOptions: BrowseOptions,
     )
 
     private var query: Query? = null
@@ -163,9 +174,17 @@ class LibraryViewModel @Inject constructor(
                 sessionManager.clients,
                 appSettings.libraryBrowseScope,
                 appSettings.pinnedLibraryIds,
-                browseOptionsFlow,
-            ) { clients, scope, pinned, options ->
-                ScopeQuery(clients?.cacheNamespace, clients != null, scope, pinned, options)
+                seriesBrowseOptionsFlow,
+                booksBrowseOptionsFlow,
+            ) { clients, scope, pinned, seriesOptions, booksOptions ->
+                ScopeQuery(
+                    clients?.cacheNamespace,
+                    clients != null,
+                    scope,
+                    pinned,
+                    seriesOptions,
+                    booksOptions,
+                )
             }
                 .collectLatest { snapshot ->
                     // The scope and the pins are stored per server, but the filter is session state: drop it on a
@@ -175,10 +194,15 @@ class LibraryViewModel @Inject constructor(
                     if (instanceChanged) {
                         filterInstanceKey = snapshot.instanceKey
                         appliedMetadataRoute = null
-                        if (browseOptionsFlow.value != BookBrowseOptions()) {
+                        val seriesDefault = defaultBrowseOptions(BrowseContentType.Series)
+                        val booksDefault = defaultBrowseOptions(BrowseContentType.Books)
+                        if (seriesBrowseOptionsFlow.value != seriesDefault ||
+                            booksBrowseOptionsFlow.value != booksDefault
+                        ) {
                             // Clearing re-emits this query; let that pass do the work instead of loading filters
-                            // of the server we just left.
-                            browseOptionsFlow.value = BookBrowseOptions()
+                            // of the server we just left. Both tabs are cleared: each carries its own panel state.
+                            seriesBrowseOptionsFlow.value = seriesDefault
+                            booksBrowseOptionsFlow.value = booksDefault
                             return@collectLatest
                         }
                     }
@@ -195,7 +219,8 @@ class LibraryViewModel @Inject constructor(
                                 libraries = emptyList(),
                                 scope = snapshot.scope,
                                 pinnedIds = snapshot.pinned,
-                                browseOptions = snapshot.options,
+                                seriesBrowseOptions = snapshot.seriesOptions,
+                                booksBrowseOptions = snapshot.booksOptions,
                             )
                         }
                     } else {
@@ -203,10 +228,11 @@ class LibraryViewModel @Inject constructor(
                             it.copy(
                                 scope = snapshot.scope,
                                 pinnedIds = snapshot.pinned,
-                                browseOptions = snapshot.options,
+                                seriesBrowseOptions = snapshot.seriesOptions,
+                                booksBrowseOptions = snapshot.booksOptions,
                             )
                         }
-                        load(snapshot.scope, snapshot.pinned, snapshot.options)
+                        load(snapshot.scope, snapshot.pinned, snapshot.seriesOptions, snapshot.booksOptions)
                     }
                 }
         }
@@ -230,7 +256,7 @@ class LibraryViewModel @Inject constructor(
     fun refresh(): Job {
         return viewModelScope.launch {
             val current = query
-            if (_state.value.hasSession && current != null) load(current.scope, current.pinned, current.options)
+            if (_state.value.hasSession && current != null) load(current.scope, current.pinned, current.seriesOptions, current.booksOptions)
         }
     }
 
@@ -254,7 +280,7 @@ class LibraryViewModel @Inject constructor(
             val fresh = runCatching {
                 searchRepository.browseSeriesPage(
                     libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.options,
+                    options = current.seriesOptions,
                     page = 0,
                     size = PAGE_SIZE,
                 )
@@ -264,7 +290,7 @@ class LibraryViewModel @Inject constructor(
             _state.update { st ->
                 st.copy(series = st.series?.map { row -> byId[row.id] ?: row })
             }
-            runCatching { catalogCache.saveSeries(listKey(current.scope, current.options), fresh.items) }
+            runCatching { catalogCache.saveSeries(listKey(current.scope, current.seriesOptions), fresh.items) }
         }
     }
 
@@ -405,13 +431,26 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
     }
 
-    /** Update filter/sort options (BrowseOptionsSheet edits apply to the real query). */
-    fun setBrowseOptions(options: BookBrowseOptions) {
-        browseOptionsFlow.value = options
+    /** Update one tab's filter/sort options (the panel for [contentType] applies to the real query). */
+    fun setBrowseOptions(contentType: BrowseContentType, options: BrowseOptions) {
+        when (contentType) {
+            BrowseContentType.Series -> seriesBrowseOptionsFlow.value = options
+            BrowseContentType.Books -> booksBrowseOptionsFlow.value = options
+        }
     }
 
     /** Condition injected by the last metadata-chip jump; null = the list is not filtered by a chip. */
     private var appliedMetadataRoute: AppliedMetadataRoute? = null
+
+    /** Tab whose options carry [appliedMetadataRoute]: the injected condition must be revoked from it. */
+    private var appliedMetadataContentType: BrowseContentType? = null
+
+    /** Flow backing one tab's panel state (each tab keeps its own options). */
+    private fun browseOptionsFlowFor(contentType: BrowseContentType): MutableStateFlow<BrowseOptions> =
+        when (contentType) {
+            BrowseContentType.Series -> seriesBrowseOptionsFlow
+            BrowseContentType.Books -> booksBrowseOptionsFlow
+        }
 
     /**
      * Replaces the metadata-chip condition of the list with the one encoded in [route] (mirrors the iOS
@@ -421,22 +460,28 @@ class LibraryViewModel @Inject constructor(
      * screen left composition (back to the origin page, a tab switch): a remember-based record would be lost
      * there, leaving the filter applied with nothing left to undo it.
      */
-    fun applyMetadataRoute(route: String) {
-        var base = browseOptionsFlow.value
+    fun applyMetadataRoute(contentType: BrowseContentType, route: String) {
         appliedMetadataRoute?.let { previous ->
-            base = revokeFilterRoute(base, previous)
+            // Revoke from the tab that actually owns it, then inject into the requested tab.
+            val previousFlow = browseOptionsFlowFor(appliedMetadataContentType ?: contentType)
+            previousFlow.value = revokeFilterRoute(previousFlow.value, previous)
             appliedMetadataRoute = null
+            appliedMetadataContentType = null
         }
-        val (next, applied) = applyFilterRoute(base, route) ?: return
+        val flow = browseOptionsFlowFor(contentType)
+        val (next, applied) = applyFilterRoute(flow.value, route) ?: return
         appliedMetadataRoute = applied
-        if (next != base) browseOptionsFlow.value = next
+        appliedMetadataContentType = contentType
+        if (next != flow.value) flow.value = next
     }
 
     /** Drops the metadata-chip condition again: the chip's clear button, or back to the page it came from. */
     fun clearMetadataRoute() {
         val applied = appliedMetadataRoute ?: return
+        val flow = appliedMetadataContentType?.let { browseOptionsFlowFor(it) } ?: return
         appliedMetadataRoute = null
-        browseOptionsFlow.value = revokeFilterRoute(browseOptionsFlow.value, applied)
+        appliedMetadataContentType = null
+        flow.value = revokeFilterRoute(flow.value, applied)
     }
 
     /** Resolve the scope to library ids (mirrors iOS resolvedIds: all → no filter, empty pinned → no filter). */
@@ -444,11 +489,16 @@ class LibraryViewModel @Inject constructor(
         resolveLibraryScopeIds(scope, pinned)
 
     /** Cache key of the current browse query (one row set per scope + filter combination). */
-    private fun listKey(scope: String, options: BookBrowseOptions): String =
+    private fun listKey(scope: String, options: BrowseOptions): String =
         "library:$scope:${options.hashCode()}"
 
-    private suspend fun load(scope: String, pinned: Set<String>, options: BookBrowseOptions) {
-        val nextQuery = Query(scope, pinned, options)
+    private suspend fun load(
+        scope: String,
+        pinned: Set<String>,
+        seriesOptions: BrowseOptions,
+        booksOptions: BrowseOptions,
+    ) {
+        val nextQuery = Query(scope, pinned, seriesOptions, booksOptions)
         val currentGeneration = ++generation
         query = nextQuery
         seriesPage = 0
@@ -462,9 +512,10 @@ class LibraryViewModel @Inject constructor(
         // Data-cache parity: paint the cached first page for the same query before the network answers.
         // Only seeds an empty screen; the response below replaces it.
         if (_state.value.series == null && _state.value.books == null) {
-            val key = listKey(scope, options)
-            val cachedSeries = runCatching { catalogCache.seedSeries(key) }.getOrDefault(emptyList())
-            val cachedBooks = runCatching { catalogCache.seedBooks(key) }.getOrDefault(emptyList())
+            val seriesKey = listKey(scope, seriesOptions)
+            val booksKey = listKey(scope, booksOptions)
+            val cachedSeries = runCatching { catalogCache.seedSeries(seriesKey) }.getOrDefault(emptyList())
+            val cachedBooks = runCatching { catalogCache.seedBooks(booksKey) }.getOrDefault(emptyList())
             if (cachedSeries.isNotEmpty() || cachedBooks.isNotEmpty()) {
                 _state.update {
                     it.copy(
@@ -479,11 +530,11 @@ class LibraryViewModel @Inject constructor(
             val libraries = libraryRepository.libraries()
             val (seriesPageResult, bookPageResult) = coroutineScope {
                 val series = async {
-                    searchRepository.browseSeriesPage(libraryIds, options, page = 0, size = PAGE_SIZE)
+                    searchRepository.browseSeriesPage(libraryIds, seriesOptions, page = 0, size = PAGE_SIZE)
                         ?: throw IllegalStateException(context.getString(R.string.library_series_load_failed))
                 }
                 val books = async {
-                    searchRepository.browseBooksPage(libraryIds, options, page = 0, size = PAGE_SIZE)
+                    searchRepository.browseBooksPage(libraryIds, booksOptions, page = 0, size = PAGE_SIZE)
                         ?: throw IllegalStateException(context.getString(R.string.library_books_load_failed))
                 }
                 series.await() to books.await()
@@ -518,10 +569,9 @@ class LibraryViewModel @Inject constructor(
                 )
             }
             // Persist the first page for the same query (ids + card rows), plus the Lists rows.
-            val key = listKey(scope, options)
             runCatching {
-                catalogCache.saveSeries(key, seriesPageResult.items)
-                catalogCache.saveBooks(key, bookPageResult.items)
+                catalogCache.saveSeries(listKey(scope, seriesOptions), seriesPageResult.items)
+                catalogCache.saveBooks(listKey(scope, booksOptions), bookPageResult.items)
                 catalogCache.saveLists(collections, readLists)
             }
             // Volume/count caption for the scope (stats → actuator fallback; empty hides the line).
@@ -555,7 +605,7 @@ class LibraryViewModel @Inject constructor(
                 val nextPage = seriesPage + 1
                 val result = searchRepository.browseSeriesPage(
                     libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.options,
+                    options = current.seriesOptions,
                     page = nextPage,
                     size = PAGE_SIZE,
                 )
@@ -599,7 +649,7 @@ class LibraryViewModel @Inject constructor(
                 val nextPage = booksPage + 1
                 val result = searchRepository.browseBooksPage(
                     libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.options,
+                    options = current.booksOptions,
                     page = nextPage,
                     size = PAGE_SIZE,
                 )
@@ -876,7 +926,8 @@ class LibraryViewModel @Inject constructor(
         val hasSession: Boolean,
         val scope: String,
         val pinned: Set<String>,
-        val options: BookBrowseOptions,
+        val seriesOptions: BrowseOptions,
+        val booksOptions: BrowseOptions,
     )
 
     /** Create a collection from the picker's selection (Komga refuses empty ones); returns the new entry on success. */

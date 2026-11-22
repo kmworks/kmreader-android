@@ -6,6 +6,7 @@ import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.Creator
 import com.kmworks.kmreader.data.Series
 
@@ -71,15 +72,42 @@ fun Book.pageLabelText(): String = pluralStringResource(R.plurals.book_pages, pa
 @Composable
 fun Book.completedLastReadText(): String? = lastReadAtMs?.let { relativeTimeLabel(it) }
 
-/** Display label for a book sort-field token (see BookSortFields in data/BrowseFilter.kt). */
+/**
+ * Display label for a book sort-field token (see BookSortFields in data/BrowseFilter.kt); the
+ * pre-iOS tokens (number/title/…) stay mapped so older saved presets still show a real name.
+ */
 @Composable
 fun bookSortFieldLabel(field: String): String = when (field) {
-    "number" -> stringResource(R.string.sort_number)
-    "title" -> stringResource(R.string.common_title)
-    "releaseDate" -> stringResource(R.string.sort_release_date)
+    "series", "number" -> stringResource(R.string.sort_number)
+    "metadata.title", "title" -> stringResource(R.string.common_title)
+    "metadata.releaseDate", "releaseDate" -> stringResource(R.string.sort_release_date)
     "createdDate" -> stringResource(R.string.sort_added_date)
-    "lastModified" -> stringResource(R.string.sort_updated_date)
+    "lastModifiedDate", "lastModified" -> stringResource(R.string.sort_updated_date)
+    "readProgress.readDate" -> stringResource(R.string.sort_read_date)
     "fileSize" -> stringResource(R.string.sort_file_size)
-    "pageCount" -> stringResource(R.string.sort_page_count)
+    "name" -> stringResource(R.string.sort_file_name)
+    "media.pagesCount", "pageCount" -> stringResource(R.string.sort_page_count)
     else -> field
 }
+
+/** Display label for a series sort-field token (see SeriesSortFields in data/BrowseFilter.kt). */
+@Composable
+fun seriesSortFieldLabel(field: String): String = when (field) {
+    "metadata.titleSort" -> stringResource(R.string.common_title)
+    "created" -> stringResource(R.string.sort_added_date)
+    "lastModified" -> stringResource(R.string.sort_updated_date)
+    "fileLastModified" -> stringResource(R.string.sort_read_date)
+    "booksMetadata.releaseDate" -> stringResource(R.string.sort_release_date)
+    "metadata.title" -> stringResource(R.string.sort_folder_name)
+    "booksCount" -> stringResource(R.string.sort_books_count)
+    "random" -> stringResource(R.string.sort_random)
+    else -> field
+}
+
+/** Sort-field label of [contentType] (the series and book vocabularies share almost no tokens). */
+@Composable
+fun browseSortFieldLabel(field: String, contentType: BrowseContentType): String =
+    when (contentType) {
+        BrowseContentType.Series -> seriesSortFieldLabel(field)
+        BrowseContentType.Books -> bookSortFieldLabel(field)
+    }

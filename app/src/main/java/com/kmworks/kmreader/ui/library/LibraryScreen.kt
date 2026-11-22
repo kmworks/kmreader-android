@@ -71,6 +71,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.settings.AppSettingsStore
+import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.EmptyState
@@ -131,14 +132,16 @@ fun LibraryScreen(
     komfViewModel: KomfSeriesViewModel = hiltViewModel(),
 ) {
     var contentType by remember { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
+    // The panel type of the current tab: series and books each keep their own filter options.
+    val browseContentType = contentType.toBrowseContentType()
     // The route restricting this page (null = none). The applied condition lives in the view model, so it
     // survives this screen leaving composition and can always be taken back -- both when the page is popped
     // and when the chip is cleared.
     var activeFilter by remember { mutableStateOf(initialFilter) }
     LaunchedEffect(initialFilter?.route) {
         val request = initialFilter ?: return@LaunchedEffect
-        viewModel.applyMetadataRoute(request.route)
         contentType = request.contentType
+        viewModel.applyMetadataRoute(request.contentType.toBrowseContentType(), request.route)
         activeFilter = request
     }
     // Layout persisted per content type (mirrors iOS seriesBrowseLayout / bookBrowseLayout):
@@ -509,10 +512,13 @@ fun LibraryScreen(
 
     if (showOptionsSheet) {
         BrowseOptionsSheet(
-            initialOptions = state.browseOptions,
-            onConfirm = viewModel::setBrowseOptions,
+            initialOptions = when (contentType) {
+                LibraryContentType.Series -> state.seriesBrowseOptions
+                LibraryContentType.Books -> state.booksBrowseOptions
+            },
+            onConfirm = { options -> viewModel.setBrowseOptions(browseContentType, options) },
             onDismiss = { showOptionsSheet = false },
-            showSeriesFilters = true,
+            contentType = browseContentType,
             suggestionLibraryIds = resolveLibraryScopeIds(state.scope, state.pinnedIds),
         )
     }

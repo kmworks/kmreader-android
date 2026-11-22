@@ -12,7 +12,9 @@ import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
@@ -75,7 +77,7 @@ private data class SearchRequest(
     val libraryIds: List<String>?,
     val hasSession: Boolean,
     /** Search filters (session-scoped, not persisted; mirrors the search tab's own browseOptions on iOS). */
-    val options: BookBrowseOptions = BookBrowseOptions(),
+    val options: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
 )
 
 /** Search state: 300ms debounce, per-scope fan-out, paged results with bottom load-more. */
@@ -92,7 +94,7 @@ class BrowseViewModel @Inject constructor(
 
     private val query = MutableStateFlow("")
     private val scope = MutableStateFlow(SearchScope.All)
-    private val browseOptions = MutableStateFlow(BookBrowseOptions())
+    private val browseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
 
     private val _state = MutableStateFlow(BrowseUiState())
     val state = _state.asStateFlow()
@@ -154,7 +156,7 @@ class BrowseViewModel @Inject constructor(
                 .map { it?.cacheNamespace }
                 .distinctUntilChanged()
                 .collect {
-                    if (browseOptions.value != BookBrowseOptions()) browseOptions.value = BookBrowseOptions()
+                    if (browseOptions.value != defaultBrowseOptions(BrowseContentType.Series)) browseOptions.value = defaultBrowseOptions(BrowseContentType.Series)
                 }
         }
         // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
@@ -180,7 +182,7 @@ class BrowseViewModel @Inject constructor(
     /** Search filters (extra conditions layered on series/books full-text search; session-scoped). */
     val browseOptionsFlow = browseOptions.asStateFlow()
 
-    fun setBrowseOptions(options: BookBrowseOptions) {
+    fun setBrowseOptions(options: BrowseOptions) {
         browseOptions.value = options
     }
 

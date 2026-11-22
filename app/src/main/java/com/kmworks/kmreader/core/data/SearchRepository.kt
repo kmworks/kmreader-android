@@ -4,7 +4,7 @@ import com.kmworks.kmreader.core.api.model.PageBookDto
 import com.kmworks.kmreader.core.api.model.PageSeriesDto
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.TriState
@@ -34,7 +34,7 @@ class SearchRepository @Inject constructor(
     suspend fun searchSeriesPage(
         term: String,
         libraryIds: List<String>? = null,
-        options: BookBrowseOptions? = null,
+        options: BrowseOptions? = null,
         page: Int = 0,
         size: Int = 30,
     ): Paged<Series> {
@@ -60,7 +60,7 @@ class SearchRepository @Inject constructor(
     suspend fun searchBooksPage(
         term: String,
         libraryIds: List<String>? = null,
-        options: BookBrowseOptions? = null,
+        options: BrowseOptions? = null,
         page: Int = 0,
         size: Int = 30,
     ): Paged<Book> {
@@ -269,7 +269,7 @@ class SearchRepository @Inject constructor(
     /** Series browse: library scope + filters + sort applied to POST series/list; null on failure. */
     suspend fun browseSeriesPage(
         libraryIds: List<String>?,
-        options: BookBrowseOptions,
+        options: BrowseOptions,
         page: Int = 0,
         size: Int = 50,
     ): Paged<Series>? {
@@ -277,7 +277,7 @@ class SearchRepository @Inject constructor(
         val body = searchBody(
             condition = combinedCondition(seriesConditions(libraryIds, options)),
         )
-        val result = api.series(body, page = page, size = size, sort = listOf(seriesSort(options)))
+        val result = api.series(body, page = page, size = size, sort = seriesSort(options))
             .awaitBody() ?: return null
         return result.toSeriesPage(size)
     }
@@ -285,7 +285,7 @@ class SearchRepository @Inject constructor(
     /** Book browse: library scope + filters + sort applied to POST books/list; null on failure. */
     suspend fun browseBooksPage(
         libraryIds: List<String>?,
-        options: BookBrowseOptions,
+        options: BrowseOptions,
         page: Int = 0,
         size: Int = 50,
     ): Paged<Book>? {
@@ -293,7 +293,7 @@ class SearchRepository @Inject constructor(
         val body = searchBody(
             condition = combinedCondition(bookConditions(libraryIds, options)),
         )
-        val result = api.books(body, page = page, size = size, sort = listOf(bookSort(options)))
+        val result = api.books(body, page = page, size = size, sort = bookSort(options))
             .awaitBody() ?: return null
         return result.toBookPage(size)
     }
@@ -301,7 +301,7 @@ class SearchRepository @Inject constructor(
     /** Book filter conditions (condition keys and operators mirror iOS BookSearch.buildCondition). */
     private fun bookConditions(
         libraryIds: List<String>?,
-        options: BookBrowseOptions,
+        options: BrowseOptions,
     ): List<JsonObject> {
         val conditions = mutableListOf<JsonObject>()
         libraryIds?.takeIf { it.isNotEmpty() }?.let { conditions += libraryCondition(it) }
@@ -336,7 +336,7 @@ class SearchRepository @Inject constructor(
      *  dimensions mirror the original SeriesSearch). */
     private fun seriesConditions(
         libraryIds: List<String>?,
-        options: BookBrowseOptions,
+        options: BrowseOptions,
     ): List<JsonObject> {
         val conditions = mutableListOf<JsonObject>()
         libraryIds?.takeIf { it.isNotEmpty() }?.let { conditions += libraryCondition(it) }
@@ -352,6 +352,13 @@ class SearchRepository @Inject constructor(
         }
         if (options.deleted == TriState.Exclude) {
             conditions += flagLeafCondition("deleted", "isFalse")
+        }
+        // Completed flag (series only; mirrors completeFilter of SeriesBrowseOptions)
+        if (options.complete == TriState.Include) {
+            conditions += flagLeafCondition("complete", "isTrue")
+        }
+        if (options.complete == TriState.Exclude) {
+            conditions += flagLeafCondition("complete", "isFalse")
         }
         if (options.authors.isNotEmpty()) {
             val authorLeaves = options.authors.map(::authorCondition)
@@ -378,22 +385,28 @@ class SearchRepository @Inject constructor(
         if (options.releaseYears.isNotEmpty()) {
             conditions += anyOfCondition(options.releaseYears.map { leafCondition("releaseYear", "is", it) })
         }
+        // Series status: included statuses are one ∧/∨ group, excluded ones are separate ≠ leaves
+        // (mirrors includeSeriesStatuses / excludeSeriesStatuses + seriesStatusLogic)
         if (options.seriesStatuses.isNotEmpty()) {
-            conditions += anyOfCondition(options.seriesStatuses.map { leafCondition("seriesStatus", "is", it.apiName) })
+            val leaves = options.seriesStatuses.map { leafCondition("seriesStatus", "is", it.apiName) }
+            conditions += if (options.seriesStatusAllMatch) allOfCondition(leaves) else anyOfCondition(leaves)
+        }
+        options.excludedSeriesStatuses.forEach {
+            conditions += leafCondition("seriesStatus", "isNot", it.apiName)
         }
         notableEntitiesCondition(options)?.let { conditions += it }
         return conditions
     }
 
     /** Notable entity condition: one notableEntity is {kind,name} leaf per entity; ∧ = allOf, ∨ = anyOf (mirrors the original notableEntities branch). */
-    private fun notableEntitiesCondition(options: BookBrowseOptions): JsonObject? {
+    private fun notableEntitiesCondition(options: BrowseOptions): JsonObject? {
         if (options.notableEntities.isEmpty()) return null
         val leaves = options.notableEntities.map { notableEntityCondition(it.kind, it.name) }
         return if (options.notableEntitiesAllMatch) allOfCondition(leaves) else anyOfCondition(leaves)
     }
 
     /** Read-status condition: included statuses become anyOf is, excluded ones each get an isNot (mirrors the original). */
-    private fun readStatusConditions(options: BookBrowseOptions): List<JsonObject> {
+    private fun readStatusConditions(options: BrowseOptions): List<JsonObject> {
         val includes = options.readStatuses
             .filterValues { it == TriState.Include }
             .keys
@@ -414,36 +427,57 @@ class SearchRepository @Inject constructor(
         }
 
     /** Tag condition: ∧ = allOf(tag is), ∨ = anyOf (mirrors the original tag branch). */
-    private fun tagCondition(options: BookBrowseOptions): JsonObject? {
+    private fun tagCondition(options: BrowseOptions): JsonObject? {
         if (options.tags.isEmpty()) return null
         val leaves = options.tags.map { leafCondition("tag", "is", it) }
         return if (options.tagLogicAnd) allOfCondition(leaves) else anyOfCondition(leaves)
     }
 
-    /** Book sort mapping (Komga books/list sort fields); keys are stable sort-field ids from BookSortFields. */
-    private fun bookSort(options: BookBrowseOptions): String {
+    /**
+     * Book sort parameters (books/list), mirroring BookSortField of the original app. The 卷号 key
+     * also decides the book order inside a series, so it sends a second sort parameter; older saved
+     * tokens (number/title/…) still resolve to their current equivalent.
+     */
+    private fun bookSort(options: BrowseOptions): List<String> {
+        val direction = if (options.sortAscending) "asc" else "desc"
         val field = when (options.sortField) {
-            "title" -> "metadata.titleSort"
-            "release_date" -> "metadata.releaseDate"
-            "added_date" -> "createdDate"
-            "updated_date" -> "lastModifiedDate"
-            "file_size" -> "fileSize"
-            "page_count" -> "media.pagesCount"
+            "series", "number" -> "series"
+            "metadata.title", "title" -> "metadata.title"
+            "createdDate", "created", "added_date" -> "createdDate"
+            "lastModifiedDate", "lastModified", "updated_date" -> "lastModifiedDate"
+            "metadata.releaseDate", "releaseDate", "release_date" -> "metadata.releaseDate"
+            "readProgress.readDate" -> "readProgress.readDate"
+            "fileSize", "file_size" -> "fileSize"
+            "name" -> "name"
+            "media.pagesCount", "pageCount", "page_count" -> "media.pagesCount"
             else -> "metadata.numberSort"
         }
-        return "$field,${if (options.sortAscending) "asc" else "desc"}"
+        return if (field == "series") {
+            listOf("series,$direction", "metadata.numberSort,$direction")
+        } else {
+            listOf("$field,$direction")
+        }
     }
 
-    /** Series sort mapping (Komga series/list fields; fields without a match fall back to booksCount/titleSort). */
-    private fun seriesSort(options: BookBrowseOptions): String {
+    /**
+     * Series sort parameters (series/list), mirroring SeriesSortField of the original app; an
+     * unknown token falls back to 标题. 随机 carries no direction.
+     */
+    private fun seriesSort(options: BrowseOptions): List<String> {
+        val direction = if (options.sortAscending) "asc" else "desc"
         val field = when (options.sortField) {
-            "release_date" -> "booksMetadata.releaseDate"
-            "added_date" -> "createdDate"
-            "updated_date" -> "lastModifiedDate"
-            "file_size", "page_count" -> "booksCount"
+            "metadata.titleSort", "titleSort", "title", "number" -> "metadata.titleSort"
+            "created", "createdDate", "added_date" -> "created"
+            "lastModified", "lastModifiedDate", "updated_date" -> "lastModified"
+            "fileLastModified", "readProgress.readDate" -> "fileLastModified"
+            "booksMetadata.releaseDate", "metadata.releaseDate", "releaseDate", "release_date" ->
+                "booksMetadata.releaseDate"
+            "metadata.title" -> "metadata.title"
+            "booksCount", "fileSize", "file_size", "media.pagesCount", "pageCount", "page_count" -> "booksCount"
+            "random" -> "random"
             else -> "metadata.titleSort"
         }
-        return "$field,${if (options.sortAscending) "asc" else "desc"}"
+        return if (field == "random") listOf("random") else listOf("$field,$direction")
     }
 
     private fun PageSeriesDto.toSeriesPage(size: Int): Paged<Series> {

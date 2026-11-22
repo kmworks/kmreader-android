@@ -60,7 +60,9 @@ import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.SmartListDetail
 import com.kmworks.kmreader.data.SmartListTarget
@@ -100,7 +102,6 @@ fun SmartListDetailScreen(
         "smartListDetail",
         deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
     )
-    var options by remember { mutableStateOf(BookBrowseOptions()) }
     var optionsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
@@ -120,6 +121,10 @@ fun SmartListDetailScreen(
         target = state.target ?: smartList.target,
         modifiedLabel = state.modifiedLabel ?: smartList.modifiedLabel,
     )
+    // A smart list is book-typed or series-typed server-side, so its panel is the matching one.
+    val contentType = if (display.target == SmartListTarget.Book) BrowseContentType.Books else BrowseContentType.Series
+    // The panel of the matching type owns its sort vocabulary (a series list defaults to 标题, not 卷号).
+    var options by remember(contentType) { mutableStateOf(defaultBrowseOptions(contentType)) }
     val books = state.books ?: emptyList()
     val series = state.series ?: emptyList()
 
@@ -254,6 +259,7 @@ fun SmartListDetailScreen(
                     ) {
                         SmartListToolbar(
                             options = options,
+                            contentType = contentType,
                             layout = layout,
                             onLayoutChange = { setLayout(it) },
                             onOpenOptions = { optionsOpen = true },
@@ -300,6 +306,7 @@ fun SmartListDetailScreen(
                     }
                     SmartListToolbar(
                         options = options,
+                        contentType = contentType,
                         layout = layout,
                         onLayoutChange = { setLayout(it) },
                         onOpenOptions = { optionsOpen = true },
@@ -339,6 +346,7 @@ fun SmartListDetailScreen(
             initialOptions = options,
             onConfirm = { options = it },
             onDismiss = { optionsOpen = false },
+            contentType = contentType,
         )
     }
     // Book long-press menu (mirrors the read group of iOS BookContextMenu: Read / Read
@@ -516,7 +524,8 @@ private fun SmartListHero(
  *  cannot be added or removed, so there are no batch actions. */
 @Composable
 private fun SmartListToolbar(
-    options: BookBrowseOptions,
+    options: BrowseOptions,
+    contentType: BrowseContentType,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
@@ -525,6 +534,7 @@ private fun SmartListToolbar(
     Row(verticalAlignment = Alignment.CenterVertically) {
         BrowseFilterChipFlow(
             options = options,
+            contentType = contentType,
             layout = layout,
             onLayoutChange = onLayoutChange,
             onOpenOptions = onOpenOptions,

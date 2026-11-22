@@ -111,7 +111,9 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData.ListEntry
@@ -215,8 +217,8 @@ fun SeriesDetailScreen(
         "seriesDetail",
         deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
     )
-    // Filter state (mirrors BookBrowseOptions; the real implementation persists per page via AppStorage)
-    var browseOptions by remember { mutableStateOf(BookBrowseOptions()) }
+    // Filter state (mirrors BrowseOptions; the real implementation persists per page via AppStorage)
+    var browseOptions by remember { mutableStateOf(defaultBrowseOptions(BrowseContentType.Books)) }
     // Selection state: null = selection mode off; once on, tapping a book toggles it
     // (mirrors BooksListViewForSeries selection mode)
     var selectedIds by remember { mutableStateOf<Set<Int>?>(null) }
@@ -710,6 +712,7 @@ fun SeriesDetailScreen(
             initialOptions = browseOptions,
             onConfirm = { browseOptions = it },
             onDismiss = { showOptionsSheet = false },
+            contentType = BrowseContentType.Books,
             suggestionSeriesStableId = series.id,
         )
     }
@@ -1547,9 +1550,9 @@ private fun BooksGrid(
  *  instead, so they stay reachable while the list is scrolled. */
 @Composable
 private fun BooksToolbar(
-    options: BookBrowseOptions,
+    options: BrowseOptions,
     layout: BrowseLayout,
-    onOptionsChange: (BookBrowseOptions) -> Unit,
+    onOptionsChange: (BrowseOptions) -> Unit,
     onOpenOptions: () -> Unit,
     onCycleLayout: () -> Unit,
     selectionMode: Boolean,
@@ -1562,6 +1565,7 @@ private fun BooksToolbar(
         Box(modifier = Modifier.weight(1f)) {
             BrowseFilterChipFlow(
                 options = options,
+                contentType = BrowseContentType.Books,
                 layout = layout,
                 onLayoutChange = { onCycleLayout() },
                 onOpenOptions = onOpenOptions,

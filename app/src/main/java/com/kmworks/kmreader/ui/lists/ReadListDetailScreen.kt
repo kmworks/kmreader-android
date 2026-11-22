@@ -70,7 +70,9 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.Book
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.ReadListDetail
 import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.TriState
@@ -121,7 +123,7 @@ fun ReadListDetailScreen(
     )
     val sourceBooks = state.books ?: emptyList()
     val (layout, setLayout) = rememberPersistentBrowseLayout("readListDetail", BrowseLayout.List)
-    var options by remember { mutableStateOf(BookBrowseOptions()) }
+    var options by remember { mutableStateOf(defaultBrowseOptions(BrowseContentType.Books)) }
     var optionsOpen by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<Int>()) }
@@ -427,6 +429,7 @@ fun ReadListDetailScreen(
             initialOptions = options,
             onConfirm = { options = it },
             onDismiss = { optionsOpen = false },
+            contentType = BrowseContentType.Books,
             suggestionReadListStableId = readList.id,
         )
     }
@@ -759,7 +762,7 @@ private fun ContinuationHintCard(
 @Composable
 private fun ReadListToolbar(
     selectionMode: Boolean,
-    options: BookBrowseOptions,
+    options: BrowseOptions,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
@@ -769,6 +772,7 @@ private fun ReadListToolbar(
     Row(verticalAlignment = Alignment.CenterVertically) {
         BrowseFilterChipFlow(
             options = options,
+            contentType = BrowseContentType.Books,
             layout = layout,
             onLayoutChange = onLayoutChange,
             onOpenOptions = onOpenOptions,
@@ -904,7 +908,7 @@ private fun ReadListBookRow(
     }
 }
 
-private fun matchesReadStatus(book: Book, options: BookBrowseOptions): Boolean {
+private fun matchesReadStatus(book: Book, options: BrowseOptions): Boolean {
     val status = when {
         book.progress == 1f -> ReadStatus.Read
         book.progress != null -> ReadStatus.InProgress

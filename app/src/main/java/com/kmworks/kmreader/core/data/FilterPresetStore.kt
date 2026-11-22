@@ -9,7 +9,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.instanceStorageKey
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.SavedFilter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -75,8 +76,12 @@ class FilterPresetStore @Inject constructor(
         return decode(written[prefKey(instance)])
     }
 
-    /** Save a preset; same-name overwrite (mirrors the original savedFilter upsert semantics). */
-    suspend fun savePreset(name: String, options: BookBrowseOptions) {
+    /**
+     * Save a preset; same-name overwrite within the same [contentType] (mirrors the original
+     * savedFilter upsert semantics). A book preset and a series preset may share a name: they
+     * filter different catalogues and are listed separately.
+     */
+    suspend fun savePreset(name: String, contentType: BrowseContentType, options: BrowseOptions) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
         val instance = currentInstanceKey()
@@ -84,17 +89,20 @@ class FilterPresetStore @Inject constructor(
         val key = prefKey(instance)
         dataStore.edit { prefs ->
             val current = decode(prefs[key])
-            val next = current.filterNot { it.name == trimmed } + SavedFilter(trimmed, options)
+            val next = current.filterNot { it.name == trimmed && it.contentType == contentType } +
+                SavedFilter(trimmed, contentType, options)
             prefs[key] = json.encodeToString(next)
         }
     }
 
-    suspend fun deletePreset(name: String) {
+    suspend fun deletePreset(name: String, contentType: BrowseContentType) {
         val instance = currentInstanceKey()
         ensureAdopted(instance)
         val key = prefKey(instance)
         dataStore.edit { prefs ->
-            prefs[key] = json.encodeToString(decode(prefs[key]).filterNot { it.name == name })
+            prefs[key] = json.encodeToString(
+                decode(prefs[key]).filterNot { it.name == name && it.contentType == contentType },
+            )
         }
     }
 
