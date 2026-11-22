@@ -1,5 +1,12 @@
 package com.kmworks.kmreader.ui.detail
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +90,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,9 +98,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
@@ -317,6 +329,19 @@ fun SeriesDetailScreen(
     val narrowScrollState = rememberScrollState()
     val booksListState = rememberLazyListState()
 
+    // Floating read capsule (narrow layout only): it takes over from the inline continue-reading
+    // capsule once that one has scrolled behind the frosted bar, so the page never shows two reading
+    // calls to action and never loses the only one it had. The anchor is measured in viewport
+    // coordinates: the inline capsule's bottom edge relative to this page box, which does not scroll —
+    // so the rule never has to mix in the scroll offset (and never depends on whether the scroller
+    // translates its content in layout or in a graphics layer).
+    var readPageCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var readCtaAnchorPx by remember(series.id) { mutableStateOf<Float?>(null) }
+    val density = LocalDensity.current
+    // Bar bottom edge in the same viewport coordinate space: the page box starts at the top of the
+    // window (the Scaffold insets the status bar out), so this is the bar's height plus the insets.
+    val barBottomPx = with(density) { glassTopBarTopPadding().toPx() }
+
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
     Scaffold(
@@ -344,8 +369,27 @@ fun SeriesDetailScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // Reference frame for the floating capsule's anchor measurement (does not scroll)
+                .onGloballyPositioned { readPageCoords = it },
         ) {
+            val isNarrowLayout = maxWidth < WideLayoutBreakpoint
+            val hasReadTarget = continueBook != null
+            val selectionActive = selectedIds != null
+            // Derived, not composed: the scroller changes the anchor on every pixel of scroll, and the
+            // page is expensive enough that it should only recompose when the capsule's visibility
+            // actually flips.
+            val showReadFab by remember(isNarrowLayout, hasReadTarget, selectionActive) {
+                derivedStateOf {
+                    shouldShowReadFab(
+                        isNarrow = isNarrowLayout,
+                        hasTarget = hasReadTarget,
+                        selectionActive = selectionActive,
+                        ctaBottomPx = readCtaAnchorPx,
+                        barBottomPx = barBottomPx,
+                    )
+                }
+            }
             GlassTopBar(
                 title = displaySeries.title,
                 modifier = Modifier
@@ -661,6 +705,16 @@ fun SeriesDetailScreen(
                             downloaded = seriesDownloaded,
                             onRead = { continueBook?.let(onRead) },
                             onDownload = onDownloadSeries,
+                            readButtonModifier = Modifier.onGloballyPositioned { ctaCoords ->
+                                val page = readPageCoords ?: return@onGloballyPositioned
+                                // Viewport coordinates: the page box does not scroll, so this is where
+                                // the capsule's bottom edge currently sits on screen and the rule can
+                                // compare it straight against the bar's bottom edge.
+                                readCtaAnchorPx = page.localPositionOf(
+                                    ctaCoords,
+                                    Offset(0f, ctaCoords.size.height.toFloat()),
+                                ).y
+                            },
                         )
                         DetailTimestamps(
                             created = state.created,
@@ -702,6 +756,37 @@ fun SeriesDetailScreen(
                         selection = selectedIds,
                         onToggleSelect = toggleSelect,
                     )
+                    if (continueBook != null) {
+                        // Reserved for the whole time a reading target exists, not only while the
+                        // capsule is visible: toggling the reserve would shift the list under the
+                        // finger that is scrolling it.
+                        Spacer(Modifier.height(SeriesReadFabBottomReserve))
+                    }
+                }
+            }
+
+            // Floating read capsule: narrow layouts only, where the inline capsule can scroll away.
+            // Placed after the content branch so it draws above the page, below the frosted bar
+            // (which carries zIndex(2f)); the bottom selection bar lives in a Scaffold slot.
+            if (isNarrowLayout) {
+                AnimatedVisibility(
+                    visible = showReadFab,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = if (maxWidth < 600.dp) 16.dp else 24.dp,
+                            bottom = 16.dp,
+                        ),
+                    // Enter on the way up, leave faster than it arrived: the capsule is a reappearing
+                    // shortcut, and a slow exit would linger over the book the user just tapped.
+                    enter = fadeIn(tween(120)) +
+                        slideInVertically(tween(180, easing = FastOutSlowInEasing)) { it / 3 },
+                    exit = fadeOut(tween(90)) +
+                        slideOutVertically(tween(120)) { it / 3 },
+                ) {
+                    continueBook?.let { book ->
+                        SeriesReadFab(book = book, onRead = { onRead(book) })
+                    }
                 }
             }
         }
@@ -1151,6 +1236,8 @@ private fun DetailActionCard(
     downloaded: Boolean,
     onRead: () -> Unit,
     onDownload: () -> Unit,
+    /** Applied to the inline reading capsule; the narrow layout measures it to anchor the floating one. */
+    readButtonModifier: Modifier = Modifier,
 ) {
     Column(
         modifier = Modifier
@@ -1192,7 +1279,11 @@ private fun DetailActionCard(
             )
         }
         if (continueBook != null) {
-            ReadingActionButton(continueBook = continueBook, onRead = onRead)
+            ReadingActionButton(
+                continueBook = continueBook,
+                onRead = onRead,
+                modifier = readButtonModifier,
+            )
         }
         // Secondary button mirrors iOS optimizedControlSize(.mini): mini capsule (28 high, 13sp text, small icon)
         OutlinedButton(
@@ -1225,7 +1316,11 @@ private fun DetailActionCard(
 /** Reading capsule: primary-colored, two lines — the action line at 15sp semibold on top, the target book line at 12sp/0.85 below.
  *  Mirrors SeriesReadingActionButton (label=.subheadline.semibold, detail=.caption, icon .callout). */
 @Composable
-private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
+private fun ReadingActionButton(
+    continueBook: Book,
+    onRead: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     // caption: resume with page/percent when in progress, otherwise start (mirrors readLabel)
     val caption = continueBook.progress?.let { p ->
         if (p > 0f && p < 1f) {
@@ -1238,7 +1333,9 @@ private fun ReadingActionButton(continueBook: Book, onRead: () -> Unit) {
     } ?: stringResource(R.string.book_start_reading)
     Button(
         onClick = onRead,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(modifier),
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
