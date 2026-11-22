@@ -17,6 +17,7 @@ import com.kmworks.kmreader.core.data.SmartListRepository
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.data.observeChanges
+import com.kmworks.kmreader.core.data.toDtoTarget
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature

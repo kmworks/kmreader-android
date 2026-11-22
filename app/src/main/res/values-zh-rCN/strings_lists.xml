@@ -61,7 +61,7 @@
     <string name="smartlist_delete_message">「%1$s」将被删除，命中内容保留在书库中。</string>
     <string name="smartlist_target_type">目标类型</string>
     <string name="smartlist_target_meta">目标：%1$s · %2$d 项</string>
-    <string name="smartlist_conditions">条件</string>
+    <string name="smartlist_filter_row">筛选</string>
     <string name="smartlist_filters">筛选</string>
     <string name="smartlist_filters_search_text">搜索文本</string>
     <string name="smartlist_libraries">库</string>
@@ -71,20 +71,6 @@
     <string name="smartlist_filters_none">无筛选条件，匹配全部</string>
     <string name="smartlist_filters_active">%1$d 个筛选条件</string>
     <string name="smartlist_filters_lossy">已保存的筛选包含应用无法编辑的条件。修改任意筛选会替换整个已保存的筛选。</string>
-    <string name="smartlist_match_all">满足全部条件</string>
-    <string name="smartlist_match_any">满足任一条件</string>
-    <string name="smartlist_add_condition">添加条件</string>
-    <string name="smartlist_rule_field_read_status">阅读状态</string>
-    <string name="smartlist_rule_field_release_year">发布年份</string>
-    <string name="smartlist_rule_operator_is">等于</string>
-    <string name="smartlist_rule_operator_is_not">不等于</string>
-    <string name="smartlist_rule_operator_contains">包含</string>
-    <string name="smartlist_rule_operator_greater_than">大于</string>
-    <string name="smartlist_rule_operator_less_than">小于</string>
-    <string name="smartlist_rule_value">值</string>
-    <string name="smartlist_rule_value_read">已读</string>
-    <string name="smartlist_rule_value_in_progress">阅读中</string>
-    <string name="smartlist_rule_delete">删除条件</string>
 
     <plurals name="lists_series_count">
         <item quantity="other">%1$d 部系列</item>
