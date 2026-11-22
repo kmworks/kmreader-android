@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -308,18 +310,13 @@ fun LibraryScreen(
                                 viewModel.clearMetadataRoute()
                                 activeFilter = null
                             },
-                            horizontalPadding = 16.dp,
-                        )
-                    }
-                    item(key = "library-sort") {
-                        LibrarySortChip(
-                            options = when (contentType) {
+                            sortOptions = when (contentType) {
                                 LibraryContentType.Series -> state.seriesBrowseOptions
                                 LibraryContentType.Books -> state.booksBrowseOptions
                             },
-                            contentType = browseContentType,
+                            sortContentType = browseContentType,
+                            onOpenSort = { showOptionsSheet = true },
                             horizontalPadding = 16.dp,
-                            onOpenOptions = { showOptionsSheet = true },
                         )
                     }
                     when (contentType) {
@@ -389,18 +386,13 @@ fun LibraryScreen(
                                 viewModel.clearMetadataRoute()
                                 activeFilter = null
                             },
-                            horizontalPadding = 0.dp,
-                        )
-                    }
-                    item(key = "library-sort", span = { GridItemSpan(maxLineSpan) }) {
-                        LibrarySortChip(
-                            options = when (contentType) {
+                            sortOptions = when (contentType) {
                                 LibraryContentType.Series -> state.seriesBrowseOptions
                                 LibraryContentType.Books -> state.booksBrowseOptions
                             },
-                            contentType = browseContentType,
+                            sortContentType = browseContentType,
+                            onOpenSort = { showOptionsSheet = true },
                             horizontalPadding = 0.dp,
-                            onOpenOptions = { showOptionsSheet = true },
                         )
                     }
                     when (contentType) {
@@ -782,23 +774,6 @@ private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
 }
 
 /**
- * Current sort of the visible tab, tappable to open the filter panel. The panel is otherwise reachable only
- * through the filter icon in the frosted bar; this chip surfaces the active order and gives it a second,
- * always-visible entry point (the same idea as the detail pages' sort chip).
- */
-@Composable
-private fun LibrarySortChip(
-    options: BrowseOptions,
-    contentType: BrowseContentType,
-    horizontalPadding: Dp,
-    onOpenOptions: () -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 2.dp)) {
-        BrowseSortChip(options = options, contentType = contentType, onOpenOptions = onOpenOptions)
-    }
-}
-
-/**
  * Header rows of the library page: content-type chips carrying the server-side totals, one compact caption
  * line and the active metadata-filter chip. It lives inside the scrolling content (instead of above it like
  * the original toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
@@ -812,14 +787,22 @@ private fun LibraryHeader(
     caption: String,
     activeFilter: String?,
     onClearFilter: () -> Unit,
+    sortOptions: BrowseOptions,
+    sortContentType: BrowseContentType,
+    onOpenSort: () -> Unit,
     horizontalPadding: Dp,
 ) {
     Column(modifier = Modifier.padding(horizontal = horizontalPadding)) {
         Row(
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier
+                .padding(vertical = 4.dp)
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Current sort of the visible tab, ahead of the tab chips: tapping it opens the filter panel
+            // (the same target as the filter icon in the frosted bar).
+            BrowseSortChip(options = sortOptions, contentType = sortContentType, onOpenOptions = onOpenSort)
             LibraryContentType.entries.forEach { type ->
                 FilterChip(
                     selected = contentType == type,
