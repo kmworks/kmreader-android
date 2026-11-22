@@ -99,13 +99,20 @@ fun smartListRuleReadStatusLabelRes(value: String): Int = when (value) {
     else -> R.string.common_unread
 }
 
-/** Smart list rule editor (mirrors SmartListEditSheet.swift: name / target / condition builder / save). */
+/** Smart list rule editor (mirrors SmartListEditSheet.swift: name / summary / target / condition builder / save). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartListEditSheet(
-    onSave: (name: String, target: SmartListTarget, matchAll: Boolean, rules: List<SmartListRule>) -> Unit,
+    onSave: (
+        name: String,
+        summary: String,
+        target: SmartListTarget,
+        matchAll: Boolean,
+        rules: List<SmartListRule>,
+    ) -> Unit,
     onDismiss: () -> Unit,
     initialName: String = "",
+    initialSummary: String = "",
     initialTarget: SmartListTarget = SmartListTarget.Book,
     initialMatchAll: Boolean = true,
     initialRules: List<SmartListRule> = emptyList(),
@@ -115,6 +122,7 @@ fun SmartListEditSheet(
 ) {
     val valueSuggestions by suggestionsViewModel.suggestions.collectAsStateWithLifecycle()
     var name by remember { mutableStateOf(initialName) }
+    var summary by remember { mutableStateOf(initialSummary) }
     var target by remember { mutableStateOf(initialTarget) }
     var matchAll by remember { mutableStateOf(initialMatchAll) }
     val rules = remember {
@@ -156,6 +164,15 @@ fun SmartListEditSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = summary,
+                onValueChange = { summary = it },
+                label = { Text(stringResource(R.string.lists_summary)) },
+                minLines = 3,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
             )
 
             SheetLabel(stringResource(R.string.smartlist_target_type))
@@ -230,7 +247,7 @@ fun SmartListEditSheet(
                 }
                 OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
-                    onClick = { onSave(name.trim(), target, matchAll, rules.toList()) },
+                    onClick = { onSave(name.trim(), summary.trim(), target, matchAll, rules.toList()) },
                     enabled = canSave,
                     modifier = Modifier.weight(1f),
                 ) {
