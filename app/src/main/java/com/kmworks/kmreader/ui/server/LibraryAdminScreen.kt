@@ -91,11 +91,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Every field the iOS LibraryFormSections exposes, so create and edit can configure a library fully. */
+/** Every field the iOS LibraryFormSections exposes; the defaults mirror iOS LibraryCreation.createDefault. */
 data class LibraryFormData(
     val name: String = "",
     val root: String = "",
-    val scanInterval: String = SCAN_INTERVAL_DISABLED,
+    val scanInterval: String = SCAN_INTERVAL_EVERY_6H,
     val scanOnStartup: Boolean = false,
     val scanCbx: Boolean = true,
     val scanPdf: Boolean = true,
@@ -108,7 +108,7 @@ data class LibraryFormData(
     val emptyTrashAfterScan: Boolean = false,
     val scanForceModifiedTime: Boolean = false,
     val oneshotsDirectory: String = "",
-    val scanDirectoryExclusions: List<String> = emptyList(),
+    val scanDirectoryExclusions: List<String> = DEFAULT_EXCLUSIONS,
     // Options
     val hashFiles: Boolean = true,
     val hashPages: Boolean = false,
@@ -117,9 +117,9 @@ data class LibraryFormData(
     val convertToCbz: Boolean = false,
     val seriesCover: String = SERIES_COVER_FIRST,
     // Metadata
-    val importComicInfoSeriesAppendVolume: Boolean = false,
-    val importComicInfoCollection: Boolean = false,
-    val importComicInfoReadList: Boolean = false,
+    val importComicInfoSeriesAppendVolume: Boolean = true,
+    val importComicInfoCollection: Boolean = true,
+    val importComicInfoReadList: Boolean = true,
     val importEpubBook: Boolean = true,
     val importEpubSeries: Boolean = true,
     val importMylarSeries: Boolean = true,
@@ -130,7 +130,12 @@ data class LibraryFormData(
 
 internal const val SCAN_INTERVAL_DISABLED = "DISABLED"
 
+internal const val SCAN_INTERVAL_EVERY_6H = "EVERY_6H"
+
 internal const val SERIES_COVER_FIRST = "FIRST"
+
+/** Same three exclusions the iOS createDefault preselects. */
+private val DEFAULT_EXCLUSIONS = listOf("#recycle", "@eaDir", "@Recycle")
 
 private val SCAN_INTERVALS = listOf(
     "DISABLED" to R.string.server_admin_interval_disabled,
