@@ -173,5 +173,6 @@ fun SmartListDto.toListEntry(count: Int = 0): SampleData.ListEntry {
         pinned = false,
         summary = summary,
         smartListTarget = if (target == "SERIES") SmartListTarget.Series else SmartListTarget.Book,
+        search = search,
     )
 }

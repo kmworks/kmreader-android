@@ -315,8 +315,8 @@ fun ListsScreen(
                 },
             )
             else -> SmartListEditSheet(
-                onSave = { name, summary, _, matchAll, rules ->
-                    viewModel.saveSmartList(entry, name, summary, matchAll, rules) { ok ->
+                onSave = { name, summary, _, _, _ ->
+                    viewModel.saveSmartList(entry, name, summary, search = null) { ok ->
                         if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
                     }
                 },
@@ -324,6 +324,7 @@ fun ListsScreen(
                 initialName = entry.title,
                 initialSummary = entry.summary.orEmpty(),
                 initialTarget = entry.smartListTarget ?: com.kmworks.kmreader.data.SmartListTarget.Book,
+                initialSearch = entry.search,
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteSmartList(entry) { ok ->

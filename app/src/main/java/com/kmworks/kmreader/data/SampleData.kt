@@ -2,6 +2,7 @@ package com.kmworks.kmreader.data
 
 import androidx.annotation.StringRes
 import com.kmworks.kmreader.R
+import kotlinx.serialization.json.JsonObject
 
 /** Author role, mirroring KMReader AuthorRole (same icon mapping). [token] is the raw server role value. */
 enum class AuthorRole(@param:StringRes val labelRes: Int, val token: String) {
@@ -162,5 +163,7 @@ object SampleData {
         val summary: String? = null,
         val ordered: Boolean? = null,
         val smartListTarget: SmartListTarget? = null,
+        /** Smart lists only: the server search document, read back for the editor's filter summary. */
+        val search: JsonObject? = null,
     )
 }

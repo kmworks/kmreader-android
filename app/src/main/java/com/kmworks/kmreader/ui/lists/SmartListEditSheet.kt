@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ReferentialRepository
+import com.kmworks.kmreader.core.data.SmartListFilterMapper
 import com.kmworks.kmreader.data.SmartListTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -56,6 +57,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /** A single match rule: field + operator + value (one row of the condition builder in SmartListEditSheet). */
 data class SmartListRule(
@@ -114,6 +116,8 @@ fun SmartListEditSheet(
     initialName: String = "",
     initialSummary: String = "",
     initialTarget: SmartListTarget = SmartListTarget.Book,
+    /** Edit mode only: the server search document, reverse-parsed to describe the existing filters. */
+    initialSearch: JsonObject? = null,
     initialMatchAll: Boolean = true,
     initialRules: List<SmartListRule> = emptyList(),
     isEdit: Boolean = false,
@@ -130,7 +134,15 @@ fun SmartListEditSheet(
             it.addAll(initialRules.ifEmpty { listOf(SmartListRule("readStatus", "eq", "unread")) })
         }
     }
-    val canSave = name.isNotBlank() && rules.isNotEmpty() && rules.all { it.value.isNotBlank() }
+    val canSave = name.isNotBlank() && (isEdit || (rules.isNotEmpty() && rules.all { it.value.isNotBlank() }))
+    // Edit mode: describe the stored filters instead of the rule builder. Conditions are not editable
+    // here yet, so saving must leave the server search document untouched (null search).
+    val filterState = remember(initialSearch, initialTarget) {
+        initialSearch?.let {
+            SmartListFilterMapper.filterState(SmartListFilterMapper.browseContentType(initialTarget), it)
+        }
+    }
+    val filterCount = filterState?.activeFilterCount ?: 0
 
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
@@ -199,39 +211,59 @@ fun SmartListEditSheet(
             }
 
             SheetLabel(stringResource(R.string.smartlist_conditions))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = matchAll,
-                    onClick = { matchAll = true },
-                    label = { Text(stringResource(R.string.smartlist_match_all)) },
-                )
-                FilterChip(
-                    selected = !matchAll,
-                    onClick = { matchAll = false },
-                    label = { Text(stringResource(R.string.smartlist_match_any)) },
-                )
-            }
-
-            rules.forEachIndexed { index, rule ->
-                RuleRow(
-                    rule = rule,
-                    onRuleChange = { rules[index] = it },
-                    onRemove = { rules.removeAt(index) },
-                    valueSuggestions = when (rule.field) {
-                        "tag" -> valueSuggestions.tags
-                        "author" -> valueSuggestions.authors
-                        else -> emptyList()
+            if (isEdit) {
+                Text(
+                    text = if (filterCount == 0) {
+                        stringResource(R.string.smartlist_filters_none)
+                    } else {
+                        stringResource(R.string.smartlist_filters_active, filterCount)
                     },
-                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
-            }
-            TextButton(
-                onClick = { rules.add(SmartListRule("tag", "contains", "")) },
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.smartlist_add_condition))
+                if (filterState?.lossy == true) {
+                    Text(
+                        text = stringResource(R.string.smartlist_filters_lossy),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = matchAll,
+                        onClick = { matchAll = true },
+                        label = { Text(stringResource(R.string.smartlist_match_all)) },
+                    )
+                    FilterChip(
+                        selected = !matchAll,
+                        onClick = { matchAll = false },
+                        label = { Text(stringResource(R.string.smartlist_match_any)) },
+                    )
+                }
+
+                rules.forEachIndexed { index, rule ->
+                    RuleRow(
+                        rule = rule,
+                        onRuleChange = { rules[index] = it },
+                        onRemove = { rules.removeAt(index) },
+                        valueSuggestions = when (rule.field) {
+                            "tag" -> valueSuggestions.tags
+                            "author" -> valueSuggestions.authors
+                            else -> emptyList()
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                TextButton(
+                    onClick = { rules.add(SmartListRule("tag", "contains", "")) },
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.smartlist_add_condition))
+                }
             }
 
             Spacer(Modifier.height(16.dp))
