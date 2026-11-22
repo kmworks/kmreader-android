@@ -21,6 +21,7 @@
     <string name="lists_add_to_list_title">Add to List</string>
     <string name="lists_already_in_list">Already in list</string>
     <string name="lists_item_count">%1$d items</string>
+    <string name="lists_no_matches">No matches</string>
     <string name="lists_mark_read">Mark Read</string>
     <string name="lists_mark_unread">Mark Unread</string>
     <string name="lists_add_to_download_queue">Add to Download Queue</string>

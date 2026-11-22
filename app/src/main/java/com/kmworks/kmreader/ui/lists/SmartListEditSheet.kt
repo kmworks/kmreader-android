@@ -387,6 +387,9 @@ fun SmartListEditSheet(
             contentType = contentType,
             // A smart list stores conditions only; sorting stays a view preference.
             showsSort = false,
+            // Metadata suggestions are scoped to the libraries the list already limits itself to
+            // (mirrors the original, which passes the selected library ids).
+            suggestionLibraryIds = selectedLibraryIds.sorted().takeIf { it.isNotEmpty() },
         )
     }
 }
