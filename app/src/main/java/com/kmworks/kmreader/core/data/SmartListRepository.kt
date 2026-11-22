@@ -30,12 +30,13 @@ class SmartListRepository @Inject constructor(
     fun seriesThumbnailUrl(seriesId: String): String? =
         sessionManager.clients.value?.seriesThumbnailUrl(seriesId)
 
-    /** All smart lists (unpaged); on failure (404 etc. — capability missing) returns an empty list. */
-    suspend fun smartLists(): List<SmartListDto> {
-        val api = sessionManager.clients.value?.smartLists ?: return emptyList()
-        val list = api.getSmartLists(unpaged = true).awaitBody()?.content.orEmpty()
-        list.forEach { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
-        return list
+    /** One page of smart lists; on failure (404 etc. — capability missing) returns an empty page. */
+    suspend fun smartListsPage(page: Int, size: Int): Paged<SmartListDto> {
+        val api = sessionManager.clients.value?.smartLists ?: return Paged(emptyList(), hasMore = false)
+        val body = api.getSmartLists(page = page, size = size).awaitBody()
+        val items = body?.content.orEmpty()
+        items.forEach { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
+        return Paged(items, hasMore = items.size >= size && body?.last != true)
     }
 
     suspend fun smartListDetail(dtoId: String): SmartListDto? {

@@ -60,6 +60,7 @@ data class ListsUiState(
     val smartLists: List<ListEntry>? = null,
     val collectionsHasMore: Boolean = true,
     val readListsHasMore: Boolean = true,
+    val smartListsHasMore: Boolean = true,
     /** Library-scope menu data: the real library list from the server. */
     val libraries: List<LibraryDto> = emptyList(),
     /** Library scope of the strips (pinned/all/library:{id}); persisted per server, defaults to all. */
@@ -90,8 +91,10 @@ class ListsViewModel @Inject constructor(
 
     private var collectionsPage = 0
     private var readListsPage = 0
+    private var smartListsPage = 0
     private var loadingMoreCollections = false
     private var loadingMoreReadLists = false
+    private var loadingMoreSmartLists = false
 
     /** Resolved libraryIds filter of the current query (null = every library); load-more reuses it. */
     private var currentLibraryIds: List<String>? = null
@@ -157,8 +160,10 @@ class ListsViewModel @Inject constructor(
         generation++
         collectionsPage = 0
         readListsPage = 0
+        smartListsPage = 0
         loadingMoreCollections = false
         loadingMoreReadLists = false
+        loadingMoreSmartLists = false
         currentLibraryIds = null
         displayedScope = null
         displayedPinned = null
@@ -173,6 +178,7 @@ class ListsViewModel @Inject constructor(
                 smartLists = null,
                 collectionsHasMore = true,
                 readListsHasMore = true,
+                smartListsHasMore = true,
                 smartListsSupported = false,
             )
         }
@@ -187,8 +193,10 @@ class ListsViewModel @Inject constructor(
         // The reload replaces both strips wholesale, so the paging request state goes with the pages.
         collectionsPage = 0
         readListsPage = 0
+        smartListsPage = 0
         loadingMoreCollections = false
         loadingMoreReadLists = false
+        loadingMoreSmartLists = false
         // A changed query must not keep the previous scope's rows on screen; a plain refresh may keep them.
         val sameQuery = displayedScope == scope && displayedPinned == pinned
         _state.update {
@@ -232,10 +240,10 @@ class ListsViewModel @Inject constructor(
             }
         }
         try {
-            val (collectionPage, readListPage, smartLists) = coroutineScope {
+            val (collectionPage, readListPage, smartListPage) = coroutineScope {
                 val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
                 val r = async { listRepository.readListsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
-                val s = async { smartListRepository.smartLists() }
+                val s = async { smartListRepository.smartListsPage(page = 0, size = PAGE_SIZE) }
                 Triple(c.await(), r.await(), s.await())
             }
             if (gen != generation) return // a newer scope/pins load started; discard this stale result
@@ -252,7 +260,7 @@ class ListsViewModel @Inject constructor(
                     ),
                 )
             }.applyPinned(pinnedReadListIds, DetailIdRegistry::readListDtoId)
-            val smartListEntries = smartLists.map { dto ->
+            val smartListEntries = smartListPage.items.map { dto ->
                 // No modifiedLabel: a smart list card shows only what it groups by, and its
                 // own page carries the timestamps.
                 dto.toListEntry().copy(
@@ -272,6 +280,7 @@ class ListsViewModel @Inject constructor(
                     smartLists = smartListEntries,
                     collectionsHasMore = collectionPage.hasMore,
                     readListsHasMore = readListPage.hasMore,
+                    smartListsHasMore = smartListPage.hasMore,
                 )
             }
             // Persist the Lists rows so the next launch can paint them before the network answers; only the
@@ -401,6 +410,50 @@ class ListsViewModel @Inject constructor(
                 }
             } finally {
                 loadingMoreReadLists = false
+            }
+        }
+    }
+
+    /** Load the next page when the smart lists strip hits bottom. */
+    fun loadMoreSmartLists() {
+        val state = _state.value
+        if (loadingMoreSmartLists || state.loading || !state.smartListsHasMore) return
+        loadingMoreSmartLists = true
+        val gen = generation
+        viewModelScope.launch {
+            _state.update { it.copy(loadingMore = true) }
+            try {
+                val nextPage = smartListsPage + 1
+                val result = smartListRepository.smartListsPage(page = nextPage, size = PAGE_SIZE)
+                if (gen != generation) return@launch // a reload started meanwhile; the new load owns the strips
+                smartListsPage = nextPage
+                _state.update { st ->
+                    st.copy(
+                        loadingMore = false,
+                        smartLists = st.smartLists.orEmpty() +
+                            result.items.map { dto ->
+                                dto.toListEntry().copy(
+                                    targetLabel = context.getString(
+                                        if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
+                                    ),
+                                )
+                            }.filterNot { entry ->
+                                st.smartLists.orEmpty().any { it.id == entry.id }
+                            },
+                        smartListsHasMore = result.hasMore,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        loadingMore = false,
+                        error = e.message ?: context.getString(R.string.common_load_more_failed),
+                    )
+                }
+            } finally {
+                loadingMoreSmartLists = false
             }
         }
     }
