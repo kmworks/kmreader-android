@@ -270,6 +270,42 @@ fun BrowseFilterChipFlow(
 }
 
 /**
+ * Compact variant of [BrowseFilterChipFlow] for pages whose chip row holds other controls too (the
+ * search tab's scope chips): only the current sort and one chip per active condition. Tapping any of
+ * them opens the full panel, exactly like the detail pages' chip flow; it never removes a condition on
+ * its own. Emits its chips into the caller's [Row], so the caller controls placement and scrolling.
+ */
+@Composable
+fun BrowseFilterActiveChips(
+    options: BrowseOptions,
+    contentType: BrowseContentType,
+    onOpenOptions: () -> Unit,
+) {
+    AssistChip(
+        onClick = onOpenOptions,
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(browseSortFieldLabel(options.sortField, contentType))
+                if (supportsSortDirection(options.sortField, contentType)) {
+                    Icon(
+                        if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                        else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                    )
+                }
+            }
+        },
+    )
+    options.activeFilterLabels(contentType).forEach { filter ->
+        if (filter.negative) {
+            NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
+        } else {
+            FilterChip(selected = true, onClick = onOpenOptions, label = { Text(filter.label) })
+        }
+    }
+}
+
+/**
  * Localized active-filter chip labels (the original BrowseOptions.activeFilters lived
  * in the data layer with hardcoded Chinese; label resolution moved to the composable
  * call site so labels follow string resources). [contentType] keeps the series-only
