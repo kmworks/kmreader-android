@@ -599,8 +599,8 @@ private fun RealEpubReader(
 
     val bridge = remember {
         EpubJsBridge(
-            onMetrics = viewModel::onMetrics,
-            onTap = { chromeVisible = !chromeVisible },
+            metricsCallback = viewModel::onMetrics,
+            tapCallback = { chromeVisible = !chromeVisible },
         )
     }
 
@@ -644,7 +644,13 @@ private fun RealEpubReader(
         }
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
-    DisposableEffect(webView) {
+    // The effect body runs after the composition apply phase, so by then the AndroidView factory
+    // has already assigned `webView`: any key derived from it (or any value captured in the body)
+    // already sees the NEW instance, and the null -> instance key change then destroys the WebView
+    // that was just created (the reader loads into a dead WebView: black screen, no taps). A
+    // constant key keeps this effect alive for the whole composition and only destroys the WebView
+    // when the reader actually leaves the screen.
+    DisposableEffect(Unit) {
         onDispose { webView?.destroy() }
     }
 
