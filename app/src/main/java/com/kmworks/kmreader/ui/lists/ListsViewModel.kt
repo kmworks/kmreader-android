@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Lists screen state; each list is null when there is no session (UI shows the empty state).
@@ -425,12 +426,15 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Update name/summary, and conditions only when the editor produced a new search document
+     * ([search] null keeps the server document so a rename cannot erase filters the editor cannot show).
+     */
     fun saveSmartList(
         entry: ListEntry,
         name: String,
         summary: String,
-        matchAll: Boolean,
-        rules: List<SmartListRule>,
+        search: JsonObject?,
         onDone: (Boolean) -> Unit,
     ) {
         val dtoId = DetailIdRegistry.smartListDtoId(entry.id) ?: return onDone(false)
@@ -439,7 +443,7 @@ class ListsViewModel @Inject constructor(
                 dtoId = dtoId,
                 name = name,
                 summary = summary,
-                search = buildSmartListSearchDocument(matchAll, rules),
+                search = search,
             )
             onDone(ok)
         }

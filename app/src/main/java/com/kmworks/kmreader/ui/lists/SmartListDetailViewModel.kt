@@ -43,6 +43,8 @@ data class SmartListDetailUiState(
     val series: List<Series>? = null,
     val loadingMore: Boolean = false,
     val hasMore: Boolean = false,
+    /** Server search document, shown as a filter summary in the editor (null while loading). */
+    val search: kotlinx.serialization.json.JsonObject? = null,
     /** Hero thumbnail (smart-list cover endpoint). */
     val heroThumbnail: String? = null,
 )
@@ -248,6 +250,7 @@ class SmartListDetailViewModel @Inject constructor(
                     books = null,
                     series = null,
                     hasMore = false,
+                    search = null,
                 )
             }
             try {
@@ -284,6 +287,7 @@ class SmartListDetailViewModel @Inject constructor(
                         books = booksPage?.items.orEmpty().map { dto -> dto.toUiBook() },
                         series = seriesPage?.items.orEmpty().map { dto -> dto.toUiSeries() },
                         hasMore = booksPage?.hasMore ?: seriesPage?.hasMore ?: false,
+                        search = detail.search,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),
                     )
                 }
