@@ -395,11 +395,13 @@ fun SmartListDetailScreen(
         // Filters are seeded from the stored search document; save passes a document back only when the
         // user changed full text or library scope (null keeps the stored document untouched).
         SmartListEditSheet(
-            onSave = { name, summary, _, search ->
+            onSave = { name, summary, _, search, visibility, sharedWithUserIds ->
                 viewModel.save(
                     name = name,
                     summary = summary,
                     search = search,
+                    visibility = visibility,
+                    sharedWithUserIds = sharedWithUserIds,
                 ) { ok ->
                     // Keep the editor open when saving fails, to avoid silently losing changes
                     if (ok) editOpen = false
@@ -410,6 +412,8 @@ fun SmartListDetailScreen(
             initialSummary = display.summary ?: "",
             initialTarget = display.target,
             initialSearch = state.search,
+            initialVisibility = state.visibility,
+            initialSharedWithUserIds = state.sharedWithUserIds,
             isEdit = true,
             onDelete = if (state.hasRealSmartList) {
                 {

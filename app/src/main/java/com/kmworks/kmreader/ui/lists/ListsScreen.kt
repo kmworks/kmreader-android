@@ -315,8 +315,15 @@ fun ListsScreen(
                 },
             )
             else -> SmartListEditSheet(
-                onSave = { name, summary, _, search ->
-                    viewModel.saveSmartList(entry, name, summary, search = search) { ok ->
+                onSave = { name, summary, _, search, visibility, sharedWithUserIds ->
+                    viewModel.saveSmartList(
+                        entry,
+                        name,
+                        summary,
+                        search = search,
+                        visibility = visibility,
+                        sharedWithUserIds = sharedWithUserIds,
+                    ) { ok ->
                         if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
                     }
                 },
@@ -325,6 +332,8 @@ fun ListsScreen(
                 initialSummary = entry.summary.orEmpty(),
                 initialTarget = entry.smartListTarget ?: com.kmworks.kmreader.data.SmartListTarget.Book,
                 initialSearch = entry.search,
+                initialVisibility = entry.visibility ?: SmartListVisibilityPrivate,
+                initialSharedWithUserIds = entry.sharedWithUserIds,
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteSmartList(entry) { ok ->
@@ -337,8 +346,15 @@ fun ListsScreen(
 
     if (creatingSmartList) {
         SmartListEditSheet(
-            onSave = { name, summary, target, search ->
-                viewModel.createSmartList(name, summary, target, search) { stableId ->
+            onSave = { name, summary, target, search, visibility, sharedWithUserIds ->
+                viewModel.createSmartList(
+                    name,
+                    summary,
+                    target,
+                    search,
+                    visibility,
+                    sharedWithUserIds,
+                ) { stableId ->
                     creatingSmartList = false
                     if (stableId != null) {
                         // Open what was just created; its detail page reads the registered id.

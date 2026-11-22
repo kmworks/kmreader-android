@@ -165,5 +165,8 @@ object SampleData {
         val smartListTarget: SmartListTarget? = null,
         /** Smart lists only: the server search document, read back for the editor's filter summary. */
         val search: JsonObject? = null,
+        /** Smart lists only: kmrs visibility/sharees, prefilled for the admin-only editor section. */
+        val visibility: String? = null,
+        val sharedWithUserIds: List<String> = emptyList(),
     )
 }

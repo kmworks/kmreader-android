@@ -45,6 +45,9 @@ data class SmartListDetailUiState(
     val hasMore: Boolean = false,
     /** Server search document, shown as a filter summary in the editor (null while loading). */
     val search: kotlinx.serialization.json.JsonObject? = null,
+    /** Stored sharing; the editor prefills it and only admins can change it. */
+    val visibility: String = SmartListVisibilityPrivate,
+    val sharedWithUserIds: List<String> = emptyList(),
     /** Hero thumbnail (smart-list cover endpoint). */
     val heroThumbnail: String? = null,
 )
@@ -251,6 +254,8 @@ class SmartListDetailViewModel @Inject constructor(
                     series = null,
                     hasMore = false,
                     search = null,
+                    visibility = SmartListVisibilityPrivate,
+                    sharedWithUserIds = emptyList(),
                 )
             }
             try {
@@ -288,6 +293,8 @@ class SmartListDetailViewModel @Inject constructor(
                         series = seriesPage?.items.orEmpty().map { dto -> dto.toUiSeries() },
                         hasMore = booksPage?.hasMore ?: seriesPage?.hasMore ?: false,
                         search = detail.search,
+                        visibility = detail.visibility,
+                        sharedWithUserIds = detail.sharedWithUserIds,
                         heroThumbnail = smartListRepository.smartListThumbnailUrl(dtoId),
                     )
                 }
@@ -344,11 +351,27 @@ class SmartListDetailViewModel @Inject constructor(
     }
 
     /** Update name/summary/conditions; the write signal re-reads the detail and hits. */
-    fun save(name: String, summary: String, search: kotlinx.serialization.json.JsonObject?, onDone: (Boolean) -> Unit) {
+    fun save(
+        name: String,
+        summary: String,
+        search: kotlinx.serialization.json.JsonObject?,
+        visibility: String?,
+        sharedWithUserIds: List<String>?,
+        onDone: (Boolean) -> Unit,
+    ) {
         val stableId = loadedId ?: return onDone(false)
         val dtoId = smartListRepository.smartListDtoId(stableId) ?: return onDone(false)
         viewModelScope.launch {
-            onDone(smartListRepository.updateSmartList(dtoId, name, summary, search))
+            onDone(
+                smartListRepository.updateSmartList(
+                    dtoId = dtoId,
+                    name = name,
+                    summary = summary,
+                    search = search,
+                    visibility = visibility,
+                    sharedWithUserIds = sharedWithUserIds,
+                ),
+            )
         }
     }
 
