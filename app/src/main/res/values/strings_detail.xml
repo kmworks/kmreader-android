@@ -71,6 +71,7 @@
 
     <!-- Series detail screen: toolbar menu, status line and confirmations -->
     <string name="series_edit_title">Edit series</string>
+    <string name="series_read_fab_description">%1$s: Vol. %2$s · %3$s</string>
     <string name="series_add_to_collection">Add to collection…</string>
     <string name="series_download">Download series</string>
     <string name="series_started_year">Serializing since %1$d</string>

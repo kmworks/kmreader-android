@@ -69,6 +69,7 @@
 
     <!-- Series detail: menu, status line and confirmation dialogs -->
     <string name="series_edit_title">编辑系列</string>
+    <string name="series_read_fab_description">%1$s：第 %2$s 卷 · %3$s</string>
     <string name="series_add_to_collection">加入收藏…</string>
     <string name="series_download">下载本系列</string>
     <string name="series_started_year">%1$d 年开始连载</string>
