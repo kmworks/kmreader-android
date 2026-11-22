@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.BookDto
-import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.ui.lists.ListSelection
@@ -43,6 +42,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /** Book/one-shot detail state; the UI falls back to sample data when book/meta is null. */
 data class BookDetailUiState(
@@ -333,7 +333,7 @@ class BookDetailViewModel @Inject constructor(
      */
     fun saveOneshotMetadata(
         draft: BookMetadataDraft,
-        seriesUpdate: SeriesMetadataUpdateDto?,
+        seriesBody: JsonObject?,
         onDone: (Boolean) -> Unit,
     ) {
         val dtoId = loadedId?.let { detailRepository.bookDtoId(it) }
@@ -344,7 +344,7 @@ class BookDetailViewModel @Inject constructor(
             return
         }
         val bookBody = draft.toUpdateDto(baseTitle, state.meta)
-        if (bookBody == null && seriesUpdate == null) {
+        if (bookBody == null && seriesBody == null) {
             onDone(true)
             return
         }
@@ -354,8 +354,8 @@ class BookDetailViewModel @Inject constructor(
             if (bookBody != null) {
                 ok = actionRepository.updateBookMetadata(dtoId, bookBody)
             }
-            if (ok && seriesUpdate != null) {
-                ok = sid != null && actionRepository.updateSeriesMetadata(sid, seriesUpdate)
+            if (ok && seriesBody != null) {
+                ok = sid != null && actionRepository.updateSeriesMetadata(sid, seriesBody)
             }
             onDone(ok)
         }

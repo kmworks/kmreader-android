@@ -45,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.data.AuthorRole
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookDetailMeta
@@ -59,6 +58,7 @@ import com.kmworks.kmreader.ui.components.LockableTextField
 import com.kmworks.kmreader.ui.components.NotableEntitiesContent
 import com.kmworks.kmreader.ui.components.rememberLockedField
 import com.kmworks.kmreader.ui.components.roleLabelText
+import kotlinx.serialization.json.JsonObject
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
 
@@ -110,7 +110,7 @@ fun OneshotEditSheet(
     seriesValues: SeriesEditValues?,
     seriesTitleFallback: String,
     saving: Boolean = false,
-    onSave: (BookMetadataDraft, SeriesMetadataUpdateDto?) -> Unit,
+    onSave: (BookMetadataDraft, JsonObject?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -363,7 +363,7 @@ fun OneshotEditSheet(
                             notableEntitiesLocked = notableEntitiesLocked,
                         )
                         // Series side: fields not edited by this sheet pass the initial value + initial lock state (lock submission is null, nothing is touched)
-                        val seriesDto = buildSeriesUpdateDto(
+                        val seriesDto = buildSeriesPatchBody(
                             initial = initial,
                             title = initial.title,
                             titleLocked = seriesLocks.titleLock,

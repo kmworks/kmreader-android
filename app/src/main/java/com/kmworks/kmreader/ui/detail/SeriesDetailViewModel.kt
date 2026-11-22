@@ -5,7 +5,6 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
-import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
@@ -62,6 +61,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /** Series detail state; when series/books are null the UI falls back to the sample data passed in. */
 data class SeriesDetailUiState(
@@ -661,12 +661,12 @@ class SeriesDetailViewModel @Inject constructor(
     }
 
     /**
-     * Saves the series metadata; a null dto means nothing changed (close immediately without a request).
+     * Saves the series metadata; a null body means nothing changed (close immediately without a request).
      * On success the write signal re-reads the detail so the hero/summary/chips reflect the server data.
      */
-    fun saveMetadata(dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {
+    fun saveMetadata(body: JsonObject?, onDone: (Boolean) -> Unit) {
         val seriesDtoId = dtoId
-        if (dto == null) {
+        if (body == null) {
             onDone(true)
             return
         }
@@ -676,7 +676,7 @@ class SeriesDetailViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val ok = actionRepository.updateSeriesMetadata(seriesDtoId, dto)
+            val ok = actionRepository.updateSeriesMetadata(seriesDtoId, body)
             if (!ok) _komfEvents.tryEmit(context.getString(R.string.detail_save_failed))
             onDone(ok)
         }
