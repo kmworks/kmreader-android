@@ -717,11 +717,14 @@ private fun SeriesListRow(
 }
 
 private fun sortCollectionSeries(series: List<Series>, options: BrowseOptions): List<Series> {
-    // Sort-field tokens come from BookSortFields in data/BrowseFilter.kt.
+    // Tokens come from SeriesSortFields in data/BrowseFilter.kt. A collection is sorted locally (the
+    // list comes straight from the collection endpoint), so only the fields the Series model carries
+    // can take effect here: title, release year and book count. The pre-Komga tokens stay matched so
+    // presets saved by older builds still sort.
     val sorted = when (options.sortField) {
-        "title" -> series.sortedBy { it.title }
-        "releaseDate" -> series.sortedBy { it.releaseYear ?: 0 }
-        "fileSize", "pageCount" -> series.sortedBy { it.bookCount }
+        "metadata.titleSort", "metadata.title", "title" -> series.sortedBy { it.title }
+        "booksMetadata.releaseDate", "releaseDate" -> series.sortedBy { it.releaseYear ?: 0 }
+        "booksCount", "fileSize", "pageCount" -> series.sortedBy { it.bookCount }
         else -> series
     }
     return if (options.sortAscending) sorted else sorted.reversed()

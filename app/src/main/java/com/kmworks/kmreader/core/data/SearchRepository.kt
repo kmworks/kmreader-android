@@ -460,20 +460,21 @@ class SearchRepository @Inject constructor(
     }
 
     /**
-     * Series sort parameters (series/list), mirroring SeriesSortField of the original app; an
-     * unknown token falls back to 标题. 随机 carries no direction.
+     * Series sort parameters (series/list), using the keys Komga's own web UI sends (sortSeries in
+     * next-ui/src/types/sort.ts): an unknown token falls back to 排序标题, and the tokens older
+     * builds persisted still resolve to their official key. 随机 carries no direction.
      */
     private fun seriesSort(options: BrowseOptions): List<String> {
         val direction = if (options.sortAscending) "asc" else "desc"
         val field = when (options.sortField) {
             "metadata.titleSort", "titleSort", "title", "number" -> "metadata.titleSort"
-            "created", "createdDate", "added_date" -> "created"
-            "lastModified", "lastModifiedDate", "updated_date" -> "lastModified"
-            "fileLastModified", "readProgress.readDate" -> "fileLastModified"
-            "booksMetadata.releaseDate", "metadata.releaseDate", "releaseDate", "release_date" ->
-                "booksMetadata.releaseDate"
             "metadata.title" -> "metadata.title"
             "name" -> "name"
+            "createdDate", "created", "added_date" -> "createdDate"
+            "lastModifiedDate", "lastModified", "updated_date" -> "lastModifiedDate"
+            "readDate", "fileLastModified", "readProgress.readDate" -> "readDate"
+            "booksMetadata.releaseDate", "metadata.releaseDate", "releaseDate", "release_date" ->
+                "booksMetadata.releaseDate"
             "booksCount", "fileSize", "file_size", "media.pagesCount", "pageCount", "page_count" -> "booksCount"
             "random" -> "random"
             else -> "metadata.titleSort"
