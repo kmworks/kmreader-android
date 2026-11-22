@@ -98,9 +98,11 @@ import dev.chrisbanes.haze.rememberHazeState
  *  full page of that kind; toolbar scope filter (LibraryScopeMenu).
  *
  *  With [initialGroup] set the same composable renders that page instead of the tab (back arrow +
- *  every entry of the kind in a vertical grid), so the strip and its page share one view model, one
- *  paging pass and one set of edit sheets: opening "see all" never re-fetches what the tab already
- *  has, and an edit made on either destination shows up on both. */
+ *  every entry of the kind in a vertical grid). The caller hands the page the tab's [viewModel]:
+ *  a pushed page gets its own view-model store, so the default here would be a second instance
+ *  that re-seeds the disk cache and re-fetches what the tab already shows. Sharing the instance
+ *  is what makes opening "see all" paint the loaded rows directly, and an edit made on either
+ *  destination shows up on both. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListsScreen(
@@ -110,6 +112,7 @@ fun ListsScreen(
     onOpenGroup: (ListsGroupKind) -> Unit = {},
     initialGroup: ListsGroupKind? = null,
     onBack: () -> Unit = {},
+    viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val groupCollectionsLabel = stringResource(ListsGroupKind.Collections.labelRes)
     val groupReadListsLabel = stringResource(ListsGroupKind.ReadLists.labelRes)
@@ -138,7 +141,6 @@ fun ListsScreen(
     var creatingSmartList by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val viewModel: ListsViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
