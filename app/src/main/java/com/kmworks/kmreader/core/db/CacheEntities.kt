@@ -50,17 +50,21 @@ data class CachedSeriesEntity(
     val updatedAt: Long,
 )
 
-/** Collection/read-list rows (the Lists screen and the dashboard's list shortcuts). */
+/** Collection/read-list/smart-list rows (the Lists screen and the dashboard's list shortcuts). */
 @Entity(tableName = "cached_lists", primaryKeys = ["instanceKey", "kind", "dtoId"])
 data class CachedListEntity(
     val instanceKey: String,
-    /** [LIST_KIND_COLLECTION] or [LIST_KIND_READLIST]. */
+    /** [LIST_KIND_COLLECTION], [LIST_KIND_READLIST] or [LIST_KIND_SMARTLIST]. */
     val kind: String,
     val dtoId: String,
     val name: String,
     val count: Int,
     val hue: Float,
     val pinned: Boolean,
+    /** The order the screen showed, so a restored strip keeps the server/pinned order. */
+    val position: Int,
+    /** Smart lists only ("BOOK"/"SERIES"): the card shows the target label instead of an item count. */
+    val smartListTarget: String?,
     val updatedAt: Long,
 )
 
@@ -93,6 +97,7 @@ data class CachedDashboardSectionEntity(
 
 internal const val LIST_KIND_COLLECTION = "collection"
 internal const val LIST_KIND_READLIST = "readlist"
+internal const val LIST_KIND_SMARTLIST = "smartlist"
 
 internal const val ITEM_KIND_BOOK = "book"
 internal const val ITEM_KIND_SERIES = "series"

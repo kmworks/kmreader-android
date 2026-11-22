@@ -218,7 +218,17 @@ class ListsViewModel @Inject constructor(
         if (libraryIds == null && _state.value.collections == null && _state.value.readLists == null) {
             val cached = runCatching { catalogCache.seedLists() }.getOrNull()
             if (cached != null && gen == generation) {
-                _state.update { it.copy(collections = cached.first, readLists = cached.second) }
+                // The cached pinned flags are from the last save; apply the current sets so a pin toggled
+                // since then does not reshuffle the strip once the network answer lands.
+                val pinnedCollectionIds = appSettingsStore.pinnedCollectionIds.first()
+                val pinnedReadListIds = appSettingsStore.pinnedReadListIds.first()
+                _state.update {
+                    it.copy(
+                        collections = cached.first.applyPinned(pinnedCollectionIds, DetailIdRegistry::collectionDtoId),
+                        readLists = cached.second.applyPinned(pinnedReadListIds, DetailIdRegistry::readListDtoId),
+                        smartLists = cached.third,
+                    )
+                }
             }
         }
         try {
@@ -267,7 +277,7 @@ class ListsViewModel @Inject constructor(
             // Persist the Lists rows so the next launch can paint them before the network answers; only the
             // unfiltered set is cached, because the cache has no scope dimension shared with the library tab.
             if (libraryIds == null) {
-                runCatching { catalogCache.saveLists(collectionEntries, readListEntries) }
+                runCatching { catalogCache.saveLists(collectionEntries, readListEntries, smartListEntries) }
             }
         } catch (e: CancellationException) {
             throw e

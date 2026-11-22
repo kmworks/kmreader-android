@@ -14,6 +14,7 @@ import com.kmworks.kmreader.core.db.ITEM_KIND_READLIST
 import com.kmworks.kmreader.core.db.ITEM_KIND_SERIES
 import com.kmworks.kmreader.core.db.LIST_KIND_COLLECTION
 import com.kmworks.kmreader.core.db.LIST_KIND_READLIST
+import com.kmworks.kmreader.core.db.LIST_KIND_SMARTLIST
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
@@ -21,6 +22,7 @@ import com.kmworks.kmreader.data.DashboardSection
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.SmartListTarget
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -222,37 +224,45 @@ class CatalogCache @Inject constructor(
 
     // ---------------------------------------------------------------- collections / read lists
 
-    /** Persist the Lists screen rows (collections + read lists). */
-    suspend fun saveLists(collections: List<ListEntry>?, readLists: List<ListEntry>?) {
+    /**
+     * Persist the Lists screen rows (collections + read lists + smart lists). Each kind is replaced
+     * wholesale — upserting would keep rows of entries deleted server-side around, and the next seed
+     * would paint them again. A null kind leaves that kind's cached rows untouched, so a caller that
+     * only knows two kinds (the library tab) cannot wipe the third.
+     */
+    suspend fun saveLists(
+        collections: List<ListEntry>?,
+        readLists: List<ListEntry>?,
+        smartLists: List<ListEntry>? = null,
+    ) {
         val instanceKey = instanceKey() ?: return
         val now = System.currentTimeMillis()
-        val rows = buildList {
-            collections.orEmpty().forEach { entry ->
-                DetailIdRegistry.collectionDtoId(entry.id)?.let { dtoId ->
-                    add(listRow(instanceKey, LIST_KIND_COLLECTION, dtoId, entry, now))
-                }
-            }
-            readLists.orEmpty().forEach { entry ->
-                DetailIdRegistry.readListDtoId(entry.id)?.let { dtoId ->
-                    add(listRow(instanceKey, LIST_KIND_READLIST, dtoId, entry, now))
-                }
-            }
+        suspend fun saveKind(kind: String, dtoIdOf: (Int) -> String?, entries: List<ListEntry>) {
+            dao.replaceLists(
+                instanceKey,
+                kind,
+                entries.mapIndexedNotNull { index, entry ->
+                    dtoIdOf(entry.id)?.let { dtoId -> listRow(instanceKey, kind, dtoId, entry, index, now) }
+                },
+            )
         }
-        if (rows.isNotEmpty()) {
-            dao.upsertLists(rows)
-        } else {
-            dao.deleteLists(instanceKey)
-        }
+        collections?.let { saveKind(LIST_KIND_COLLECTION, DetailIdRegistry::collectionDtoId, it) }
+        readLists?.let { saveKind(LIST_KIND_READLIST, DetailIdRegistry::readListDtoId, it) }
+        smartLists?.let { saveKind(LIST_KIND_SMARTLIST, DetailIdRegistry::smartListDtoId, it) }
     }
 
-    /** Restore the Lists screen rows (null when nothing cached). */
-    suspend fun seedLists(): Pair<List<ListEntry>, List<ListEntry>>? {
+    /** Restore the Lists screen rows (collections, read lists, smart lists; null when nothing cached). */
+    suspend fun seedLists(): Triple<List<ListEntry>, List<ListEntry>, List<ListEntry>>? {
         val instanceKey = instanceKey() ?: return null
         val collections = dao.lists(instanceKey, LIST_KIND_COLLECTION)
         val readLists = dao.lists(instanceKey, LIST_KIND_READLIST)
-        if (collections.isEmpty() && readLists.isEmpty()) return null
-        return collections.map { it.toListEntry(isCollection = true) } to
-            readLists.map { it.toListEntry(isCollection = false) }
+        val smartLists = dao.lists(instanceKey, LIST_KIND_SMARTLIST)
+        if (collections.isEmpty() && readLists.isEmpty() && smartLists.isEmpty()) return null
+        return Triple(
+            collections.map { it.toListEntry() },
+            readLists.map { it.toListEntry() },
+            smartLists.map { it.toListEntry() },
+        )
     }
 
     private fun listRow(
@@ -260,6 +270,7 @@ class CatalogCache @Inject constructor(
         kind: String,
         dtoId: String,
         entry: ListEntry,
+        position: Int,
         now: Long,
     ) = CachedListEntity(
         instanceKey = instanceKey,
@@ -269,19 +280,50 @@ class CatalogCache @Inject constructor(
         count = entry.count,
         hue = entry.hue,
         pinned = entry.pinned,
+        position = position,
+        smartListTarget = when (entry.smartListTarget) {
+            SmartListTarget.Series -> "SERIES"
+            SmartListTarget.Book -> "BOOK"
+            null -> null
+        },
         updatedAt = now,
     )
 
-    private fun CachedListEntity.toListEntry(isCollection: Boolean): ListEntry {
-        val stableId = if (isCollection) StableIds.collection(dtoId) else StableIds.readList(dtoId)
-        if (isCollection) {
-            DetailIdRegistry.registerCollection(stableId, dtoId)
-            CoverUrlRegistry.registerCollection(stableId, dtoId)
-        } else {
-            DetailIdRegistry.registerReadList(stableId, dtoId)
-            CoverUrlRegistry.registerReadList(stableId, dtoId)
+    private fun CachedListEntity.toListEntry(): ListEntry {
+        val stableId = when (kind) {
+            LIST_KIND_COLLECTION -> StableIds.collection(dtoId)
+            LIST_KIND_READLIST -> StableIds.readList(dtoId)
+            else -> StableIds.smartList(dtoId)
         }
-        return ListEntry(stableId, name, count, hue, pinned)
+        when (kind) {
+            LIST_KIND_COLLECTION -> {
+                DetailIdRegistry.registerCollection(stableId, dtoId)
+                CoverUrlRegistry.registerCollection(stableId, dtoId)
+            }
+            LIST_KIND_READLIST -> {
+                DetailIdRegistry.registerReadList(stableId, dtoId)
+                CoverUrlRegistry.registerReadList(stableId, dtoId)
+            }
+            else -> {
+                DetailIdRegistry.registerSmartList(stableId, dtoId)
+                CoverUrlRegistry.registerSmartList(stableId, dtoId)
+            }
+        }
+        if (kind != LIST_KIND_SMARTLIST) return ListEntry(stableId, name, count, hue, pinned)
+        // A smart list card shows what it groups by instead of an item count; the label is localized,
+        // so the row stores the target and the restore recomputes the string.
+        val target = if (smartListTarget == "SERIES") SmartListTarget.Series else SmartListTarget.Book
+        return ListEntry(
+            stableId,
+            name,
+            count,
+            hue,
+            pinned,
+            targetLabel = context.getString(
+                if (target == SmartListTarget.Series) R.string.common_series else R.string.common_book,
+            ),
+            smartListTarget = target,
+        )
     }
 
     // ---------------------------------------------------------------- dashboard sections

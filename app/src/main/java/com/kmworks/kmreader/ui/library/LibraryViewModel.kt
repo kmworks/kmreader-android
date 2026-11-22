@@ -23,8 +23,7 @@ import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
-import com.kmworks.kmreader.core.data.StableIds
-import com.kmworks.kmreader.core.data.hueFor
+import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.LibraryMetricValues
@@ -545,12 +544,10 @@ class LibraryViewModel @Inject constructor(
                 val r = async { listRepository.readLists() }
                 c.await() to r.await()
             }
-            val collections = collectionDtos.map { dto ->
-                ListEntry(StableIds.collection(dto.id), dto.name, dto.seriesIds.size, hueFor(dto.id), false)
-            }
-            val readLists = readListDtos.map { dto ->
-                ListEntry(StableIds.readList(dto.id), dto.name, dto.bookIds.size, hueFor(dto.id), false)
-            }
+            // The mappers register the stable-id → dto-id mapping saveLists resolves; hand-built entries
+            // would silently drop every row once the cache replaces kinds instead of upserting them.
+            val collections = collectionDtos.map { it.toListEntry() }
+            val readLists = readListDtos.map { it.toListEntry() }
             _state.update {
                 it.copy(
                     loading = false,

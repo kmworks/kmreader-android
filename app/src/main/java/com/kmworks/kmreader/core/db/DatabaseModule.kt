@@ -31,6 +31,17 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+/** v3 -> v4: cached lists learn their display position and smart lists; old rows are dropped (see below). */
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE cached_lists ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE cached_lists ADD COLUMN smartListTarget TEXT")
+        // Writes were upsert-only, so rows of long-deleted collections/read lists are still in the table and
+        // would seed the Lists screen one more time; the next successful refresh repopulates it cleanly.
+        db.execSQL("DELETE FROM cached_lists")
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -41,7 +52,7 @@ object DatabaseModule {
         Room.databaseBuilder(context, KmReaderDatabase::class.java, "kmreader_cache.db")
             // Keep the cached catalog across the mediaType and seriesId columns (the cache is still allowed
             // to be dropped by any later schema bump, which is what the destructive fallback is for).
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
