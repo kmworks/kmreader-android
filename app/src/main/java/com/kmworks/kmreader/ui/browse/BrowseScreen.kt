@@ -117,7 +117,15 @@ fun BrowseScreen(
         deviceBrowseLayoutDefault(tablet = BrowseLayout.LargeGrid),
     )
     var showFilterSheet by remember { mutableStateOf(false) }
-    val browseOptions by viewModel.browseOptionsFlow.collectAsStateWithLifecycle()
+    val seriesBrowseOptions by viewModel.seriesBrowseOptionsFlow.collectAsStateWithLifecycle()
+    val booksBrowseOptions by viewModel.booksBrowseOptionsFlow.collectAsStateWithLifecycle()
+    // The filter panel follows the scope chips: the books scope edits the book filters, while every other
+    // scope (All / Series / ReadLists / Collections) edits the series filters, which is the set the series
+    // query actually uses. Each set keeps its own dimensions and its own sort vocabulary.
+    val filterContentType =
+        if (scope == SearchScope.Books) BrowseContentType.Books else BrowseContentType.Series
+    val filterOptions =
+        if (filterContentType == BrowseContentType.Books) booksBrowseOptions else seriesBrowseOptions
 
     // Same floating frosted bar as the other tab roots (dashboard / library / lists): a stock M3 TopAppBar
     // painted its own surface-coloured strip above the page, which read as a separate band instead of
@@ -161,7 +169,7 @@ fun BrowseScreen(
                 AssistChip(
                     onClick = { showFilterSheet = true },
                     label = {
-                        val count = browseOptions.activeFilterLabels(BrowseContentType.Series).size
+                        val count = filterOptions.activeFilterLabels(filterContentType).size
                         Text(
                             if (count > 0) {
                                 stringResource(R.string.browse_filter_count, count)
@@ -205,13 +213,13 @@ fun BrowseScreen(
 
             if (showFilterSheet) {
                 BrowseOptionsSheet(
-                    initialOptions = browseOptions,
-                    onConfirm = viewModel::setBrowseOptions,
+                    initialOptions = filterOptions,
+                    onConfirm = { options -> viewModel.setBrowseOptions(filterContentType, options) },
                     onDismiss = { showFilterSheet = false },
-                    // One panel covers both result groups: the search tab queries series and books with the
-                    // same conditions (mirrors the iOS search filters), and a book query simply ignores
-                    // the series-only dimensions it cannot express.
-                    contentType = BrowseContentType.Series,
+                    // Series and books keep separate filter sets: the books scope shows the book panel
+                    // (which has no publisher/genre/series-status dimensions and its own sort list), every
+                    // other scope shows the series panel that the series query consumes.
+                    contentType = filterContentType,
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
             }

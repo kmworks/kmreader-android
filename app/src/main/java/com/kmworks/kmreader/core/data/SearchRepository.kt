@@ -51,7 +51,8 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            sort = listOf("metadata.titleSort,asc"),
+            // The panel's sort applies here too; the search-specific default keeps the old behaviour.
+            sort = options?.let { seriesSort(it) } ?: listOf("metadata.titleSort,asc"),
         ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
         return result.toSeriesPage(size)
     }
@@ -76,7 +77,8 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            sort = listOf("metadata.numberSort,asc"),
+            // Book sorting has its own vocabulary (series/number/title/...); no series-only tokens here.
+            sort = options?.let { bookSort(it) } ?: listOf("metadata.numberSort,asc"),
         ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
         return result.toBookPage(size)
     }
