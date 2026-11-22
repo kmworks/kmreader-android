@@ -83,6 +83,11 @@ intentionally out of scope (see [Platform differences](#platform-differences)).
   in-app log viewer with share/export.
 - Network settings (timeout, concurrency), image cache usage and cleanup, true-black theme, and app
   icon variants (primary / classic / legacy).
+- **Update check** on the About page: the app looks up the latest [GitHub
+  release](https://github.com/kmworks/kmreader-android/releases) at launch, at most once a day, and
+  prompts when the tag is newer than the installed build. The switch turns the automatic check off,
+  `Check Now` queries on demand, and `Download` opens the release APK in the browser (no installer
+  integration, no storage permission).
 
 ### Tracking and metadata
 
