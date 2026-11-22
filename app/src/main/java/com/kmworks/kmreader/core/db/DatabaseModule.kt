@@ -42,6 +42,18 @@ private val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+/** v4 -> v5: cached books learn whether an EPUB is DIVINA-compatible (the reader route depends on it). */
+private val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE cached_books ADD COLUMN epubDivinaCompatible INTEGER NOT NULL DEFAULT 0")
+        // Rows written before the column existed would report false and open a DIVINA-compatible EPUB in
+        // the WebPub reader: drop the book rows (not the series/lists) so the next refresh repopulates
+        // them with the real flag, same call the v1 -> v2 mediaType migration made.
+        db.execSQL("DELETE FROM cached_books")
+        db.execSQL("DELETE FROM cached_list_rows WHERE itemKind = 'book'")
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -52,7 +64,7 @@ object DatabaseModule {
         Room.databaseBuilder(context, KmReaderDatabase::class.java, "kmreader_cache.db")
             // Keep the cached catalog across the mediaType and seriesId columns (the cache is still allowed
             // to be dropped by any later schema bump, which is what the destructive fallback is for).
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
