@@ -1346,7 +1346,9 @@ private fun ReadingActionButton(
         Icon(
             Icons.AutoMirrored.Filled.MenuBook,
             contentDescription = null,
-            modifier = Modifier.size(16.dp),
+            // 20dp, matching the floating SeriesReadFab: at 16dp the icon looked lost next to the
+            // two-line label in this taller capsule.
+            modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
