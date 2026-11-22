@@ -165,14 +165,17 @@ fun BrowseScreen(
                         Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
                     },
                 )
-                // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS search tab filters)
-                AssistChip(
+                // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
+                // search tab filters). It carries the selected state, so an applied filter is visible in the
+                // chip row instead of only inside the panel.
+                val filterCount = filterOptions.activeFilterLabels(filterContentType).size
+                FilterChip(
+                    selected = filterCount > 0,
                     onClick = { showFilterSheet = true },
                     label = {
-                        val count = filterOptions.activeFilterLabels(filterContentType).size
                         Text(
-                            if (count > 0) {
-                                stringResource(R.string.browse_filter_count, count)
+                            if (filterCount > 0) {
+                                stringResource(R.string.browse_filter_count, filterCount)
                             } else {
                                 stringResource(R.string.browse_filter)
                             },
