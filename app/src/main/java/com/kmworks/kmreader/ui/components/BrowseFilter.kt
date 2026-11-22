@@ -32,12 +32,15 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +49,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -134,6 +138,40 @@ fun rememberPersistentBrowseLayout(
     return value to { next ->
         local = next
         scope.launch { appSettings.setBrowseLayout(page, next.name) }
+    }
+}
+
+/**
+ * Filter entry point for pages whose toolbar holds icon buttons instead of the chip flow. The badge
+ * count and the tinted icon are the only signal that filters are narrowing the list there: without
+ * them the button looks identical whether the panel holds conditions or nothing at all.
+ */
+@Composable
+fun BrowseFilterButton(
+    options: BrowseOptions,
+    contentType: BrowseContentType,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val count = options.activeFilterLabels(contentType).size
+    IconButton(onClick = onClick, modifier = modifier) {
+        BadgedBox(
+            badge = {
+                if (count > 0) {
+                    Badge { Text(count.toString()) }
+                }
+            },
+        ) {
+            Icon(
+                Icons.Filled.FilterList,
+                contentDescription = if (count > 0) {
+                    stringResource(R.string.browse_filter_count, count)
+                } else {
+                    stringResource(R.string.browse_filter)
+                },
+                tint = if (count > 0) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+            )
+        }
     }
 }
 

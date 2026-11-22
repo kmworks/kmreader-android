@@ -78,6 +78,7 @@ import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.BookListRow
+import com.kmworks.kmreader.ui.components.BrowseFilterButton
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.GlassTopBar
@@ -494,12 +495,14 @@ fun LibraryScreen(
                         contentDescription = stringResource(R.string.library_layout_cd, stringResource(layout.labelRes)),
                     )
                 }
-                IconButton(onClick = { showOptionsSheet = true }) {
-                    Icon(
-                        Icons.Filled.FilterList,
-                        contentDescription = stringResource(R.string.browse_filter),
-                    )
-                }
+                BrowseFilterButton(
+                    options = when (contentType) {
+                        LibraryContentType.Series -> state.seriesBrowseOptions
+                        LibraryContentType.Books -> state.booksBrowseOptions
+                    },
+                    contentType = browseContentType,
+                    onClick = { showOptionsSheet = true },
+                )
             },
         )
         SnackbarHost(

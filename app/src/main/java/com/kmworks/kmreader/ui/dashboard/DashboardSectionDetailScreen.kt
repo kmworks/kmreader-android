@@ -73,6 +73,7 @@ import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BookListRow
+import com.kmworks.kmreader.ui.components.BrowseFilterButton
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
@@ -248,12 +249,11 @@ fun DashboardSectionDetailScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { showOptions = true }) {
-                        Icon(
-                            Icons.Filled.FilterList,
-                            contentDescription = stringResource(R.string.dashboard_filter),
-                        )
-                    }
+                    BrowseFilterButton(
+                        options = options,
+                        contentType = sectionContentType,
+                        onClick = { showOptions = true },
+                    )
                 },
             )
             val books = detail.items.filterIsInstance<Book>()
