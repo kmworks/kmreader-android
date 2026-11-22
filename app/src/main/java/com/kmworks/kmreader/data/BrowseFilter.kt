@@ -106,18 +106,19 @@ val BookSortFields = listOf(
 )
 
 /**
- * Series sort tokens, in the order the filter sheet lists them (mirrors SeriesSortField; 排序标题 is
- * the default). The three title-ish tokens are distinct: metadata.titleSort is the custom sort key,
- * metadata.title is the (possibly customised) title, and name is the directory name on disk — the
- * latter is the token Komga's own web UI calls "Directory name".
+ * Series sort tokens, in the order the filter sheet lists them. The keys are the ones Komga's own
+ * web UI sends (next-ui/src/types/sort.ts, sortSeries), so the server sorts by exactly what the
+ * picker says. The title-ish tokens are distinct: metadata.titleSort is the custom sort key,
+ * metadata.title is the (possibly customised) title, and name is the directory name on disk
+ * ("Directory name" in the web UI).
  */
 val SeriesSortFields = listOf(
     "metadata.titleSort",
     "metadata.title",
     "name",
-    "created",
-    "lastModified",
-    "fileLastModified",
+    "createdDate",
+    "lastModifiedDate",
+    "readDate",
     "booksMetadata.releaseDate",
     "booksCount",
     "random",
@@ -145,9 +146,16 @@ private val LegacyBookSortFields = mapOf(
 private val LegacySeriesSortFields = mapOf(
     "number" to "metadata.titleSort",
     "title" to "metadata.titleSort",
+    "titleSort" to "metadata.titleSort",
     "releaseDate" to "booksMetadata.releaseDate",
-    "createdDate" to "created",
-    "lastModified" to "lastModified",
+    "metadata.releaseDate" to "booksMetadata.releaseDate",
+    "release_date" to "booksMetadata.releaseDate",
+    "added_date" to "createdDate",
+    "created" to "createdDate",
+    "updated_date" to "lastModifiedDate",
+    "lastModified" to "lastModifiedDate",
+    "fileLastModified" to "readDate",
+    "readProgress.readDate" to "readDate",
     "fileSize" to "booksCount",
     "pageCount" to "booksCount",
 )
