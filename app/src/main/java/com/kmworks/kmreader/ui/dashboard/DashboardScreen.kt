@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,8 +97,8 @@ fun DashboardScreen(
     onVisitSeries: (Book) -> Unit = {},
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
     komfViewModel: KomfSeriesViewModel = hiltViewModel(),
+    viewModel: DashboardViewModel = hiltViewModel(),
 ) {
-    val viewModel: DashboardViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
     val komfState by komfViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -263,6 +265,9 @@ fun DashboardScreen(
                         kindMenuEnabled = state.kindMenuEnabled,
                         kindOverrides = state.kindOverrides,
                         onKindChange = { kind -> viewModel.setSectionKind(section.id, kind) },
+                        hasMore = state.sectionPaging[section.id]?.hasMore == true,
+                        loadingMore = state.sectionPaging[section.id]?.loadingMore == true,
+                        onLoadMore = { viewModel.loadMoreSection(section.id) },
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -511,6 +516,9 @@ private fun DashboardSectionRow(
     kindMenuEnabled: Boolean = false,
     kindOverrides: Map<String, DashboardCardKind> = emptyMap(),
     onKindChange: (DashboardCardKind?) -> Unit = {},
+    hasMore: Boolean = false,
+    loadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
 ) {
     // Phone windows use medium cards for every section except the horizontal ones; an explicit
     // card-kind choice still wins, and tablets/wide windows keep the stored default.
@@ -573,7 +581,22 @@ private fun DashboardSectionRow(
         modifier = Modifier.padding(horizontal = 16.dp),
         trailing = kindTrailing,
     )
+    // Strip end detection: request the section's next page once the last visible card is within the
+    // final 3 (the "More" page shares the same feed state, so either destination grows both).
+    val stripState = rememberLazyListState()
+    val shouldLoadMore by remember(stripState) {
+        derivedStateOf {
+            val info = stripState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+        }
+    }
+    // items.size is part of the key: keep requesting pages while still parked at the end after an append.
+    LaunchedEffect(shouldLoadMore, hasMore, loadingMore, section.items.size) {
+        if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
+    }
     LazyRow(
+        state = stripState,
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -615,6 +638,22 @@ private fun DashboardSectionRow(
                             modifier = Modifier.width(cardKind.widthDp.dp),
                             reserveProgressSpace = true,
                         )
+                }
+            }
+            // Trailing loading row: shown while another page exists; reaching it requests the page.
+            if (hasMore) {
+                item(key = "load-more") {
+                    Box(
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(
+                                if (cardKind == DashboardCardKind.Horizontal) 120.dp
+                                else cardKind.widthDp.dp * 1.5f,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
                 }
             }
         }

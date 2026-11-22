@@ -77,6 +77,7 @@ import com.kmworks.kmreader.ui.components.LocalDownloadedIndex
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.dashboard.DashboardScreen
 import com.kmworks.kmreader.ui.dashboard.DashboardSectionDetailScreen
+import com.kmworks.kmreader.ui.dashboard.DashboardViewModel
 import com.kmworks.kmreader.ui.dashboard.SettingsDashboardScreen
 import com.kmworks.kmreader.ui.detail.BookDetailScreen
 import com.kmworks.kmreader.ui.detail.SeriesDetailScreen
@@ -294,6 +295,11 @@ fun AppRoot(
     val sharedListsViewModel: @Composable () -> ListsViewModel = {
         tabViewModelStoreOwner?.let { hiltViewModel<ListsViewModel>(viewModelStoreOwner = it) } ?: hiltViewModel()
     }
+    // Same sharing for the dashboard: the section "More" page reads the tab's already-loaded
+    // section feeds instead of re-fetching page 0 behind a spinner.
+    val sharedDashboardViewModel: @Composable () -> DashboardViewModel = {
+        tabViewModelStoreOwner?.let { hiltViewModel<DashboardViewModel>(viewModelStoreOwner = it) } ?: hiltViewModel()
+    }
     // The real page stack: index 0 is the first page above the tabs. Pages are appended when something is
     // opened and removed from the end by back, so back always returns to the page the current one was opened
     // from (a detail page, a filtered list, a list detail) instead of leaving the app.
@@ -437,6 +443,7 @@ fun AppRoot(
                         onOpenContinuation = { push(ReadListDetailRoute(it.readListId)) },
                         onVisitSeries = visitSeriesOfBook,
                         onReadBook = openReader,
+                        viewModel = sharedDashboardViewModel(),
                     )
 
                     AppTab.Library -> LibraryScreen(
@@ -636,6 +643,7 @@ fun AppRoot(
                         onOpenSeries = { push(SeriesDetailRoute(it)) },
                         onOpenBook = { push(BookDetailRoute(it)) },
                         onReadBook = { book, incognito -> openReader(book, incognito) },
+                        viewModel = sharedDashboardViewModel(),
                     )
                 }
 
