@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.outlined.ListAlt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -21,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,6 +80,13 @@ fun AddToListSheet(
         createBusy = false
         createFailed = false
     }
+
+    // Mirrors the original picker's .searchable: the query filters the candidates by name, while the
+    // create actions stay available — a search miss is often exactly when a new list is wanted.
+    var query by remember { mutableStateOf("") }
+    val visibleCollections = remember(collections, query) { collections.filterByQuery(query) }
+    val visibleReadLists = remember(readLists, query) { readLists.filterByQuery(query) }
+    val noMatches = query.isNotBlank() && visibleCollections.isEmpty() && visibleReadLists.isEmpty()
 
     if (createMode == "readlist") {
         ReadListEditSheet(
@@ -144,9 +153,20 @@ fun AddToListSheet(
                 }
             }
 
-            if (collections.isNotEmpty()) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(stringResource(R.string.common_search)) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+
+            if (visibleCollections.isNotEmpty()) {
                 GroupLabel(stringResource(R.string.lists_group_collections))
-                collections.forEach { entry ->
+                visibleCollections.forEach { entry ->
                     ListTargetRow(
                         entry = entry,
                         icon = { tint ->
@@ -169,9 +189,9 @@ fun AddToListSheet(
                     )
                 }
             }
-            if (readLists.isNotEmpty()) {
+            if (visibleReadLists.isNotEmpty()) {
                 GroupLabel(stringResource(R.string.lists_group_readlists))
-                readLists.forEach { entry ->
+                visibleReadLists.forEach { entry ->
                     ListTargetRow(
                         entry = entry,
                         icon = { tint ->
@@ -193,6 +213,15 @@ fun AddToListSheet(
                         },
                     )
                 }
+            }
+
+            if (noMatches) {
+                Text(
+                    text = stringResource(R.string.lists_no_matches),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
             }
 
             if (showCreateCollection) {
@@ -277,4 +306,11 @@ private fun ListTargetRow(
             )
         }
     }
+}
+
+/** Case-insensitive name filter for the picker (mirrors the original .searchable predicate). */
+private fun List<ListEntry>.filterByQuery(query: String): List<ListEntry> {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return this
+    return filter { it.title.contains(trimmed, ignoreCase = true) }
 }
