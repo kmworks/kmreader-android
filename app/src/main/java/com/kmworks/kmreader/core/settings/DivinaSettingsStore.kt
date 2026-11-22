@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.settings
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -96,24 +97,50 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
-    // ---- Reading direction remembered per book -------------------------------------------------
+    // ---- Reading direction remembered per series / per book ------------------------------------
     // The menu's "current reading options" are session-scoped (mirrors the original @State values),
-    // except the direction: a direction the user picked for one book is remembered, so reopening that
-    // book does not fall back to the series metadata. Stored like soloPages ("bookDtoId:Direction||…").
-    val bookDirections: Flow<Map<String, ReadingDirection>> = store.data.map { prefs ->
-        parseBookDirections(prefs[keyBookDirections])
+    // except the direction: choosing one writes the whole series by default (so continuing to the next
+    // volume keeps it), and "only for this book" writes an exception that wins over the series value.
+    // Both maps use the soloPages format ("id:Direction||…").
+    val seriesDirections: Flow<Map<String, ReadingDirection>> = store.data.map { prefs ->
+        parseDirectionMap(prefs[keySeriesDirections])
     }
 
-    /** Remembers [direction] for [bookDtoId]; null forgets the book (back to the settings/metadata chain). */
-    suspend fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
+    val bookDirections: Flow<Map<String, ReadingDirection>> = store.data.map { prefs ->
+        parseDirectionMap(prefs[keyBookDirections])
+    }
+
+    /** Remembers [direction] for the whole [seriesDtoId] (null forgets it). */
+    suspend fun setSeriesDirection(seriesDtoId: String, direction: ReadingDirection?) {
         store.edit { prefs ->
-            val next = parseBookDirections(prefs[keyBookDirections]).toMutableMap()
-            if (direction == null) next.remove(bookDtoId) else next[bookDtoId] = direction
-            val formatted = formatBookDirections(next)
-            if (formatted == null) prefs.remove(keyBookDirections) else prefs[keyBookDirections] = formatted
+            prefs.putDirectionMap(
+                keySeriesDirections,
+                updateDirectionMap(prefs[keySeriesDirections], seriesDtoId, direction),
+            )
         }
     }
 
+    /** Remembers [direction] as an exception for one [bookDtoId] (null forgets the exception). */
+    suspend fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
+        store.edit { prefs ->
+            prefs.putDirectionMap(
+                keyBookDirections,
+                updateDirectionMap(prefs[keyBookDirections], bookDtoId, direction),
+            )
+        }
+    }
+
+    private fun updateDirectionMap(current: String?, id: String, direction: ReadingDirection?): String? {
+        val next = parseDirectionMap(current).toMutableMap()
+        if (direction == null) next.remove(id) else next[id] = direction
+        return formatDirectionMap(next)
+    }
+
+    private fun MutablePreferences.putDirectionMap(key: Preferences.Key<String>, value: String?) {
+        if (value == null) remove(key) else set(key, value)
+    }
+
+    private val keySeriesDirections = stringPreferencesKey("divinaSeriesDirections")
     private val keyBookDirections = stringPreferencesKey("divinaBookDirections")
 
     // ---- EPUB reader settings (mirrors the original epubPreferences/epubFlowStyle/animateEpubTapTurns etc. @AppStorage) ----
@@ -273,7 +300,7 @@ class DivinaSettingsStore @Inject constructor(
  * Parses the per-book direction map ("bookDtoId:DirectionName||…"). Entries with an unknown enum name
  * (a build that dropped a mode) are skipped instead of failing the whole map.
  */
-internal fun parseBookDirections(raw: String?): Map<String, ReadingDirection> =
+internal fun parseDirectionMap(raw: String?): Map<String, ReadingDirection> =
     raw?.split("||")
         ?.mapNotNull { entry ->
             val separator = entry.indexOf(':')
@@ -286,9 +313,28 @@ internal fun parseBookDirections(raw: String?): Map<String, ReadingDirection> =
         ?.toMap()
         .orEmpty()
 
-/** Inverse of [parseBookDirections]; null when nothing is remembered (so the key can be removed). */
-internal fun formatBookDirections(directions: Map<String, ReadingDirection>): String? =
+/** Inverse of [parseDirectionMap]; null when nothing is remembered (so the key can be removed). */
+internal fun formatDirectionMap(directions: Map<String, ReadingDirection>): String? =
     directions.entries
         .sortedBy { it.key }
         .joinToString("||") { (id, direction) -> "$id:${direction.name}" }
         .ifEmpty { null }
+
+/** A direction remembered for a book or for its series, and which level supplied it. */
+data class RememberedDirection(val direction: ReadingDirection, val perBook: Boolean)
+
+/**
+ * Two-level lookup: a book exception ("only for this book") wins over the series value. Null when
+ * neither level remembers anything, so the caller falls back to the reader defaults / series metadata
+ * chain (resolveReadingDirection).
+ */
+internal fun resolveRememberedDirection(
+    bookDirections: Map<String, ReadingDirection>,
+    seriesDirections: Map<String, ReadingDirection>,
+    bookDtoId: String?,
+    seriesDtoId: String?,
+): RememberedDirection? {
+    bookDtoId?.let { id -> bookDirections[id]?.let { return RememberedDirection(it, perBook = true) } }
+    seriesDtoId?.let { id -> seriesDirections[id]?.let { return RememberedDirection(it, perBook = false) } }
+    return null
+}

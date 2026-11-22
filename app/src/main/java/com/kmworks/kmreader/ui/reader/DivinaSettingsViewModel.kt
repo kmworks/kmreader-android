@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.settings.DivinaSettingsStore
+import com.kmworks.kmreader.core.settings.RememberedDirection
+import com.kmworks.kmreader.core.settings.resolveRememberedDirection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,14 +84,25 @@ class DivinaSettingsViewModel @Inject constructor(
     }
 
     /**
-     * The direction the user picked for [bookDtoId] in the reader menu (null = follow the settings /
-     * series metadata chain). Read once when the book opens, so reopening a book keeps that choice.
+     * The direction remembered for this book or its series (null = follow the settings / series
+     * metadata chain). A book exception wins over the series value. Read when a book opens (and when the
+     * reader continues into the next book), so a remembered choice survives closing the reader.
      */
-    suspend fun directionOverride(bookDtoId: String): ReadingDirection? =
-        store.bookDirections.first()[bookDtoId]
+    suspend fun rememberedDirection(bookDtoId: String?, seriesDtoId: String?): RememberedDirection? =
+        resolveRememberedDirection(
+            bookDirections = store.bookDirections.first(),
+            seriesDirections = store.seriesDirections.first(),
+            bookDtoId = bookDtoId,
+            seriesDtoId = seriesDtoId,
+        )
 
-    /** Remembers (or with null, forgets) the direction picked for one book. */
+    /** Remembers (or with null, forgets) the direction picked for one book as an exception. */
     fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
         viewModelScope.launch { store.setBookDirection(bookDtoId, direction) }
+    }
+
+    /** Remembers (or with null, forgets) the direction for a whole series. */
+    fun setSeriesDirection(seriesDtoId: String, direction: ReadingDirection?) {
+        viewModelScope.launch { store.setSeriesDirection(seriesDtoId, direction) }
     }
 }

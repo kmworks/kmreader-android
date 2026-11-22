@@ -209,11 +209,14 @@ fun ReaderScreen(
     var menuOpen by remember { mutableStateOf(false) }
 
     // Session-scoped reading preferences (mirroring the original @State initial values: seeded from
-    // the defaults, never written back). The reading direction is the exception: a direction picked for
-    // a book outlives the session (remembered per book) so reopening does not fall back to the metadata.
+    // the defaults, never written back). The reading direction is the exception: a direction picked in
+    // the menu is remembered for the series (or for one book), so reopening or continuing does not fall
+    // back to the series metadata.
     var direction by remember { mutableStateOf<ReadingDirection?>(null) }
-    /** The direction remembered for the current book (null = the settings/metadata chain decides). */
+    /** The direction remembered for the current book or its series (null = the settings/metadata chain decides). */
     var directionOverride by remember { mutableStateOf<ReadingDirection?>(null) }
+    /** True when [directionOverride] came from this book's own exception rather than the series value. */
+    var directionIsBookOnly by remember { mutableStateOf(false) }
     var pageLayout by remember { mutableStateOf<PageLayout?>(null) }
     var splitWideMode by remember { mutableStateOf<SplitWidePageMode?>(null) }
     var soloCoverPage by remember { mutableStateOf<Boolean?>(null) }
@@ -304,12 +307,19 @@ fun ReaderScreen(
         if (!ready || uiState.bookId != presentedBook.id) return@LaunchedEffect
         if (initializedBookId == presentedBook.id) return@LaunchedEffect
         page = uiState.initialPage ?: 1
-        if (direction == null) {
-            // A direction the user picked for this book in the menu wins over the metadata (see the
-            // "Follow default" entry, which forgets it again)
-            val remembered = uiState.bookDtoId?.let { settingsViewModel.directionOverride(it) }
-            directionOverride = remembered
-            direction = remembered ?: resolveReadingDirection(
+        // A direction remembered for this book (an exception) or for its series wins over the session
+        // value and the metadata; the session value only carries over when nothing is remembered, so
+        // continuing into the next volume of the same series keeps the series choice and a read list
+        // that crosses series still picks up each book's own memory.
+        val remembered = settingsViewModel.rememberedDirection(uiState.bookDtoId, presentedBook.seriesDtoId)
+        // The picker shows what this book actually remembers; a session value carried over from another
+        // book is not a memory, so both are refreshed on every book change
+        directionOverride = remembered?.direction
+        directionIsBookOnly = remembered?.perBook ?: false
+        if (remembered != null) {
+            direction = remembered.direction
+        } else if (direction == null) {
+            direction = resolveReadingDirection(
                 seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
                 forceDefault = settings.forceDefaultDirection,
                 defaultDirection = defaultDirection,
@@ -1103,16 +1113,36 @@ fun ReaderScreen(
                         soloAction = soloAction,
                         soloCoverPage = soloCoverNow,
                         directionOverride = directionOverride,
+                        directionIsBookOnly = directionIsBookOnly,
+                        onDirectionBookOnlyChange = { directionIsBookOnly = it },
                         onDirectionChange = { picked ->
-                            // Applied for this session and remembered for this book (null = forget it and
-                            // fall back to the reader defaults / series metadata chain)
+                            // Applied for this session and remembered (null = "Follow default": forget the
+                            // remembered choice and fall back to the reader defaults / series metadata chain).
+                            // A pick writes the whole series unless "only for this book" is on; a series pick
+                            // also drops this book's older exception, otherwise it would keep winning.
                             directionOverride = picked
                             direction = picked ?: resolveReadingDirection(
                                 seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
                                 forceDefault = settings.forceDefaultDirection,
                                 defaultDirection = defaultDirection,
                             )
-                            uiState.bookDtoId?.let { id -> settingsViewModel.setBookDirection(id, picked) }
+                            val bookDtoId = uiState.bookDtoId
+                            val seriesDtoId = presentedBook.seriesDtoId
+                            when {
+                                picked == null -> {
+                                    // Following the defaults clears both levels for this book's series
+                                    bookDtoId?.let { settingsViewModel.setBookDirection(it, null) }
+                                    seriesDtoId?.let { settingsViewModel.setSeriesDirection(it, null) }
+                                }
+                                directionIsBookOnly || seriesDtoId == null -> {
+                                    // No series identity to key by, so the book-level memory is all we have
+                                    bookDtoId?.let { settingsViewModel.setBookDirection(it, picked) }
+                                }
+                                else -> {
+                                    settingsViewModel.setSeriesDirection(seriesDtoId, picked)
+                                    bookDtoId?.let { settingsViewModel.setBookDirection(it, null) }
+                                }
+                            }
                         },
                         onPageLayoutChange = { pageLayout = it },
                         onToggleSoloCover = { soloCoverPage = !soloCoverNow },

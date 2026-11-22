@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -137,9 +138,13 @@ fun ReaderOptionsMenu(
     rotationDegrees: Int,
     soloAction: SoloMenuAction?,
     soloCoverPage: Boolean,
-    /** The direction remembered for this book (null = the settings/metadata chain decides); only the picker uses it. */
+    /** The direction remembered for this book or its series (null = the settings/metadata chain decides). */
     directionOverride: ReadingDirection?,
-    /** null clears the remembered choice for this book (back to the settings/metadata chain). */
+    /** True when [directionOverride] came from this book's own exception (the "only for this book" switch). */
+    directionIsBookOnly: Boolean,
+    /** Choosing a direction writes the whole series unless this is true (then just this book). */
+    onDirectionBookOnlyChange: (Boolean) -> Unit,
+    /** null = "Follow default": forgets the remembered choice for this book and its series. */
     onDirectionChange: (ReadingDirection?) -> Unit,
     onPageLayoutChange: (PageLayout) -> Unit,
     onToggleSoloCover: () -> Unit,
@@ -292,8 +297,9 @@ fun ReaderOptionsMenu(
     when (picker) {
         ReaderMenuPicker.Direction -> {
             val labels = ReadingDirection.entries.associateWith { stringResource(it.labelRes) }
-            // "Follow default" clears the remembered choice: unlike layout/split/solo cover, the direction
-            // is persisted per book (reopening the book restores it instead of the series metadata).
+            // The direction is the one remembered option: a pick writes the whole series by default (so
+            // continuing to the next volume keeps it), or only this book when the switch is on.
+            // "Follow default" forgets both levels and falls back to the settings/metadata chain.
             val followDefault = stringResource(R.string.reader_menu_direction_follow_default)
             OptionPickerDialog(
                 title = stringResource(R.string.reader_menu_direction),
@@ -309,6 +315,12 @@ fun ReaderOptionsMenu(
                     picker = null
                 },
                 onDismiss = { picker = null },
+                footer = {
+                    DirectionScopeRow(
+                        bookOnly = directionIsBookOnly,
+                        onBookOnlyChange = onDirectionBookOnlyChange,
+                    )
+                },
             )
         }
         ReaderMenuPicker.Layout -> {
@@ -413,6 +425,8 @@ private fun OptionPickerDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
     hints: Map<String, String> = emptyMap(),
+    /** Optional extra control below the list (the direction dialog puts its "only for this book" switch here). */
+    footer: (@Composable () -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -449,9 +463,42 @@ private fun OptionPickerDialog(
                         }
                     }
                 }
+                if (footer != null) {
+                    HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+                    footer()
+                }
             }
         },
     )
+}
+
+/**
+ * Where a direction pick is remembered: the whole series (default, so the next volume continues in the
+ * same direction) or just this book (an exception that wins over the series value).
+ */
+@Composable
+private fun DirectionScopeRow(
+    bookOnly: Boolean,
+    onBookOnlyChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onBookOnlyChange(!bookOnly) }
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.reader_menu_direction_book_only))
+            Text(
+                stringResource(R.string.reader_menu_direction_book_only_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(checked = bookOnly, onCheckedChange = onBookOnlyChange)
+    }
 }
 
 /**
