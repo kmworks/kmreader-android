@@ -270,13 +270,12 @@ fun BrowseFilterChipFlow(
 }
 
 /**
- * Compact variant of [BrowseFilterChipFlow] for pages whose chip row holds other controls too (the
- * search tab's scope chips): only the current sort and one chip per active condition. Tapping any of
- * them opens the full panel, exactly like the detail pages' chip flow; it never removes a condition on
- * its own. Emits its chips into the caller's [Row], so the caller controls placement and scrolling.
+ * Standalone sort chip for pages whose chip row holds other controls too (the search tab's scope
+ * chips). Tapping it opens the full panel, exactly like the sort chip of [BrowseFilterChipFlow].
+ * Emits a single chip into the caller's [Row].
  */
 @Composable
-fun BrowseFilterActiveChips(
+fun BrowseSortChip(
     options: BrowseOptions,
     contentType: BrowseContentType,
     onOpenOptions: () -> Unit,
@@ -296,13 +295,6 @@ fun BrowseFilterActiveChips(
             }
         },
     )
-    options.activeFilterLabels(contentType).forEach { filter ->
-        if (filter.negative) {
-            NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
-        } else {
-            FilterChip(selected = true, onClick = onOpenOptions, label = { Text(filter.label) })
-        }
-    }
 }
 
 /**
