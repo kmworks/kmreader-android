@@ -32,6 +32,12 @@ data class CachedBookEntity(
      */
     @ColumnInfo(defaultValue = "''")
     val mediaType: String = "",
+    /**
+     * Whether an EPUB opens in the DIVINA reader (server-rendered pages) instead of the WebPub
+     * reader; the reader route needs both this and [mediaType]. Default false matches a v4 row.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val epubDivinaCompatible: Boolean = false,
     val lastReadAtMs: Long?,
     /** Wall-clock write time; kept for diagnostics/future expiry, not read by the UI yet. */
     val updatedAt: Long,

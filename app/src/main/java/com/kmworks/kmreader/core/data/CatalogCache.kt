@@ -92,6 +92,7 @@ class CatalogCache @Inject constructor(
                     author = book.author,
                     mediaStatus = book.mediaStatus,
                     mediaType = book.mediaType,
+                    epubDivinaCompatible = book.epubDivinaCompatible,
                     lastReadAtMs = book.lastReadAtMs,
                     updatedAt = now,
                 )
@@ -155,6 +156,7 @@ class CatalogCache @Inject constructor(
                 author = entity.author,
                 mediaStatus = entity.mediaStatus,
                 mediaType = entity.mediaType,
+                epubDivinaCompatible = entity.epubDivinaCompatible,
                 lastReadAtMs = entity.lastReadAtMs,
             )
         }
@@ -424,6 +426,7 @@ class CatalogCache @Inject constructor(
                         author = book.author,
                         mediaStatus = book.mediaStatus,
                         mediaType = book.mediaType,
+                        epubDivinaCompatible = book.epubDivinaCompatible,
                         lastReadAtMs = book.lastReadAtMs,
                         updatedAt = now,
                     )
@@ -465,6 +468,7 @@ class CatalogCache @Inject constructor(
             author = author,
             mediaStatus = mediaStatus,
             mediaType = mediaType,
+            epubDivinaCompatible = epubDivinaCompatible,
             lastReadAtMs = lastReadAtMs,
         )
     }
