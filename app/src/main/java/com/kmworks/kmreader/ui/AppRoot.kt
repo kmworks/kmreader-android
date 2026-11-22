@@ -86,6 +86,7 @@ import com.kmworks.kmreader.ui.library.LibraryScreen
 import com.kmworks.kmreader.ui.lists.CollectionDetailScreen
 import com.kmworks.kmreader.ui.lists.ListsGroupKind
 import com.kmworks.kmreader.ui.lists.ListsScreen
+import com.kmworks.kmreader.ui.lists.ListsViewModel
 import com.kmworks.kmreader.ui.lists.ReadListDetailScreen
 import com.kmworks.kmreader.ui.lists.SmartListDetailScreen
 import com.kmworks.kmreader.ui.login.LoginScreen
@@ -283,6 +284,16 @@ fun AppRoot(
     }
 
     var tab by remember { mutableStateOf(AppTab.Home) }
+    // The tab skeleton's view-model store. A pushed page gets its own store from PageScope, so a
+    // page that must share a tab's view model resolves it against this owner instead.
+    val tabViewModelStoreOwner = LocalViewModelStoreOwner.current
+    // The Lists tab's view model, resolved against the tab store even from inside a pushed page:
+    // the group page then paints the rows the tab already loaded instead of re-seeding the disk
+    // cache (stale cards flash, then get replaced) and re-fetching, and edits made on the page
+    // are visible on the tab the moment it shows again.
+    val sharedListsViewModel: @Composable () -> ListsViewModel = {
+        tabViewModelStoreOwner?.let { hiltViewModel<ListsViewModel>(viewModelStoreOwner = it) } ?: hiltViewModel()
+    }
     // The real page stack: index 0 is the first page above the tabs. Pages are appended when something is
     // opened and removed from the end by back, so back always returns to the page the current one was opened
     // from (a detail page, a filtered list, a list detail) instead of leaving the app.
@@ -440,6 +451,7 @@ fun AppRoot(
                         onOpenReadList = { push(ReadListDetailRoute(it)) },
                         onOpenSmartList = { push(SmartListDetailRoute(it)) },
                         onOpenGroup = { push(ListsGroupRoute(it)) },
+                        viewModel = sharedListsViewModel(),
                     )
 
                     AppTab.Offline -> OfflineScreen(
@@ -633,6 +645,7 @@ fun AppRoot(
                     onOpenCollection = { push(CollectionDetailRoute(it)) },
                     onOpenReadList = { push(ReadListDetailRoute(it)) },
                     onOpenSmartList = { push(SmartListDetailRoute(it)) },
+                    viewModel = sharedListsViewModel(),
                 )
 
                 is SettingsRoute -> SettingsScreen(
