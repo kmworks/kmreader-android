@@ -473,6 +473,7 @@ class SearchRepository @Inject constructor(
             "booksMetadata.releaseDate", "metadata.releaseDate", "releaseDate", "release_date" ->
                 "booksMetadata.releaseDate"
             "metadata.title" -> "metadata.title"
+            "name" -> "name"
             "booksCount", "fileSize", "file_size", "media.pagesCount", "pageCount", "page_count" -> "booksCount"
             "random" -> "random"
             else -> "metadata.titleSort"

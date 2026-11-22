@@ -105,14 +105,20 @@ val BookSortFields = listOf(
     "media.pagesCount",
 )
 
-/** Series sort tokens, in the order the filter sheet lists them (mirrors SeriesSortField; 标题 is the default). */
+/**
+ * Series sort tokens, in the order the filter sheet lists them (mirrors SeriesSortField; 排序标题 is
+ * the default). The three title-ish tokens are distinct: metadata.titleSort is the custom sort key,
+ * metadata.title is the (possibly customised) title, and name is the directory name on disk — the
+ * latter is the token Komga's own web UI calls "Directory name".
+ */
 val SeriesSortFields = listOf(
     "metadata.titleSort",
+    "metadata.title",
+    "name",
     "created",
     "lastModified",
     "fileLastModified",
     "booksMetadata.releaseDate",
-    "metadata.title",
     "booksCount",
     "random",
 )
