@@ -304,7 +304,7 @@ internal fun BookDetailBody(
                             )
                             if (state.isAdmin) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_edit_metadata)) },
+                                    text = { Text(stringResource(R.string.menu_edit_metadata)) },
                                     leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                     onClick = {
                                         menuOpen = false
