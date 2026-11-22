@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Book
@@ -71,11 +72,15 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.EntryPointAccessors
 import java.net.URI
+import kotlin.math.min
 
 private val CoverShape = RoundedCornerShape(8.dp)
 
 /**
- * Cover art: solid color block with a first-letter placeholder.
+ * Cover art: gray placeholder with the reading icon until the image loads.
+ *
+ * [hue] is kept in the data model (and this signature) for compatibility but is no longer used:
+ * the placeholder is a neutral gray rather than the old per-title color block.
  *
  * Two mutually exclusive image sources:
  * - [stableId]: Komga content cover; the URL is resolved by [CoverUrlRegistry] from the stableId and
@@ -103,13 +108,23 @@ fun CoverArt(
     BoxWithConstraints(
         modifier = modifier
             .clip(CoverShape)
-            .background(Color.hsv(hue, 0.42f, 0.60f)),
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = title.take(1),
-            style = MaterialTheme.typography.headlineMedium,
-            color = Color.White.copy(alpha = 0.85f),
+        // Same icon as the read buttons, scaled to the cover size.
+        val iconSize = with(LocalDensity.current) {
+            if (constraints.hasBoundedWidth && constraints.hasBoundedHeight && constraints.maxWidth > 0) {
+                (min(constraints.maxWidth, constraints.maxHeight).toDp() * 0.35f)
+                    .coerceIn(16.dp, 48.dp)
+            } else {
+                28.dp
+            }
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.MenuBook,
+            contentDescription = null,
+            modifier = Modifier.size(iconSize),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         val context = LocalContext.current
         val entryPoint = remember(context) {
