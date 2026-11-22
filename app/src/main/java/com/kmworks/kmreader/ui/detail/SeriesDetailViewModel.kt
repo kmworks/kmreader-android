@@ -36,6 +36,7 @@ import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.tracker.TrackerRepository
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.tracker.TrackerLink
@@ -839,6 +840,12 @@ class SeriesDetailViewModel @Inject constructor(
         }
         return PatchOutcome.PendingSettle
     }
+
+    /** Metadata baseline for editing a book from the series grid (the card only carries the card fields). */
+    suspend fun bookMetadata(stableId: Int): BookDetailMeta? =
+        detailRepository.bookDtoId(stableId)?.let { dtoId ->
+            detailRepository.bookDetail(dtoId)?.toBookDetailMeta()
+        }
 
     /** Book metadata save (the BookEditSheet flow, mirroring saveMetadata): no changes succeed directly. */
     fun saveBookMetadata(stableId: Int, baseTitle: String, draft: BookMetadataDraft, onDone: (Boolean) -> Unit) {

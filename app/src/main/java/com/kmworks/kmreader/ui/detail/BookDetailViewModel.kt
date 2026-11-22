@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.api.model.BookDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.CatalogCache
@@ -205,40 +206,7 @@ class BookDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(loading = false, isAdmin = isAdmin) }
                     return@launch
                 }
-                val meta = BookDetailMeta(
-                    releaseDate = dto.metadata.releaseDate?.take(10)
-                        ?: dto.created.take(10),
-                    sizeLabel = formatSize(dto.sizeBytes),
-                    format = formatLabel(dto.media.mediaType),
-                    filePath = dto.url,
-                    summary = dto.metadata.summary.ifBlank {
-                        "${dto.seriesTitle} · ${dto.metadata.title}"
-                    },
-                    authors = dto.metadata.authors.map { it.toCreator() },
-                    tags = dto.metadata.tags.toList(),
-                    number = dto.metadata.number,
-                    numberSort = dto.metadata.numberSort,
-                    isbn = dto.metadata.isbn.ifBlank { null },
-                    links = dto.metadata.links.map { it.label to it.url },
-                    notableEntities = dto.metadata.notableEntities.map {
-                        NotableEntity(name = it.name, kind = it.kind.trim().lowercase())
-                    },
-                    locks = BookMetadataLocks(
-                        titleLock = dto.metadata.titleLock,
-                        numberLock = dto.metadata.numberLock,
-                        numberSortLock = dto.metadata.numberSortLock,
-                        releaseDateLock = dto.metadata.releaseDateLock,
-                        isbnLock = dto.metadata.isbnLock,
-                        summaryLock = dto.metadata.summaryLock,
-                        authorsLock = dto.metadata.authorsLock,
-                        tagsLock = dto.metadata.tagsLock,
-                        linksLock = dto.metadata.linksLock,
-                        notableEntitiesLock = dto.metadata.notableEntitiesLock,
-                    ),
-                    mediaComment = dto.media.comment.ifBlank { null },
-                    created = dto.created.take(10),
-                    lastModified = dto.lastModified.take(10),
-                )
+                val meta = dto.toBookDetailMeta()
                 val memberships = detailRepository.bookReadLists(dtoId)
                     .map { it.toListEntry() }
                 // oneshot: fetch the owning series metadata as the series-side initial values of
@@ -249,38 +217,7 @@ class BookDetailViewModel @Inject constructor(
                     seriesDtoId = dto.seriesId
                     detailRepository.seriesDetail(dto.seriesId)?.metadata?.let { metadata ->
                         seriesAgeRating = metadata.ageRating
-                        SeriesEditValues(
-                            title = metadata.title,
-                            titleSort = metadata.titleSort,
-                            summary = metadata.summary,
-                            status = metadata.status,
-                            readingDirection = metadata.readingDirection,
-                            language = metadata.language,
-                            publisher = metadata.publisher,
-                            ageRating = metadata.ageRating?.toString().orEmpty(),
-                            totalBookCount = metadata.totalBookCount?.toString().orEmpty(),
-                            genres = metadata.genres.toList(),
-                            tags = metadata.tags.toList(),
-                            links = metadata.links.map { link -> link.label to link.url },
-                            alternateTitles = metadata.alternateTitles.map { link -> link.label to link.title },
-                            sharingLabels = metadata.sharingLabels.toList(),
-                            locks = SeriesEditLocks(
-                                titleLock = metadata.titleLock,
-                                titleSortLock = metadata.titleSortLock,
-                                summaryLock = metadata.summaryLock,
-                                statusLock = metadata.statusLock,
-                                readingDirectionLock = metadata.readingDirectionLock,
-                                languageLock = metadata.languageLock,
-                                publisherLock = metadata.publisherLock,
-                                ageRatingLock = metadata.ageRatingLock,
-                                totalBookCountLock = metadata.totalBookCountLock,
-                                genresLock = metadata.genresLock,
-                                tagsLock = metadata.tagsLock,
-                                linksLock = metadata.linksLock,
-                                alternateTitlesLock = metadata.alternateTitlesLock,
-                                sharingLabelsLock = metadata.sharingLabelsLock,
-                            ),
-                        )
+                        metadata.toEditValues()
                     }
                 } else {
                     null
@@ -499,3 +436,41 @@ private fun formatLabel(mediaType: String): String {
         else -> "CBZ"
     }
 }
+
+/**
+ * Detail/meta snapshot of a book: the server values, without the display-only fallbacks (the
+ * release date falls back to the creation date, matching the detail rows). This is also the edit
+ * baseline of [BookEditSheet], so a book edited outside its detail page diffs against the real
+ * metadata instead of an empty one.
+ */
+internal fun BookDto.toBookDetailMeta(): BookDetailMeta = BookDetailMeta(
+    releaseDate = metadata.releaseDate?.take(10) ?: created.take(10),
+    sizeLabel = formatSize(sizeBytes),
+    format = formatLabel(media.mediaType),
+    filePath = url,
+    summary = metadata.summary,
+    authors = metadata.authors.map { it.toCreator() },
+    tags = metadata.tags.toList(),
+    number = metadata.number,
+    numberSort = metadata.numberSort,
+    isbn = metadata.isbn.ifBlank { null },
+    links = metadata.links.map { it.label to it.url },
+    notableEntities = metadata.notableEntities.map {
+        NotableEntity(name = it.name, kind = it.kind.trim().lowercase())
+    },
+    locks = BookMetadataLocks(
+        titleLock = metadata.titleLock,
+        numberLock = metadata.numberLock,
+        numberSortLock = metadata.numberSortLock,
+        releaseDateLock = metadata.releaseDateLock,
+        isbnLock = metadata.isbnLock,
+        summaryLock = metadata.summaryLock,
+        authorsLock = metadata.authorsLock,
+        tagsLock = metadata.tagsLock,
+        linksLock = metadata.linksLock,
+        notableEntitiesLock = metadata.notableEntitiesLock,
+    ),
+    mediaComment = media.comment.ifBlank { null },
+    created = created.take(10),
+    lastModified = lastModified.take(10),
+)

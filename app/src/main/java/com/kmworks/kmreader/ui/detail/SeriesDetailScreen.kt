@@ -926,13 +926,14 @@ fun SeriesDetailScreen(
             onDismiss = { menuBook = null },
         )
     }
-    // Book metadata edit sheet (meta is null: diff against the title baseline only)
+    // Book metadata edit sheet (the baseline is loaded: the grid card only carries the card fields)
     editBook?.let { book ->
         var editSaving by remember { mutableStateOf(false) }
         BookEditSheet(
             book = book,
             meta = null,
             saving = editSaving,
+            loadMeta = { viewModel.bookMetadata(book.id) },
             onSave = { draft ->
                 editSaving = true
                 viewModel.saveBookMetadata(book.id, book.title, draft) { ok ->

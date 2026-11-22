@@ -125,6 +125,8 @@ fun OneshotEditSheet(
     val bookTitle = rememberLockedField(book.title, bookLocks.titleLock)
     val bookSummary = rememberLockedField(meta?.summary.orEmpty(), bookLocks.summaryLock)
     val releaseDate = rememberLockedField(meta?.releaseDate.orEmpty(), bookLocks.releaseDateLock)
+    // Komga parses the release date as a LocalDate: anything else 400s the whole PATCH.
+    val releaseDateInvalid = releaseDate.value.trim().let { it.isNotEmpty() && !isIsoLocalDate(it) }
     val isbn = rememberLockedField(meta?.isbn.orEmpty(), bookLocks.isbnLock)
     val authors = remember { mutableStateListOf<Creator>().apply { addAll(meta?.authors.orEmpty()) } }
     var authorsLocked by remember(meta) { mutableStateOf(bookLocks.authorsLock) }
@@ -199,6 +201,12 @@ fun OneshotEditSheet(
                                 stringResource(R.string.detail_field_release_date),
                                 releaseDate,
                                 placeholder = "yyyy-MM-dd",
+                                isError = releaseDateInvalid,
+                                supportingText = if (releaseDateInvalid) {
+                                    stringResource(R.string.detail_release_date_invalid)
+                                } else {
+                                    null
+                                },
                             )
                             LockableTextField(stringResource(R.string.detail_field_isbn), isbn)
                             LockableTextField(stringResource(R.string.browse_kind_publisher), publisher)
@@ -388,7 +396,7 @@ fun OneshotEditSheet(
                         )
                         onSave(draft, seriesDto)
                     },
-                    enabled = !saving,
+                    enabled = !saving && !releaseDateInvalid,
                     modifier = Modifier.weight(1f),
                 ) {
                     if (saving) {

@@ -111,6 +111,8 @@
     <string name="detail_field_number">号码</string>
     <string name="detail_field_sort_number">排序号</string>
     <string name="detail_field_release_date">发行日期</string>
+    <string name="detail_release_date_invalid">请使用 yyyy-MM-dd 格式。</string>
+    <string name="detail_load_metadata_failed">无法加载元数据。</string>
     <string name="detail_field_isbn">ISBN</string>
     <string name="detail_field_alternate_label">别称</string>
     <string name="detail_section_alternate_titles">别称</string>
