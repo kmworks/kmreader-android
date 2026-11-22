@@ -138,7 +138,7 @@ fun seriesContextMenuItems(
     }
     onAddToCollection?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_collection), Icons.Outlined.CollectionsBookmark, onClick = it)) }
     onAddToReadList?.let { add(ContextMenuItem(stringResource(R.string.menu_add_to_read_list), Icons.Outlined.PlaylistAdd, onClick = it)) }
-    onEdit?.let { add(ContextMenuItem(stringResource(R.string.common_edit), Icons.Outlined.Edit, onClick = it)) }
+    onEdit?.let { add(ContextMenuItem(stringResource(R.string.menu_edit_metadata), Icons.Outlined.Edit, onClick = it)) }
     onAnalyze?.let { add(ContextMenuItem(stringResource(R.string.menu_analyze), Icons.Outlined.Analytics, onClick = it)) }
     onRefresh?.let { add(ContextMenuItem(stringResource(R.string.menu_refresh_metadata), Icons.Outlined.Refresh, onClick = it)) }
     onKomfIdentify?.let { add(ContextMenuItem(stringResource(R.string.komf_identify_menu), Icons.Outlined.AutoAwesome, onClick = it)) }

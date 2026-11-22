@@ -385,7 +385,7 @@ fun SeriesDetailScreen(
                             // Edit/analyze/refresh/delete: admin-gated (mirrors iOS current.isAdmin)
                             if (state.isAdmin) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.series_edit_title)) },
+                                    text = { Text(stringResource(R.string.menu_edit_metadata)) },
                                     leadingIcon = {
                                         Icon(Icons.Filled.Edit, contentDescription = null)
                                     },
