@@ -91,7 +91,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Editable subset of a library: what the iOS LibraryFormSections exposes. */
+/** Every field the iOS LibraryFormSections exposes, so create and edit can configure a library fully. */
 data class LibraryFormData(
     val name: String = "",
     val root: String = "",
@@ -104,11 +104,33 @@ data class LibraryFormData(
     val importComicInfoSeries: Boolean = true,
     val importLocalArtwork: Boolean = true,
     val analyzeDimensions: Boolean = true,
+    // Scanner
+    val emptyTrashAfterScan: Boolean = false,
+    val scanForceModifiedTime: Boolean = false,
+    val oneshotsDirectory: String = "",
+    val scanDirectoryExclusions: List<String> = emptyList(),
+    // Options
+    val hashFiles: Boolean = true,
+    val hashPages: Boolean = false,
+    val hashKoreader: Boolean = false,
+    val repairExtensions: Boolean = false,
+    val convertToCbz: Boolean = false,
+    val seriesCover: String = SERIES_COVER_FIRST,
+    // Metadata
+    val importComicInfoSeriesAppendVolume: Boolean = false,
+    val importComicInfoCollection: Boolean = false,
+    val importComicInfoReadList: Boolean = false,
+    val importEpubBook: Boolean = true,
+    val importEpubSeries: Boolean = true,
+    val importMylarSeries: Boolean = true,
+    val importBarcodeIsbn: Boolean = false,
 ) {
     val isValid: Boolean get() = name.isNotBlank() && root.isNotBlank()
 }
 
 internal const val SCAN_INTERVAL_DISABLED = "DISABLED"
+
+internal const val SERIES_COVER_FIRST = "FIRST"
 
 private val SCAN_INTERVALS = listOf(
     "DISABLED" to R.string.server_admin_interval_disabled,
@@ -117,6 +139,13 @@ private val SCAN_INTERVALS = listOf(
     "EVERY_12H" to R.string.server_admin_interval_every_12h,
     "DAILY" to R.string.server_admin_interval_daily,
     "WEEKLY" to R.string.server_admin_interval_weekly,
+)
+
+private val SERIES_COVERS = listOf(
+    "FIRST" to R.string.server_admin_library_series_cover_first,
+    "FIRST_UNREAD_OR_FIRST" to R.string.server_admin_library_series_cover_first_unread_or_first,
+    "FIRST_UNREAD_OR_LAST" to R.string.server_admin_library_series_cover_first_unread_or_last,
+    "LAST" to R.string.server_admin_library_series_cover_last,
 )
 
 /** What the library form is editing; [editId] null means "create". */
@@ -198,6 +227,23 @@ class LibraryAdminViewModel @Inject constructor(
                         importComicInfoSeries = library.importComicInfoSeries,
                         importLocalArtwork = library.importLocalArtwork,
                         analyzeDimensions = library.analyzeDimensions,
+                        emptyTrashAfterScan = library.emptyTrashAfterScan,
+                        scanForceModifiedTime = library.scanForceModifiedTime,
+                        oneshotsDirectory = library.oneshotsDirectory.orEmpty(),
+                        scanDirectoryExclusions = library.scanDirectoryExclusions.toList().sorted(),
+                        hashFiles = library.hashFiles,
+                        hashPages = library.hashPages,
+                        hashKoreader = library.hashKoreader,
+                        repairExtensions = library.repairExtensions,
+                        convertToCbz = library.convertToCbz,
+                        seriesCover = library.seriesCover.value,
+                        importComicInfoSeriesAppendVolume = library.importComicInfoSeriesAppendVolume,
+                        importComicInfoCollection = library.importComicInfoCollection,
+                        importComicInfoReadList = library.importComicInfoReadList,
+                        importEpubBook = library.importEpubBook,
+                        importEpubSeries = library.importEpubSeries,
+                        importMylarSeries = library.importMylarSeries,
+                        importBarcodeIsbn = library.importBarcodeIsbn,
                     ),
                 ),
             )
@@ -225,8 +271,7 @@ class LibraryAdminViewModel @Inject constructor(
             val ok = if (id == null) {
                 repository.createLibrary(creationDto(form.data)) != null
             } else {
-                val current = _state.value.libraries.firstOrNull { it.id == id }
-                repository.updateLibrary(id, updateDto(form.data, current))
+                repository.updateLibrary(id, updateDto(form.data))
             }
             _state.update {
                 it.copy(
@@ -313,73 +358,73 @@ class LibraryAdminViewModel @Inject constructor(
 
     private fun creationDto(data: LibraryFormData): LibraryCreationDto = LibraryCreationDto(
         analyzeDimensions = data.analyzeDimensions,
-        convertToCbz = false,
-        emptyTrashAfterScan = false,
-        hashFiles = true,
-        hashKoreader = false,
-        hashPages = false,
-        importBarcodeIsbn = false,
+        convertToCbz = data.convertToCbz,
+        emptyTrashAfterScan = data.emptyTrashAfterScan,
+        hashFiles = data.hashFiles,
+        hashKoreader = data.hashKoreader,
+        hashPages = data.hashPages,
+        importBarcodeIsbn = data.importBarcodeIsbn,
         importComicInfoBook = data.importComicInfoBook,
-        importComicInfoCollection = false,
-        importComicInfoReadList = false,
+        importComicInfoCollection = data.importComicInfoCollection,
+        importComicInfoReadList = data.importComicInfoReadList,
         importComicInfoSeries = data.importComicInfoSeries,
-        importComicInfoSeriesAppendVolume = false,
-        importEpubBook = true,
-        importEpubSeries = true,
+        importComicInfoSeriesAppendVolume = data.importComicInfoSeriesAppendVolume,
+        importEpubBook = data.importEpubBook,
+        importEpubSeries = data.importEpubSeries,
         importLocalArtwork = data.importLocalArtwork,
-        importMylarSeries = true,
+        importMylarSeries = data.importMylarSeries,
         name = data.name.trim(),
-        repairExtensions = false,
+        repairExtensions = data.repairExtensions,
         root = data.root.trim(),
         scanCbx = data.scanCbx,
-        scanDirectoryExclusions = emptySet(),
+        scanDirectoryExclusions = data.exclusionsToSet(),
         scanEpub = data.scanEpub,
-        scanForceModifiedTime = false,
+        scanForceModifiedTime = data.scanForceModifiedTime,
         scanInterval = LibraryCreationDto.ScanInterval.entries.firstOrNull { it.value == data.scanInterval }
             ?: LibraryCreationDto.ScanInterval.DISABLED,
         scanOnStartup = data.scanOnStartup,
         scanPdf = data.scanPdf,
-        seriesCover = LibraryCreationDto.SeriesCover.FIRST,
-        oneshotsDirectory = null,
+        seriesCover = LibraryCreationDto.SeriesCover.entries.firstOrNull { it.value == data.seriesCover }
+            ?: LibraryCreationDto.SeriesCover.FIRST,
+        oneshotsDirectory = data.oneshotsDirectory.trim().ifBlank { null },
     )
 
-    /**
-     * Sends the whole configuration back (like the iOS LibraryUpdate.from(library)) so that omitted
-     * fields never silently reset to a server default.
-     */
-    private fun updateDto(data: LibraryFormData, current: LibraryDto?): LibraryUpdateDto = LibraryUpdateDto(
+    /** The form now holds the whole configuration, so the update mirrors the edit form field for field. */
+    private fun updateDto(data: LibraryFormData): LibraryUpdateDto = LibraryUpdateDto(
         analyzeDimensions = data.analyzeDimensions,
-        convertToCbz = current?.convertToCbz ?: false,
-        emptyTrashAfterScan = current?.emptyTrashAfterScan ?: false,
-        hashFiles = current?.hashFiles ?: true,
-        hashKoreader = current?.hashKoreader ?: false,
-        hashPages = current?.hashPages ?: false,
-        importBarcodeIsbn = current?.importBarcodeIsbn ?: false,
+        convertToCbz = data.convertToCbz,
+        emptyTrashAfterScan = data.emptyTrashAfterScan,
+        hashFiles = data.hashFiles,
+        hashKoreader = data.hashKoreader,
+        hashPages = data.hashPages,
+        importBarcodeIsbn = data.importBarcodeIsbn,
         importComicInfoBook = data.importComicInfoBook,
-        importComicInfoCollection = current?.importComicInfoCollection ?: false,
-        importComicInfoReadList = current?.importComicInfoReadList ?: false,
+        importComicInfoCollection = data.importComicInfoCollection,
+        importComicInfoReadList = data.importComicInfoReadList,
         importComicInfoSeries = data.importComicInfoSeries,
-        importComicInfoSeriesAppendVolume = current?.importComicInfoSeriesAppendVolume ?: false,
-        importEpubBook = current?.importEpubBook ?: true,
-        importEpubSeries = current?.importEpubSeries ?: true,
+        importComicInfoSeriesAppendVolume = data.importComicInfoSeriesAppendVolume,
+        importEpubBook = data.importEpubBook,
+        importEpubSeries = data.importEpubSeries,
         importLocalArtwork = data.importLocalArtwork,
-        importMylarSeries = current?.importMylarSeries ?: true,
+        importMylarSeries = data.importMylarSeries,
         name = data.name.trim(),
-        oneshotsDirectory = current?.oneshotsDirectory,
-        repairExtensions = current?.repairExtensions ?: false,
+        oneshotsDirectory = data.oneshotsDirectory.trim().ifBlank { null },
+        repairExtensions = data.repairExtensions,
         root = data.root.trim(),
         scanCbx = data.scanCbx,
-        scanDirectoryExclusions = current?.scanDirectoryExclusions ?: emptySet(),
+        scanDirectoryExclusions = data.exclusionsToSet(),
         scanEpub = data.scanEpub,
-        scanForceModifiedTime = current?.scanForceModifiedTime ?: false,
+        scanForceModifiedTime = data.scanForceModifiedTime,
         scanInterval = LibraryUpdateDto.ScanInterval.entries.firstOrNull { it.value == data.scanInterval }
             ?: LibraryUpdateDto.ScanInterval.DISABLED,
         scanOnStartup = data.scanOnStartup,
         scanPdf = data.scanPdf,
-        seriesCover = current?.seriesCover?.let { cover ->
-            LibraryUpdateDto.SeriesCover.entries.firstOrNull { it.value == cover.value }
-        } ?: LibraryUpdateDto.SeriesCover.FIRST,
+        seriesCover = LibraryUpdateDto.SeriesCover.entries.firstOrNull { it.value == data.seriesCover }
+            ?: LibraryUpdateDto.SeriesCover.FIRST,
     )
+
+    private fun LibraryFormData.exclusionsToSet(): Set<String> =
+        scanDirectoryExclusions.map { it.trim() }.filter { it.isNotBlank() }.toSet()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -679,6 +724,7 @@ private fun LibraryFormScreen(
     onSave: () -> Unit,
 ) {
     val data = form.data
+    var newExclusion by remember { mutableStateOf("") }
     BackHandler(onBack = onDismiss)
 
     Scaffold(
@@ -784,6 +830,125 @@ private fun LibraryFormScreen(
                     checked = data.scanEpub,
                     onCheckedChange = { value -> onUpdate { it.copy(scanEpub = value) } },
                 )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_empty_trash_after_scan),
+                    checked = data.emptyTrashAfterScan,
+                    onCheckedChange = { value -> onUpdate { it.copy(emptyTrashAfterScan = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_scan_force_modified_time),
+                    checked = data.scanForceModifiedTime,
+                    onCheckedChange = { value -> onUpdate { it.copy(scanForceModifiedTime = value) } },
+                )
+                SettingsRowDivider()
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = data.oneshotsDirectory,
+                        onValueChange = { value -> onUpdate { it.copy(oneshotsDirectory = value) } },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.server_admin_library_oneshots_directory)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = stringResource(R.string.server_admin_library_exclusions),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    data.scanDirectoryExclusions.forEach { exclusion ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = exclusion,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                onClick = {
+                                    onUpdate { it.copy(scanDirectoryExclusions = it.scanDirectoryExclusions - exclusion) }
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.common_delete),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newExclusion,
+                            onValueChange = { value -> newExclusion = value },
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.server_admin_library_exclusion_add)) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            enabled = newExclusion.isNotBlank(),
+                            onClick = {
+                                val entry = newExclusion.trim()
+                                onUpdate {
+                                    it.copy(scanDirectoryExclusions = it.scanDirectoryExclusions + entry)
+                                }
+                                newExclusion = ""
+                            },
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.server_admin_library_exclusion_add))
+                        }
+                    }
+                }
+            }
+            SettingsSection(title = stringResource(R.string.server_admin_library_section_options)) {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_hash_files),
+                    checked = data.hashFiles,
+                    onCheckedChange = { value -> onUpdate { it.copy(hashFiles = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_hash_pages),
+                    checked = data.hashPages,
+                    onCheckedChange = { value -> onUpdate { it.copy(hashPages = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_hash_koreader),
+                    checked = data.hashKoreader,
+                    onCheckedChange = { value -> onUpdate { it.copy(hashKoreader = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_analyze_dimensions),
+                    checked = data.analyzeDimensions,
+                    onCheckedChange = { value -> onUpdate { it.copy(analyzeDimensions = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_repair_extensions),
+                    checked = data.repairExtensions,
+                    onCheckedChange = { value -> onUpdate { it.copy(repairExtensions = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_convert_to_cbz),
+                    checked = data.convertToCbz,
+                    onCheckedChange = { value -> onUpdate { it.copy(convertToCbz = value) } },
+                )
+                SettingsRowDivider()
+                SettingsPickerRow(
+                    title = stringResource(R.string.server_admin_library_series_cover),
+                    selectedLabel = stringResource(
+                        SERIES_COVERS.firstOrNull { it.first == data.seriesCover }?.second
+                            ?: R.string.server_admin_library_series_cover_first,
+                    ),
+                    options = SERIES_COVERS.map { (raw, res) -> raw to stringResource(res) },
+                    onSelect = { raw -> onUpdate { it.copy(seriesCover = raw) } },
+                    icon = Icons.Outlined.Book,
+                )
             }
             SettingsSection(title = stringResource(R.string.server_admin_library_section_import)) {
                 SettingsSwitchRow(
@@ -799,15 +964,51 @@ private fun LibraryFormScreen(
                 )
                 SettingsRowDivider()
                 SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_comic_info_append_volume),
+                    checked = data.importComicInfoSeriesAppendVolume,
+                    onCheckedChange = { value -> onUpdate { it.copy(importComicInfoSeriesAppendVolume = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_comic_info_collection),
+                    checked = data.importComicInfoCollection,
+                    onCheckedChange = { value -> onUpdate { it.copy(importComicInfoCollection = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_comic_info_readlist),
+                    checked = data.importComicInfoReadList,
+                    onCheckedChange = { value -> onUpdate { it.copy(importComicInfoReadList = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_epub_book),
+                    checked = data.importEpubBook,
+                    onCheckedChange = { value -> onUpdate { it.copy(importEpubBook = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_epub_series),
+                    checked = data.importEpubSeries,
+                    onCheckedChange = { value -> onUpdate { it.copy(importEpubSeries = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.server_admin_library_import_mylar_series),
+                    checked = data.importMylarSeries,
+                    onCheckedChange = { value -> onUpdate { it.copy(importMylarSeries = value) } },
+                )
+                SettingsRowDivider()
+                SettingsSwitchRow(
                     title = stringResource(R.string.server_admin_library_import_local_artwork),
                     checked = data.importLocalArtwork,
                     onCheckedChange = { value -> onUpdate { it.copy(importLocalArtwork = value) } },
                 )
                 SettingsRowDivider()
                 SettingsSwitchRow(
-                    title = stringResource(R.string.server_admin_library_analyze_dimensions),
-                    checked = data.analyzeDimensions,
-                    onCheckedChange = { value -> onUpdate { it.copy(analyzeDimensions = value) } },
+                    title = stringResource(R.string.server_admin_library_import_barcode_isbn),
+                    checked = data.importBarcodeIsbn,
+                    onCheckedChange = { value -> onUpdate { it.copy(importBarcodeIsbn = value) } },
                 )
             }
         }
