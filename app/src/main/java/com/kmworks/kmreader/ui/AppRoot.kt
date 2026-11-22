@@ -648,6 +648,7 @@ fun AppRoot(
                                     page = page,
                                     onBack = onDismiss,
                                     onNavigate = onNavigate,
+                                    updateViewModel = updateViewModel,
                                 )
                             }
                         }
@@ -658,6 +659,7 @@ fun AppRoot(
                     page = route.page,
                     onBack = pop,
                     onNavigate = { page -> push(SettingsPageRoute(page)) },
+                    updateViewModel = updateViewModel,
                 )
 
                 // The filtered library list a metadata chip pushed: a page of its own, so the library tab
@@ -789,6 +791,9 @@ private fun SettingsPageContent(
     page: SettingsPage,
     onBack: () -> Unit,
     onNavigate: (SettingsPage) -> Unit,
+    // Shared with the root so the About page reports into the one dialog the root draws: a page keeps
+    // its own view-model scope, which would otherwise hide the prompt from the app-wide instance.
+    updateViewModel: AppUpdateViewModel,
 ) {
     when (page) {
         SettingsPage.Appearance -> AppearanceSettingsScreen(onBack = onBack)
@@ -807,7 +812,7 @@ private fun SettingsPageContent(
         SettingsPage.Logs -> LogsScreen(onBack = onBack)
         SettingsPage.Account -> ServerListScreen(onBack = onBack)
         SettingsPage.Server -> ServerAdminScreen(onBack = onBack)
-        SettingsPage.About -> AboutScreen(onBack = onBack)
+        SettingsPage.About -> AboutScreen(onBack = onBack, updateViewModel = updateViewModel)
         SettingsPage.Licenses -> OpenSourceLicensesScreen(onBack = onBack)
     }
 }
