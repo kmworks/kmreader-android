@@ -842,12 +842,17 @@ private fun shareLogs(context: Context) {
     context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_logs_share)))
 }
 
-/** About page (mirrors SettingsAboutView): icon link rows, the update check, and the version centered below. */
+/**
+ * About page (mirrors SettingsAboutView): icon link rows, the update check, and the version centered below.
+ *
+ * [updateViewModel] is the root's instance: the update prompt is one dialog the root draws above every
+ * page, so the About page must report into that instance instead of resolving its own page-scoped one.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    updateViewModel: AppUpdateViewModel = hiltViewModel(),
+    updateViewModel: AppUpdateViewModel,
 ) {
     val context = LocalContext.current
     val versionName = remember {
