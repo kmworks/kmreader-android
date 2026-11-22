@@ -119,11 +119,15 @@ fun BrowseScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     val seriesBrowseOptions by viewModel.seriesBrowseOptionsFlow.collectAsStateWithLifecycle()
     val booksBrowseOptions by viewModel.booksBrowseOptionsFlow.collectAsStateWithLifecycle()
-    // The filter panel follows the scope chips: the books scope edits the book filters, while every other
-    // scope (All / Series / ReadLists / Collections) edits the series filters, which is the set the series
-    // query actually uses. Each set keeps its own dimensions and its own sort vocabulary.
+    // The filter panel follows the scope chips: the scopes that hold books (Books, ReadLists) edit the book
+    // filters, while the series scopes (All / Series / Collections) edit the series filters, which is the set
+    // the series query actually uses. Each set keeps its own dimensions and its own sort vocabulary.
     val filterContentType =
-        if (scope == SearchScope.Books) BrowseContentType.Books else BrowseContentType.Series
+        if (scope == SearchScope.Books || scope == SearchScope.ReadLists) {
+            BrowseContentType.Books
+        } else {
+            BrowseContentType.Series
+        }
     val filterOptions =
         if (filterContentType == BrowseContentType.Books) booksBrowseOptions else seriesBrowseOptions
 
@@ -219,9 +223,8 @@ fun BrowseScreen(
                     initialOptions = filterOptions,
                     onConfirm = { options -> viewModel.setBrowseOptions(filterContentType, options) },
                     onDismiss = { showFilterSheet = false },
-                    // Series and books keep separate filter sets: the books scope shows the book panel
-                    // (which has no publisher/genre/series-status dimensions and its own sort list), every
-                    // other scope shows the series panel that the series query consumes.
+                    // Series and books keep separate filter sets. Scopes that list books (Books, ReadLists)
+                    // show the book panel; the series scopes show the panel the series query consumes.
                     contentType = filterContentType,
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
@@ -501,22 +504,7 @@ private fun SearchResults(
                         }
                     }
                 }
-                if (state.readLists.isNotEmpty()) {
-                    item(key = "header-readlists", span = { GridItemSpan(maxLineSpan) }) {
-                        ResultSectionHeader(stringResource(R.string.browse_scope_readlists))
-                    }
-                    items(
-                        state.readLists,
-                        key = { "readlist-${it.id}" },
-                        span = { GridItemSpan(maxLineSpan) },
-                    ) { entry ->
-                        SearchListRow(
-                            entry = entry,
-                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                            onClick = { onOpenReadList(entry.id) },
-                        )
-                    }
-                }
+                // Collections before read lists, matching the lists tab's group order.
                 if (state.collections.isNotEmpty()) {
                     item(key = "header-collections", span = { GridItemSpan(maxLineSpan) }) {
                         ResultSectionHeader(stringResource(R.string.browse_scope_collections))
@@ -530,6 +518,22 @@ private fun SearchResults(
                             entry = entry,
                             icon = Icons.Filled.CollectionsBookmark,
                             onClick = { onOpenCollection(entry.id) },
+                        )
+                    }
+                }
+                if (state.readLists.isNotEmpty()) {
+                    item(key = "header-readlists", span = { GridItemSpan(maxLineSpan) }) {
+                        ResultSectionHeader(stringResource(R.string.browse_scope_readlists))
+                    }
+                    items(
+                        state.readLists,
+                        key = { "readlist-${it.id}" },
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) { entry ->
+                        SearchListRow(
+                            entry = entry,
+                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            onClick = { onOpenReadList(entry.id) },
                         )
                     }
                 }
@@ -657,23 +661,7 @@ private fun GroupedSearchResults(
                             }
                         }
                     }
-                    if (state.readLists.isNotEmpty()) {
-                        item(key = "section-readlists") {
-                            SearchGroup(
-                                title = stringResource(R.string.browse_scope_readlists),
-                                showMore = state.readListsHasMore,
-                                onShowMore = { onShowMore(SearchScope.ReadLists) },
-                            ) {
-                                items(state.readLists, key = { "readlist-${it.id}" }) { entry ->
-                                    SearchListCard(
-                                        entry = entry,
-                                        icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                                        onClick = { onOpenReadList(entry.id) },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    // Collections before read lists, matching the lists tab's group order.
                     if (state.collections.isNotEmpty()) {
                         item(key = "section-collections") {
                             SearchGroup(
@@ -686,6 +674,23 @@ private fun GroupedSearchResults(
                                         entry = entry,
                                         icon = Icons.Filled.CollectionsBookmark,
                                         onClick = { onOpenCollection(entry.id) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (state.readLists.isNotEmpty()) {
+                        item(key = "section-readlists") {
+                            SearchGroup(
+                                title = stringResource(R.string.browse_scope_readlists),
+                                showMore = state.readListsHasMore,
+                                onShowMore = { onShowMore(SearchScope.ReadLists) },
+                            ) {
+                                items(state.readLists, key = { "readlist-${it.id}" }) { entry ->
+                                    SearchListCard(
+                                        entry = entry,
+                                        icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                        onClick = { onOpenReadList(entry.id) },
                                     )
                                 }
                             }
