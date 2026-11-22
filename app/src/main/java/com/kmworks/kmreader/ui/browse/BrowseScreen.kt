@@ -31,8 +31,8 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Checklist
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
-import com.kmworks.kmreader.ui.components.BrowseFilterActiveChips
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.BrowseSortChip
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.PushPin
@@ -189,10 +189,10 @@ fun BrowseScreen(
                         Icon(Icons.Filled.FilterList, contentDescription = null)
                     },
                 )
-                // Current sort + one chip per active condition: the detail pages' chip flow without the
-                // layout/preset chips the bar above already owns. Only the series/books scopes have filters.
+                // Current sort only: the panel keeps the conditions, the chip row shows how the results
+                // are ordered. Only the series/books scopes have a filter panel at all.
                 if (filtersEnabled) {
-                    BrowseFilterActiveChips(
+                    BrowseSortChip(
                         options = filterOptions,
                         contentType = filterContentType,
                         onOpenOptions = { showFilterSheet = true },
