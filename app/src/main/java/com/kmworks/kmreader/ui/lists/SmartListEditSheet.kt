@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.lists
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,9 +50,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ReferentialRepository
 import com.kmworks.kmreader.core.data.SmartListFilterMapper
 import com.kmworks.kmreader.data.SmartListTarget
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -109,14 +113,13 @@ fun SmartListEditSheet(
         name: String,
         summary: String,
         target: SmartListTarget,
-        matchAll: Boolean,
-        rules: List<SmartListRule>,
+        search: JsonObject?,
     ) -> Unit,
     onDismiss: () -> Unit,
     initialName: String = "",
     initialSummary: String = "",
     initialTarget: SmartListTarget = SmartListTarget.Book,
-    /** Edit mode only: the server search document, reverse-parsed to describe the existing filters. */
+    /** Edit mode only: the server search document, reverse-parsed to seed and describe the filters. */
     initialSearch: JsonObject? = null,
     initialMatchAll: Boolean = true,
     initialRules: List<SmartListRule> = emptyList(),
@@ -135,14 +138,23 @@ fun SmartListEditSheet(
         }
     }
     val canSave = name.isNotBlank() && (isEdit || (rules.isNotEmpty() && rules.all { it.value.isNotBlank() }))
-    // Edit mode: describe the stored filters instead of the rule builder. Conditions are not editable
-    // here yet, so saving must leave the server search document untouched (null search).
+    // Edit mode: seed full text + library scope from the stored document; the other conditions are
+    // displayed read-only until the browse filter panel replaces the rule builder.
     val filterState = remember(initialSearch, initialTarget) {
         initialSearch?.let {
             SmartListFilterMapper.filterState(SmartListFilterMapper.browseContentType(initialTarget), it)
         }
     }
     val filterCount = filterState?.activeFilterCount ?: 0
+    val initialFullTextSearch = filterState?.fullTextSearch ?: ""
+    val initialLibraryIds = filterState?.libraryIds?.toSet() ?: emptySet()
+    var fullTextSearch by remember { mutableStateOf(initialFullTextSearch) }
+    var selectedLibraryIds by remember { mutableStateOf(initialLibraryIds) }
+    var librariesExpanded by remember { mutableStateOf(false) }
+    // Mirrors the iOS baseline: a document is only resubmitted when the user actually changed
+    // something, so an untouched save (or a rename) cannot rewrite the stored filters.
+    val filtersModified = fullTextSearch.trim() != initialFullTextSearch ||
+        selectedLibraryIds != initialLibraryIds
 
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
@@ -210,7 +222,70 @@ fun SmartListEditSheet(
                 }
             }
 
-            SheetLabel(stringResource(R.string.smartlist_conditions))
+            SheetLabel(stringResource(R.string.smartlist_filters))
+            OutlinedTextField(
+                value = fullTextSearch,
+                onValueChange = { fullTextSearch = it },
+                label = { Text(stringResource(R.string.smartlist_filters_search_text)) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+            OutlinedButton(
+                onClick = { librariesExpanded = !librariesExpanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) {
+                Text(stringResource(R.string.smartlist_libraries))
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = if (selectedLibraryIds.isEmpty()) {
+                        stringResource(R.string.smartlist_libraries_all)
+                    } else {
+                        stringResource(R.string.smartlist_libraries_count, selectedLibraryIds.size)
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (librariesExpanded) {
+                if (valueSuggestions.libraries.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.smartlist_libraries_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                } else {
+                    valueSuggestions.libraries.forEach { library ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedLibraryIds = if (library.id in selectedLibraryIds) {
+                                        selectedLibraryIds - library.id
+                                    } else {
+                                        selectedLibraryIds + library.id
+                                    }
+                                }
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = library.id in selectedLibraryIds,
+                                onCheckedChange = null,
+                            )
+                            Text(
+                                text = library.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
             if (isEdit) {
                 Text(
                     text = if (filterCount == 0) {
@@ -219,7 +294,7 @@ fun SmartListEditSheet(
                         stringResource(R.string.smartlist_filters_active, filterCount)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                 )
                 if (filterState?.lossy == true) {
                     Text(
@@ -230,6 +305,7 @@ fun SmartListEditSheet(
                     )
                 }
             } else {
+                SheetLabel(stringResource(R.string.smartlist_conditions))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = matchAll,
@@ -279,7 +355,32 @@ fun SmartListEditSheet(
                 }
                 OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
-                    onClick = { onSave(name.trim(), summary.trim(), target, matchAll, rules.toList()) },
+                    onClick = {
+                        // Create always submits a fresh document; edit only when the filters actually changed,
+                        // so untouched documents (including lossy ones) are left exactly as stored.
+                        val search = if (isEdit) {
+                            if (!filtersModified) {
+                                null
+                            } else {
+                                SmartListFilterMapper.searchDocument(
+                                    contentType = SmartListFilterMapper.browseContentType(target),
+                                    options = filterState?.options ?: defaultBrowseOptions(
+                                        SmartListFilterMapper.browseContentType(target),
+                                    ),
+                                    libraryIds = selectedLibraryIds.sorted(),
+                                    fullTextSearch = fullTextSearch,
+                                )
+                            }
+                        } else {
+                            buildSmartListSearchDocument(
+                                matchAll = matchAll,
+                                rules = rules.toList(),
+                                libraryIds = selectedLibraryIds.sorted(),
+                                fullTextSearch = fullTextSearch,
+                            )
+                        }
+                        onSave(name.trim(), summary.trim(), target, search)
+                    },
                     enabled = canSave,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -420,16 +521,21 @@ private fun SheetLabel(text: String) {
     )
 }
 
-/** Rule value suggestions (tags/authors from Referential; empty without a session). */
+/** Library scope row (only the fields the editor needs). */
+data class SmartListLibraryOption(val id: String, val name: String)
+
+/** Rule value suggestions (tags/authors from Referential; empty without a session) + library scope. */
 data class SmartListValueSuggestions(
     val tags: List<String> = emptyList(),
     val authors: List<String> = emptyList(),
+    val libraries: List<SmartListLibraryOption> = emptyList(),
 )
 
 /** Self-contained suggestion source for the editor; callers need no changes. */
 @HiltViewModel
 class SmartListEditSuggestionsViewModel @Inject constructor(
     private val referentialRepository: ReferentialRepository,
+    private val libraryRepository: LibraryRepository,
 ) : ViewModel() {
 
     private val _suggestions = MutableStateFlow(SmartListValueSuggestions())
@@ -440,6 +546,9 @@ class SmartListEditSuggestionsViewModel @Inject constructor(
             _suggestions.value = SmartListValueSuggestions(
                 tags = referentialRepository.tags(),
                 authors = referentialRepository.authors(),
+                libraries = runCatching { libraryRepository.libraries() }
+                    .getOrDefault(emptyList())
+                    .map { SmartListLibraryOption(id = it.id, name = it.name) },
             )
         }
     }

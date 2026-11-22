@@ -62,9 +62,15 @@
     <string name="smartlist_target_type">目标类型</string>
     <string name="smartlist_target_meta">目标：%1$s · %2$d 项</string>
     <string name="smartlist_conditions">条件</string>
+    <string name="smartlist_filters">筛选</string>
+    <string name="smartlist_filters_search_text">搜索文本</string>
+    <string name="smartlist_libraries">库</string>
+    <string name="smartlist_libraries_all">全部库</string>
+    <string name="smartlist_libraries_count">%1$d 个库</string>
+    <string name="smartlist_libraries_empty">没有可选的库。</string>
     <string name="smartlist_filters_none">无筛选条件，匹配全部</string>
     <string name="smartlist_filters_active">%1$d 个筛选条件</string>
-    <string name="smartlist_filters_lossy">此列表包含编辑器无法显示的筛选条件，保存时会保留原条件。</string>
+    <string name="smartlist_filters_lossy">已保存的筛选包含应用无法编辑的条件。修改任意筛选会替换整个已保存的筛选。</string>
     <string name="smartlist_match_all">满足全部条件</string>
     <string name="smartlist_match_any">满足任一条件</string>
     <string name="smartlist_add_condition">添加条件</string>

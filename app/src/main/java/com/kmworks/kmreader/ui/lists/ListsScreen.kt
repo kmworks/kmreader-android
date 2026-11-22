@@ -315,8 +315,8 @@ fun ListsScreen(
                 },
             )
             else -> SmartListEditSheet(
-                onSave = { name, summary, _, _, _ ->
-                    viewModel.saveSmartList(entry, name, summary, search = null) { ok ->
+                onSave = { name, summary, _, search ->
+                    viewModel.saveSmartList(entry, name, summary, search = search) { ok ->
                         if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
                     }
                 },
@@ -337,8 +337,8 @@ fun ListsScreen(
 
     if (creatingSmartList) {
         SmartListEditSheet(
-            onSave = { name, summary, target, matchAll, rules ->
-                viewModel.createSmartList(name, summary, target, matchAll, rules) { stableId ->
+            onSave = { name, summary, target, search ->
+                viewModel.createSmartList(name, summary, target, search) { stableId ->
                     creatingSmartList = false
                     if (stableId != null) {
                         // Open what was just created; its detail page reads the registered id.

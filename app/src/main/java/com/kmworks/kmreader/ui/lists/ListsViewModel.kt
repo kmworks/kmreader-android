@@ -458,8 +458,7 @@ class ListsViewModel @Inject constructor(
         name: String,
         summary: String,
         target: SmartListTarget,
-        matchAll: Boolean,
-        rules: List<SmartListRule>,
+        search: JsonObject?,
         onDone: (Int?) -> Unit,
     ) {
         viewModelScope.launch {
@@ -468,7 +467,7 @@ class ListsViewModel @Inject constructor(
                     name = name,
                     summary = summary,
                     target = target.toDtoTarget(),
-                    search = buildSmartListSearchDocument(matchAll, rules),
+                    search = search ?: JsonObject(emptyMap()),
                 )
             } catch (e: CancellationException) {
                 throw e

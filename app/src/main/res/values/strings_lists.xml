@@ -62,9 +62,15 @@
     <string name="smartlist_target_type">Target</string>
     <string name="smartlist_target_meta">Target: %1$s · %2$d items</string>
     <string name="smartlist_conditions">Conditions</string>
+    <string name="smartlist_filters">Filters</string>
+    <string name="smartlist_filters_search_text">Search text</string>
+    <string name="smartlist_libraries">Libraries</string>
+    <string name="smartlist_libraries_all">All Libraries</string>
+    <string name="smartlist_libraries_count">%1$d Libraries</string>
+    <string name="smartlist_libraries_empty">No libraries.</string>
     <string name="smartlist_filters_none">No filters — matches everything</string>
     <string name="smartlist_filters_active">%1$d filters active</string>
-    <string name="smartlist_filters_lossy">This list has conditions the editor cannot display; saving keeps them unchanged.</string>
+    <string name="smartlist_filters_lossy">The stored filter contains conditions the app cannot edit. Changing any filter replaces the whole stored filter.</string>
     <string name="smartlist_match_all">Match All Conditions</string>
     <string name="smartlist_match_any">Match Any Condition</string>
     <string name="smartlist_add_condition">Add Condition</string>

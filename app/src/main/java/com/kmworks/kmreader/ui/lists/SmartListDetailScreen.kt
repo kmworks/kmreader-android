@@ -392,14 +392,14 @@ fun SmartListDetailScreen(
         )
     }
     if (editOpen) {
-        // Conditions are shown read-only (reverse-parsed from the stored search document); save submits
-        // name/summary only, passing a null search so the server keeps the existing filters.
+        // Filters are seeded from the stored search document; save passes a document back only when the
+        // user changed full text or library scope (null keeps the stored document untouched).
         SmartListEditSheet(
-            onSave = { name, summary, _, _, _ ->
+            onSave = { name, summary, _, search ->
                 viewModel.save(
                     name = name,
                     summary = summary,
-                    search = null,
+                    search = search,
                 ) { ok ->
                     // Keep the editor open when saving fails, to avoid silently losing changes
                     if (ok) editOpen = false

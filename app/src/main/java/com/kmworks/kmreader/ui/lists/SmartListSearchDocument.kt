@@ -8,26 +8,46 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
- * Editor rules -> server search document (mirrors the JSON key structure of the original
+ * Editor state -> server search document (mirrors the key structure of the original
  * SmartListFilterMapper.buildCondition).
- * Document shape: {"condition": <node>}; a node is either a bare leaf
- * {"<key>": {"operator": op, "value": v}} or a group {"allOf": [...]} / {"anyOf": [...]};
- * with no rules the condition key is omitted (empty document = matches everything).
+ * Document shape: {"condition": <node>} plus an optional sibling {"fullTextSearch": "..."}; a node is
+ * either a bare leaf {"<key>": {"operator": op, "value": v}} or a group {"allOf": [...]} / {"anyOf": [...]}.
+ * Libraries are emitted first (single leaf, or anyOf for several), exactly like the original builder;
+ * with nothing at all the document is empty (matches everything).
  * Note: "Pages" has no counterpart key in the original condition DSL, so the editor does
  * not offer that field (zero API difference).
  */
 fun buildSmartListSearchDocument(
     matchAll: Boolean,
     rules: List<SmartListRule>,
+    libraryIds: List<String> = emptyList(),
+    fullTextSearch: String = "",
 ): JsonObject {
-    val nodes = rules.mapNotNull { it.toConditionNode() }
+    val nodes = buildList {
+        libraryNode(libraryIds)?.let(::add)
+        addAll(rules.mapNotNull { it.toConditionNode() })
+    }
+    val condition = when {
+        nodes.isEmpty() -> null
+        nodes.size == 1 -> nodes.first()
+        else -> buildJsonObject {
+            putJsonArray(if (matchAll) "allOf" else "anyOf") { nodes.forEach { add(it) } }
+        }
+    }
+    val text = fullTextSearch.trim()
     return buildJsonObject {
-        when {
-            nodes.isEmpty() -> Unit
-            nodes.size == 1 -> put("condition", nodes.first())
-            else -> put("condition", buildJsonObject {
-                putJsonArray(if (matchAll) "allOf" else "anyOf") { nodes.forEach { add(it) } }
-            })
+        condition?.let { put("condition", it) }
+        if (text.isNotEmpty()) put("fullTextSearch", text)
+    }
+}
+
+/** Library scope: one leaf, or anyOf of leaves for several (mirrors the original builder). */
+private fun libraryNode(libraryIds: List<String>): JsonObject? = when (libraryIds.size) {
+    0 -> null
+    1 -> leaf("libraryId", "is", libraryIds[0])
+    else -> buildJsonObject {
+        putJsonArray("anyOf") {
+            libraryIds.forEach { add(leaf("libraryId", "is", it)) }
         }
     }
 }
