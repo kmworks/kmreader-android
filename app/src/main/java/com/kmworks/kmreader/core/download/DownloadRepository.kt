@@ -447,6 +447,12 @@ class DownloadRepository @Inject constructor(
         DownloadMeta.read(dir)?.isComplete(dir) == true
     }
 
+    /** Cover saved with a completed download, for offline detail pages and server-switch fallback. */
+    suspend fun coverFile(bookDtoId: String): File? = withContext(Dispatchers.IO) {
+        val dir = File(downloadsDir, bookDtoId)
+        DownloadMeta.read(dir)?.coverFile(dir)
+    }
+
     /** Cancel the task and delete the downloaded content. */
     suspend fun cancelBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(workName(bookDtoId))

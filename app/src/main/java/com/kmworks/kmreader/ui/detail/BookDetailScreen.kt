@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.detail
 
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -120,6 +121,7 @@ import androidx.compose.material.icons.outlined.QrCode
 import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.ui.platform.LocalUriHandler
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -427,6 +429,7 @@ internal fun BookDetailBody(
                             onOpenSeries = onOpenSeries,
                             onBrowseFilter = onBrowseFilter,
                             seriesMeta = state.oneshotEditable,
+                            localCover = state.localCoverFile,
                         )
                         BookActionCard(
                             book = displayed,
@@ -499,6 +502,7 @@ internal fun BookDetailBody(
                             onOpenSeries = onOpenSeries,
                             onBrowseFilter = onBrowseFilter,
                             seriesMeta = state.oneshotEditable,
+                            localCover = state.localCoverFile,
                         )
                         BookActionCard(
                             book = displayed,
@@ -634,7 +638,12 @@ internal fun BookHero(
     onOpenSeries: () -> Unit,
     onBrowseFilter: (String) -> Unit = {},
     seriesMeta: SeriesEditValues? = null,
+    /** Cover saved with the download; only painted when the server thumbnail is unavailable. */
+    localCover: File? = null,
 ) {
+    val localCoverUrl = remember(localCover) {
+        localCover?.let { Uri.fromFile(it).toString() }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -645,6 +654,7 @@ internal fun BookHero(
             title = seriesTitle ?: book.title,
             hue = book.hue,
             stableId = book.id,
+            fallbackImageUrl = localCoverUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
                 .aspectRatio(2f / 3f),
