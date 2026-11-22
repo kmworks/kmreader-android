@@ -69,6 +69,7 @@ import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.DashboardSection
+import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
@@ -87,8 +88,9 @@ import com.kmworks.kmreader.ui.components.subtitleText
 
 /**
  * Section detail page ("More" destination): adaptive grid/list with three-way layout
- * cycling, library scope menu and browse-options filter sheet. Feed items are re-fetched
- * page by page (pageSize 50) and appended on scroll, aligned with DashboardSectionDetailView.
+ * cycling, library scope menu and browse-options filter sheet. Shares the dashboard's view
+ * model (AppRoot hands both the tab's instance), so the page paints the items the strip
+ * already loaded and either destination grows the same feed — no page-0 refetch on entry.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,7 +100,7 @@ fun DashboardSectionDetailScreen(
     onOpenSeries: (Series) -> Unit,
     onOpenBook: (Book) -> Unit = {},
     onReadBook: (Book, incognito: Boolean) -> Unit = { _, _ -> },
-    viewModel: DashboardSectionDetailViewModel = hiltViewModel(),
+    viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     // Large grid on tablets, the normal grid on phones
     val (layout, setLayout) = rememberPersistentBrowseLayout(
@@ -109,11 +111,19 @@ fun DashboardSectionDetailScreen(
     var showPinSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     val detail by viewModel.state.collectAsStateWithLifecycle()
+    // Follow the live section (the dashboard reloads it); the route's snapshot is the fallback.
+    val liveSection = detail.sections?.firstOrNull { it.id == section.id } ?: section
+    val items = liveSection.items
+    val paging = detail.sectionPaging[section.id]
+    val hasMore = paging?.hasMore == true
+    val loadingMore = paging?.loadingMore == true
+    // The continuations section has no paged feed; its "More" page says so instead of spinning.
+    val unsupported = section.id == ReadListsInProgressSectionId
     // A dashboard section is either books or series (its id says which, the loaded items confirm it),
     // so its panel — and its default sort vocabulary — is the matching one.
     val sectionContentType = when {
-        detail.items.firstOrNull() is Series -> BrowseContentType.Series
-        detail.items.firstOrNull() is Book -> BrowseContentType.Books
+        items.firstOrNull() is Series -> BrowseContentType.Series
+        items.firstOrNull() is Book -> BrowseContentType.Books
         section.id.contains("Series", ignoreCase = true) -> BrowseContentType.Series
         else -> BrowseContentType.Books
     }
@@ -121,8 +131,6 @@ fun DashboardSectionDetailScreen(
     // that guess when the loaded items confirm (or correct) it.
     var options by remember(sectionContentType) { mutableStateOf(defaultBrowseOptions(sectionContentType)) }
     var menuBook by remember { mutableStateOf<Book?>(null) }
-
-    LaunchedEffect(section.id) { viewModel.start(section) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -141,9 +149,9 @@ fun DashboardSectionDetailScreen(
         }
     }
     val shouldLoadMore = if (layout == BrowseLayout.List) listShouldLoadMore else gridShouldLoadMore
-    LaunchedEffect(shouldLoadMore, detail.hasMore, detail.loading, detail.loadingMore) {
-        if (shouldLoadMore && detail.hasMore && !detail.loading && !detail.loadingMore) {
-            viewModel.loadMore()
+    LaunchedEffect(shouldLoadMore, hasMore, detail.loading, loadingMore) {
+        if (shouldLoadMore && hasMore && !detail.loading && !loadingMore) {
+            viewModel.loadMoreSection(section.id)
         }
     }
 
@@ -256,8 +264,8 @@ fun DashboardSectionDetailScreen(
                     )
                 },
             )
-            val books = detail.items.filterIsInstance<Book>()
-            val seriesItems = detail.items.filterIsInstance<Series>()
+            val books = items.filterIsInstance<Book>()
+            val seriesItems = items.filterIsInstance<Series>()
             when (layout) {
                 BrowseLayout.List -> LazyColumn(
                     state = listState,
@@ -276,7 +284,7 @@ fun DashboardSectionDetailScreen(
                     items(seriesItems, key = { it.id }) { series ->
                         SeriesListRow(series = series, onClick = { onOpenSeries(series) })
                     }
-                    if (detail.hasMore) {
+                    if (hasMore) {
                         item(key = "load-more") { LoadMoreRow() }
                     }
                 }
@@ -308,19 +316,23 @@ fun DashboardSectionDetailScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    if (detail.hasMore) {
+                    if (hasMore) {
                         item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) { LoadMoreRow() }
                     }
                 }
             }
             // initial page spinner / error hint (both layouts)
-            if (detail.loading && detail.items.isEmpty()) {
+            if (detail.loading && items.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
                 }
             }
-            detail.error?.let { message ->
-                if (detail.items.isEmpty()) {
+            val emptyMessage = when {
+                unsupported -> stringResource(R.string.dashboard_error_pagination_unsupported)
+                else -> detail.error
+            }
+            emptyMessage?.let { message ->
+                if (items.isEmpty() && !detail.loading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = message,

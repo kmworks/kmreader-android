@@ -9,18 +9,17 @@ import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
 import com.kmworks.kmreader.ui.lists.newReadListEntry
-import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ImageCacheStore
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
-import com.kmworks.kmreader.core.data.SeriesRepository
+import com.kmworks.kmreader.core.data.Paged
+import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
-import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.network.SessionManager
@@ -48,6 +47,7 @@ import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -64,12 +64,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 
+/** Paging bookkeeping of one dashboard section feed (strip and "More" page share it). */
+data class DashboardSectionPaging(
+    val page: Int = 0,
+    val hasMore: Boolean = false,
+    val loadingMore: Boolean = false,
+)
+
 /** Dashboard sections state; sections == null keeps the sample demo UI. */
 data class DashboardUiState(
     val hasSession: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
     val sections: List<DashboardSection<out Any>>? = null,
+    /** Per-section feed paging: the strip requests the next page at its end, the "More" page does the same. */
+    val sectionPaging: Map<String, DashboardSectionPaging> = emptyMap(),
     /** Continuation cards for read lists in progress (computed from real data; empty when none are in progress). */
     val continuations: List<ReadListContinuationUi> = emptyList(),
     val collections: List<ListEntry>? = null,
@@ -102,12 +111,11 @@ private data class DashboardLayout(
 /** Real dashboard data for the eight sections (books + series feeds, aligned with iOS DashboardSection). */
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    private val bookRepository: BookRepository,
-    private val seriesRepository: SeriesRepository,
     private val actionRepository: ActionRepository,
     private val listRepository: ListRepository,
     private val detailRepository: DetailRepository,
     private val libraryRepository: LibraryRepository,
+    private val searchRepository: SearchRepository,
     private val sseService: SseService,
     private val appSettings: AppSettingsStore,
     private val serverProfileStore: ServerProfileStore,
@@ -130,6 +138,9 @@ class DashboardViewModel @Inject constructor(
 
     /** Serializes reloads: an SSE burst and a local write can each request one at nearly the same instant. */
     private val loadMutex = Mutex()
+
+    /** Bumped on every wholesale reload; a section load-more landing after one discards its result. */
+    private var feedsGeneration = 0
 
     /** The persisted dashboard scope is read once (before the first feed query); the state is authoritative after that. */
     private var scopeLoaded = false
@@ -289,6 +300,84 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
     }
 
+    /**
+     * Load the next page of one section's feed (strip scrolled to its end, or the "More" page scrolled
+     * to its bottom — both share this state, so either one grows what the other shows).
+     */
+    fun loadMoreSection(sectionId: String) {
+        val paging = _state.value.sectionPaging[sectionId] ?: return
+        if (paging.loadingMore || !paging.hasMore || _state.value.loading) return
+        val gen = feedsGeneration
+        viewModelScope.launch {
+            updateSectionPaging(sectionId) { it.copy(loadingMore = true) }
+            try {
+                val nextPage = paging.page + 1
+                val pinned = appSettings.pinnedLibraryIds.first()
+                val libraryIds = resolveLibraryScopeIds(_state.value.libraryScope, pinned)
+                val result = fetchSectionPage(sectionId, nextPage, libraryIds)
+                if (result == null) {
+                    updateSectionPaging(sectionId) { it.copy(hasMore = false, loadingMore = false) }
+                    return@launch
+                }
+                if (gen != feedsGeneration) return@launch // a reload landed meanwhile; it owns the sections now
+                rawSections = rawSections.map { section ->
+                    if (section.id != sectionId) {
+                        section
+                    } else {
+                        val appended = result.items.filterNot { item ->
+                            section.items.any { current -> sameItem(current, item) }
+                        }
+                        @Suppress("UNCHECKED_CAST")
+                        (section as DashboardSection<Any>).copy(items = section.items + appended)
+                    }
+                }
+                updateSectionPaging(sectionId) {
+                    it.copy(page = nextPage, hasMore = result.hasMore, loadingMore = false)
+                }
+                _state.update { it.copy(sections = derivedSections()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (gen != feedsGeneration) return@launch
+                updateSectionPaging(sectionId) { it.copy(loadingMore = false) }
+                _state.update {
+                    it.copy(error = e.message ?: context.getString(R.string.common_load_more_failed))
+                }
+            }
+        }
+    }
+
+    /** One page of a section's feed; null for the sections that have no paged feed (continuations). */
+    private suspend fun fetchSectionPage(sectionId: String, page: Int, libraryIds: List<String>?): Paged<Any>? =
+        when (sectionId) {
+            "keepReading" -> searchRepository.keepReadingPage(
+                page, SECTION_PAGE_SIZE, libraryIds,
+                readDateAfter = serverProfileStore.recentReadingCutoff(),
+            ).eraseType()
+            "onDeck" -> searchRepository.onDeckPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            "recentlyReleasedBooks" -> searchRepository.recentlyReleasedBooksPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            "recentlyAddedBooks" -> searchRepository.latestBooksPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            "recentlyAddedSeries" -> searchRepository.latestSeriesPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            "recentlyUpdatedSeries" -> searchRepository.recentlyUpdatedSeriesPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            "recentlyReadBooks" -> searchRepository.recentlyReadBooksPage(page, SECTION_PAGE_SIZE, libraryIds).eraseType()
+            else -> null
+        }
+
+    private fun updateSectionPaging(sectionId: String, transform: (DashboardSectionPaging) -> DashboardSectionPaging) {
+        _state.update { state ->
+            val current = state.sectionPaging[sectionId] ?: return@update state
+            state.copy(sectionPaging = state.sectionPaging + (sectionId to transform(current)))
+        }
+    }
+
+    private fun <T> Paged<T>.eraseType(): Paged<Any> = Paged(items.map { it as Any }, hasMore)
+
+    private fun sameItem(a: Any, b: Any): Boolean = when {
+        a is Book && b is Book -> a.id == b.id
+        a is Series && b is Series -> a.id == b.id
+        else -> false
+    }
+
     private suspend fun load() {
         loadMutex.withLock { loadLocked() }
     }
@@ -316,6 +405,7 @@ class DashboardViewModel @Inject constructor(
 
     private suspend fun loadLocked() {
         ensureScopeLoaded()
+        feedsGeneration++
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
         // Read the library list first: the scope menu needs it anyway, and the single-library fallback above
         // must not query the feeds with a library id the server no longer knows.
@@ -327,7 +417,15 @@ class DashboardViewModel @Inject constructor(
             val cached = runCatching { catalogCache.seedDashboard() }.getOrDefault(emptyList())
             if (cached.isNotEmpty()) {
                 rawSections = cached
-                _state.update { it.copy(sections = derivedSections() ?: cached) }
+                _state.update {
+                    it.copy(
+                        sections = derivedSections() ?: cached,
+                        // The cache holds exactly the first page; assume more until the server says otherwise.
+                        sectionPaging = cached.associate { section ->
+                            section.id to DashboardSectionPaging(page = 0, hasMore = true)
+                        },
+                    )
+                }
             }
         }
         // Read the pinned set straight from DataStore: avoids a startup race where the first load triggered by a ready
@@ -337,16 +435,17 @@ class DashboardViewModel @Inject constructor(
         try {
             val fetched = coroutineScope {
                 val readDateAfter = serverProfileStore.recentReadingCutoff()
-                // First-screen item count per section aligned with iOS DashboardViewModel pagination.pageSize = 20
+                // First-screen item count per section aligned with iOS DashboardViewModel pagination.pageSize = 20;
+                // the paged variants (same queries) also feed the section load-more.
                 val keepReading = async {
-                    bookRepository.keepReading(size = 20, libraryIds = libraryIds, readDateAfter = readDateAfter)
+                    searchRepository.keepReadingPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds, readDateAfter = readDateAfter)
                 }
-                val onDeck = async { bookRepository.onDeck(size = 20, libraryIds = libraryIds) }
-                val releasedBooks = async { bookRepository.recentlyReleased(size = 20, libraryIds = libraryIds) }
-                val addedBooks = async { bookRepository.latest(size = 20, libraryIds = libraryIds) }
-                val addedSeries = async { seriesRepository.newlyAdded(size = 20, libraryIds = libraryIds) }
-                val updatedSeries = async { seriesRepository.recentlyUpdated(size = 20, libraryIds = libraryIds) }
-                val readBooks = async { bookRepository.recentlyRead(size = 20, libraryIds = libraryIds) }
+                val onDeck = async { searchRepository.onDeckPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
+                val releasedBooks = async { searchRepository.recentlyReleasedBooksPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
+                val addedBooks = async { searchRepository.latestBooksPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
+                val addedSeries = async { searchRepository.latestSeriesPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
+                val updatedSeries = async { searchRepository.recentlyUpdatedSeriesPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
+                val readBooks = async { searchRepository.recentlyReadBooksPage(page = 0, size = SECTION_PAGE_SIZE, libraryIds = libraryIds) }
                 DashboardFeeds(
                     keepReading.await(),
                     onDeck.await(),
@@ -357,13 +456,22 @@ class DashboardViewModel @Inject constructor(
                     readBooks.await(),
                 )
             }
-            val keepReading = fetched.keepReading.map { it.toUiBook() }
-            val onDeck = fetched.onDeck.map { it.toUiBook() }
-            val releasedBooks = fetched.releasedBooks.map { it.toUiBook() }
-            val addedBooks = fetched.addedBooks.map { it.toUiBook() }
-            val addedSeries = fetched.addedSeries.map { it.toUiSeries() }
-            val updatedSeries = fetched.updatedSeries.map { it.toUiSeries() }
-            val readBooks = fetched.readBooks.map { it.toUiBook() }
+            val keepReading = fetched.keepReading.items
+            val onDeck = fetched.onDeck.items
+            val releasedBooks = fetched.releasedBooks.items
+            val addedBooks = fetched.addedBooks.items
+            val addedSeries = fetched.addedSeries.items
+            val updatedSeries = fetched.updatedSeries.items
+            val readBooks = fetched.readBooks.items
+            val sectionPaging = mapOf(
+                "keepReading" to DashboardSectionPaging(hasMore = fetched.keepReading.hasMore),
+                "onDeck" to DashboardSectionPaging(hasMore = fetched.onDeck.hasMore),
+                "recentlyReleasedBooks" to DashboardSectionPaging(hasMore = fetched.releasedBooks.hasMore),
+                "recentlyAddedBooks" to DashboardSectionPaging(hasMore = fetched.addedBooks.hasMore),
+                "recentlyAddedSeries" to DashboardSectionPaging(hasMore = fetched.addedSeries.hasMore),
+                "recentlyUpdatedSeries" to DashboardSectionPaging(hasMore = fetched.updatedSeries.hasMore),
+                "recentlyReadBooks" to DashboardSectionPaging(hasMore = fetched.readBooks.hasMore),
+            )
             // Section order/titles/default card kinds aligned with iOS DashboardSection.allCases and defaultCardKind
             val sections = listOfNotNull(
                 if (keepReading.isNotEmpty()) DashboardSection("keepReading", context.getString(R.string.dashboard_section_keep_reading), DashboardCardKind.Horizontal, keepReading) else null,
@@ -428,6 +536,7 @@ class DashboardViewModel @Inject constructor(
                 it.copy(
                     loading = false,
                     sections = derivedSections() ?: allSections,
+                    sectionPaging = sectionPaging,
                     continuations = continuations,
                     collections = collections,
                     readLists = readLists,
@@ -682,6 +791,9 @@ class DashboardViewModel @Inject constructor(
     }
 
     private companion object {
+        /** Section feed page size, aligned with iOS DashboardViewModel pagination.pageSize. */
+        const val SECTION_PAGE_SIZE = 20
+
         /** Event kinds that trigger a dashboard refresh. */
         val REFRESH_KINDS = setOf(
             SseEventKind.Book,
@@ -695,11 +807,11 @@ class DashboardViewModel @Inject constructor(
 }
 
 private data class DashboardFeeds(
-    val keepReading: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val onDeck: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val releasedBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val addedBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
-    val addedSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
-    val updatedSeries: List<com.kmworks.kmreader.core.api.model.SeriesDto>,
-    val readBooks: List<com.kmworks.kmreader.core.api.model.BookDto>,
+    val keepReading: Paged<Book>,
+    val onDeck: Paged<Book>,
+    val releasedBooks: Paged<Book>,
+    val addedBooks: Paged<Book>,
+    val addedSeries: Paged<Series>,
+    val updatedSeries: Paged<Series>,
+    val readBooks: Paged<Book>,
 )
