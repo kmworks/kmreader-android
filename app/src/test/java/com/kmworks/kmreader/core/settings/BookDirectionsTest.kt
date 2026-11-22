@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.settings
 
 import com.kmworks.kmreader.ui.reader.ReadingDirection
+import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -88,5 +89,48 @@ class BookDirectionsTest {
                 seriesDtoId = null,
             ),
         )
+    }
+
+    @Test
+    fun splitWideModesParseAndRoundTrip() {
+        val raw = formatSplitWideMap(
+            mapOf(
+                "series-1" to SplitWidePageMode.Ltr,
+                "book-2" to SplitWidePageMode.Auto,
+            ),
+        )
+
+        assertEquals("book-2:Auto||series-1:Ltr", raw)
+        assertEquals(
+            mapOf("book-2" to SplitWidePageMode.Auto, "series-1" to SplitWidePageMode.Ltr),
+            parseSplitWideMap(raw),
+        )
+        assertNull(formatSplitWideMap(emptyMap()))
+        // A mode this build dropped is skipped instead of corrupting the whole map
+        assertEquals(emptyMap<String, SplitWidePageMode>(), parseSplitWideMap("series-1:Gone"))
+    }
+
+    @Test
+    fun splitWideBookExceptionWinsOverTheSeriesValue() {
+        val remembered = resolveRemembered(
+            bookValues = mapOf("book-2" to SplitWidePageMode.Auto),
+            seriesValues = mapOf("series-1" to SplitWidePageMode.Rtl),
+            bookDtoId = "book-2",
+            seriesDtoId = "series-1",
+        )
+
+        assertEquals(Remembered(SplitWidePageMode.Auto, perBook = true), remembered)
+    }
+
+    @Test
+    fun splitWideSeriesValueAppliesToTheNextVolume() {
+        val remembered = resolveRemembered(
+            bookValues = mapOf("book-2" to SplitWidePageMode.Auto),
+            seriesValues = mapOf("series-1" to SplitWidePageMode.Rtl),
+            bookDtoId = "book-3",
+            seriesDtoId = "series-1",
+        )
+
+        assertEquals(Remembered(SplitWidePageMode.Rtl, perBook = false), remembered)
     }
 }

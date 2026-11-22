@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.settings.DivinaSettingsStore
+import com.kmworks.kmreader.core.settings.Remembered
 import com.kmworks.kmreader.core.settings.RememberedDirection
+import com.kmworks.kmreader.core.settings.resolveRemembered
 import com.kmworks.kmreader.core.settings.resolveRememberedDirection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -96,6 +98,17 @@ class DivinaSettingsViewModel @Inject constructor(
             seriesDtoId = seriesDtoId,
         )
 
+    /** The wide-page split remembered for this book or its series (null = follow the reader defaults). */
+    suspend fun rememberedSplitWideMode(
+        bookDtoId: String?,
+        seriesDtoId: String?,
+    ): Remembered<SplitWidePageMode>? = resolveRemembered(
+        bookValues = store.bookSplitWideModes.first(),
+        seriesValues = store.seriesSplitWideModes.first(),
+        bookDtoId = bookDtoId,
+        seriesDtoId = seriesDtoId,
+    )
+
     /** Remembers (or with null, forgets) the direction picked for one book as an exception. */
     fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
         viewModelScope.launch { store.setBookDirection(bookDtoId, direction) }
@@ -104,5 +117,15 @@ class DivinaSettingsViewModel @Inject constructor(
     /** Remembers (or with null, forgets) the direction for a whole series. */
     fun setSeriesDirection(seriesDtoId: String, direction: ReadingDirection?) {
         viewModelScope.launch { store.setSeriesDirection(seriesDtoId, direction) }
+    }
+
+    /** Remembers (or with null, forgets) the wide-page split for one book as an exception. */
+    fun setBookSplitWideMode(bookDtoId: String, mode: SplitWidePageMode?) {
+        viewModelScope.launch { store.setBookSplitWideMode(bookDtoId, mode) }
+    }
+
+    /** Remembers (or with null, forgets) the wide-page split for a whole series. */
+    fun setSeriesSplitWideMode(seriesDtoId: String, mode: SplitWidePageMode?) {
+        viewModelScope.launch { store.setSeriesSplitWideMode(seriesDtoId, mode) }
     }
 }

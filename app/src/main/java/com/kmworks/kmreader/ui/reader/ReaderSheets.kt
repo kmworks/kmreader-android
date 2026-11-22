@@ -146,9 +146,16 @@ fun ReaderOptionsMenu(
     onDirectionBookOnlyChange: (Boolean) -> Unit,
     /** null = "Follow default": forgets the remembered choice for this book and its series. */
     onDirectionChange: (ReadingDirection?) -> Unit,
+    /** The wide-page split remembered for this book or its series (null = the reader defaults decide). */
+    splitWideOverride: SplitWidePageMode?,
+    /** True when [splitWideOverride] came from this book's own exception. */
+    splitWideIsBookOnly: Boolean,
+    /** Choosing a split mode writes the whole series unless this is true (then just this book). */
+    onSplitWideBookOnlyChange: (Boolean) -> Unit,
+    /** null = "Follow default": forgets the remembered split mode for this book and its series. */
+    onSplitWideModeChange: (SplitWidePageMode?) -> Unit,
     onPageLayoutChange: (PageLayout) -> Unit,
     onToggleSoloCover: () -> Unit,
-    onSplitWideModeChange: (SplitWidePageMode) -> Unit,
     onRotationChange: (Int) -> Unit,
     onOpenSettings: () -> Unit,
     onSharePage: () -> Unit,
@@ -316,7 +323,9 @@ fun ReaderOptionsMenu(
                 },
                 onDismiss = { picker = null },
                 footer = {
-                    DirectionScopeRow(
+                    ScopeRow(
+                        label = stringResource(R.string.reader_menu_direction_book_only),
+                        hint = stringResource(R.string.reader_menu_direction_book_only_hint),
                         bookOnly = directionIsBookOnly,
                         onBookOnlyChange = onDirectionBookOnlyChange,
                     )
@@ -338,18 +347,31 @@ fun ReaderOptionsMenu(
         }
         ReaderMenuPicker.Split -> {
             val labels = SplitWidePageMode.entries.associateWith { stringResource(it.labelRes) }
+            val followDefault = stringResource(R.string.reader_menu_split_wide_follow_default)
             OptionPickerDialog(
                 title = stringResource(R.string.reader_menu_split_wide),
-                options = labels.values.toList(),
-                selected = labels[splitWideMode].orEmpty(),
+                options = listOf(followDefault) + labels.values,
+                selected = splitWideOverride?.let { labels[it] } ?: followDefault,
                 hints = SplitWidePageMode.entries.associate {
                     stringResource(it.labelRes) to stringResource(it.hintRes)
-                },
+                } + (followDefault to stringResource(R.string.reader_menu_split_wide_follow_default_hint)),
                 onSelect = { label ->
-                    labels.entries.firstOrNull { it.value == label }?.key?.let(onSplitWideModeChange)
+                    if (label == followDefault) {
+                        onSplitWideModeChange(null)
+                    } else {
+                        labels.entries.firstOrNull { it.value == label }?.key?.let(onSplitWideModeChange)
+                    }
                     picker = null
                 },
                 onDismiss = { picker = null },
+                footer = {
+                    ScopeRow(
+                        label = stringResource(R.string.reader_menu_split_wide_book_only),
+                        hint = stringResource(R.string.reader_menu_split_wide_book_only_hint),
+                        bookOnly = splitWideIsBookOnly,
+                        onBookOnlyChange = onSplitWideBookOnlyChange,
+                    )
+                },
             )
         }
         ReaderMenuPicker.Rotation -> {
@@ -473,11 +495,13 @@ private fun OptionPickerDialog(
 }
 
 /**
- * Where a direction pick is remembered: the whole series (default, so the next volume continues in the
- * same direction) or just this book (an exception that wins over the series value).
+ * Where a "current reading option" pick is remembered: the whole series (default, so the next volume
+ * continues with it) or just this book (an exception that wins over the series value).
  */
 @Composable
-private fun DirectionScopeRow(
+private fun ScopeRow(
+    label: String,
+    hint: String,
     bookOnly: Boolean,
     onBookOnlyChange: (Boolean) -> Unit,
 ) {
@@ -489,9 +513,9 @@ private fun DirectionScopeRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(stringResource(R.string.reader_menu_direction_book_only))
+            Text(label)
             Text(
-                stringResource(R.string.reader_menu_direction_book_only_hint),
+                hint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
