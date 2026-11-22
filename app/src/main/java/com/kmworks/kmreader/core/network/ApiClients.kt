@@ -11,6 +11,7 @@ import com.kmworks.kmreader.core.api.ReadlistsApi
 import com.kmworks.kmreader.core.api.ReferentialMetadataApi
 import com.kmworks.kmreader.core.api.SeriesApi
 import com.kmworks.kmreader.core.api.UserSessionApi
+import com.kmworks.kmreader.core.data.MetadataApi
 import com.kmworks.kmreader.core.data.SmartListsApi
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.server.ServerApi
@@ -111,6 +112,9 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
 
     /** server/info capability probing + logout (handwritten interface). */
     val serverApi: ServerApi by lazy { retrofit.create(ServerApi::class.java) }
+
+    /** metadata PATCH that has to be able to send explicit JSON nulls (handwritten interface). */
+    val metadata: MetadataApi by lazy { retrofit.create(MetadataApi::class.java) }
 
     companion object {
         /** Default network timeout (seconds), adjustable on the settings page (AppSettingsStore.networkTimeoutSeconds). */

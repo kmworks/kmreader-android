@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
-import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.lists.newCollectionEntry
@@ -63,6 +62,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObject
 
 /** Dashboard sections state; sections == null keeps the sample demo UI. */
 data class DashboardUiState(
@@ -500,9 +500,9 @@ class DashboardViewModel @Inject constructor(
             detailRepository.seriesDetail(dtoId)?.metadata?.toEditValues()
         }
 
-    /** Save series metadata edits; dto == null means no changes, which succeeds immediately. */
-    fun saveSeriesMetadata(stableId: Int, dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {
-        if (dto == null) {
+    /** Save series metadata edits; body == null means no changes, which succeeds immediately. */
+    fun saveSeriesMetadata(stableId: Int, body: JsonObject?, onDone: (Boolean) -> Unit) {
+        if (body == null) {
             onDone(true)
             return
         }
@@ -512,7 +512,7 @@ class DashboardViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val ok = actionRepository.updateSeriesMetadata(dtoId, dto)
+            val ok = actionRepository.updateSeriesMetadata(dtoId, body)
             onDone(ok)
         }
     }

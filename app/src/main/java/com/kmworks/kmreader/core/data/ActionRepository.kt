@@ -4,10 +4,10 @@ import com.kmworks.kmreader.core.api.model.BookMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.CollectionUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadListUpdateDto
 import com.kmworks.kmreader.core.api.model.ReadProgressUpdateDto
-import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.network.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Write operations repository: mark read/unread, read-progress reporting, add to collection/read list.
@@ -151,10 +151,15 @@ class ActionRepository @Inject constructor(
         return notifyOn(ok) { booksChanged(listOf(bookDtoId), ContentChangeKind.MetadataChanged) }
     }
 
-    /** Update series metadata (PATCH /api/v1/series/{seriesId}/metadata; only locked fields are sent). */
-    suspend fun updateSeriesMetadata(seriesDtoId: String, body: SeriesMetadataUpdateDto): Boolean {
+    /**
+     * Update series metadata (PATCH /api/v1/series/{seriesId}/metadata; only locked fields are sent).
+     *
+     * The body is already JSON: Komga reads an explicit null as "unset this field" and an omitted
+     * field as "leave it alone", and the typed DTO cannot express the former. See [MetadataApi].
+     */
+    suspend fun updateSeriesMetadata(seriesDtoId: String, body: JsonObject): Boolean {
         val clients = sessionManager.clients.value ?: return false
-        val ok = clients.series.updateSeriesMetadata(seriesDtoId, body).awaitSuccess()
+        val ok = clients.metadata.updateSeriesMetadata(seriesDtoId, body).awaitSuccess()
         return notifyOn(ok) { seriesChanged(listOf(seriesDtoId), ContentChangeKind.MetadataChanged) }
     }
 

@@ -42,6 +42,7 @@ import com.kmworks.kmreader.core.api.model.AlternateTitleUpdateDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.WebLinkUpdateDto
+import com.kmworks.kmreader.core.data.toPatchJson
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.SeriesStatus
 import com.kmworks.kmreader.ui.components.AppModalDialog
@@ -50,6 +51,7 @@ import com.kmworks.kmreader.ui.components.LockableListSection
 import com.kmworks.kmreader.ui.components.LockableTextField
 import com.kmworks.kmreader.ui.components.lockUpdate
 import com.kmworks.kmreader.ui.components.rememberLockedField
+import kotlinx.serialization.json.JsonObject
 
 /** Server lock state for each series metadata field (taken straight from SeriesMetadataDto.xxxLock, all unlocked by default). */
 data class SeriesEditLocks(
@@ -189,7 +191,7 @@ fun SeriesEditSheet(
     values: SeriesEditValues? = null,
     saving: Boolean = false,
     loadValues: (suspend () -> SeriesEditValues?)? = null,
-    onSave: (SeriesMetadataUpdateDto?) -> Unit = {},
+    onSave: (JsonObject?) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -390,7 +392,7 @@ fun SeriesEditSheet(
                 }
                 Button(                    onClick = {
                         onSave(
-                            buildSeriesUpdateDto(
+                            buildSeriesPatchBody(
                                 initial = initial,
                                 title = title.value,
                                 titleLocked = title.locked,
@@ -447,8 +449,13 @@ fun SeriesEditSheet(
  * - Content: the content changed, or the lock was newly set (locking submits the current content too) → submit the current content;
  * - Lock: the lock state differs from the initial value (in either direction) → explicitly submit the current lock state (true=lock / false=unlock),
  *   unchanged → null (leave the server lock state untouched).
+ * - Cleared age rating / book count: submitted as an explicit null so Komga unsets them, like iOS
+ *   writing NSNull; the DTO's default null would be omitted instead.
+ *
+ * The result is already the wire body (see [toPatchJson]): Komga distinguishes an explicit null from
+ * an omitted field, and the typed DTO cannot.
  */
-internal fun buildSeriesUpdateDto(
+internal fun buildSeriesPatchBody(
     initial: SeriesEditValues,
     title: String,
     titleLocked: Boolean,
@@ -478,7 +485,7 @@ internal fun buildSeriesUpdateDto(
     alternateTitlesLocked: Boolean,
     sharingLabels: List<String>,
     sharingLabelsLocked: Boolean,
-): SeriesMetadataUpdateDto? {
+): JsonObject? {
     val locks = initial.locks
 
     val titleLockChanged = titleLocked != locks.titleLock
@@ -520,7 +527,7 @@ internal fun buildSeriesUpdateDto(
     }
 
     // Content submission: submit the current content when it changed or when the lock was newly set (locking direction); the unlocking direction submits the lock only.
-    return SeriesMetadataUpdateDto(
+    val dto = SeriesMetadataUpdateDto(
         title = title.takeIf { title != initial.title || (titleLockChanged && titleLocked) },
         titleLock = lockUpdate(titleLocked, locks.titleLock),
         titleSort = titleSort.takeIf { titleSort != initial.titleSort || (titleSortLockChanged && titleSortLocked) },
@@ -562,4 +569,9 @@ internal fun buildSeriesUpdateDto(
             .takeIf { sharingLabels.toSet() != initial.sharingLabels.toSet() || (sharingLockChanged && sharingLabelsLocked) },
         sharingLabelsLock = lockUpdate(sharingLabelsLocked, locks.sharingLabelsLock),
     )
+    val cleared = buildSet {
+        if (ageRating.isBlank() && initial.ageRating.isNotBlank()) add("ageRating")
+        if (totalBookCount.isBlank() && initial.totalBookCount.isNotBlank()) add("totalBookCount")
+    }
+    return dto.toPatchJson(cleared)
 }
