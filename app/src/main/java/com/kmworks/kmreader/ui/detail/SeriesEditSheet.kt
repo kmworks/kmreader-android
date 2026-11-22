@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.AlternateTitleUpdateDto
+import com.kmworks.kmreader.core.api.model.SeriesMetadataDto
 import com.kmworks.kmreader.core.api.model.SeriesMetadataUpdateDto
 import com.kmworks.kmreader.core.api.model.WebLinkUpdateDto
 import com.kmworks.kmreader.data.Series
@@ -130,6 +132,43 @@ data class SeriesEditValues(
 internal val seriesStatusOptions = SeriesStatus.entries.map { it.apiName }
 internal val seriesDirectionOptions = listOf("LEFT_TO_RIGHT", "RIGHT_TO_LEFT", "VERTICAL", "WEBTOON")
 
+/**
+ * Editing baseline for a series that was not opened from its detail page (the grid only carries the
+ * card fields): the full server values plus the per-field locks.
+ */
+internal fun SeriesMetadataDto.toEditValues(): SeriesEditValues = SeriesEditValues(
+    title = title,
+    titleSort = titleSort,
+    summary = summary,
+    status = status,
+    readingDirection = readingDirection,
+    language = language,
+    publisher = publisher,
+    ageRating = ageRating?.toString().orEmpty(),
+    totalBookCount = totalBookCount?.toString().orEmpty(),
+    genres = genres.toList(),
+    tags = tags.toList(),
+    links = links.map { it.label to it.url },
+    alternateTitles = alternateTitles.map { it.label to it.title },
+    sharingLabels = sharingLabels.toList(),
+    locks = SeriesEditLocks(
+        titleLock = titleLock,
+        titleSortLock = titleSortLock,
+        summaryLock = summaryLock,
+        statusLock = statusLock,
+        readingDirectionLock = readingDirectionLock,
+        languageLock = languageLock,
+        publisherLock = publisherLock,
+        ageRatingLock = ageRatingLock,
+        totalBookCountLock = totalBookCountLock,
+        genresLock = genresLock,
+        tagsLock = tagsLock,
+        linksLock = linksLock,
+        alternateTitlesLock = alternateTitlesLock,
+        sharingLabelsLock = sharingLabelsLock,
+    ),
+)
+
 private enum class EditTab(@param:StringRes val labelRes: Int) {
     General(R.string.edit_tab_general),
     Title(R.string.edit_tab_title),
@@ -149,11 +188,26 @@ fun SeriesEditSheet(
     series: Series,
     values: SeriesEditValues? = null,
     saving: Boolean = false,
+    loadValues: (suspend () -> SeriesEditValues?)? = null,
     onSave: (SeriesMetadataUpdateDto?) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val initial = remember(values, series) { values ?: SeriesEditValues.fromUiSeries(series) }
+    // The grid pages only carry the card fields, so they hand over a loader: the editable baseline
+    // (server values + locks) is fetched once instead of falling back to the lossy UI model.
+    var resolvedValues by remember(values) { mutableStateOf(values) }
+    var loadingValues by remember(values) { mutableStateOf(values == null && loadValues != null) }
+    // Keyed on the series (not the lambda, whose identity changes every recomposition): one fetch, and
+    // a failure quietly keeps the lossy UI fallback rather than retrying on every frame.
+    LaunchedEffect(series.id, values) {
+        if (resolvedValues == null && loadValues != null) {
+            resolvedValues = loadValues() ?: resolvedValues
+            loadingValues = false
+        }
+    }
+    val initial = remember(resolvedValues, series) {
+        resolvedValues ?: SeriesEditValues.fromUiSeries(series)
+    }
     val initialLocks = initial.locks
     var tab by remember { mutableStateOf(EditTab.General) }
 
@@ -219,6 +273,19 @@ fun SeriesEditSheet(
                     .heightIn(max = 460.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
+                if (loadingValues) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = stringResource(R.string.common_loading),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 when (tab) {
                     EditTab.General -> {
                         LockableTextField(stringResource(R.string.book_summary), summary, singleLine = false)
@@ -321,8 +388,7 @@ fun SeriesEditSheet(
                 ) {
                     Text(stringResource(R.string.common_cancel))
                 }
-                Button(
-                    onClick = {
+                Button(                    onClick = {
                         onSave(
                             buildSeriesUpdateDto(
                                 initial = initial,
@@ -357,7 +423,7 @@ fun SeriesEditSheet(
                             ),
                         )
                     },
-                    enabled = !saving,
+                    enabled = !saving && !loadingValues,
                     modifier = Modifier.weight(1f),
                 ) {
                     if (saving) {

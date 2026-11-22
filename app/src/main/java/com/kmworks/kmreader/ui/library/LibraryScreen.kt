@@ -56,6 +56,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,6 +107,7 @@ import com.kmworks.kmreader.ui.lists.ListSelection
 import com.kmworks.kmreader.ui.util.shareText
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.launch
 
 /** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
  *  with counts), below it the scope summary (scope title + size caption); the scope
@@ -177,6 +179,7 @@ fun LibraryScreen(
     val state by viewModel.state.collectAsState()
     val komfState by komfViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(komfViewModel) {
         komfViewModel.events.collect { snackbarHostState.showSnackbar(it) }
     }
@@ -614,9 +617,16 @@ fun LibraryScreen(
     editSeries?.let { series ->
         SeriesEditSheet(
             series = series,
+            loadValues = { viewModel.seriesEditValues(series.id) },
             onSave = { dto ->
                 viewModel.saveSeriesMetadata(series.id, dto) { ok ->
-                    if (ok) editSeries = null
+                    if (ok) {
+                        editSeries = null
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                        }
+                    }
                 }
             },
             onDismiss = { editSeries = null },
@@ -626,9 +636,16 @@ fun LibraryScreen(
         BookEditSheet(
             book = book,
             meta = null,
+            loadMeta = { viewModel.bookMetadata(book.id) },
             onSave = { draft ->
                 viewModel.saveBookMetadata(book.id, book.title, draft) { ok ->
-                    if (ok) editBook = null
+                    if (ok) {
+                        editBook = null
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                        }
+                    }
                 }
             },
             onDismiss = { editBook = null },

@@ -114,6 +114,8 @@
     <string name="detail_field_number">Number</string>
     <string name="detail_field_sort_number">Sort number</string>
     <string name="detail_field_release_date">Release date</string>
+    <string name="detail_release_date_invalid">Use the yyyy-MM-dd format.</string>
+    <string name="detail_load_metadata_failed">Could not load the metadata.</string>
     <string name="detail_field_isbn">ISBN</string>
     <string name="detail_field_alternate_label">Label</string>
     <string name="detail_section_alternate_titles">Alternate titles</string>

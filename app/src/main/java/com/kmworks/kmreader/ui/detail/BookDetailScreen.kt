@@ -64,6 +64,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +74,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +95,7 @@ import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.AuthorRole
@@ -208,6 +212,8 @@ internal fun BookDetailBody(
     var deleteOpen by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     // real data: resolve DTO id from registry, fetch book; fall back to sample data
     val state by viewModel.uiState.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
@@ -227,6 +233,8 @@ internal fun BookDetailBody(
         baseBook.progress
     }
     val displayed = baseBook.copy(progress = progress)
+    // Display-only summary fallback (the meta keeps the raw value so the edit sheet starts empty)
+    val summaryFallback = "${displayed.seriesTitle} · ${displayed.title}"
 
     // The frosted bar floats inside the page box instead of occupying a Scaffold slot, so the page
     // scrolls underneath it and whatever passes under the row is frosted (same as the tab roots).
@@ -237,7 +245,11 @@ internal fun BookDetailBody(
 
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
-    Scaffold(modifier = modifier, contentWindowInsets = glassPageContentWindowInsets()) { padding ->
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = glassPageContentWindowInsets(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
                 .padding(padding)
@@ -452,6 +464,7 @@ internal fun BookDetailBody(
                                 it,
                                 onBrowseFilter = onBrowseFilter,
                                 seriesMeta = state.oneshotEditable,
+                                summaryFallback = summaryFallback,
                             )
                         }
                         if (state.readLists.isNotEmpty()) {
@@ -512,6 +525,7 @@ internal fun BookDetailBody(
                                 it,
                                 onBrowseFilter = onBrowseFilter,
                                 seriesMeta = state.oneshotEditable,
+                                summaryFallback = summaryFallback,
                             )
                         }
                         if (state.readLists.isNotEmpty()) {
@@ -557,7 +571,13 @@ internal fun BookDetailBody(
                     saving = true
                     viewModel.saveOneshotMetadata(draft, seriesUpdate) { ok ->
                         saving = false
-                        if (ok) editOpen = false
+                        if (ok) {
+                            editOpen = false
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            }
+                        }
                     }
                 },
                 onDismiss = { if (!saving) editOpen = false },
@@ -571,7 +591,13 @@ internal fun BookDetailBody(
                     saving = true
                     viewModel.saveMetadata(draft) { ok ->
                         saving = false
-                        if (ok) editOpen = false
+                        if (ok) {
+                            editOpen = false
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            }
+                        }
                     }
                 },
                 onDismiss = { if (!saving) editOpen = false },
@@ -1058,12 +1084,15 @@ private fun ReadingActionButton(book: Book, onRead: () -> Unit) {
 
 /** Right/bottom content: summary, tag chips, media info (mirrors ExpandableSummaryView +
  *  BookMediaInfoSection). [seriesMeta] is non-null only on the one-shot detail and contributes the
- *  genres, the alternate titles and the book links (mirrors iOS OneShotDetailContentView). */
+ *  genres, the alternate titles and the book links (mirrors iOS OneShotDetailContentView).
+ *  [summaryFallback] is shown when the book has no summary: the meta itself stays raw so the edit
+ *  sheet never offers a fabricated summary. */
 @Composable
 internal fun BookSecondaryContent(
     meta: BookDetailMeta,
     onBrowseFilter: (String) -> Unit = {},
     seriesMeta: SeriesEditValues? = null,
+    summaryFallback: String = "",
 ) {
     Text(
         text = stringResource(R.string.book_summary),
@@ -1072,7 +1101,7 @@ internal fun BookSecondaryContent(
         modifier = Modifier.padding(top = 20.dp),
     )
     Text(
-        text = meta.summary,
+        text = meta.summary.ifBlank { summaryFallback },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp),

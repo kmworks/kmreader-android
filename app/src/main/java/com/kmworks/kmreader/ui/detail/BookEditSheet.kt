@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -210,35 +211,58 @@ fun BookEditSheet(
     book: Book,
     meta: BookDetailMeta?,
     saving: Boolean = false,
+    loadMeta: (suspend () -> BookDetailMeta?)? = null,
     onSave: (BookMetadataDraft) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(BookEditTab.General) }
-    val locks = remember(meta) { meta?.locks ?: BookMetadataLocks() }
+    // The grid pages only carry the card fields, so they hand over a loader instead of a meta: the edit
+    // baseline (server values + locks) is fetched once on first composition. The detail page already has
+    // the meta and passes it directly, so nothing is fetched twice.
+    var resolvedMeta by remember(meta) { mutableStateOf(meta) }
+    var loadingMeta by remember(meta) { mutableStateOf(meta == null && loadMeta != null) }
+    var metaLoadFailed by remember(meta) { mutableStateOf(false) }
+    // Keyed on the book (not the lambda, whose identity changes every recomposition): one fetch per
+    // book, no retry storm when the request fails.
+    LaunchedEffect(book.id, meta) {
+        if (resolvedMeta == null && loadMeta != null) {
+            val loaded = loadMeta()
+            if (loaded != null) resolvedMeta = loaded else metaLoadFailed = true
+            loadingMeta = false
+        }
+    }
+    val locks = remember(resolvedMeta) { resolvedMeta?.locks ?: BookMetadataLocks() }
 
     val title = rememberLockedField(book.title, locks.titleLock)
-    val number = rememberLockedField(meta?.number.orEmpty(), locks.numberLock)
+    val number = rememberLockedField(resolvedMeta?.number.orEmpty(), locks.numberLock)
     val numberSort = rememberLockedField(
-        meta?.numberSort?.let { formatNumberSort(it) }.orEmpty(),
+        resolvedMeta?.numberSort?.let { formatNumberSort(it) }.orEmpty(),
         locks.numberSortLock,
     )
-    val releaseDate = rememberLockedField(meta?.releaseDate.orEmpty(), locks.releaseDateLock)
-    val isbn = rememberLockedField(meta?.isbn.orEmpty(), locks.isbnLock)
-    val summary = rememberLockedField(meta?.summary.orEmpty(), locks.summaryLock)
+    val releaseDate = rememberLockedField(resolvedMeta?.releaseDate.orEmpty(), locks.releaseDateLock)
+    val isbn = rememberLockedField(resolvedMeta?.isbn.orEmpty(), locks.isbnLock)
+    val summary = rememberLockedField(resolvedMeta?.summary.orEmpty(), locks.summaryLock)
+    // Komga stores the release date as a LocalDate: anything that is not yyyy-MM-dd would 400 the whole
+    // PATCH, so the sheet refuses to submit it instead (an empty field means "unchanged").
+    val releaseDateInvalid = releaseDate.value.trim().let { it.isNotEmpty() && !isIsoLocalDate(it) }
 
-    val authors = remember { mutableStateListOf<Creator>().apply { addAll(meta?.authors.orEmpty()) } }
-    var authorsLocked by remember(meta) { mutableStateOf(locks.authorsLock) }
-    val tags = remember { mutableStateListOf<String>().apply { addAll(meta?.tags.orEmpty()) } }
-    var tagsLocked by remember(meta) { mutableStateOf(locks.tagsLock) }
-    val links = remember {
-        mutableStateListOf<Pair<String, String>>().apply { addAll(meta?.links.orEmpty()) }
+    val authors = remember(resolvedMeta) {
+        mutableStateListOf<Creator>().apply { addAll(resolvedMeta?.authors.orEmpty()) }
     }
-    var linksLocked by remember(meta) { mutableStateOf(locks.linksLock) }
+    var authorsLocked by remember(resolvedMeta) { mutableStateOf(locks.authorsLock) }
+    val tags = remember(resolvedMeta) {
+        mutableStateListOf<String>().apply { addAll(resolvedMeta?.tags.orEmpty()) }
+    }
+    var tagsLocked by remember(resolvedMeta) { mutableStateOf(locks.tagsLock) }
+    val links = remember(resolvedMeta) {
+        mutableStateListOf<Pair<String, String>>().apply { addAll(resolvedMeta?.links.orEmpty()) }
+    }
+    var linksLocked by remember(resolvedMeta) { mutableStateOf(locks.linksLock) }
     // Notable entities (mirrors iOS NotableEntitiesEditor: add/remove locks automatically)
-    val notableEntities = remember {
-        mutableStateListOf<NotableEntity>().apply { addAll(meta?.notableEntities.orEmpty()) }
+    val notableEntities = remember(resolvedMeta) {
+        mutableStateListOf<NotableEntity>().apply { addAll(resolvedMeta?.notableEntities.orEmpty()) }
     }
-    var notableEntitiesLocked by remember(meta) { mutableStateOf(locks.notableEntitiesLock) }
+    var notableEntitiesLocked by remember(resolvedMeta) { mutableStateOf(locks.notableEntitiesLock) }
 
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
@@ -271,12 +295,34 @@ fun BookEditSheet(
                     .padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                when {
+                    loadingMeta -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.common_loading),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+
+                    metaLoadFailed -> Text(
+                        text = stringResource(R.string.detail_load_metadata_failed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 when (tab) {
                     BookEditTab.General -> GeneralTab(
                         title = title,
                         number = number,
                         numberSort = numberSort,
                         releaseDate = releaseDate,
+                        releaseDateInvalid = releaseDateInvalid,
                         isbn = isbn,
                         summary = summary,
                     )
@@ -361,7 +407,7 @@ fun BookEditSheet(
                         )
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = !saving,
+                    enabled = !saving && !loadingMeta && !metaLoadFailed && !releaseDateInvalid,
                 ) {
                     if (saving) {
                         CircularProgressIndicator(
@@ -400,6 +446,7 @@ private fun GeneralTab(
     number: com.kmworks.kmreader.ui.components.LockedField,
     numberSort: com.kmworks.kmreader.ui.components.LockedField,
     releaseDate: com.kmworks.kmreader.ui.components.LockedField,
+    releaseDateInvalid: Boolean,
     isbn: com.kmworks.kmreader.ui.components.LockedField,
     summary: com.kmworks.kmreader.ui.components.LockedField,
 ) {
@@ -410,6 +457,12 @@ private fun GeneralTab(
         stringResource(R.string.detail_field_release_date),
         releaseDate,
         placeholder = "yyyy-MM-dd",
+        isError = releaseDateInvalid,
+        supportingText = if (releaseDateInvalid) {
+            stringResource(R.string.detail_release_date_invalid)
+        } else {
+            null
+        },
     )
     LockableTextField(stringResource(R.string.detail_field_isbn), isbn)
     LockableTextField(stringResource(R.string.book_summary), summary, singleLine = false)

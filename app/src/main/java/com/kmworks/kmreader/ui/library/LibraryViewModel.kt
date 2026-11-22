@@ -37,10 +37,14 @@ import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.detail.BookMetadataDraft
+import com.kmworks.kmreader.ui.detail.SeriesEditValues
+import com.kmworks.kmreader.ui.detail.toBookDetailMeta
+import com.kmworks.kmreader.ui.detail.toEditValues
 import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -698,6 +702,18 @@ class LibraryViewModel @Inject constructor(
             }
         }
     }
+
+    /** Metadata baseline for editing a book outside its detail page: grid cards only carry the card fields. */
+    suspend fun bookMetadata(stableId: Int): BookDetailMeta? =
+        detailRepository.bookDtoId(stableId)?.let { dtoId ->
+            detailRepository.bookDetail(dtoId)?.toBookDetailMeta()
+        }
+
+    /** Editing baseline for a series edited from the grid (full server values plus the locks). */
+    suspend fun seriesEditValues(stableId: Int): SeriesEditValues? =
+        detailRepository.seriesDtoId(stableId)?.let { dtoId ->
+            detailRepository.seriesDetail(dtoId)?.metadata?.toEditValues()
+        }
 
     /** Save the series metadata edit; dto == null means no change, an immediate success. */
     fun saveSeriesMetadata(stableId: Int, dto: SeriesMetadataUpdateDto?, onDone: (Boolean) -> Unit) {

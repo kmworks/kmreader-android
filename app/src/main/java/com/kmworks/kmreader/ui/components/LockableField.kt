@@ -75,13 +75,18 @@ internal fun LockToggle(locked: Boolean, onToggle: () -> Unit) {
     }
 }
 
-/** Lockable text field: lock toggle on the right; editing locks automatically (mirrors lockToggle + onChange auto-lock). */
+/**
+ * Lockable text field: lock toggle on the right; editing locks automatically (mirrors lockToggle + onChange auto-lock).
+ * [isError]/[supportingText] surface a format problem (e.g. a release date that is not ISO) without hiding the value.
+ */
 @Composable
 internal fun LockableTextField(
     label: String,
     field: LockedField,
     singleLine: Boolean = true,
     placeholder: String = "",
+    isError: Boolean = false,
+    supportingText: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -96,6 +101,8 @@ internal fun LockableTextField(
             placeholder = placeholder.takeIf { it.isNotBlank() }?.let { { Text(it) } },
             singleLine = singleLine,
             minLines = if (singleLine) 1 else 3,
+            isError = isError,
+            supportingText = supportingText?.let { text -> { Text(text) } },
             modifier = Modifier.weight(1f),
         )
         LockToggle(locked = field.locked, onToggle = { field.locked = !field.locked })
