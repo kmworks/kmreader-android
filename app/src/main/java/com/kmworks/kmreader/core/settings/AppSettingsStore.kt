@@ -106,10 +106,10 @@ class AppSettingsStore @Inject constructor(
     }
 
     /**
-     * Render PDFs with the native `PdfRenderer` engine instead of the default androidx.pdf engine.
+     * Open PDFs with the dedicated PDF reader instead of the default DIVINA comic reader.
      * Device-local (not part of client-settings sync): rendering quality depends on the device.
      */
-    val useNativePdfReader: Flow<Boolean> = booleanPref(Keys.USE_NATIVE_PDF_READER, true)
+    val useNativePdfReader: Flow<Boolean> = booleanPref(Keys.USE_NATIVE_PDF_READER, false)
 
     suspend fun setUseNativePdfReader(enabled: Boolean) =
         writeBoolean(Keys.USE_NATIVE_PDF_READER, enabled)

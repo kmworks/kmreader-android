@@ -66,9 +66,9 @@ class RootViewModel @Inject constructor(
     val downloadedIndex: StateFlow<DownloadedIndex> = downloadRepository.downloadedIndex
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadedIndex())
 
-    /** PDF reader choice: dedicated PDF reader (true) or the DIVINA comic reader (false). */
+    /** PDF reader choice: dedicated PDF reader (true) or the DIVINA comic reader (false, default). */
     val useNativePdfReader: StateFlow<Boolean> = appSettings.useNativePdfReader
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     init {
         // SSE: hold the long connection while a session exists and the switch is on, otherwise disconnect
