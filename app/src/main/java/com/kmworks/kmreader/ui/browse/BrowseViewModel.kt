@@ -41,8 +41,8 @@ enum class SearchScope(@param:StringRes val labelRes: Int) {
     All(R.string.common_all),
     Series(R.string.common_series),
     Books(R.string.browse_scope_books),
-    ReadLists(R.string.browse_scope_readlists),
     Collections(R.string.browse_scope_collections),
+    ReadLists(R.string.browse_scope_readlists),
 }
 
 /** Browse (search) tab state; series/books/readLists/collections are accumulated result pages. */
