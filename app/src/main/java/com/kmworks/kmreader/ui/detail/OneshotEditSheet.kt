@@ -184,9 +184,12 @@ fun OneshotEditSheet(
                 }
             }
 
+            // Weighted body: the pinned action row keeps its intrinsic height instead of being measured into the
+            // sliver left over by a fixed-height scroll area (see SeriesEditSheet).
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f, fill = false)
                     .heightIn(max = 480.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(top = 4.dp),

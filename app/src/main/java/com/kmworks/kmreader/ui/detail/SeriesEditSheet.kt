@@ -270,8 +270,12 @@ fun SeriesEditSheet(
                     )
                 }
             }
+            // The body takes whatever height the pinned action row below leaves it: with a fixed height the column
+            // overflowed the dialog and the unweighted action row was measured into the leftover sliver, squeezing the
+            // Cancel/Save buttons. weight(fill = false) keeps the card content-sized when the tab is short.
             Column(
                 modifier = Modifier
+                    .weight(1f, fill = false)
                     .heightIn(max = 460.dp)
                     .verticalScroll(rememberScrollState()),
             ) {

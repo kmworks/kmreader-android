@@ -40,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -809,17 +808,17 @@ internal class HorizontalCardPalette(
 private const val Sqrt2CoverAspect: Float = 0.7071f
 
 /** The iOS cover width the √2 slot is derived from. The cover itself fills [HorizontalCardTextHeight] while keeping
- *  its √2 aspect, so the extra card height widens it to ≈45.8dp instead of stretching it. */
+ *  its √2 aspect, so the extra card height widens it to ≈47.2dp instead of stretching it. */
 private val HorizontalCardCoverWidth = 43.dp
 
-/** Height of a horizontal card's text column: the √2 cover slot plus the leading Compose cannot take back.
- *  The design's four lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) nominally fill the 60.8dp slot, but
- *  Compose never compresses a line below its font's natural line spacing. A CJK font whose natural line height is
- *  ~1.3em spends ~17.2dp per 15.5sp title line instead of 15.5dp, so the series line ends ~2dp below the slot edge and
- *  [clipToBounds] slices the bottom of its glyphs (full-width parentheses and descenders are the most visible).
- *  A fixed 4dp of slack keeps the tallest line box inside the card for every font — cards in a row must not differ in
- *  height, so this cannot be derived from the text. */
-private val HorizontalCardTextHeight = HorizontalCardCoverWidth / Sqrt2CoverAspect + 4.dp
+/** Height of a horizontal card's text column: the √2 cover slot plus the glyph room the last design line needs.
+ *  The design's four lines (2×15.5sp title + 3dp gap + 13sp series + 12sp status) nominally fill the 60.8dp slot, but a
+ *  Text's layout box can be shorter than the glyphs it paints: Compose honours an explicit lineHeight for spacing while
+ *  still placing the baseline on the font's own ascent, so the bottom of a CJK baseline (and any descender or full-width
+ *  parenthesis) can paint a few dp below its box. The 6dp of slack is that room: without it the series line ends flush
+ *  with the block edge and any glyph ink below the baseline is cut off (see [HorizontalCardContainer]).
+ *  Cards in a row must not differ in height, so this cannot be derived from the text. */
+private val HorizontalCardTextHeight = HorizontalCardCoverWidth / Sqrt2CoverAspect + 6.dp
 
 /** Tight text style with font padding disabled: in fixed-height text columns (horizontal cards / overlays)
  *  the default includeFontPadding of the first and last lines pushes content out of the visible area, so it must be off. */
@@ -830,12 +829,14 @@ private val HorizontalCardShape = RoundedCornerShape(12.dp)
 
 /**
  * Horizontal card skeleton (mirrors iOS HorizontalCardSkeleton): corner radius 12, average cover color as the
- * background (falling back to surface without a tint), padding 8, a √2 cover filling the card height (≈45.8×64.8dp),
- * and a text column one glyph-slack taller than the √2 slot (≈64.8dp, see [HorizontalCardTextHeight]).
+ * background (falling back to surface without a tint), padding 8, a √2 cover filling the card height (≈47.2×66.8dp),
+ * and a text column one glyph-slack taller than the √2 slot (≈66.8dp, see [HorizontalCardTextHeight]).
  *
  * The card height is fixed — the √2 slot plus the glyph slack — so every card in a row is the same size. [status]
- * owns the bottom of the text column, [block] (title + series) gets everything above it and is clipped to that space,
- * so no amount of text or font scaling can draw the progress line on top of the series line.
+ * owns the bottom of the text column, [block] (title + series) gets everything above it. The block is deliberately
+ * not clipped: glyph ink can paint below its line box, and a clip on the block boundary shaves the bottom of the
+ * series line once the status line takes its (font-dependent) height out of the column. The slack reserved above
+ * [status] is what keeps that ink clear of the progress line for every font.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -905,10 +906,12 @@ internal fun HorizontalCardContainer(
                     .weight(1f)
                     .height(HorizontalCardTextHeight),
             ) {
-                // The status line keeps its own height at the bottom edge; the block above it is clipped so a
-                // rounding remainder can never be drawn over the status line.
+                // No clipToBounds here: the block's line boxes fit, but their glyph ink can end a few dp below the
+                // baseline (see HorizontalCardTextHeight). Clipping the block boundary sliced exactly that ink and
+                // flattened the bottom of the series line. The status line still owns the bottom because it is laid
+                // out below the weighted block, and the slack in HorizontalCardTextHeight keeps ink off its glyphs.
                 Column(
-                    modifier = Modifier.weight(1f).clipToBounds(),
+                    modifier = Modifier.weight(1f),
                     content = { block(palette) },
                 )
                 status(palette)
