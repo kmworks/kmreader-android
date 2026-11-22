@@ -1,5 +1,7 @@
 package com.kmworks.kmreader.core.download
 
+import java.io.File
+
 /** Downloaded-book UI model (file scan + meta file). */
 data class DownloadedBookUi(
     val bookDtoId: String,
@@ -14,4 +16,6 @@ data class DownloadedBookUi(
     val format: String = DownloadSpec.FORMAT_IMAGES,
     /** Owning series DTO id (recorded at enqueue time when the call site knew it); lets the row open the series detail. */
     val seriesDtoId: String? = null,
+    /** Cover saved with the download; shown instead of the active server's thumbnail so a server switch cannot blank it. */
+    val coverFile: File? = null,
 )

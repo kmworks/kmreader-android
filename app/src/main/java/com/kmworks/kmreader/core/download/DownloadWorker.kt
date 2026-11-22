@@ -7,6 +7,7 @@ import androidx.work.workDataOf
 import dagger.hilt.android.EntryPointAccessors
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
+import com.kmworks.kmreader.core.data.bookThumbnailUrl
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import java.util.concurrent.atomic.AtomicInteger
@@ -60,6 +61,14 @@ class DownloadWorker(
                 DownloadKind.Pages -> downloadPages(clients.okHttpClient, clients.baseUrl, bookId, title, pageCount, concurrency, dir)
                 else -> downloadSingleFile(clients.okHttpClient, clients.baseUrl, bookId, title, kind, format, dir)
             }
+            // Best effort: the cover belongs to the download, so the offline list keeps it after a
+            // server switch even though the new server has never seen this book id.
+            DownloadCover.save(
+                clients.okHttpClient,
+                clients.bookThumbnailUrl(bookId),
+                dir,
+                overwrite = true,
+            )
             DownloadMeta.write(
                 dir = dir,
                 title = title,

@@ -11,6 +11,7 @@ import androidx.work.workDataOf
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.CoverUrlRegistry
 import com.kmworks.kmreader.core.data.StableIds
+import com.kmworks.kmreader.core.data.bookThumbnailUrl
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -43,7 +44,7 @@ import javax.inject.Singleton
 @Singleton
 class DownloadRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Suppress("unused") private val sessionManager: SessionManager,
+    private val sessionManager: SessionManager,
     appSettings: AppSettingsStore,
     private val appScope: CoroutineScope,
     private val catalogCache: CatalogCache,
@@ -61,6 +62,13 @@ class DownloadRepository @Inject constructor(
      * memoized so a queue tick does not hit the database again.
      */
     private val legacySeries = ConcurrentHashMap<String, Pair<String, Int>>()
+
+    /**
+     * `namespace#bookId` pairs whose cover backfill already ran in this process. Downloads made
+     * before covers were stored locally get one attempt per server, so opening the list on a server
+     * that has never seen the book does not hammer its thumbnail endpoint on every rescan.
+     */
+    private val coverBackfillAttempts = ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Latest queue state as badge marks (bookDtoId → mark). The file scan needs it to publish a single
@@ -406,8 +414,31 @@ class DownloadRepository @Inject constructor(
                 kind = meta.kind,
                 format = meta.fileFormat,
                 seriesDtoId = enqueueMeta.getString("${dir.name}#series", null),
+                coverFile = meta.coverFile(dir),
             )
         }?.sortedBy { it.title } ?: emptyList()
+    }
+
+    /**
+     * Downloads missing covers for completed downloads that predate local cover storage.
+     *
+     * Runs against the active server only, once per `server#book` pair per process: while another
+     * server is active its thumbnail requests miss and the placeholder stays, and switching back to
+     * the owning server heals the row on the next scan. Returns true when at least one cover landed.
+     */
+    suspend fun backfillDownloadedCovers(): Boolean = withContext(Dispatchers.IO) {
+        val clients = sessionManager.clients.value ?: return@withContext false
+        var saved = false
+        downloadsDir.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
+            val meta = DownloadMeta.read(dir) ?: return@forEach
+            if (!meta.isComplete(dir) || meta.coverFile(dir) != null) return@forEach
+            val attemptKey = "${clients.cacheNamespace}#${dir.name}"
+            if (!coverBackfillAttempts.add(attemptKey)) return@forEach
+            if (DownloadCover.save(clients.okHttpClient, clients.bookThumbnailUrl(dir.name), dir)) {
+                saved = true
+            }
+        }
+        saved
     }
 
     /** Integrity check: the directory exists and holds everything the meta kind requires. */

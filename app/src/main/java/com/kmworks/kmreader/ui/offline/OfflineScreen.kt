@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.offline
 
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -709,10 +710,16 @@ private fun DownloadedRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val localCover = remember(item.coverFile) {
+                item.coverFile?.let { Uri.fromFile(it).toString() }
+            }
             CoverArt(
                 title = item.title,
                 hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
-                stableId = StableIds.book(item.bookDtoId),
+                // A saved cover is authoritative: it belongs to the download, not to whichever server
+                // is active now (the server thumbnail would be a 404 after switching).
+                stableId = if (localCover == null) StableIds.book(item.bookDtoId) else null,
+                imageUrl = localCover,
                 modifier = Modifier
                     .width(44.dp)
                     .aspectRatio(2f / 3f),

@@ -111,6 +111,12 @@ class DownloadViewModel @Inject constructor(
         viewModelScope.launch {
             _downloaded.value = downloadRepository.downloadedBooks()
             _storage.value = downloadRepository.usedBytes() to downloadRepository.totalBytes()
+            // Historical downloads have no saved cover yet; once the owning server is active again the
+            // backfill stores it next to the book, so later server switches keep showing it.
+            if (downloadRepository.backfillDownloadedCovers()) {
+                _downloaded.value = downloadRepository.downloadedBooks()
+                _storage.value = downloadRepository.usedBytes() to downloadRepository.totalBytes()
+            }
         }
     }
 
