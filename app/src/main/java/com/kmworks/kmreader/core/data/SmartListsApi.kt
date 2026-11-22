@@ -28,10 +28,11 @@ data class SmartListDto(
     val lastModifiedDate: String = "",
 )
 
-/** Page wrapper (only content is read; every other field is ignored). */
+/** Page wrapper (every field except content/last is ignored). */
 @Serializable
 data class SmartListPageDto(
     val content: List<SmartListDto> = emptyList(),
+    val last: Boolean? = null,
 )
 
 /** Create body (name/summary/target/search + admin-only sharing fields, omitted when null). */

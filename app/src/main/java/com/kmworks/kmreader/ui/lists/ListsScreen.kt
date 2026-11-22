@@ -176,7 +176,7 @@ fun ListsScreen(
             onLoadMore = when (initialGroup) {
                 ListsGroupKind.Collections -> viewModel::loadMoreCollections
                 ListsGroupKind.ReadLists -> viewModel::loadMoreReadLists
-                ListsGroupKind.SmartLists -> ({})
+                ListsGroupKind.SmartLists -> viewModel::loadMoreSmartLists
             },
             onCreateSmartList = if (initialGroup == ListsGroupKind.SmartLists) onCreateSmartList else null,
             snackbarHostState = snackbarHostState,
@@ -408,7 +408,7 @@ private fun ListsGroupPage(
     val hasMore = when (kind) {
         ListsGroupKind.Collections -> state.collectionsHasMore
         ListsGroupKind.ReadLists -> state.readListsHasMore
-        ListsGroupKind.SmartLists -> false
+        ListsGroupKind.SmartLists -> state.smartListsHasMore
     }
 
     val gridState = rememberLazyGridState()
@@ -821,13 +821,13 @@ private fun ListsTabBody(
                         hasMore = when (group.kind) {
                             ListsGroupKind.Collections -> state.collectionsHasMore
                             ListsGroupKind.ReadLists -> state.readListsHasMore
-                            ListsGroupKind.SmartLists -> false
+                            ListsGroupKind.SmartLists -> state.smartListsHasMore
                         },
                         loadingMore = state.loadingMore,
                         onLoadMore = when (group.kind) {
                             ListsGroupKind.Collections -> viewModel::loadMoreCollections
                             ListsGroupKind.ReadLists -> viewModel::loadMoreReadLists
-                            ListsGroupKind.SmartLists -> ({})
+                            ListsGroupKind.SmartLists -> viewModel::loadMoreSmartLists
                         },
                         onOpenEntry = { entry -> onOpenEntry(group.kind, entry) },
                         onEntryMenu = { entry -> onEntryMenu(group.kind, entry) },
