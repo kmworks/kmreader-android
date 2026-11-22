@@ -930,20 +930,20 @@ fun ReaderScreen(
                         // native pager): no loading placeholder flash while turning pages
                         beyondViewportPageCount = 1,
                     ) { index ->
-                        // Cover transition: later pages stay centered while the current page slides
-                        // away on top (mirrors the Cover transition)
-                        val cover = settings.pageTransition == PageTransitionStyle.Cover
+                        // A pager can only slide its pages. The Cover transition used to cancel
+                        // each page's own layout offset here
+                        // (`translationX = -relative * size.width` with
+                        // `relative = index - currentPage - currentPageOffsetFraction`), which put
+                        // every composed page at the same spot: dragging moved nothing, and the
+                        // loading placeholders of the pre-composed neighbours were painted on top
+                        // of each other. Keep the stack order (the current page above its
+                        // neighbours) and let the pager (and the reading direction) drive the
+                        // motion instead.
                         val item = items[index]
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .zIndex(if (index == pagerState.currentPage) 1f else 0f)
-                                .graphicsLayer {
-                                    if (cover) {
-                                        val relative = index - pagerState.currentPage - pagerState.currentPageOffsetFraction
-                                        translationX = -relative * size.width
-                                    }
-                                },
+                                .zIndex(if (index == pagerState.currentPage) 1f else 0f),
                         ) {
                             when {
                                 item is ReaderViewItem.End -> endPage(Modifier.fillMaxSize())
