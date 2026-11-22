@@ -38,7 +38,7 @@ interface CatalogDao {
     @Query("SELECT * FROM cached_series WHERE instanceKey = :instanceKey AND dtoId IN (:ids)")
     suspend fun series(instanceKey: String, ids: List<String>): List<CachedSeriesEntity>
 
-    @Query("SELECT * FROM cached_lists WHERE instanceKey = :instanceKey AND kind = :kind ORDER BY name")
+    @Query("SELECT * FROM cached_lists WHERE instanceKey = :instanceKey AND kind = :kind ORDER BY position ASC")
     suspend fun lists(instanceKey: String, kind: String): List<CachedListEntity>
 
     @Query("SELECT * FROM cached_list_rows WHERE instanceKey = :instanceKey AND listKey = :listKey ORDER BY position ASC")
@@ -62,8 +62,18 @@ interface CatalogDao {
     @Query("DELETE FROM cached_list_rows WHERE instanceKey = :instanceKey AND listKey LIKE :listKeyPrefix || '%'")
     suspend fun deleteListRowsByPrefix(instanceKey: String, listKeyPrefix: String)
 
-    @Query("DELETE FROM cached_lists WHERE instanceKey = :instanceKey")
-    suspend fun deleteLists(instanceKey: String)
+    @Query("DELETE FROM cached_lists WHERE instanceKey = :instanceKey AND kind = :kind")
+    suspend fun deleteLists(instanceKey: String, kind: String)
+
+    /**
+     * Rewrite one list kind wholesale: upsert alone would keep rows of entries deleted server-side
+     * around, and the next seed would paint them again.
+     */
+    @Transaction
+    suspend fun replaceLists(instanceKey: String, kind: String, rows: List<CachedListEntity>) {
+        deleteLists(instanceKey, kind)
+        if (rows.isNotEmpty()) upsertLists(rows)
+    }
 
     @Query("DELETE FROM cached_dashboard_sections WHERE instanceKey = :instanceKey")
     suspend fun deleteDashboardSections(instanceKey: String)
