@@ -142,10 +142,11 @@ private val ChromeText = Color.White
  * Behavior mirrors the original DivinaReaderView / ReaderViewModel 1:1:
  * - Initial page: completed or incognito starts from page 0, otherwise restores readProgress.page
  *   (the VM provides initialPage)
- * - Reading direction: the direction picked for this book in the menu (remembered per book) wins;
- *   otherwise with forceDefaultReadingDirection the global default, otherwise the series direction,
- *   otherwise the global default. Layout / split-wide / solo cover stay SESSION-scoped — changes never
- *   write back to the defaults (mirrors @State + reset semantics)
+ * - Reading direction and wide-page splitting: the value remembered in the menu wins — a per-book
+ *   exception first, then the series value; otherwise direction falls back to the global default /
+ *   series metadata chain (resolveReadingDirection) and splitting to the reader default. Layout /
+ *   solo cover / rotation stay SESSION-scoped — changes never write back to the defaults (mirrors
+ *   @State + reset semantics)
  * - Dual page only in landscape (shouldUseDualPage: width > height && layout != single && direction
  *   not vertical/webtoon); layout == dual forces dual pages (same landscape gating)
  * - Split wide pages: none keeps pages whole / auto·ltr·rtl split into halves. Splitting
@@ -217,6 +218,10 @@ fun ReaderScreen(
     var directionOverride by remember { mutableStateOf<ReadingDirection?>(null) }
     /** True when [directionOverride] came from this book's own exception rather than the series value. */
     var directionIsBookOnly by remember { mutableStateOf(false) }
+    /** The wide-page split remembered for the current book or its series (null = the reader defaults decide). */
+    var splitWideOverride by remember { mutableStateOf<SplitWidePageMode?>(null) }
+    /** True when [splitWideOverride] came from this book's own exception rather than the series value. */
+    var splitWideIsBookOnly by remember { mutableStateOf(false) }
     var pageLayout by remember { mutableStateOf<PageLayout?>(null) }
     var splitWideMode by remember { mutableStateOf<SplitWidePageMode?>(null) }
     var soloCoverPage by remember { mutableStateOf<Boolean?>(null) }
@@ -314,10 +319,10 @@ fun ReaderScreen(
         val remembered = settingsViewModel.rememberedDirection(uiState.bookDtoId, presentedBook.seriesDtoId)
         // The picker shows what this book actually remembers; a session value carried over from another
         // book is not a memory, so both are refreshed on every book change
-        directionOverride = remembered?.direction
+        directionOverride = remembered?.value
         directionIsBookOnly = remembered?.perBook ?: false
         if (remembered != null) {
-            direction = remembered.direction
+            direction = remembered.value
         } else if (direction == null) {
             direction = resolveReadingDirection(
                 seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
@@ -326,7 +331,15 @@ fun ReaderScreen(
             )
         }
         if (pageLayout == null) pageLayout = settings.defaultPageLayout
-        if (splitWideMode == null) splitWideMode = settings.defaultSplitWideMode
+        // Wide-page split is remembered like the direction (series-wide, with per-book exceptions)
+        val rememberedSplit = settingsViewModel.rememberedSplitWideMode(uiState.bookDtoId, presentedBook.seriesDtoId)
+        splitWideOverride = rememberedSplit?.value
+        splitWideIsBookOnly = rememberedSplit?.perBook ?: false
+        if (rememberedSplit != null) {
+            splitWideMode = rememberedSplit.value
+        } else if (splitWideMode == null) {
+            splitWideMode = settings.defaultSplitWideMode
+        }
         if (soloCoverPage == null) soloCoverPage = settings.defaultSoloCoverPage
         initializedBookId = presentedBook.id
         pageInitialized = true
@@ -1146,7 +1159,29 @@ fun ReaderScreen(
                         },
                         onPageLayoutChange = { pageLayout = it },
                         onToggleSoloCover = { soloCoverPage = !soloCoverNow },
-                        onSplitWideModeChange = { splitWideMode = it },
+                        splitWideOverride = splitWideOverride,
+                        splitWideIsBookOnly = splitWideIsBookOnly,
+                        onSplitWideBookOnlyChange = { splitWideIsBookOnly = it },
+                        onSplitWideModeChange = { picked ->
+                            // Same memory rules as the direction (null = "Follow default": forget both levels)
+                            splitWideOverride = picked
+                            splitWideMode = picked ?: settings.defaultSplitWideMode
+                            val bookDtoId = uiState.bookDtoId
+                            val seriesDtoId = presentedBook.seriesDtoId
+                            when {
+                                picked == null -> {
+                                    bookDtoId?.let { settingsViewModel.setBookSplitWideMode(it, null) }
+                                    seriesDtoId?.let { settingsViewModel.setSeriesSplitWideMode(it, null) }
+                                }
+                                splitWideIsBookOnly || seriesDtoId == null -> {
+                                    bookDtoId?.let { settingsViewModel.setBookSplitWideMode(it, picked) }
+                                }
+                                else -> {
+                                    settingsViewModel.setSeriesSplitWideMode(seriesDtoId, picked)
+                                    bookDtoId?.let { settingsViewModel.setBookSplitWideMode(it, null) }
+                                }
+                            }
+                        },
                         onRotationChange = { rotationDegrees = it },
                         onOpenSettings = { showSettings = true },
                         onSharePage = {

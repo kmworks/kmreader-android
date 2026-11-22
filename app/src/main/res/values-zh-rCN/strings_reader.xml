@@ -93,6 +93,10 @@
     <string name="reader_menu_direction_book_only_hint">关闭：该系列所有卷都用这个方向</string>
     <string name="reader_menu_page_layout">页面布局</string>
     <string name="reader_menu_split_wide">拆分宽页</string>
+    <string name="reader_menu_split_wide_follow_default">跟随默认</string>
+    <string name="reader_menu_split_wide_follow_default_hint">按阅读器默认设置；不再记住本书及其系列的选择</string>
+    <string name="reader_menu_split_wide_book_only">仅对本书生效</string>
+    <string name="reader_menu_split_wide_book_only_hint">关闭：该系列所有卷都用这个设置</string>
     <string name="reader_menu_solo_cover">独显封面</string>
     <string name="reader_menu_rotation">页面旋转</string>
     <string name="reader_menu_current_page">当前页面</string>
