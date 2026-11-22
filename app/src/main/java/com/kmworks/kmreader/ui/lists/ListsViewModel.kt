@@ -430,12 +430,15 @@ class ListsViewModel @Inject constructor(
     /**
      * Update name/summary, and conditions only when the editor produced a new search document
      * ([search] null keeps the server document so a rename cannot erase filters the editor cannot show).
+     * Sharing fields are likewise null for regular users, so stored values survive.
      */
     fun saveSmartList(
         entry: ListEntry,
         name: String,
         summary: String,
         search: JsonObject?,
+        visibility: String? = null,
+        sharedWithUserIds: List<String>? = null,
         onDone: (Boolean) -> Unit,
     ) {
         val dtoId = DetailIdRegistry.smartListDtoId(entry.id) ?: return onDone(false)
@@ -445,6 +448,8 @@ class ListsViewModel @Inject constructor(
                 name = name,
                 summary = summary,
                 search = search,
+                visibility = visibility,
+                sharedWithUserIds = sharedWithUserIds,
             )
             onDone(ok)
         }
@@ -460,6 +465,8 @@ class ListsViewModel @Inject constructor(
         summary: String,
         target: SmartListTarget,
         search: JsonObject?,
+        visibility: String? = null,
+        sharedWithUserIds: List<String>? = null,
         onDone: (Int?) -> Unit,
     ) {
         viewModelScope.launch {
@@ -469,6 +476,8 @@ class ListsViewModel @Inject constructor(
                     summary = summary,
                     target = target.toDtoTarget(),
                     search = search ?: JsonObject(emptyMap()),
+                    visibility = visibility,
+                    sharedWithUserIds = sharedWithUserIds,
                 )
             } catch (e: CancellationException) {
                 throw e

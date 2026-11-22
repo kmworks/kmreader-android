@@ -40,6 +40,9 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.SmartListFilterMapper
+import com.kmworks.kmreader.core.data.SmartListRepository
+import com.kmworks.kmreader.core.data.SmartListShareTargetDto
+import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.ui.components.AppModalDialog
@@ -49,15 +52,17 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Smart list editor (mirrors the iOS SmartListEditSheet): name / summary / target / filters / save.
- * Filters are edited through the shared browse panel ([BrowseOptionsSheet], sort hidden), plus the
+ * Smart list editor (mirrors the iOS SmartListEditSheet): name / summary / target / filters / sharing /
+ * save. Filters are edited through the shared browse panel ([BrowseOptionsSheet], sort hidden), plus the
  * full-text field and the library scope row; the resulting search document is built by
  * [SmartListFilterMapper]. In edit mode the stored document seeds every field and is only resubmitted
  * when something actually changed, so renaming cannot erase filters the panel cannot represent.
+ * Visibility and sharees appear for admins only and are omitted from the payload otherwise.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +72,8 @@ fun SmartListEditSheet(
         summary: String,
         target: SmartListTarget,
         search: JsonObject?,
+        visibility: String?,
+        sharedWithUserIds: List<String>?,
     ) -> Unit,
     onDismiss: () -> Unit,
     initialName: String = "",
@@ -74,6 +81,9 @@ fun SmartListEditSheet(
     initialTarget: SmartListTarget = SmartListTarget.Book,
     /** Edit mode only: the server search document, reverse-parsed to seed the filters. */
     initialSearch: JsonObject? = null,
+    /** Edit mode only: stored sharing; prefilled but only editable/submitted for admins. */
+    initialVisibility: String = SmartListVisibilityPrivate,
+    initialSharedWithUserIds: List<String> = emptyList(),
     isEdit: Boolean = false,
     onDelete: (() -> Unit)? = null,
     suggestionsViewModel: SmartListEditSuggestionsViewModel = hiltViewModel(),
@@ -98,7 +108,14 @@ fun SmartListEditSheet(
     var selectedLibraryIds by remember { mutableStateOf(initialLibraryIds) }
     var librariesExpanded by remember { mutableStateOf(false) }
     var filterSheetOpen by remember { mutableStateOf(false) }
-    val canSave = name.isNotBlank()
+    var visibility by remember { mutableStateOf(initialVisibility) }
+    var selectedShareUserIds by remember { mutableStateOf(initialSharedWithUserIds.toSet()) }
+    val isAdmin = valueSuggestions.isAdmin
+    // The server rejects a SHARED list without sharees, so saving stays blocked until one is picked.
+    val sharingIncomplete = isAdmin &&
+        visibility == SmartListVisibilityShared &&
+        selectedShareUserIds.isEmpty()
+    val canSave = name.isNotBlank() && !sharingIncomplete
     // Mirrors the iOS filtersModified baseline: unless the user changed the filters, save leaves the
     // stored document untouched (a rename must not rewrite conditions the panel cannot represent).
     val filtersModified = fullTextSearch.trim() != initialFullTextSearch ||
@@ -262,6 +279,54 @@ fun SmartListEditSheet(
                 )
             }
 
+            // Admins only (mirrors iOS: regular users never see or send the sharing fields).
+            if (isAdmin) {
+                SheetLabel(stringResource(R.string.smartlist_share_visibility))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VisibilityOptions.forEach { option ->
+                        FilterChip(
+                            selected = visibility == option,
+                            onClick = { visibility = option },
+                            label = { Text(stringResource(visibilityLabel(option))) },
+                        )
+                    }
+                }
+                if (visibility == SmartListVisibilityShared) {
+                    SheetLabel(stringResource(R.string.smartlist_share_targets))
+                    if (valueSuggestions.shareTargets.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.smartlist_share_no_targets),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        valueSuggestions.shareTargets.forEach { target ->
+                            val selected = target.id in selectedShareUserIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedShareUserIds = if (selected) {
+                                            selectedShareUserIds - target.id
+                                        } else {
+                                            selectedShareUserIds + target.id
+                                        }
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(checked = selected, onCheckedChange = null)
+                                Text(
+                                    text = target.email.ifBlank { target.id },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -285,7 +350,22 @@ fun SmartListEditSheet(
                             fullTextSearch = fullTextSearch,
                         )
                         val search = if (isEdit && !filtersModified) null else document
-                        onSave(name.trim(), summary.trim(), target, search)
+                        // Sharing rides along only for admins; non-admins omit both fields so the
+                        // server keeps the stored values.
+                        val visibilityPayload = if (isAdmin) visibility else null
+                        val sharedWithUserIds = if (isAdmin && visibility == SmartListVisibilityShared) {
+                            selectedShareUserIds.sorted()
+                        } else {
+                            null
+                        }
+                        onSave(
+                            name.trim(),
+                            summary.trim(),
+                            target,
+                            search,
+                            visibilityPayload,
+                            sharedWithUserIds,
+                        )
                     },
                     enabled = canSave,
                     modifier = Modifier.weight(1f),
@@ -324,15 +404,19 @@ private fun SheetLabel(text: String) {
 /** Library scope row (only the fields the editor needs). */
 data class SmartListLibraryOption(val id: String, val name: String)
 
-/** Library scope source for the editor; empty without a session. */
+/** Sources the editor needs: library scope plus (admins only) sharing. */
 data class SmartListValueSuggestions(
     val libraries: List<SmartListLibraryOption> = emptyList(),
+    val isAdmin: Boolean = false,
+    val shareTargets: List<SmartListShareTargetDto> = emptyList(),
 )
 
 /** Self-contained suggestion source for the editor; callers need no changes. */
 @HiltViewModel
 class SmartListEditSuggestionsViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
+    private val smartListRepository: SmartListRepository,
+    private val configStore: ServerConfigStore,
 ) : ViewModel() {
 
     private val _suggestions = MutableStateFlow(SmartListValueSuggestions())
@@ -340,11 +424,32 @@ class SmartListEditSuggestionsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            val isAdmin = configStore.config.first()?.isAdmin == true
             _suggestions.value = SmartListValueSuggestions(
                 libraries = runCatching { libraryRepository.libraries() }
                     .getOrDefault(emptyList())
                     .map { SmartListLibraryOption(id = it.id, name = it.name) },
+                isAdmin = isAdmin,
+                // share-targets is admin-only: requesting it as a regular user would fail.
+                shareTargets = if (isAdmin) {
+                    runCatching { smartListRepository.shareTargets() }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                },
             )
         }
     }
+}
+
+/** Admin visibility choices, in the same order as the dedicated sharing sheet. */
+private val VisibilityOptions = listOf(
+    SmartListVisibilityPrivate,
+    SmartListVisibilityPublic,
+    SmartListVisibilityShared,
+)
+
+private fun visibilityLabel(option: String): Int = when (option) {
+    SmartListVisibilityPublic -> R.string.smartlist_visibility_public
+    SmartListVisibilityShared -> R.string.smartlist_visibility_shared
+    else -> R.string.smartlist_visibility_private
 }

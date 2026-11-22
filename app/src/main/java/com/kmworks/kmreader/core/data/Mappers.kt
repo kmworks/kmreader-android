@@ -174,5 +174,7 @@ fun SmartListDto.toListEntry(count: Int = 0): SampleData.ListEntry {
         summary = summary,
         smartListTarget = if (target == "SERIES") SmartListTarget.Series else SmartListTarget.Book,
         search = search,
+        visibility = visibility,
+        sharedWithUserIds = sharedWithUserIds,
     )
 }
