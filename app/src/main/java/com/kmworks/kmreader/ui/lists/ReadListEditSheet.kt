@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.lists
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,10 +49,30 @@ fun ReadListEditSheet(
     busy: Boolean = false,
     /** Shown above the buttons after a failed create; the sheet stays open so the input is not lost. */
     errorText: String? = null,
+    /** Names of the existing lists of this kind; a create is blocked when the name is taken. */
+    existingNames: List<String> = emptyList(),
+    /** Offers an existing list that matches (or contains) the typed name; tapping it reuses that list
+     *  instead of creating a near-duplicate. */
+    onUseExisting: ((name: String) -> Unit)? = null,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var summary by remember { mutableStateOf(initialSummary) }
     var ordered by remember { mutableStateOf(initialOrdered) }
+    val trimmedName = name.trim()
+    // Creation only: renaming an existing list to a name that is already taken is the same duplicate.
+    val duplicate = !isEdit && existingNames.any { it.equals(trimmedName, ignoreCase = true) }
+    val supportingText: (@Composable () -> Unit)? = if (duplicate) {
+        { Text(stringResource(R.string.lists_name_exists)) }
+    } else {
+        null
+    }
+    val matches = remember(existingNames, trimmedName, isEdit) {
+        if (isEdit || trimmedName.isEmpty()) {
+            emptyList()
+        } else {
+            existingNames.filter { it.contains(trimmedName, ignoreCase = true) }.take(3)
+        }
+    }
 
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
@@ -81,10 +102,32 @@ fun ReadListEditSheet(
                 onValueChange = { name = it },
                 label = { Text(stringResource(R.string.common_name)) },
                 singleLine = true,
+                isError = duplicate,
+                supportingText = supportingText,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
             )
+            // Existing lists as suggestions: reuse one instead of creating a near-duplicate.
+            if (!isEdit && onUseExisting != null && matches.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.lists_existing_matches),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                matches.forEach { existing ->
+                    Text(
+                        text = existing,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onUseExisting?.invoke(existing) }
+                            .padding(vertical = 6.dp),
+                    )
+                }
+            }
             OutlinedTextField(
                 value = summary,
                 onValueChange = { summary = it },
@@ -132,7 +175,7 @@ fun ReadListEditSheet(
                 OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = { onSave(name.trim(), summary.trim(), ordered) },
-                    enabled = name.isNotBlank() && !busy,
+                    enabled = name.isNotBlank() && !busy && !duplicate,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(stringResource(R.string.common_save))
