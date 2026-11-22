@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.kmworks.kmreader.core.network.ServerConfigStore
@@ -468,6 +469,31 @@ class AppSettingsStore @Inject constructor(
         store.edit { prefs -> prefs[Keys.APP_ICON] = value }
     }
 
+    /** Automatic update check: look up the latest GitHub release at most once a day. */
+    val autoCheckUpdates: Flow<Boolean> = booleanPref(Keys.AUTO_CHECK_UPDATES, true)
+
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        writeBoolean(Keys.AUTO_CHECK_UPDATES, enabled)
+    }
+
+    /** When the last successful check ran, so a cold start does not hit the network every time. */
+    val lastUpdateCheckAt: Flow<Long> = store.data.map { prefs ->
+        prefs[Keys.LAST_UPDATE_CHECK_AT] ?: 0L
+    }
+
+    suspend fun setLastUpdateCheckAt(timestampMillis: Long) {
+        store.edit { prefs -> prefs[Keys.LAST_UPDATE_CHECK_AT] = timestampMillis }
+    }
+
+    /** The version the user already put off, so the launch prompt stays quiet until something newer ships. */
+    val dismissedUpdateVersion: Flow<String> = store.data.map { prefs ->
+        prefs[Keys.DISMISSED_UPDATE_VERSION].orEmpty()
+    }
+
+    suspend fun setDismissedUpdateVersion(version: String) {
+        store.edit { prefs -> prefs[Keys.DISMISSED_UPDATE_VERSION] = version }
+    }
+
     private fun booleanPref(key: Preferences.Key<Boolean>, default: Boolean): Flow<Boolean> =
         store.data.map { prefs -> prefs[key] ?: default }
 
@@ -561,6 +587,9 @@ class AppSettingsStore @Inject constructor(
         val COVER_CACHE_EXPIRATION_DAYS = intPreferencesKey("cover_cache_expiration_days")
         val PROGRESS_RECORDING_THRESHOLD = intPreferencesKey("progress_recording_threshold")
         val APP_ICON = stringPreferencesKey("app_icon")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
+        val DISMISSED_UPDATE_VERSION = stringPreferencesKey("dismissed_update_version")
     }
 }
 

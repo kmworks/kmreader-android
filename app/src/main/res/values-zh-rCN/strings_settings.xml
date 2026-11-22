@@ -193,5 +193,20 @@
     <string name="settings_about_feedback">问题反馈</string>
     <string name="settings_license_readium">Readium（EPUB 引擎参考）</string>
     <string name="settings_license_pdfium">PDFium（PDF 引擎参考）</string>
+
+    <!-- Update check -->
+    <string name="settings_updates_title">更新</string>
+    <string name="settings_updates_auto_check">自动检查更新</string>
+    <string name="settings_updates_auto_check_desc">每天最多通过 GitHub Release 检查一次新版本。</string>
+    <string name="settings_updates_check_now">立即检查</string>
+    <string name="settings_updates_checking">正在检查…</string>
+    <string name="settings_updates_up_to_date">已是最新版本</string>
+    <string name="settings_updates_available">发现新版本 %1$s</string>
+    <string name="settings_updates_failed">检查失败</string>
+    <string name="settings_updates_last_checked">上次检查：%1$s</string>
+    <string name="settings_updates_dialog_title">发现新版本</string>
+    <string name="settings_updates_dialog_message">新版本 %1$s 已发布，当前版本为 %2$s。</string>
+    <string name="settings_updates_download">前往下载</string>
+    <string name="settings_updates_later">稍后</string>
     <string name="settings_split_placeholder">从左侧选择一项设置</string>
 </resources>

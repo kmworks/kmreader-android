@@ -110,6 +110,8 @@ import com.kmworks.kmreader.ui.settings.SseSettingsScreen
 import com.kmworks.kmreader.ui.stats.ReadingStatsScreen
 import com.kmworks.kmreader.ui.server.ServerAdminScreen
 import com.kmworks.kmreader.ui.tracker.TrackerSettingsScreen
+import com.kmworks.kmreader.ui.update.AppUpdateViewModel
+import com.kmworks.kmreader.ui.update.UpdateAvailableDialog
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -255,6 +257,7 @@ private const val PageShadowAlpha = 0.32f
 @Composable
 fun AppRoot(
     rootViewModel: RootViewModel = hiltViewModel(),
+    updateViewModel: AppUpdateViewModel = hiltViewModel(),
 ) {
     // Session gating: render only the login page while no instance is configured. The config is read
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
@@ -262,6 +265,9 @@ fun AppRoot(
     val sessionGate by rootViewModel.sessionGate.collectAsStateWithLifecycle()
     // PDF reader selection (dedicated PDF reader vs DIVINA comic reader); device-local preference.
     val useNativePdfReader by rootViewModel.useNativePdfReader.collectAsStateWithLifecycle()
+    // Auto update check: the launch lookup prompts only when a release newer than this build exists, and
+    // at most once a day (the check itself is throttled in the view model; the About page can force one).
+    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
     // Completed downloads for the card badges (books + per-series aggregates), one app-wide snapshot.
     val downloadedIndex by rootViewModel.downloadedIndex.collectAsStateWithLifecycle()
     when (sessionGate) {
@@ -761,6 +767,11 @@ fun AppRoot(
                     }
                 }
             }
+        }
+        // One "new version" prompt for the whole app: it sits above the page stack, so a release found at
+        // launch is announced on whatever page the user is on.
+        if (updateState.dialogVisible) {
+            UpdateAvailableDialog(state = updateState, onDismiss = updateViewModel::dismissDialog)
         }
         }
     }

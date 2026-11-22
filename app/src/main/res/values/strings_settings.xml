@@ -193,6 +193,21 @@
     <string name="settings_about_feedback">Feedback</string>
     <string name="settings_license_readium">Readium (EPUB engine reference)</string>
     <string name="settings_license_pdfium">PDFium (PDF engine reference)</string>
+
+    <!-- Update check -->
+    <string name="settings_updates_title">Updates</string>
+    <string name="settings_updates_auto_check">Check for Updates Automatically</string>
+    <string name="settings_updates_auto_check_desc">Looks up the latest GitHub release at most once a day.</string>
+    <string name="settings_updates_check_now">Check Now</string>
+    <string name="settings_updates_checking">Checking…</string>
+    <string name="settings_updates_up_to_date">Up to date</string>
+    <string name="settings_updates_available">Version %1$s available</string>
+    <string name="settings_updates_failed">Check failed</string>
+    <string name="settings_updates_last_checked">Last checked %1$s</string>
+    <string name="settings_updates_dialog_title">Update Available</string>
+    <string name="settings_updates_dialog_message">Version %1$s is available. You are on %2$s.</string>
+    <string name="settings_updates_download">Download</string>
+    <string name="settings_updates_later">Later</string>
     <!-- Tablet split layout: hint in the detail pane before a setting is chosen -->
     <string name="settings_split_placeholder">Choose a setting on the left</string>
 </resources>

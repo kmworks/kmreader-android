@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +92,7 @@ import com.kmworks.kmreader.core.logging.AppLogLevel
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.ui.RootViewModel
+import com.kmworks.kmreader.ui.update.AppUpdateViewModel
 import com.kmworks.kmreader.core.pdf.PdfRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
@@ -840,15 +842,40 @@ private fun shareLogs(context: Context) {
     context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_logs_share)))
 }
 
-/** About page (mirrors SettingsAboutView): icon link rows and the version centered below. */
+/** About page (mirrors SettingsAboutView): icon link rows, the update check, and the version centered below. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(
+    onBack: () -> Unit,
+    updateViewModel: AppUpdateViewModel = hiltViewModel(),
+) {
     val context = LocalContext.current
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull().orEmpty().ifBlank { "0.1.0" }
+    }
+    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
+    val lastChecked = remember(updateState.lastCheckedAt) {
+        updateState.lastCheckedAt
+            .takeIf { it > 0L }
+            ?.let { checkedAt ->
+                DateUtils.getRelativeTimeSpanString(
+                    checkedAt,
+                    System.currentTimeMillis(),
+                    DateUtils.MINUTE_IN_MILLIS,
+                ).toString()
+            }
+    }
+    val updateStatus = when {
+        updateState.checking -> stringResource(R.string.settings_updates_checking)
+        updateState.error != null -> stringResource(R.string.settings_updates_failed)
+        updateState.update != null -> stringResource(
+            R.string.settings_updates_available,
+            updateState.update?.version.orEmpty(),
+        )
+        updateState.upToDate -> stringResource(R.string.settings_updates_up_to_date)
+        else -> null
     }
     SystemScaffold(title = stringResource(R.string.settings_about), onBack = onBack) { padding ->
         LazyColumn(
@@ -882,6 +909,33 @@ fun AboutScreen(onBack: () -> Unit) {
                         title = stringResource(R.string.settings_about_feedback),
                         value = "github.com/kmworks/kmreader-android/issues",
                         icon = Icons.Outlined.BugReport,
+                    )
+                }
+            }
+            item {
+                SettingsSection(title = stringResource(R.string.settings_updates_title)) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_updates_auto_check),
+                        subtitle = stringResource(R.string.settings_updates_auto_check_desc),
+                        checked = updateState.autoCheckEnabled,
+                        onCheckedChange = updateViewModel::setAutoCheckEnabled,
+                        icon = Icons.Outlined.Sync,
+                    )
+                    SettingsRowDivider()
+                    SettingsMenuRow(
+                        title = stringResource(R.string.settings_updates_check_now),
+                        subtitle = updateState.error
+                            ?: lastChecked?.let { stringResource(R.string.settings_updates_last_checked, it) },
+                        value = updateStatus,
+                        icon = Icons.Outlined.Download,
+                        // With a release already found, the row reopens its dialog instead of checking again.
+                        onClick = {
+                            if (updateState.update != null) {
+                                updateViewModel.showAvailableUpdate()
+                            } else {
+                                updateViewModel.checkNow()
+                            }
+                        },
                     )
                 }
             }
