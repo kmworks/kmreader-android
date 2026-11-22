@@ -34,6 +34,7 @@ import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,8 @@ data class BookDetailUiState(
     val book: Book? = null,
     val meta: BookDetailMeta? = null,
     val thumbnail: String? = null,
+    /** Cover saved with this book's download; used when the server thumbnail cannot load (offline/other server). */
+    val localCoverFile: File? = null,
     /** Owning read lists (real data; mapped by Mappers.toListEntry, taps bubble up via
      *  onOpenReadList). */
     val readLists: List<ListEntry> = emptyList(),
@@ -193,12 +196,16 @@ class BookDetailViewModel @Inject constructor(
             _readLists.value = null
             _downloaded.value = null
         }
-        if (clients == null || dtoId == null) {
-            _uiState.update { it.copy(hasSession = clients != null, loading = false) }
-            return
-        }
-        _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         loadJob = viewModelScope.launch {
+            // A downloaded book keeps its cover on disk; resolve it before the session check so the
+            // offline shell (and a book from another server) still has a cover to fall back to.
+            val localCover = dtoId?.let { downloadRepository.coverFile(it) }
+            if (localCover != null) _uiState.update { it.copy(localCoverFile = localCover) }
+            if (clients == null || dtoId == null) {
+                _uiState.update { it.copy(hasSession = clients != null, loading = false) }
+                return@launch
+            }
+            _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
             try {
                 val isAdmin = resolveIsAdmin(clients)
                 val dto = detailRepository.bookDetail(dtoId)
@@ -228,6 +235,7 @@ class BookDetailViewModel @Inject constructor(
                         book = dto.toUiBook(),
                         meta = meta,
                         thumbnail = detailRepository.bookThumbnailUrl(dto.id),
+                        localCoverFile = localCover,
                         readLists = memberships,
                         isAdmin = isAdmin,
                         oneshotEditable = oneshotEditable,

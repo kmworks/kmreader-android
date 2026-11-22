@@ -83,6 +83,9 @@ private val CoverShape = RoundedCornerShape(8.dp)
  *   shown, and it never falls back to the unauthenticated singleton loader.
  * - [imageUrl]: external absolute URL (Komf recognition results, tracker remote covers) goes through the
  *   singleton loader so Komga credentials are never sent to third-party image hosts.
+ *
+ * [fallbackImageUrl] is used when the primary source has no URL yet or fails to load. Downloads pass
+ * the locally saved cover here, so a book downloaded from another server still renders its cover.
  */
 @Composable
 fun CoverArt(
@@ -91,6 +94,7 @@ fun CoverArt(
     modifier: Modifier = Modifier,
     stableId: Int? = null,
     imageUrl: String? = null,
+    fallbackImageUrl: String? = null,
     coverVersion: Int = 0,
     contentScale: ContentScale = ContentScale.Crop,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
@@ -122,18 +126,25 @@ fun CoverArt(
         val externalLoader = remember(session) { session.externalImageLoader }
         val serverBaseUrl = clients?.baseUrl
         // Absolute cover URL without cache-key parameters.
-        val resolvedUrl = remember(stableId, imageUrl, serverBaseUrl) {
-            val base = if (stableId != null) {
-                CoverUrlRegistry.url(stableId, clients)
-            } else {
-                imageUrl?.takeIf { it.isNotBlank() }
-            }
-            base?.let { normalizeCoverUrl(it, serverBaseUrl) }
+        val primaryBaseUrl = remember(stableId, imageUrl, serverBaseUrl) {
+            if (stableId != null) CoverUrlRegistry.url(stableId, clients) else imageUrl?.takeIf { it.isNotBlank() }
         }
+        val primaryResolvedUrl = remember(primaryBaseUrl, serverBaseUrl) {
+            primaryBaseUrl?.let { normalizeCoverUrl(it, serverBaseUrl) }
+        }
+        val fallbackResolvedUrl = remember(fallbackImageUrl, serverBaseUrl) {
+            fallbackImageUrl?.takeIf { it.isNotBlank() }?.let { normalizeCoverUrl(it, serverBaseUrl) }
+        }
+        // A failed (or currently unresolvable) primary falls back to the local cover.
+        var primaryFailed by remember(stableId, imageUrl, fallbackImageUrl, serverBaseUrl, coverVersion) {
+            mutableStateOf(false)
+        }
+        val usingFallback = fallbackResolvedUrl != null && (primaryFailed || primaryResolvedUrl == null)
+        val resolvedUrl = if (usingFallback) fallbackResolvedUrl else primaryResolvedUrl
         // Identity of the cover in the refresh-interval table (the URL path stays stable, the stamp is
-        // the `cv` parameter, so a new stamp is a new Coil cache key).
-        val coverIdentity = remember(stableId, serverBaseUrl) {
-            if (stableId != null && serverBaseUrl != null) "$serverBaseUrl#cover:$stableId" else null
+        // the `cv` parameter, so a new stamp is a new Coil cache key). Local fallbacks are never stamped.
+        val coverIdentity = remember(stableId, serverBaseUrl, usingFallback) {
+            if (!usingFallback && stableId != null && serverBaseUrl != null) "$serverBaseUrl#cover:$stableId" else null
         }
         val stamps by imageCaches.coverStamps.stamps.collectAsState()
         val expirationDays by imageCaches.coverExpirationDays.collectAsState()
@@ -148,18 +159,18 @@ fun CoverArt(
             val refresh = imageCaches.coverStamps.refreshIfExpired(identity, expirationDays)
                 ?: return@LaunchedEffect
             // The stamp changed the key: drop the stale entry so a refresh never leaves the old copy behind.
-            imageCaches.evictCover(coverUrlWithVersion(resolvedUrl, refresh.previous, 0))
+            imageCaches.evictCover(coverUrlWithVersion(primaryResolvedUrl, refresh.previous, 0))
         }
-        val modelUrl = remember(resolvedUrl, coverStamp, coverVersion) {
-            coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
+        val modelUrl = remember(resolvedUrl, coverStamp, coverVersion, usingFallback) {
+            if (usingFallback) resolvedUrl else coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
         }
         val serverOwnedImage = resolvedUrl != null && serverBaseUrl != null &&
             sameOrigin(resolvedUrl, serverBaseUrl)
         // Komga / same-origin covers must use the authenticated session loader; only real third-party URLs use the unauthenticated singleton loader.
-        val loader = if (stableId != null || serverOwnedImage) sessionLoader else externalLoader
+        val loader = if (serverOwnedImage || (!usingFallback && stableId != null)) sessionLoader else externalLoader
 
-        LaunchedEffect(stableId, imageUrl, clients, resolvedUrl) {
-            if (stableId != null && clients != null && resolvedUrl == null) {
+        LaunchedEffect(stableId, imageUrl, clients, primaryResolvedUrl, usingFallback) {
+            if (!usingFallback && stableId != null && clients != null && primaryResolvedUrl == null) {
                 if (!CoverUrlRegistry.contains(stableId)) {
                     AppLog.w(
                         "CoverArt",
@@ -172,8 +183,8 @@ fun CoverArt(
                     )
                 }
             }
-            if (stableId == null && !imageUrl.isNullOrBlank() && imageUrl != resolvedUrl) {
-                AppLog.d("CoverArt", "normalized cover url: $imageUrl -> $resolvedUrl title=$title")
+            if (stableId == null && !imageUrl.isNullOrBlank() && imageUrl != primaryResolvedUrl) {
+                AppLog.d("CoverArt", "normalized cover url: $imageUrl -> $primaryResolvedUrl title=$title")
             }
         }
 
@@ -223,10 +234,16 @@ fun CoverArt(
                 modifier = Modifier.matchParentSize(),
                 onSuccess = { state -> onCoverBitmap?.invoke(state.result.image.toBitmap()) },
                 onError = { state ->
-                    AppLog.w(
-                        "CoverArt",
-                        "cover load failed: $modelUrl (${state.result.throwable.message})",
-                    )
+                    if (!usingFallback && fallbackResolvedUrl != null) {
+                        // The server cover is unreachable (offline, or a book from another server):
+                        // swap in the cover saved with the download.
+                        primaryFailed = true
+                    } else {
+                        AppLog.w(
+                            "CoverArt",
+                            "cover load failed: $modelUrl (${state.result.throwable.message})",
+                        )
+                    }
                 },
             )
         }
