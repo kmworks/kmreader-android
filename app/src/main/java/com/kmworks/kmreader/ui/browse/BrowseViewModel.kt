@@ -76,8 +76,14 @@ private data class SearchRequest(
     val scope: SearchScope,
     val libraryIds: List<String>?,
     val hasSession: Boolean,
-    /** Search filters (session-scoped, not persisted; mirrors the search tab's own browseOptions on iOS). */
-    val options: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
+    /**
+     * Search filters (session-scoped, not persisted; mirrors the search tab's own browseOptions on
+     * iOS). Series and books keep separate sets like the library tabs do: the series set carries the
+     * publisher/genre/series-status dimensions a book query cannot express, and each group sorts by
+     * its own vocabulary.
+     */
+    val seriesOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
+    val booksOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Books),
 )
 
 /** Search state: 300ms debounce, per-scope fan-out, paged results with bottom load-more. */
@@ -94,7 +100,8 @@ class BrowseViewModel @Inject constructor(
 
     private val query = MutableStateFlow("")
     private val scope = MutableStateFlow(SearchScope.All)
-    private val browseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
+    private val seriesBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
+    private val booksBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Books))
 
     private val _state = MutableStateFlow(BrowseUiState())
     val state = _state.asStateFlow()
@@ -143,20 +150,24 @@ class BrowseViewModel @Inject constructor(
                 ) { q, s, libraryScope, pinned, clients ->
                     SearchRequest(q.trim(), s, resolveLibraryScopeIds(libraryScope, pinned), clients != null)
                 },
-                browseOptions,
-            ) { request, options -> request.copy(options = options) }
+                seriesBrowseOptions,
+                booksBrowseOptions,
+            ) { request, seriesOptions, booksOptions ->
+                request.copy(seriesOptions = seriesOptions, booksOptions = booksOptions)
+            }
                 .distinctUntilChanged()
                 .collectLatest { request -> performSearch(request) }
         }
         // The search filter is session state, not a persisted setting: it must not follow the user to another
         // server, where its authors/tags/library ids (and the read-status semantics under a different account)
-        // would silently narrow the result set. Drop it whenever the session's instance changes.
+        // would silently narrow the result set. Drop both sets whenever the session's instance changes.
         viewModelScope.launch {
             sessionManager.clients
                 .map { it?.cacheNamespace }
                 .distinctUntilChanged()
                 .collect {
-                    if (browseOptions.value != defaultBrowseOptions(BrowseContentType.Series)) browseOptions.value = defaultBrowseOptions(BrowseContentType.Series)
+                    seriesBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Series)
+                    booksBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Books)
                 }
         }
         // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
@@ -179,11 +190,15 @@ class BrowseViewModel @Inject constructor(
         scope.value = value
     }
 
-    /** Search filters (extra conditions layered on series/books full-text search; session-scoped). */
-    val browseOptionsFlow = browseOptions.asStateFlow()
+    /** Search filters per content type (extra conditions layered on series/books full-text search; session-scoped). */
+    val seriesBrowseOptionsFlow = seriesBrowseOptions.asStateFlow()
+    val booksBrowseOptionsFlow = booksBrowseOptions.asStateFlow()
 
-    fun setBrowseOptions(options: BrowseOptions) {
-        browseOptions.value = options
+    fun setBrowseOptions(contentType: BrowseContentType, options: BrowseOptions) {
+        when (contentType) {
+            BrowseContentType.Series -> seriesBrowseOptions.value = options
+            BrowseContentType.Books -> booksBrowseOptions.value = options
+        }
     }
 
     /** Library scope switch (pinned/all/library:{id}, persisted; mirrors iOS @AppStorage("searchBrowseScope")). */
@@ -231,7 +246,7 @@ class BrowseViewModel @Inject constructor(
                             searchRepository.searchSeriesPage(
                                 request.query,
                                 request.libraryIds,
-                                request.options,
+                                request.seriesOptions,
                                 it,
                                 SERIES_PAGE_SIZE,
                             )
@@ -242,7 +257,7 @@ class BrowseViewModel @Inject constructor(
                             searchRepository.searchBooksPage(
                                 request.query,
                                 request.libraryIds,
-                                request.options,
+                                request.booksOptions,
                                 it,
                                 BOOKS_PAGE_SIZE,
                             )
@@ -355,7 +370,7 @@ class BrowseViewModel @Inject constructor(
                         searchRepository.searchSeriesPage(
                             request.query,
                             request.libraryIds,
-                            request.options,
+                            request.seriesOptions,
                             page = 0,
                             size = SERIES_PAGE_SIZE,
                         )
@@ -368,7 +383,7 @@ class BrowseViewModel @Inject constructor(
                         searchRepository.searchBooksPage(
                             request.query,
                             request.libraryIds,
-                            request.options,
+                            request.booksOptions,
                             page = 0,
                             size = BOOKS_PAGE_SIZE,
                         )
