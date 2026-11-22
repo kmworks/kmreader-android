@@ -14,12 +14,16 @@ import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.ListRepository
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.SmartListRepository
+import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.server.ServerFeature
+import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.SampleData.ListEntry
+import com.kmworks.kmreader.data.SmartListTarget
 import com.kmworks.kmreader.ui.components.normalizeLibraryScope
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,6 +64,8 @@ data class ListsUiState(
     val libraryScope: String = AppSettingsStore.SCOPE_ALL,
     /** Pinned library ids (the pinned scope resolves to these as the libraryIds filter). */
     val pinnedIds: Set<String> = emptySet(),
+    /** kmrs smartLists capability; the "New Smart List" entry is hidden when the endpoint does not exist. */
+    val smartListsSupported: Boolean = false,
 )
 
 /** Real collections / read lists / smart lists (a failing smart list hides its whole group, no error). */
@@ -74,6 +80,7 @@ class ListsViewModel @Inject constructor(
     private val thumbnailCache: ThumbnailCache,
     private val sessionManager: SessionManager,
     private val catalogCache: CatalogCache,
+    private val serverProfileStore: ServerProfileStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ListsUiState())
@@ -134,6 +141,14 @@ class ListsViewModel @Inject constructor(
                 reload = { refresh() },
             )
         }
+        // Smart list creation is a kmrs-private endpoint; the capability probe may land after the first
+        // strips load, so the entry follows the profile instead of being read once.
+        viewModelScope.launch {
+            serverProfileStore.profile.collect { profile ->
+                val supported = profile?.features?.contains(ServerFeature.SmartLists) == true
+                _state.update { it.copy(smartListsSupported = supported) }
+            }
+        }
     }
 
     private fun resetForSignedOut() {
@@ -156,6 +171,7 @@ class ListsViewModel @Inject constructor(
                 smartLists = null,
                 collectionsHasMore = true,
                 readListsHasMore = true,
+                smartListsSupported = false,
             )
         }
     }
@@ -412,6 +428,7 @@ class ListsViewModel @Inject constructor(
     fun saveSmartList(
         entry: ListEntry,
         name: String,
+        summary: String,
         matchAll: Boolean,
         rules: List<SmartListRule>,
         onDone: (Boolean) -> Unit,
@@ -421,10 +438,45 @@ class ListsViewModel @Inject constructor(
             val ok = smartListRepository.updateSmartList(
                 dtoId = dtoId,
                 name = name,
-                summary = entry.summary.orEmpty(),
+                summary = summary,
                 search = buildSmartListSearchDocument(matchAll, rules),
             )
             onDone(ok)
+        }
+    }
+
+    /**
+     * Create a smart list (mirrors iOS SmartListEditSheet mode .create): the server assigns the id, so
+     * [onDone] receives the new entry's stableId (null when the server refused — stock Komga 404 or a
+     * validation error). The strips reload before the callback so the new entry is behind the opened page.
+     */
+    fun createSmartList(
+        name: String,
+        summary: String,
+        target: SmartListTarget,
+        matchAll: Boolean,
+        rules: List<SmartListRule>,
+        onDone: (Int?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val created = try {
+                smartListRepository.createSmartList(
+                    name = name,
+                    summary = summary,
+                    target = target.toDtoTarget(),
+                    search = buildSmartListSearchDocument(matchAll, rules),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (created == null) {
+                onDone(null)
+                return@launch
+            }
+            refresh().join()
+            onDone(StableIds.smartList(created.id))
         }
     }
 

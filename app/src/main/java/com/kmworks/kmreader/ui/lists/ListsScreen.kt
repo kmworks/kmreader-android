@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PushPin
@@ -133,6 +134,8 @@ fun ListsScreen(
     var editTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
     // Delete confirmation dialog target (entered from the context menu "Delete")
     var deleteTarget by remember { mutableStateOf<Pair<String, ListEntry>?>(null) }
+    // Create sheet (SmartListEditSheet in create mode; "New Smart List" in the bar of either destination)
+    var creatingSmartList by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val viewModel: ListsViewModel = hiltViewModel()
@@ -148,6 +151,14 @@ fun ListsScreen(
         state.readLists?.let { if (it.isNotEmpty()) add(ListsStripGroup(ListsGroupKind.ReadLists, groupReadListsLabel, it)) }
         state.smartLists?.let { if (it.isNotEmpty()) add(ListsStripGroup(ListsGroupKind.SmartLists, groupSmartListsLabel, it)) }
     }
+
+    // Creation is a kmrs smartLists capability ("New Smart List" in the bar of either destination).
+    val onCreateSmartList: (() -> Unit)? =
+        if (state.hasSession && state.smartListsSupported) {
+            { creatingSmartList = true }
+        } else {
+            null
+        }
 
     // Two destinations share this screen: the tab draws the strips and the scope chrome, and a strip
     // header opens one kind as a page (its own back arrow and grid). The sheet state lives here, so a
@@ -165,6 +176,8 @@ fun ListsScreen(
                 ListsGroupKind.ReadLists -> viewModel::loadMoreReadLists
                 ListsGroupKind.SmartLists -> ({})
             },
+            onCreateSmartList = if (initialGroup == ListsGroupKind.SmartLists) onCreateSmartList else null,
+            snackbarHostState = snackbarHostState,
         )
     } else {
         ListsTabBody(
@@ -176,6 +189,7 @@ fun ListsScreen(
             onOpenGroup = onOpenGroup,
             onOpenEntry = { kind, entry -> openEntryOf(kind)(entry) },
             onEntryMenu = { kind, entry -> menuTarget = titleOf(kind) to entry },
+            onCreateSmartList = onCreateSmartList,
         )
     }
 
@@ -301,13 +315,14 @@ fun ListsScreen(
                 },
             )
             else -> SmartListEditSheet(
-                onSave = { name, _, matchAll, rules ->
-                    viewModel.saveSmartList(entry, name, matchAll, rules) { ok ->
+                onSave = { name, summary, _, matchAll, rules ->
+                    viewModel.saveSmartList(entry, name, summary, matchAll, rules) { ok ->
                         if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
                     }
                 },
                 onDismiss = { editTarget = null },
                 initialName = entry.title,
+                initialSummary = entry.summary.orEmpty(),
                 initialTarget = entry.smartListTarget ?: com.kmworks.kmreader.data.SmartListTarget.Book,
                 isEdit = true,
                 onDelete = {
@@ -317,6 +332,25 @@ fun ListsScreen(
                 },
             )
         }
+    }
+
+    if (creatingSmartList) {
+        SmartListEditSheet(
+            onSave = { name, summary, target, matchAll, rules ->
+                viewModel.createSmartList(name, summary, target, matchAll, rules) { stableId ->
+                    creatingSmartList = false
+                    if (stableId != null) {
+                        // Open what was just created; its detail page reads the registered id.
+                        onOpenSmartList(stableId)
+                    } else {
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(context.getString(R.string.smartlist_save_failed))
+                        }
+                    }
+                }
+            },
+            onDismiss = { creatingSmartList = false },
+        )
     }
 }
 
@@ -344,6 +378,8 @@ private fun ListsGroupPage(
     onOpenEntry: (ListEntry) -> Unit,
     onEntryMenu: (ListEntry) -> Unit,
     onLoadMore: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+    onCreateSmartList: (() -> Unit)? = null,
 ) {
     val entries = when (kind) {
         ListsGroupKind.Collections -> state.collections
@@ -373,7 +409,10 @@ private fun ListsGroupPage(
 
     // Same chrome contract as the dashboard section page: the frosted bar floats inside the page box
     // so the grid scrolls underneath it and the strip under the status bar is frosted too.
-    Scaffold(contentWindowInsets = glassPageContentWindowInsets()) { padding ->
+    Scaffold(
+        contentWindowInsets = glassPageContentWindowInsets(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
         Box(
             modifier = Modifier
                 .padding(padding)
@@ -392,6 +431,16 @@ private fun ListsGroupPage(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
                         )
+                    }
+                },
+                actions = {
+                    if (onCreateSmartList != null) {
+                        IconButton(onClick = onCreateSmartList) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = stringResource(R.string.smartlist_new_title),
+                            )
+                        }
                     }
                 },
             )
@@ -618,6 +667,7 @@ private fun ListsTabBody(
     onOpenGroup: (ListsGroupKind) -> Unit,
     onOpenEntry: (ListsGroupKind, ListEntry) -> Unit,
     onEntryMenu: (ListsGroupKind, ListEntry) -> Unit,
+    onCreateSmartList: (() -> Unit)? = null,
 ) {
     var scopeMenuOpen by remember { mutableStateOf(false) }
     // The frosted bar floats over the page: the list groups scroll underneath it.
@@ -634,6 +684,16 @@ private fun ListsTabBody(
             sheetVisible = pageListState.hasScrolled(),
             hazeState = hazeState,
             actions = {
+                // New Smart List (kmrs capability): the strip hides itself when there are none, so the
+                // tab needs its own entry instead of relying on the group page being reachable.
+                if (onCreateSmartList != null) {
+                    IconButton(onClick = onCreateSmartList) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.smartlist_new_title),
+                        )
+                    }
+                }
                 // LibraryScopeMenu: all libraries / pinned / single library
                 Box {
                     TextButton(onClick = { scopeMenuOpen = true }) {

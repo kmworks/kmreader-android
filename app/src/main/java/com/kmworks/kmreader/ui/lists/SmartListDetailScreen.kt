@@ -392,13 +392,13 @@ fun SmartListDetailScreen(
         )
     }
     if (editOpen) {
-        // The editor does not reverse-parse the server search document: rules are built
-        // from scratch and overwrite on save (name/summary keep their current values)
+        // The editor does not reverse-parse the server search document: the rules start from
+        // scratch and overwrite on save, while name/summary are prefilled and saved as edited.
         SmartListEditSheet(
-            onSave = { name, _, matchAll, rules ->
+            onSave = { name, summary, _, matchAll, rules ->
                 viewModel.save(
                     name = name,
-                    summary = display.summary ?: "",
+                    summary = summary,
                     search = buildSmartListSearchDocument(matchAll, rules),
                 ) { ok ->
                     // Keep the editor open when saving fails, to avoid silently losing changes
@@ -407,6 +407,7 @@ fun SmartListDetailScreen(
             },
             onDismiss = { editOpen = false },
             initialName = display.name,
+            initialSummary = display.summary ?: "",
             initialTarget = display.target,
             isEdit = true,
             onDelete = if (state.hasRealSmartList) {
