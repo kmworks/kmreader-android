@@ -4,11 +4,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
@@ -94,6 +96,16 @@ sealed interface ContentChange {
     ) : ContentChange
 
     /**
+     * A library was added, renamed, re-rooted or removed. No screen patches a library row by id, so this
+     * carries no values either: screens that hold a library list (scope menus, the dashboard's library
+     * cards) re-read it. See [libraryChanges].
+     */
+    data class Libraries(
+        override val dtoIds: Set<String>,
+        override val kind: ContentChangeKind,
+    ) : ContentChange
+
+    /**
      * Something changed that cannot be expressed as a patch: an SSE payload that failed to decode, an event kind
      * this app does not model yet, or a change touching more ids than a screen should re-read one by one. Screens
      * never patch it; [observeChanges] routes it straight to their reload path.
@@ -128,6 +140,9 @@ internal fun readListsChanged(dtoIds: Collection<String>, kind: ContentChangeKin
 internal fun smartListsChanged(dtoIds: Collection<String>, kind: ContentChangeKind): ContentChange =
     ContentChange.SmartLists(dtoIds.toSet(), kind)
 
+internal fun librariesChanged(dtoIds: Collection<String>, kind: ContentChangeKind): ContentChange =
+    ContentChange.Libraries(dtoIds.toSet(), kind)
+
 /**
  * In-process "the library content changed" signal.
  *
@@ -151,6 +166,14 @@ class ContentChangeBus @Inject constructor() {
         _changes.tryEmit(change)
     }
 }
+
+/**
+ * Only the library-configuration changes, for the screens that cache the library list instead of the rows
+ * of some collection (see [ContentChange.Libraries]). Every other change is filtered out so those screens
+ * do not re-read on unrelated writes.
+ */
+fun ContentChangeBus.libraryChanges(): Flow<ContentChange> =
+    changes.filter { it is ContentChange.Libraries }
 
 /** How long a screen waits before re-reading itself after a change it could not patch. */
 private const val RELOAD_DEBOUNCE_MILLIS = 500L

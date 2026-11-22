@@ -51,7 +51,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
@@ -539,6 +541,7 @@ class TrackerSettingsViewModel @Inject constructor(
     serverProfileStore: ServerProfileStore,
     private val trackerRepository: TrackerRepository,
     private val libraryRepository: LibraryRepository,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     val hasSession: StateFlow<Boolean> = sessionManager.clients
@@ -592,6 +595,13 @@ class TrackerSettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             supported.collect { if (it) loadAll() }
+        }
+        // The library bindings list shows names: re-read them when the library configuration changes elsewhere.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect {
+                val libraries = runCatching { libraryRepository.libraries() }.getOrNull() ?: return@collect
+                _libraries.value = libraries.map { it.id to it.name }
+            }
         }
     }
 

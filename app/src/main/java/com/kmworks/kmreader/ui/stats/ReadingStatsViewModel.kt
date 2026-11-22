@@ -6,7 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
@@ -91,6 +93,7 @@ class ReadingStatsViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val serverProfileStore: ServerProfileStore,
     private val sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -118,6 +121,13 @@ class ReadingStatsViewModel @Inject constructor(
                         load()
                     }
                 }
+            }
+        }
+        // The library filter shows names: re-read them when the library configuration changes elsewhere.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect {
+                val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+                _uiState.update { it.copy(libraries = libraries) }
             }
         }
     }

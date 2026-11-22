@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.Paged
 import com.kmworks.kmreader.core.data.SearchRepository
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerProfileStore
 import com.kmworks.kmreader.core.settings.AppSettingsStore
@@ -52,6 +54,7 @@ class DashboardSectionDetailViewModel @Inject constructor(
     private val serverProfileStore: ServerProfileStore,
     private val appSettings: AppSettingsStore,
     private val sessionManager: SessionManager,
+    private val contentChangeBus: ContentChangeBus,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -111,6 +114,10 @@ class DashboardSectionDetailViewModel @Inject constructor(
                     loadPage(0)
                 }
             }
+        }
+        // A library was added, renamed or removed elsewhere: the scope menu shows names, so re-read them.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect { refreshLibraries() }
         }
     }
 

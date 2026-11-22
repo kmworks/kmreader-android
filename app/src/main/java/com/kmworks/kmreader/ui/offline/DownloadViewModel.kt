@@ -3,10 +3,12 @@ package com.kmworks.kmreader.ui.offline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.LibraryRepository
 import com.kmworks.kmreader.core.data.StableIds
+import com.kmworks.kmreader.core.data.libraryChanges
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.toUiSeries
 import com.kmworks.kmreader.core.download.DownloadRepository
@@ -36,6 +38,7 @@ class DownloadViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val libraryRepository: LibraryRepository,
     private val detailRepository: DetailRepository,
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
 
     /** Library scope (aligned with LibraryScopeMenu): null = all libraries; filters the queue and the downloaded list. */
@@ -89,6 +92,13 @@ class DownloadViewModel @Inject constructor(
         viewModelScope.launch {
             _libraries.value = runCatching { libraryRepository.libraries() }
                 .getOrDefault(emptyList())
+        }
+        // A library was added, renamed or removed elsewhere: the scope menu shows the names, so re-read.
+        viewModelScope.launch {
+            contentChangeBus.libraryChanges().collect {
+                _libraries.value = runCatching { libraryRepository.libraries() }
+                    .getOrDefault(emptyList())
+            }
         }
         // Rescan files after queue state changes (complete/cancel/fail all change what lands on disk)
         viewModelScope.launch {
