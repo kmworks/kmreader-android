@@ -119,15 +119,12 @@ fun BrowseScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     val seriesBrowseOptions by viewModel.seriesBrowseOptionsFlow.collectAsStateWithLifecycle()
     val booksBrowseOptions by viewModel.booksBrowseOptionsFlow.collectAsStateWithLifecycle()
-    // The filter panel follows the scope chips: the scopes that hold books (Books, ReadLists) edit the book
-    // filters, while the series scopes (All / Series / Collections) edit the series filters, which is the set
-    // the series query actually uses. Each set keeps its own dimensions and its own sort vocabulary.
+    // Filters belong to the dedicated series/books scopes. In the mixed All scope (whose series/books
+    // results would otherwise be narrowed behind the user's back) and in the collections/read lists scopes
+    // (whose endpoints take no filter conditions) the chip is disabled and nothing is applied.
+    val filtersEnabled = scope == SearchScope.Series || scope == SearchScope.Books
     val filterContentType =
-        if (scope == SearchScope.Books || scope == SearchScope.ReadLists) {
-            BrowseContentType.Books
-        } else {
-            BrowseContentType.Series
-        }
+        if (scope == SearchScope.Books) BrowseContentType.Books else BrowseContentType.Series
     val filterOptions =
         if (filterContentType == BrowseContentType.Books) booksBrowseOptions else seriesBrowseOptions
 
@@ -171,11 +168,13 @@ fun BrowseScreen(
                 )
                 // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
                 // search tab filters). It carries the selected state, so an applied filter is visible in the
-                // chip row instead of only inside the panel.
-                val filterCount = filterOptions.activeFilterLabels(filterContentType).size
+                // chip row instead of only inside the panel. Disabled outside the series/books scopes.
+                val filterCount =
+                    if (filtersEnabled) filterOptions.activeFilterLabels(filterContentType).size else 0
                 FilterChip(
-                    selected = filterCount > 0,
-                    onClick = { showFilterSheet = true },
+                    selected = filtersEnabled && filterCount > 0,
+                    enabled = filtersEnabled,
+                    onClick = { if (filtersEnabled) showFilterSheet = true },
                     label = {
                         Text(
                             if (filterCount > 0) {
@@ -218,13 +217,13 @@ fun BrowseScreen(
                 onBookLongClick = { menuBook = it },
             )
 
-            if (showFilterSheet) {
+            if (showFilterSheet && filtersEnabled) {
                 BrowseOptionsSheet(
                     initialOptions = filterOptions,
                     onConfirm = { options -> viewModel.setBrowseOptions(filterContentType, options) },
                     onDismiss = { showFilterSheet = false },
-                    // Series and books keep separate filter sets. Scopes that list books (Books, ReadLists)
-                    // show the book panel; the series scopes show the panel the series query consumes.
+                    // Each dedicated scope edits its own set: Series edits the series filters, Books the
+                    // book filters. Both stay stored while the chip is disabled in the other scopes.
                     contentType = filterContentType,
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )

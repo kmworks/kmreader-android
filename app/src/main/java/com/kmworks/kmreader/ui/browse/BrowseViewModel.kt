@@ -84,7 +84,15 @@ private data class SearchRequest(
      */
     val seriesOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
     val booksOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Books),
-)
+) {
+    /**
+     * Filters only apply in the dedicated scopes: the mixed All scope, and the collections/read lists
+     * scopes whose endpoints take no filter conditions, run unfiltered. Keeping the nullable shape means
+     * a disabled filter chip can never leak a condition into a query.
+     */
+    val seriesFilters: BrowseOptions? get() = seriesOptions.takeIf { scope == SearchScope.Series }
+    val bookFilters: BrowseOptions? get() = booksOptions.takeIf { scope == SearchScope.Books }
+}
 
 /** Search state: 300ms debounce, per-scope fan-out, paged results with bottom load-more. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -246,7 +254,7 @@ class BrowseViewModel @Inject constructor(
                             searchRepository.searchSeriesPage(
                                 request.query,
                                 request.libraryIds,
-                                request.seriesOptions,
+                                request.seriesFilters,
                                 it,
                                 SERIES_PAGE_SIZE,
                             )
@@ -257,7 +265,7 @@ class BrowseViewModel @Inject constructor(
                             searchRepository.searchBooksPage(
                                 request.query,
                                 request.libraryIds,
-                                request.booksOptions,
+                                request.bookFilters,
                                 it,
                                 BOOKS_PAGE_SIZE,
                             )
@@ -370,7 +378,7 @@ class BrowseViewModel @Inject constructor(
                         searchRepository.searchSeriesPage(
                             request.query,
                             request.libraryIds,
-                            request.seriesOptions,
+                            request.seriesFilters,
                             page = 0,
                             size = SERIES_PAGE_SIZE,
                         )
@@ -383,7 +391,7 @@ class BrowseViewModel @Inject constructor(
                         searchRepository.searchBooksPage(
                             request.query,
                             request.libraryIds,
-                            request.booksOptions,
+                            request.bookFilters,
                             page = 0,
                             size = BOOKS_PAGE_SIZE,
                         )
