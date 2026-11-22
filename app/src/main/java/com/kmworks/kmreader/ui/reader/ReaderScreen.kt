@@ -142,9 +142,10 @@ private val ChromeText = Color.White
  * Behavior mirrors the original DivinaReaderView / ReaderViewModel 1:1:
  * - Initial page: completed or incognito starts from page 0, otherwise restores readProgress.page
  *   (the VM provides initialPage)
- * - Reading direction: with forceDefaultReadingDirection use the global default, otherwise the
- *   series direction, otherwise the global default; direction / layout / split-wide / solo cover are
- *   SESSION-scoped state — changes never write back to the defaults (mirrors @State + reset semantics)
+ * - Reading direction: the direction picked for this book in the menu (remembered per book) wins;
+ *   otherwise with forceDefaultReadingDirection the global default, otherwise the series direction,
+ *   otherwise the global default. Layout / split-wide / solo cover stay SESSION-scoped — changes never
+ *   write back to the defaults (mirrors @State + reset semantics)
  * - Dual page only in landscape (shouldUseDualPage: width > height && layout != single && direction
  *   not vertical/webtoon); layout == dual forces dual pages (same landscape gating)
  * - Split wide pages: none keeps pages whole / auto·ltr·rtl split into halves. Splitting
@@ -208,8 +209,11 @@ fun ReaderScreen(
     var menuOpen by remember { mutableStateOf(false) }
 
     // Session-scoped reading preferences (mirroring the original @State initial values: seeded from
-    // the defaults, never written back)
+    // the defaults, never written back). The reading direction is the exception: a direction picked for
+    // a book outlives the session (remembered per book) so reopening does not fall back to the metadata.
     var direction by remember { mutableStateOf<ReadingDirection?>(null) }
+    /** The direction remembered for the current book (null = the settings/metadata chain decides). */
+    var directionOverride by remember { mutableStateOf<ReadingDirection?>(null) }
     var pageLayout by remember { mutableStateOf<PageLayout?>(null) }
     var splitWideMode by remember { mutableStateOf<SplitWidePageMode?>(null) }
     var soloCoverPage by remember { mutableStateOf<Boolean?>(null) }
@@ -301,7 +305,11 @@ fun ReaderScreen(
         if (initializedBookId == presentedBook.id) return@LaunchedEffect
         page = uiState.initialPage ?: 1
         if (direction == null) {
-            direction = resolveReadingDirection(
+            // A direction the user picked for this book in the menu wins over the metadata (see the
+            // "Follow default" entry, which forgets it again)
+            val remembered = uiState.bookDtoId?.let { settingsViewModel.directionOverride(it) }
+            directionOverride = remembered
+            direction = remembered ?: resolveReadingDirection(
                 seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
                 forceDefault = settings.forceDefaultDirection,
                 defaultDirection = defaultDirection,
@@ -1094,7 +1102,18 @@ fun ReaderScreen(
                         rotationDegrees = rotationDegrees,
                         soloAction = soloAction,
                         soloCoverPage = soloCoverNow,
-                        onDirectionChange = { direction = it },
+                        directionOverride = directionOverride,
+                        onDirectionChange = { picked ->
+                            // Applied for this session and remembered for this book (null = forget it and
+                            // fall back to the reader defaults / series metadata chain)
+                            directionOverride = picked
+                            direction = picked ?: resolveReadingDirection(
+                                seriesDirection = readingDirectionFromSeriesToken(uiState.seriesDirection),
+                                forceDefault = settings.forceDefaultDirection,
+                                defaultDirection = defaultDirection,
+                            )
+                            uiState.bookDtoId?.let { id -> settingsViewModel.setBookDirection(id, picked) }
+                        },
                         onPageLayoutChange = { pageLayout = it },
                         onToggleSoloCover = { soloCoverPage = !soloCoverNow },
                         onSplitWideModeChange = { splitWideMode = it },

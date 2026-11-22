@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -78,5 +79,17 @@ class DivinaSettingsViewModel @Inject constructor(
     /** Reading direction follows the default from "Settings - Reader Defaults" (same AppStorage semantics as the original). */
     fun setDefaultDirection(direction: ReadingDirection) {
         viewModelScope.launch { appSettings.setDivinaDefaultDirection(direction.name.lowercase()) }
+    }
+
+    /**
+     * The direction the user picked for [bookDtoId] in the reader menu (null = follow the settings /
+     * series metadata chain). Read once when the book opens, so reopening a book keeps that choice.
+     */
+    suspend fun directionOverride(bookDtoId: String): ReadingDirection? =
+        store.bookDirections.first()[bookDtoId]
+
+    /** Remembers (or with null, forgets) the direction picked for one book. */
+    fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
+        viewModelScope.launch { store.setBookDirection(bookDtoId, direction) }
     }
 }

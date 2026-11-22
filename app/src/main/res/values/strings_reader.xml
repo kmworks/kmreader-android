@@ -87,6 +87,8 @@
     <!-- Reader: in-reader menu -->
     <string name="reader_menu_current_options">Current reading options</string>
     <string name="reader_menu_direction">Reading direction</string>
+    <string name="reader_menu_direction_follow_default">Follow default</string>
+    <string name="reader_menu_direction_follow_default_hint">Decided by the reader defaults and the series metadata; forgets the choice remembered for this book</string>
     <string name="reader_menu_page_layout">Page layout</string>
     <string name="reader_menu_split_wide">Split wide pages</string>
     <string name="reader_menu_solo_cover">Solo cover</string>

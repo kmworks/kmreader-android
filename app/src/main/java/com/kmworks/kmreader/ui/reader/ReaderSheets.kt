@@ -137,7 +137,10 @@ fun ReaderOptionsMenu(
     rotationDegrees: Int,
     soloAction: SoloMenuAction?,
     soloCoverPage: Boolean,
-    onDirectionChange: (ReadingDirection) -> Unit,
+    /** The direction remembered for this book (null = the settings/metadata chain decides); only the picker uses it. */
+    directionOverride: ReadingDirection?,
+    /** null clears the remembered choice for this book (back to the settings/metadata chain). */
+    onDirectionChange: (ReadingDirection?) -> Unit,
     onPageLayoutChange: (PageLayout) -> Unit,
     onToggleSoloCover: () -> Unit,
     onSplitWideModeChange: (SplitWidePageMode) -> Unit,
@@ -289,12 +292,20 @@ fun ReaderOptionsMenu(
     when (picker) {
         ReaderMenuPicker.Direction -> {
             val labels = ReadingDirection.entries.associateWith { stringResource(it.labelRes) }
+            // "Follow default" clears the remembered choice: unlike layout/split/solo cover, the direction
+            // is persisted per book (reopening the book restores it instead of the series metadata).
+            val followDefault = stringResource(R.string.reader_menu_direction_follow_default)
             OptionPickerDialog(
                 title = stringResource(R.string.reader_menu_direction),
-                options = labels.values.toList(),
-                selected = labels[direction].orEmpty(),
+                options = listOf(followDefault) + labels.values,
+                selected = directionOverride?.let { labels[it] } ?: followDefault,
+                hints = mapOf(followDefault to stringResource(R.string.reader_menu_direction_follow_default_hint)),
                 onSelect = { label ->
-                    labels.entries.firstOrNull { it.value == label }?.key?.let(onDirectionChange)
+                    if (label == followDefault) {
+                        onDirectionChange(null)
+                    } else {
+                        labels.entries.firstOrNull { it.value == label }?.key?.let(onDirectionChange)
+                    }
                     picker = null
                 },
                 onDismiss = { picker = null },
