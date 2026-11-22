@@ -513,7 +513,10 @@ fun BookGridCard(
 }
 
 private fun normalizeCoverUrl(url: String, serverBaseUrl: String?): String {
-    if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+    if (url.startsWith("http://", ignoreCase = true) ||
+        url.startsWith("https://", ignoreCase = true) ||
+        url.startsWith("file:", ignoreCase = true)
+    ) {
         return url
     }
     val base = serverBaseUrl?.trimEnd('/') ?: return url

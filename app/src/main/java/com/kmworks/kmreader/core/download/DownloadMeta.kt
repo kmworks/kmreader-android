@@ -8,6 +8,9 @@ import java.io.File
  * Layout (`key=value` per line): `title`, `pageCount`, and — for downloads created since the
  * kind-aware downloader — `kind` and `format`. Directories written by older versions only have
  * `title`/`pageCount`; they parse as [DownloadKind.Pages] with [DownloadSpec.FORMAT_IMAGES].
+ *
+ * A completed download also keeps its book cover as [COVER_FILE] next to the content, so the offline
+ * list never has to ask whichever server happens to be active for a book downloaded from another one.
  */
 data class DownloadMeta(
     val title: String?,
@@ -29,8 +32,16 @@ data class DownloadMeta(
 
     /** All page images on disk (legacy directories keep them in the download directory root). */
     fun pageFiles(dir: File): List<File> =
-        dir.listFiles().orEmpty()
-            .filter { it.isFile && !it.name.endsWith(PART_SUFFIX) && it.name != DownloadWorker.META_FILE }
+        dir.listFiles().orEmpty().filter {
+            it.isFile &&
+                it.name != COVER_FILE &&
+                !it.name.endsWith(PART_SUFFIX) &&
+                it.name != DownloadWorker.META_FILE
+        }
+
+    /** The locally saved cover, when the download has one. */
+    fun coverFile(dir: File): File? =
+        File(dir, COVER_FILE).takeIf { it.isFile && it.length() > 0L }
 
     /** A download is complete when every page is present, or the single file is present. */
     fun isComplete(dir: File): Boolean = when (kind) {
@@ -40,6 +51,9 @@ data class DownloadMeta(
 
     companion object {
         const val PART_SUFFIX = ".part"
+
+        /** Cover image saved with the download; not a page and not part of the content file. */
+        const val COVER_FILE = "cover.img"
 
         fun read(dir: File): DownloadMeta? {
             val file = File(dir, DownloadWorker.META_FILE).takeIf { it.isFile } ?: return null
@@ -70,10 +84,13 @@ data class DownloadMeta(
         /** Container file name of a single-file download. */
         fun fileName(format: String): String = "book.$format"
 
-        /** Number of fully written page files in a download directory (partials and meta excluded). */
+        /** Number of fully written page files in a download directory (partials, cover and meta excluded). */
         fun pageFileCount(dir: File): Int =
             dir.listFiles().orEmpty().count {
-                it.isFile && !it.name.endsWith(PART_SUFFIX) && it.name != DownloadWorker.META_FILE
+                it.isFile &&
+                    it.name != COVER_FILE &&
+                    !it.name.endsWith(PART_SUFFIX) &&
+                    it.name != DownloadWorker.META_FILE
             }
     }
 }
