@@ -107,6 +107,18 @@ fun AddToListSheet(
             onDismiss = closeCreate,
             busy = createBusy,
             errorText = if (createFailed) stringResource(R.string.lists_create_failed) else null,
+            // Reuse an existing read list instead of creating a duplicate (the name is compared
+            // case-insensitively; suggestions cover near-matches).
+            existingNames = readLists.map { it.title }.distinct(),
+            onUseExisting = { existing ->
+                readLists.firstOrNull { it.title.equals(existing, ignoreCase = true) }?.let { entry ->
+                    closeCreate()
+                    if (entry.id !in alreadyInIds) {
+                        onSelect(entry)
+                    }
+                    onDismiss()
+                }
+            },
         )
         return
     }
@@ -129,6 +141,16 @@ fun AddToListSheet(
             onDismiss = closeCreate,
             busy = createBusy,
             errorText = if (createFailed) stringResource(R.string.lists_create_failed) else null,
+            existingNames = collections.map { it.title }.distinct(),
+            onUseExisting = { existing ->
+                collections.firstOrNull { it.title.equals(existing, ignoreCase = true) }?.let { entry ->
+                    closeCreate()
+                    if (entry.id !in alreadyInIds) {
+                        onSelect(entry)
+                    }
+                    onDismiss()
+                }
+            },
         )
         return
     }

@@ -22,6 +22,8 @@
     <string name="lists_already_in_list">已在列表中</string>
     <string name="lists_item_count">%1$d 项</string>
     <string name="lists_no_matches">没有匹配项</string>
+    <string name="lists_name_exists">已存在同名列表</string>
+    <string name="lists_existing_matches">已有列表</string>
     <string name="lists_mark_read">标记已读</string>
     <string name="lists_mark_unread">标记未读</string>
     <string name="lists_add_to_download_queue">加入下载队列</string>
