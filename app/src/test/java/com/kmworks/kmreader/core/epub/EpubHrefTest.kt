@@ -33,6 +33,33 @@ class EpubHrefTest {
     }
 
     @Test
+    fun `normalize strips the Komga API resource route`() {
+        assertEquals(
+            "OEBPS/Text/cover.xhtml",
+            EpubHref.normalize("/api/v1/books/0RX2Y7PCCC89R/resource/OEBPS/Text/cover.xhtml"),
+        )
+        assertEquals(
+            "OEBPS/Text/cover.xhtml",
+            EpubHref.normalize(
+                "https://komga.example.com/api/v1/books/0RX2Y7PCCC89R/resource/OEBPS/Text/cover.xhtml",
+            ),
+        )
+        // Sub-path deployment: the base-URL path stays ahead of the API route.
+        assertEquals(
+            "OEBPS/Text/cover.xhtml",
+            EpubHref.normalize("https://example.com/komga/api/v1/books/abc/resource/OEBPS/Text/cover.xhtml"),
+        )
+    }
+
+    @Test
+    fun `normalize keeps in-book paths that merely resemble the route`() {
+        // Positions/progression hrefs are already plain in-book paths and must pass through.
+        assertEquals("OEBPS/Text/cover.xhtml", EpubHref.normalize("OEBPS/Text/cover.xhtml"))
+        // Only the full api/v1/books/{id}/resource sequence is stripped.
+        assertEquals("api/v1/books/x/OEBPS/a.xhtml", EpubHref.normalize("api/v1/books/x/OEBPS/a.xhtml"))
+    }
+
+    @Test
     fun `normalize keeps plus signs literal`() {
         assertEquals("a+b.xhtml", EpubHref.normalize("a+b.xhtml"))
         assertEquals("a+b.xhtml", EpubHref.normalize("a%2Bb.xhtml"))
