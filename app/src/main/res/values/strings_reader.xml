@@ -88,7 +88,9 @@
     <string name="reader_menu_current_options">Current reading options</string>
     <string name="reader_menu_direction">Reading direction</string>
     <string name="reader_menu_direction_follow_default">Follow default</string>
-    <string name="reader_menu_direction_follow_default_hint">Decided by the reader defaults and the series metadata; forgets the choice remembered for this book</string>
+    <string name="reader_menu_direction_follow_default_hint">Decided by the reader defaults and the series metadata; forgets the choice remembered for this book and its series</string>
+    <string name="reader_menu_direction_book_only">Only for this book</string>
+    <string name="reader_menu_direction_book_only_hint">Off: the whole series keeps this direction</string>
     <string name="reader_menu_page_layout">Page layout</string>
     <string name="reader_menu_split_wide">Split wide pages</string>
     <string name="reader_menu_solo_cover">Solo cover</string>
