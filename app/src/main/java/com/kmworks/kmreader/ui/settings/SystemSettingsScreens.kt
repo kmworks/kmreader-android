@@ -922,13 +922,12 @@ fun AboutScreen(
                         icon = Icons.Outlined.Sync,
                     )
                     SettingsRowDivider()
-                    SettingsRow(
+                    SettingsMenuRow(
                         title = stringResource(R.string.settings_updates_check_now),
                         subtitle = updateState.error
                             ?: lastChecked?.let { stringResource(R.string.settings_updates_last_checked, it) },
                         value = updateStatus,
                         icon = Icons.Outlined.Download,
-                        accent = SettingsAccent.Blue,
                         // With a release already found, the row reopens its dialog instead of checking again.
                         onClick = {
                             if (updateState.update != null) {
