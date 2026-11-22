@@ -463,7 +463,8 @@ private fun SmartListHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // Cover = /api/v1/smart-lists/{id}/thumbnail (kmrs endpoint)
+        // Cover = /api/v1/smart-lists/{id}/thumbnail (kmrs endpoint): a 2:3 collage, so the frame
+        // keeps the cover shape instead of cropping it to a square.
         CoverArt(
             title = display.name,
             hue = coverHue,
@@ -471,7 +472,7 @@ private fun SmartListHero(
             coverVersion = coverVersion,
             modifier = Modifier
                 .width(168.dp)
-                .aspectRatio(1f),
+                .aspectRatio(2f / 3f),
         )
         Spacer(Modifier.height(16.dp))
         Text(

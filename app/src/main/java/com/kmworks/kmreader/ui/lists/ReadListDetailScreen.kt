@@ -309,7 +309,8 @@ fun ReadListDetailScreen(
                             displayReadList,
                             bookCount = visible.size,
                             centered = false,
-                            first = heroFirst,
+                            stableId = displayReadList.id,
+                            coverHue = heroFirst?.hue ?: 210f,
                             createdDate = state.createdDate,
                             lastModifiedDate = state.lastModifiedDate,
                         )
@@ -372,7 +373,8 @@ fun ReadListDetailScreen(
                             displayReadList,
                             bookCount = visible.size,
                             centered = true,
-                            first = heroFirst,
+                            stableId = displayReadList.id,
+                            coverHue = heroFirst?.hue ?: 210f,
                             createdDate = state.createdDate,
                             lastModifiedDate = state.lastModifiedDate,
                         )
@@ -639,7 +641,8 @@ private fun ReadListHero(
     readList: ReadListDetail,
     bookCount: Int,
     centered: Boolean,
-    first: Book?,
+    stableId: Int,
+    coverHue: Float,
     createdDate: String?,
     lastModifiedDate: String?,
 ) {
@@ -649,17 +652,17 @@ private fun ReadListHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        if (first != null) {
-            CoverArt(
-                title = first.seriesTitle,
-                hue = first.hue,
-                stableId = first.id,
-                modifier = Modifier
-                    .width(112.dp)
-                    .aspectRatio(2f / 3f),
-            )
-            Spacer(Modifier.height(16.dp))
-        }
+        // The read list's own 2:3 collage thumbnail, same as the strip card — not the first book's
+        // cover, which misrepresents a multi-series list.
+        CoverArt(
+            title = readList.name,
+            hue = coverHue,
+            stableId = stableId,
+            modifier = Modifier
+                .width(112.dp)
+                .aspectRatio(2f / 3f),
+        )
+        Spacer(Modifier.height(16.dp))
         Text(
             text = readList.name,
             style = MaterialTheme.typography.headlineSmall,

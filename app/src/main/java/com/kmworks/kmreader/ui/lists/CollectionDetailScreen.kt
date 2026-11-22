@@ -506,15 +506,15 @@ private fun CollectionHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // The server has no collection thumbnail endpoint; reuse the thumbnail of the
-        // first series in the collection
+        // The collection thumbnail (a 2:3 collage) must keep the cover shape: a square frame
+        // would crop the portrait collage top and bottom.
         CoverArt(
             title = collection.name,
             hue = coverHue,
             stableId = stableId,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(1f),
+                .aspectRatio(2f / 3f),
         )
         Spacer(Modifier.height(16.dp))
         Text(
