@@ -190,8 +190,8 @@ object EpubJs {
 
 /** JS bridge (@JavascriptInterface callbacks arrive on the JS thread; everything hops to the main thread). */
 class EpubJsBridge(
-    private val onMetrics: (Float) -> Unit,
-    private val onTap: (Float) -> Unit,
+    private val metricsCallback: (Float) -> Unit,
+    private val tapCallback: (Float) -> Unit,
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -199,12 +199,15 @@ class EpubJsBridge(
     @JavascriptInterface
     fun onMetrics(fraction: String, scrollTop: Int, scrollHeight: Int, viewportHeight: Int) {
         val f = fraction.toFloatOrNull() ?: return
-        mainHandler.post { onMetrics(f) }
+        // The callback properties must not carry the @JavascriptInterface method names: a
+        // `post { onTap(x) }` would resolve to the member function instead of the property and
+        // repost itself on the main thread forever, starving the queue.
+        mainHandler.post { metricsCallback(f) }
     }
 
     @JavascriptInterface
     fun onTap(xFraction: Float) {
-        mainHandler.post { onTap(xFraction) }
+        mainHandler.post { tapCallback(xFraction) }
     }
 }
 
