@@ -72,14 +72,18 @@ import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.ActiveFilter
-import com.kmworks.kmreader.data.BookBrowseOptions
-import com.kmworks.kmreader.data.BookSortFields
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SeriesStatus
 import com.kmworks.kmreader.data.TriState
+import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.filterKey
+import com.kmworks.kmreader.data.normalizeSortField
 import com.kmworks.kmreader.data.notableEntityFromFilterKey
+import com.kmworks.kmreader.data.sortFieldsFor
+import com.kmworks.kmreader.data.supportsSortDirection
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -134,12 +138,14 @@ fun rememberPersistentBrowseLayout(
 }
 
 /**
- * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView):
- * [layout] [presets] [sort] + active-condition chips; tapping any chip opens the full panel.
+ * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView /
+ * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
+ * the full panel. [contentType] decides which presets and which sort vocabulary apply.
  */
 @Composable
 fun BrowseFilterChipFlow(
-    options: BookBrowseOptions,
+    options: BrowseOptions,
+    contentType: BrowseContentType,
     layout: BrowseLayout,
     onLayoutChange: (BrowseLayout) -> Unit,
     onOpenOptions: () -> Unit,
@@ -163,6 +169,7 @@ fun BrowseFilterChipFlow(
         )
         // Filter presets (the original savedFilter, persisted in FilterPresetStore, reused across pages)
         val browsePresets = rememberBrowseFilterPresets()
+        val presetsForType = browsePresets.presets.filter { it.contentType == contentType }
         Column {
             AssistChip(
                 onClick = { presetsOpen = true },
@@ -170,18 +177,18 @@ fun BrowseFilterChipFlow(
                 leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
             )
             DropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
-                if (browsePresets.presets.isEmpty()) {
+                if (presetsForType.isEmpty()) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.filter_no_presets)) },
                         enabled = false,
                         onClick = {},
                     )
                 }
-                browsePresets.presets.forEach { preset ->
+                presetsForType.forEach { preset ->
                     DropdownMenuItem(
                         text = { Text(preset.name) },
                         trailingIcon = {
-                            IconButton(onClick = { browsePresets.delete(preset.name) }) {
+                            IconButton(onClick = { browsePresets.delete(preset.name, contentType) }) {
                                 Icon(
                                     Icons.Filled.Close,
                                     contentDescription = stringResource(R.string.filter_delete_preset),
@@ -197,22 +204,24 @@ fun BrowseFilterChipFlow(
                 }
             }
         }
-        // Current sort (tap to open the full panel)
+        // Current sort (tap to open the full panel); 随机 has no direction
         AssistChip(
             onClick = onOpenOptions,
             label = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(bookSortFieldLabel(options.sortField))
-                    Icon(
-                        if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null,
-                    )
+                    Text(browseSortFieldLabel(options.sortField, contentType))
+                    if (supportsSortDirection(options.sortField, contentType)) {
+                        Icon(
+                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                        )
+                    }
                 }
             },
         )
         // Active-condition chips (negative = excluded, rendered in the error-tone variant)
-        options.activeFilterLabels().forEach { filter ->
+        options.activeFilterLabels(contentType).forEach { filter ->
             if (filter.negative) {
                 NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
             } else {
@@ -223,14 +232,17 @@ fun BrowseFilterChipFlow(
 }
 
 /**
- * Localized active-filter chip labels (the original BookBrowseOptions.activeFilters lived
+ * Localized active-filter chip labels (the original BrowseOptions.activeFilters lived
  * in the data layer with hardcoded Chinese; label resolution moved to the composable
- * call site so labels follow string resources).
+ * call site so labels follow string resources). [contentType] keeps the series-only
+ * dimensions (publisher/genre/language/age rating/release year/series status) out of
+ * the book chip row and vice versa.
  */
 @Composable
-fun BookBrowseOptions.activeFilterLabels(): List<ActiveFilter> {
+fun BrowseOptions.activeFilterLabels(contentType: BrowseContentType): List<ActiveFilter> {
     val context = LocalContext.current
     val displayLocale = context.resources.configuration.locales[0]
+    val isSeries = contentType == BrowseContentType.Series
     return buildList {
     readStatuses.forEach { (status, state) ->
         when (state) {
@@ -245,6 +257,10 @@ fun BookBrowseOptions.activeFilterLabels(): List<ActiveFilter> {
     // deleted is excluded by default (like the original); only an explicit "include deleted" counts as an active filter
     if (deleted == TriState.Include) {
         add(ActiveFilter(stringResource(R.string.filter_deleted), negative = false))
+    }
+    if (isSeries) {
+        if (complete == TriState.Include) add(ActiveFilter(stringResource(R.string.filter_complete), negative = false))
+        if (complete == TriState.Exclude) add(ActiveFilter(stringResource(R.string.filter_complete), negative = true))
     }
     if (authors.isNotEmpty()) {
         add(ActiveFilter(authors.joinToString(if (authorLogicAnd) " ∧ " else " ∨ "), negative = false))
@@ -265,21 +281,26 @@ fun BookBrowseOptions.activeFilterLabels(): List<ActiveFilter> {
             ),
         )
     }
-    if (publishers.isNotEmpty()) add(ActiveFilter(publishers.joinToString(" ∨ "), negative = false))
-    if (genres.isNotEmpty()) add(ActiveFilter(genres.joinToString(" ∨ "), negative = false))
-    if (ageRatings.isNotEmpty()) add(ActiveFilter(ageRatings.joinToString(" ∨ ") { "$it+" }, negative = false))
-    if (languages.isNotEmpty()) {
-        add(ActiveFilter(languages.joinToString(" ∨ ") { languageDisplayName(it, displayLocale) }, negative = false))
-    }
-    if (releaseYears.isNotEmpty()) add(ActiveFilter(releaseYears.joinToString(" ∨ "), negative = false))
-    if (seriesStatuses.isNotEmpty()) {
-        val statusLabels = seriesStatuses.map { context.getString(it.labelRes) }
-        add(
-            ActiveFilter(
-                statusLabels.joinToString(" ∨ "),
-                negative = false,
-            ),
-        )
+    if (isSeries) {
+        if (publishers.isNotEmpty()) add(ActiveFilter(publishers.joinToString(" ∨ "), negative = false))
+        if (genres.isNotEmpty()) add(ActiveFilter(genres.joinToString(" ∨ "), negative = false))
+        if (ageRatings.isNotEmpty()) add(ActiveFilter(ageRatings.joinToString(" ∨ ") { "$it+" }, negative = false))
+        if (languages.isNotEmpty()) {
+            add(ActiveFilter(languages.joinToString(" ∨ ") { languageDisplayName(it, displayLocale) }, negative = false))
+        }
+        if (releaseYears.isNotEmpty()) add(ActiveFilter(releaseYears.joinToString(" ∨ "), negative = false))
+        if (seriesStatuses.isNotEmpty()) {
+            val symbol = if (seriesStatusAllMatch) " ∧ " else " ∨ "
+            add(
+                ActiveFilter(
+                    seriesStatuses.joinToString(symbol) { context.getString(it.labelRes) },
+                    negative = false,
+                ),
+            )
+        }
+        excludedSeriesStatuses.forEach { status ->
+            add(ActiveFilter(context.getString(status.labelRes), negative = true))
+        }
     }
     }
 }
@@ -299,31 +320,40 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Filter & sort panel, laid out like the iOS BookBrowseOptionsSheet/SeriesBrowseOptionsSheet Form:
+ * Filter & sort panel, laid out like the iOS BrowseOptionsSheet/SeriesBrowseOptionsSheet Form:
  * a full-height sheet with rounded section cards (Sort, Read Status, Series Status, Flags,
  * Metadata), trailing state glyphs instead of chip walls, and a fixed Save/Done bar.
+ * [contentType] selects which of the two iOS panels this is: the series panel adds 系列状态,
+ * 完结 and the publisher/genre/language/age-rating/release-year dimensions and swaps in the
+ * series sort vocabulary; the book panel keeps 阅读日期/文件名/页数 and the book dimensions.
  * The suggestion* parameters scope the Referential candidate values (empty lists hide
  * the suggestions).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseOptionsSheet(
-    initialOptions: BookBrowseOptions,
-    onConfirm: (BookBrowseOptions) -> Unit,
+    initialOptions: BrowseOptions,
+    onConfirm: (BrowseOptions) -> Unit,
     onDismiss: () -> Unit,
-    // Series-only metadata dimensions (mirrors the original SeriesSearch condition groups; only the series browse page passes true)
-    showSeriesFilters: Boolean = false,
+    // Which catalogue the panel edits (mirrors the original's two separate sheets)
+    contentType: BrowseContentType = BrowseContentType.Books,
     // Scope of metadata suggestion values (mirrors the original MetadataFilterItemSource; fetched per scope when the sheet opens)
     suggestionLibraryIds: List<String>? = null,
     suggestionSeriesStableId: Int? = null,
     suggestionCollectionStableId: Int? = null,
     suggestionReadListStableId: Int? = null,
 ) {
+    val isSeries = contentType == BrowseContentType.Series
     // The sheet edits a draft: a condition is queried only once the user confirms with Done, so
     // ticking several dimensions does not fire one request per tap, and closing without confirming
     // leaves the list exactly as it was (mirrors the original BrowseFilterSheet).
-    var options by remember { mutableStateOf(initialOptions) }
-    val onOptionsChange: (BookBrowseOptions) -> Unit = { updated -> options = updated }
+    // A sort token from the other catalogue (switching Library tabs, an old preset) falls back to
+    // the closest equivalent of this type, otherwise the picker would show no selection.
+    val initialOptionsForType = remember(initialOptions, contentType) {
+        initialOptions.copy(sortField = normalizeSortField(initialOptions.sortField, contentType))
+    }
+    var options by remember(initialOptionsForType) { mutableStateOf(initialOptionsForType) }
+    val onOptionsChange: (BrowseOptions) -> Unit = { updated -> options = updated }
     val browseSuggestions = rememberBrowseFilterSuggestions(
         libraryIds = suggestionLibraryIds,
         seriesStableId = suggestionSeriesStableId,
@@ -348,7 +378,7 @@ fun BrowseOptionsSheet(
     // Row order mirrors the iOS MetadataFilterSection: publisher, authors, genres, tags,
     // notable entities, languages, age ratings and release years.
     val metadataDimensions = mutableListOf<MetaDimension>()
-    if (showSeriesFilters) {
+    if (isSeries) {
         metadataDimensions += MetaDimension(
             stringResource(R.string.filter_publisher),
             options.publishers,
@@ -362,7 +392,7 @@ fun BrowseOptionsSheet(
         if (options.authorLogicAnd) "∧" else "∨",
         "authors",
     )
-    if (showSeriesFilters) {
+    if (isSeries) {
         metadataDimensions += MetaDimension(
             stringResource(R.string.filter_genre),
             options.genres,
@@ -382,7 +412,7 @@ fun BrowseOptionsSheet(
         if (options.notableEntitiesAllMatch) "∧" else "∨",
         "notableEntities",
     )
-    if (showSeriesFilters) {
+    if (isSeries) {
         metadataDimensions += MetaDimension(
             stringResource(R.string.filter_language),
             options.languages.map { languageDisplayName(it, displayLocale) },
@@ -417,7 +447,18 @@ fun BrowseOptionsSheet(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { onOptionsChange(BookBrowseOptions()) }) {
+                // 重置 clears the conditions but keeps the current sort (mirrors the original Reset,
+                // which never overwrites sortField/sortDirection)
+                TextButton(
+                    onClick = {
+                        onOptionsChange(
+                            defaultBrowseOptions(contentType).copy(
+                                sortField = options.sortField,
+                                sortAscending = options.sortAscending,
+                            ),
+                        )
+                    },
+                ) {
                     Text(stringResource(R.string.common_reset), color = MaterialTheme.colorScheme.error)
                 }
                 IconButton(onClick = onDismiss) {
@@ -435,14 +476,19 @@ fun BrowseOptionsSheet(
                 item {
                     FilterSection(stringResource(R.string.filter_sort)) {
                         SortFieldRow(
+                            fields = sortFieldsFor(contentType),
                             selectedField = options.sortField,
+                            labelOf = { field -> browseSortFieldLabel(field, contentType) },
                             onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
                         )
-                        FilterRowDivider()
-                        SortDirectionRow(
-                            ascending = options.sortAscending,
-                            onChange = { ascending -> onOptionsChange(options.copy(sortAscending = ascending)) },
-                        )
+                        // 随机 is an unordered shuffle: no direction row (mirrors supportsDirection)
+                        if (supportsSortDirection(options.sortField, contentType)) {
+                            FilterRowDivider()
+                            SortDirectionRow(
+                                ascending = options.sortAscending,
+                                onChange = { ascending -> onOptionsChange(options.copy(sortAscending = ascending)) },
+                            )
+                        }
                     }
                 }
 
@@ -469,25 +515,38 @@ fun BrowseOptionsSheet(
                     }
                 }
 
-                if (showSeriesFilters) {
+                if (isSeries) {
                     item {
                         FilterSection(stringResource(R.string.filter_series_status)) {
-                            SeriesStatus.entries.forEachIndexed { index, status ->
-                                if (index > 0) FilterRowDivider()
-                                FilterSelectionRow(
+                            // ∧/∨ across the included statuses (mirrors the iOS seriesStatusLogic
+                            // All/Any segmented picker above the status rows)
+                            SingleChoiceSegmentedButtonRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                SegmentedButton(
+                                    selected = options.seriesStatusAllMatch,
+                                    onClick = { onOptionsChange(options.copy(seriesStatusAllMatch = true)) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                                ) { Text(stringResource(R.string.filter_match_all)) }
+                                SegmentedButton(
+                                    selected = !options.seriesStatusAllMatch,
+                                    onClick = { onOptionsChange(options.copy(seriesStatusAllMatch = false)) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                ) { Text(stringResource(R.string.filter_match_any)) }
+                            }
+                            // Each status cycles off → 包含 → 排除 → off (mirrors cycleSeriesStatus)
+                            SeriesStatus.entries.forEach { status ->
+                                FilterRowDivider()
+                                FilterTriStateRow(
                                     label = stringResource(status.labelRes),
-                                    selected = status in options.seriesStatuses,
-                                    onToggle = {
-                                        onOptionsChange(
-                                            options.copy(
-                                                seriesStatuses = if (status in options.seriesStatuses) {
-                                                    options.seriesStatuses - status
-                                                } else {
-                                                    options.seriesStatuses + status
-                                                },
-                                            ),
-                                        )
+                                    state = when {
+                                        status in options.seriesStatuses -> TriState.Include
+                                        status in options.excludedSeriesStatuses -> TriState.Exclude
+                                        else -> TriState.Off
                                     },
+                                    onCycle = { onOptionsChange(options.cycleSeriesStatus(status)) },
                                 )
                             }
                         }
@@ -496,6 +555,15 @@ fun BrowseOptionsSheet(
 
                 item {
                     FilterSection(stringResource(R.string.filter_flags)) {
+                        // 完结 only exists on the series panel (mirrors SeriesBrowseOptions.completeFilter)
+                        if (isSeries) {
+                            FilterTriStateRow(
+                                label = stringResource(R.string.filter_complete),
+                                state = options.complete,
+                                onCycle = { onOptionsChange(options.copy(complete = options.complete.next)) },
+                            )
+                            FilterRowDivider()
+                        }
                         FilterTriStateRow(
                             label = stringResource(R.string.filter_oneshot),
                             state = options.oneshot,
@@ -554,7 +622,7 @@ fun BrowseOptionsSheet(
             onDismiss = { showSaveDialog = false },
             onSave = { name ->
                 showSaveDialog = false
-                browsePresets.save(name, options)
+                browsePresets.save(name, contentType, options)
             },
         )
     }
@@ -680,7 +748,12 @@ private fun FilterRowDivider() {
 
 /** Sort-field menu row (iOS Form menu Picker): label left, current value + chevron right. */
 @Composable
-private fun SortFieldRow(selectedField: String, onSelect: (String) -> Unit) {
+private fun SortFieldRow(
+    fields: List<String>,
+    selectedField: String,
+    labelOf: @Composable (String) -> String,
+    onSelect: (String) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -702,7 +775,7 @@ private fun SortFieldRow(selectedField: String, onSelect: (String) -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = bookSortFieldLabel(selectedField),
+                    text = labelOf(selectedField),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -719,9 +792,9 @@ private fun SortFieldRow(selectedField: String, onSelect: (String) -> Unit) {
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.widthIn(min = 200.dp),
             ) {
-                BookSortFields.forEach { field ->
+                fields.forEach { field ->
                     DropdownMenuItem(
-                        text = { Text(bookSortFieldLabel(field)) },
+                        text = { Text(labelOf(field)) },
                         onClick = {
                             expanded = false
                             onSelect(field)
@@ -1077,4 +1150,22 @@ private fun Map<ReadStatus, TriState>.applyReadStatusToggle(
         }
     }
     return result
+}
+
+/**
+ * Cycle one series status through off → 包含 → 排除 → off (mirrors cycleSeriesStatus of the
+ * original): an included status moves to the excluded list and vice versa, so a status can
+ * never sit in both lists.
+ */
+private fun BrowseOptions.cycleSeriesStatus(status: SeriesStatus): BrowseOptions {
+    val included = status in seriesStatuses
+    val excluded = status in excludedSeriesStatuses
+    return when {
+        !included && !excluded -> copy(seriesStatuses = seriesStatuses + status)
+        included -> copy(
+            seriesStatuses = seriesStatuses - status,
+            excludedSeriesStatuses = excludedSeriesStatuses + status,
+        )
+        else -> copy(excludedSeriesStatuses = excludedSeriesStatuses - status)
+    }
 }

@@ -2,7 +2,8 @@ package com.kmworks.kmreader.ui.library
 
 import androidx.annotation.StringRes
 import com.kmworks.kmreader.R
-import com.kmworks.kmreader.data.BookBrowseOptions
+import com.kmworks.kmreader.data.BrowseContentType
+import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.NotableEntity
 import com.kmworks.kmreader.data.filterKey
 
@@ -11,6 +12,12 @@ import com.kmworks.kmreader.data.filterKey
 enum class LibraryContentType(@param:StringRes val labelRes: Int) {
     Series(R.string.common_series),
     Books(R.string.browse_scope_books),
+}
+
+/** The filter panel type matching this tab: each tab edits its own options. */
+fun LibraryContentType.toBrowseContentType(): BrowseContentType = when (this) {
+    LibraryContentType.Series -> BrowseContentType.Series
+    LibraryContentType.Books -> BrowseContentType.Books
 }
 
 /**
@@ -56,9 +63,9 @@ internal data class AppliedMetadataRoute(
  * not understand, so an unknown token is ignored instead of wiping the current filter.
  */
 internal fun applyFilterRoute(
-    base: BookBrowseOptions,
+    base: BrowseOptions,
     route: String,
-): Pair<BookBrowseOptions, AppliedMetadataRoute>? {
+): Pair<BrowseOptions, AppliedMetadataRoute>? {
     val parts = route.split("·").map { it.trim() }
     val kind = parts.getOrNull(0).orEmpty()
     return when {
@@ -104,9 +111,9 @@ internal fun applyFilterRoute(
 
 /** Removes the condition [applyFilterRoute] injected, leaving every other browse option untouched. */
 internal fun revokeFilterRoute(
-    options: BookBrowseOptions,
+    options: BrowseOptions,
     applied: AppliedMetadataRoute,
-): BookBrowseOptions {
+): BrowseOptions {
     // The value was already part of the list before the jump: revoking must not drop the user's own filter
     if (!applied.added) return options
     return when (applied.kind) {
@@ -125,10 +132,10 @@ internal fun revokeFilterRoute(
 }
 
 private fun injected(
-    base: BookBrowseOptions,
+    base: BrowseOptions,
     kind: String,
     value: String,
     present: Boolean,
-    add: BookBrowseOptions.() -> BookBrowseOptions,
-): Pair<BookBrowseOptions, AppliedMetadataRoute> =
+    add: BrowseOptions.() -> BrowseOptions,
+): Pair<BrowseOptions, AppliedMetadataRoute> =
     (if (present) base else base.add()) to AppliedMetadataRoute(kind = kind, value = value, added = !present)

@@ -70,6 +70,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.settings.AppSettingsStore
+import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.SampleData
@@ -160,7 +161,7 @@ fun BrowseScreen(
                 AssistChip(
                     onClick = { showFilterSheet = true },
                     label = {
-                        val count = browseOptions.activeFilterLabels().size
+                        val count = browseOptions.activeFilterLabels(BrowseContentType.Series).size
                         Text(
                             if (count > 0) {
                                 stringResource(R.string.browse_filter_count, count)
@@ -207,8 +208,10 @@ fun BrowseScreen(
                     initialOptions = browseOptions,
                     onConfirm = viewModel::setBrowseOptions,
                     onDismiss = { showFilterSheet = false },
-                    // The search tab's series search supports metadata dimensions (book search ignores inapplicable keys)
-                    showSeriesFilters = true,
+                    // One panel covers both result groups: the search tab queries series and books with the
+                    // same conditions (mirrors the iOS search filters), and a book query simply ignores
+                    // the series-only dimensions it cannot express.
+                    contentType = BrowseContentType.Series,
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
             }
