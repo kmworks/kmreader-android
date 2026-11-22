@@ -34,32 +34,34 @@ data class SmartListFilterState(
 ) {
     /** Per-value granularity like the web UI's activeFilterCount; each active tri-state flag counts once. */
     val activeFilterCount: Int
-        get() {
-            val opts = options
-            val flags = listOf(opts.oneshot, opts.deleted).count { it != TriState.Off } +
-                (if (contentType == BrowseContentType.Series) {
-                    listOf(opts.complete).count { it != TriState.Off }
-                } else {
-                    0
-                })
-            val statuses = opts.readStatuses.values.count { it != TriState.Off } +
-                (if (contentType == BrowseContentType.Series) {
-                    opts.seriesStatuses.size + opts.excludedSeriesStatuses.size
-                } else {
-                    0
-                })
-            val metadata = opts.authors.size + opts.tags.size + opts.notableEntities.size +
-                (if (contentType == BrowseContentType.Series) {
-                    opts.publishers.size + opts.genres.size + opts.languages.size +
-                        opts.ageRatings.size + opts.releaseYears.size
-                } else {
-                    0
-                })
-            return flags + statuses + metadata
-        }
+        get() = SmartListFilterMapper.activeFilterCount(contentType, options)
 }
 
 object SmartListFilterMapper {
+
+    /** Number of active browse conditions (mirrors the iOS activeFilterCount; full text/libraries excluded). */
+    fun activeFilterCount(contentType: BrowseContentType, options: BrowseOptions): Int {
+        val flags = listOf(options.oneshot, options.deleted).count { it != TriState.Off } +
+            (if (contentType == BrowseContentType.Series) {
+                listOf(options.complete).count { it != TriState.Off }
+            } else {
+                0
+            })
+        val statuses = options.readStatuses.values.count { it != TriState.Off } +
+            (if (contentType == BrowseContentType.Series) {
+                options.seriesStatuses.size + options.excludedSeriesStatuses.size
+            } else {
+                0
+            })
+        val metadata = options.authors.size + options.tags.size + options.notableEntities.size +
+            (if (contentType == BrowseContentType.Series) {
+                options.publishers.size + options.genres.size + options.languages.size +
+                    options.ageRatings.size + options.releaseYears.size
+            } else {
+                0
+            })
+        return flags + statuses + metadata
+    }
 
     /** Smart list target -> browse vocabulary. */
     fun browseContentType(target: SmartListTarget): BrowseContentType = when (target) {
@@ -599,4 +601,10 @@ private fun JsonElement?.asInt(): Int? {
     primitive.content.toIntOrNull()?.let { return it }
     val double = primitive.content.toDoubleOrNull() ?: return null
     return if (double % 1.0 == 0.0) double.toInt() else null
+}
+
+/** Smart list target -> the server's target value. */
+fun SmartListTarget.toDtoTarget(): String = when (this) {
+    SmartListTarget.Book -> "BOOK"
+    SmartListTarget.Series -> "SERIES"
 }

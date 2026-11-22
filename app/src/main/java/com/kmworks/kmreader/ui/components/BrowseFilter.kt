@@ -403,6 +403,8 @@ fun BrowseOptionsSheet(
     onDismiss: () -> Unit,
     // Which catalogue the panel edits (mirrors the original's two separate sheets)
     contentType: BrowseContentType = BrowseContentType.Books,
+    // Smart lists store conditions only, so the embedded panel hides the Sort card (mirrors showsSort: false)
+    showsSort: Boolean = true,
     // Scope of metadata suggestion values (mirrors the original MetadataFilterItemSource; fetched per scope when the sheet opens)
     suggestionLibraryIds: List<String>? = null,
     suggestionSeriesStableId: Int? = null,
@@ -539,21 +541,23 @@ fun BrowseOptionsSheet(
                     .fillMaxWidth(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
             ) {
-                item {
-                    FilterSection(stringResource(R.string.filter_sort)) {
-                        SortFieldRow(
-                            fields = sortFieldsFor(contentType),
-                            selectedField = options.sortField,
-                            labelOf = { field -> browseSortFieldLabel(field, contentType) },
-                            onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
-                        )
-                        // 随机 is an unordered shuffle: no direction row (mirrors supportsDirection)
-                        if (supportsSortDirection(options.sortField, contentType)) {
-                            FilterRowDivider()
-                            SortDirectionRow(
-                                ascending = options.sortAscending,
-                                onChange = { ascending -> onOptionsChange(options.copy(sortAscending = ascending)) },
+                if (showsSort) {
+                    item {
+                        FilterSection(stringResource(R.string.filter_sort)) {
+                            SortFieldRow(
+                                fields = sortFieldsFor(contentType),
+                                selectedField = options.sortField,
+                                labelOf = { field -> browseSortFieldLabel(field, contentType) },
+                                onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
                             )
+                            // 随机 is an unordered shuffle: no direction row (mirrors supportsDirection)
+                            if (supportsSortDirection(options.sortField, contentType)) {
+                                FilterRowDivider()
+                                SortDirectionRow(
+                                    ascending = options.sortAscending,
+                                    onChange = { ascending -> onOptionsChange(options.copy(sortAscending = ascending)) },
+                                )
+                            }
                         }
                     }
                 }
