@@ -149,18 +149,34 @@ class SeriesDetailViewModel @Inject constructor(
     /** DTO id of the current detail (used by komf calls and for refreshing after a job completes). */
     private var dtoId: String? = null
     private var komfSearchJob: Job? = null
+    private var trackerLinksJob: Job? = null
 
     init {
         // The admin role gates the series/book card menus and the komf entries; follow the active session so a
-        // server switch re-evaluates them instead of keeping the previous server's answer.
+        // server switch re-evaluates them instead of keeping the previous server's answer. The Trackers
+        // capability is followed too: the server/info probe can land after load(), and the section then has to
+        // appear without re-entering the page (load() seeds the same value, so this only reports changes).
         viewModelScope.launch {
             combine(
                 serverAdminRepository.adminStatus,
                 serverProfileStore.profile,
             ) { isAdmin, profile ->
-                isAdmin to (isAdmin && profile?.features?.contains(ServerFeature.Komf) == true)
-            }.collect { (isAdmin, komfAvailable) ->
-                _uiState.update { it.copy(isAdmin = isAdmin, komfAvailable = komfAvailable) }
+                DetailCapabilities(
+                    isAdmin = isAdmin,
+                    komfAvailable = isAdmin && profile?.features?.contains(ServerFeature.Komf) == true,
+                    trackerSupported = profile?.features?.contains(ServerFeature.Trackers) == true,
+                )
+            }.collect { capabilities ->
+                val wasTrackerSupported = _uiState.value.trackerSupported
+                _uiState.update {
+                    it.copy(
+                        isAdmin = capabilities.isAdmin,
+                        komfAvailable = capabilities.komfAvailable,
+                        trackerSupported = capabilities.trackerSupported,
+                    )
+                }
+                // Support just turned on: read the bindings the earlier read could not ask for.
+                if (capabilities.trackerSupported && !wasTrackerSupported) refreshTrackerLinks()
             }
         }
     }
@@ -502,12 +518,14 @@ class SeriesDetailViewModel @Inject constructor(
     }
 
     /** Tracker binding refresh: only fetched when the kmrs Trackers capability exists; failures keep the old values
-     *  (mirroring the TrackerSeriesView reload). */
+     *  (mirroring the TrackerSeriesView reload). A capability change can fire this while a read is in flight, so
+     *  the previous read is cancelled and the newest answer wins instead of racing it. */
     fun refreshTrackerLinks() {
         if (!trackerRepository.supported) return
         val dtoId = dtoId ?: return
-        viewModelScope.launch {
-            val links = trackerRepository.links(dtoId) ?: return@launch
+        trackerLinksJob?.cancel()
+        trackerLinksJob = viewModelScope.launch {
+            val links = trackerRepository.links(dtoId)
             val enriched = coroutineScope {
                 links.map { link ->
                     async {
@@ -916,3 +934,10 @@ class SeriesDetailViewModel @Inject constructor(
  * debounce, and a full load may have just landed, which already read the post-write aggregates.
  */
 private const val SETTLE_SUPPRESS_MILLIS = 3_000L
+
+/** Capability flags the session/profile combine of [SeriesDetailViewModel] pushes into the UI state. */
+private data class DetailCapabilities(
+    val isAdmin: Boolean,
+    val komfAvailable: Boolean,
+    val trackerSupported: Boolean,
+)
