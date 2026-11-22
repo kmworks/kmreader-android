@@ -17,6 +17,7 @@ import com.kmworks.kmreader.ui.reader.PageTransitionStyle
 import com.kmworks.kmreader.ui.reader.PdfReaderSettings
 import com.kmworks.kmreader.ui.reader.PreloadProfile
 import com.kmworks.kmreader.ui.reader.ReaderBackground
+import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.TapZoneInversion
 import com.kmworks.kmreader.ui.reader.TapZoneMode
@@ -94,6 +95,26 @@ class DivinaSettingsStore @Inject constructor(
             if (joined.isEmpty()) prefs.remove(keySoloPages) else prefs[keySoloPages] = joined
         }
     }
+
+    // ---- Reading direction remembered per book -------------------------------------------------
+    // The menu's "current reading options" are session-scoped (mirrors the original @State values),
+    // except the direction: a direction the user picked for one book is remembered, so reopening that
+    // book does not fall back to the series metadata. Stored like soloPages ("bookDtoId:Direction||…").
+    val bookDirections: Flow<Map<String, ReadingDirection>> = store.data.map { prefs ->
+        parseBookDirections(prefs[keyBookDirections])
+    }
+
+    /** Remembers [direction] for [bookDtoId]; null forgets the book (back to the settings/metadata chain). */
+    suspend fun setBookDirection(bookDtoId: String, direction: ReadingDirection?) {
+        store.edit { prefs ->
+            val next = parseBookDirections(prefs[keyBookDirections]).toMutableMap()
+            if (direction == null) next.remove(bookDtoId) else next[bookDtoId] = direction
+            val formatted = formatBookDirections(next)
+            if (formatted == null) prefs.remove(keyBookDirections) else prefs[keyBookDirections] = formatted
+        }
+    }
+
+    private val keyBookDirections = stringPreferencesKey("divinaBookDirections")
 
     // ---- EPUB reader settings (mirrors the original epubPreferences/epubFlowStyle/animateEpubTapTurns etc. @AppStorage) ----
     val epubSettings: Flow<EpubReaderSettings> = store.data.map { prefs ->
@@ -247,3 +268,27 @@ class DivinaSettingsStore @Inject constructor(
         val PDF_SHOW_PROGRESS = booleanPreferencesKey("showPdfProgressBarWhileReading")
     }
 }
+
+/**
+ * Parses the per-book direction map ("bookDtoId:DirectionName||…"). Entries with an unknown enum name
+ * (a build that dropped a mode) are skipped instead of failing the whole map.
+ */
+internal fun parseBookDirections(raw: String?): Map<String, ReadingDirection> =
+    raw?.split("||")
+        ?.mapNotNull { entry ->
+            val separator = entry.indexOf(':')
+            if (separator <= 0 || separator == entry.lastIndex) return@mapNotNull null
+            val id = entry.substring(0, separator)
+            val name = entry.substring(separator + 1)
+            val direction = ReadingDirection.entries.firstOrNull { it.name == name } ?: return@mapNotNull null
+            id to direction
+        }
+        ?.toMap()
+        .orEmpty()
+
+/** Inverse of [parseBookDirections]; null when nothing is remembered (so the key can be removed). */
+internal fun formatBookDirections(directions: Map<String, ReadingDirection>): String? =
+    directions.entries
+        .sortedBy { it.key }
+        .joinToString("||") { (id, direction) -> "$id:${direction.name}" }
+        .ifEmpty { null }

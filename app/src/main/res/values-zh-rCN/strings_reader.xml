@@ -87,6 +87,8 @@
     <!-- Reader: in-reader menu -->
     <string name="reader_menu_current_options">当前阅读选项</string>
     <string name="reader_menu_direction">阅读方向</string>
+    <string name="reader_menu_direction_follow_default">跟随默认</string>
+    <string name="reader_menu_direction_follow_default_hint">由阅读器默认设置和系列元数据决定；不再记住本书的选择</string>
     <string name="reader_menu_page_layout">页面布局</string>
     <string name="reader_menu_split_wide">拆分宽页</string>
     <string name="reader_menu_solo_cover">独显封面</string>
