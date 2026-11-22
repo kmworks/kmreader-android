@@ -121,6 +121,13 @@ class BrowseViewModel @Inject constructor(
     private var readListsPage = 0
     private var collectionsPage = 0
 
+    /**
+     * The effective query each kind's visible list was fetched with (keyed by the dedicated scope of
+     * that kind). A scope switch that reproduces the same query keeps the accumulated pages instead
+     * of refetching from page 0 — e.g. All -> Series with untouched filters, and back.
+     */
+    private val kindSignatures = mutableMapOf<SearchScope, String>()
+
     init {
         // library list for the scope menu (on failure fall back to an empty list, no error state)
         viewModelScope.launch {
@@ -343,14 +350,144 @@ class BrowseViewModel @Inject constructor(
         }
     }
 
+    // Default options run the same query as no options (library condition + the type's default
+    // sort), so they do not distinguish a kind's signature: untouched filters reuse, real filters refetch.
+    private fun seriesKey(request: SearchRequest): String = listOf(
+        request.query,
+        request.libraryIds?.joinToString(","),
+        request.seriesFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Series) },
+    ).joinToString("|")
+
+    private fun booksKey(request: SearchRequest): String = listOf(
+        request.query,
+        request.libraryIds?.joinToString(","),
+        request.bookFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Books) },
+    ).joinToString("|")
+
+    private fun listsKey(request: SearchRequest): String =
+        listOf(request.query, request.libraryIds?.joinToString(",")).joinToString("|")
+
+    private fun resetKind(kind: SearchScope) {
+        kindSignatures.remove(kind)
+        when (kind) {
+            SearchScope.Series -> seriesPage = 0
+            SearchScope.Books -> booksPage = 0
+            SearchScope.ReadLists -> readListsPage = 0
+            SearchScope.Collections -> collectionsPage = 0
+            SearchScope.All -> Unit
+        }
+    }
+
+    /** Load the next page of one result kind (the grouped strips page independently of each other). */
+    fun loadMoreKind(kind: SearchScope) {
+        if (kind == SearchScope.All) return
+        val request = currentRequest ?: return
+        if (loadingMore) return
+        val state = _state.value
+        val hasMore = when (kind) {
+            SearchScope.Series -> state.seriesHasMore
+            SearchScope.Books -> state.booksHasMore
+            SearchScope.ReadLists -> state.readListsHasMore
+            SearchScope.Collections -> state.collectionsHasMore
+            SearchScope.All -> false
+        }
+        if (!hasMore) return
+        loadingMore = true
+        viewModelScope.launch {
+            _state.update { it.copy(loadingMore = true) }
+            try {
+                when (kind) {
+                    SearchScope.Series -> {
+                        val next = seriesPage + 1
+                        val result = searchRepository.searchSeriesPage(
+                            request.query, request.libraryIds, request.seriesFilters, next, SERIES_PAGE_SIZE,
+                        )
+                        if (currentRequest != request) return@launch
+                        seriesPage = next
+                        _state.update { st ->
+                            val items = st.series + result.items.filterNot { item -> st.series.any { it.id == item.id } }
+                            st.copy(
+                                loadingMore = false,
+                                series = items,
+                                seriesHasMore = result.hasMore,
+                                hasMore = computeHasMore(st.copy(seriesHasMore = result.hasMore), request.scope),
+                            )
+                        }
+                    }
+                    SearchScope.Books -> {
+                        val next = booksPage + 1
+                        val result = searchRepository.searchBooksPage(
+                            request.query, request.libraryIds, request.bookFilters, next, BOOKS_PAGE_SIZE,
+                        )
+                        if (currentRequest != request) return@launch
+                        booksPage = next
+                        _state.update { st ->
+                            val items = st.books + result.items.filterNot { item -> st.books.any { it.id == item.id } }
+                            st.copy(
+                                loadingMore = false,
+                                books = items,
+                                booksHasMore = result.hasMore,
+                                hasMore = computeHasMore(st.copy(booksHasMore = result.hasMore), request.scope),
+                            )
+                        }
+                    }
+                    SearchScope.ReadLists -> {
+                        val next = readListsPage + 1
+                        val result = searchRepository.searchReadListsPage(
+                            request.query, request.libraryIds, next, LISTS_PAGE_SIZE,
+                        )
+                        if (currentRequest != request) return@launch
+                        readListsPage = next
+                        _state.update { st ->
+                            val items = st.readLists + result.items.filterNot { item -> st.readLists.any { it.id == item.id } }
+                            st.copy(
+                                loadingMore = false,
+                                readLists = items,
+                                readListsHasMore = result.hasMore,
+                                hasMore = computeHasMore(st.copy(readListsHasMore = result.hasMore), request.scope),
+                            )
+                        }
+                    }
+                    SearchScope.Collections -> {
+                        val next = collectionsPage + 1
+                        val result = searchRepository.searchCollectionsPage(
+                            request.query, request.libraryIds, next, LISTS_PAGE_SIZE,
+                        )
+                        if (currentRequest != request) return@launch
+                        collectionsPage = next
+                        _state.update { st ->
+                            val items = st.collections + result.items.filterNot { item -> st.collections.any { it.id == item.id } }
+                            st.copy(
+                                loadingMore = false,
+                                collections = items,
+                                collectionsHasMore = result.hasMore,
+                                hasMore = computeHasMore(st.copy(collectionsHasMore = result.hasMore), request.scope),
+                            )
+                        }
+                    }
+                    SearchScope.All -> Unit
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed))
+                }
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
+
     private suspend fun performSearch(request: SearchRequest) {
         currentRequest = request
-        seriesPage = 0
-        booksPage = 0
-        readListsPage = 0
-        collectionsPage = 0
         // No session or blank query: clear results and let the screen show its empty state (no fake-data fallback)
         if (!request.hasSession || request.query.isBlank()) {
+            kindSignatures.clear()
+            seriesPage = 0
+            booksPage = 0
+            readListsPage = 0
+            collectionsPage = 0
             _state.update {
                 it.copy(
                     loading = false,
@@ -370,11 +507,52 @@ class BrowseViewModel @Inject constructor(
             return
         }
 
+        val wantsSeries = request.scope == SearchScope.All || request.scope == SearchScope.Series
+        val wantsBooks = request.scope == SearchScope.All || request.scope == SearchScope.Books
+        val wantsReadLists = request.scope == SearchScope.All || request.scope == SearchScope.ReadLists
+        val wantsCollections = request.scope == SearchScope.All || request.scope == SearchScope.Collections
+
+        // A kind keeps its accumulated pages when this request reproduces the exact query its
+        // visible list was fetched with; anything else goes back to page 0.
+        val reuseSeries = wantsSeries && kindSignatures[SearchScope.Series] == seriesKey(request)
+        val reuseBooks = wantsBooks && kindSignatures[SearchScope.Books] == booksKey(request)
+        val reuseReadLists = wantsReadLists && kindSignatures[SearchScope.ReadLists] == listsKey(request)
+        val reuseCollections = wantsCollections && kindSignatures[SearchScope.Collections] == listsKey(request)
+        if (!reuseSeries) resetKind(SearchScope.Series)
+        if (!reuseBooks) resetKind(SearchScope.Books)
+        if (!reuseReadLists) resetKind(SearchScope.ReadLists)
+        if (!reuseCollections) resetKind(SearchScope.Collections)
+        val fetchSeries = wantsSeries && !reuseSeries
+        val fetchBooks = wantsBooks && !reuseBooks
+        val fetchReadLists = wantsReadLists && !reuseReadLists
+        val fetchCollections = wantsCollections && !reuseCollections
+
+        if (!fetchSeries && !fetchBooks && !fetchReadLists && !fetchCollections) {
+            // Every in-scope kind is reused: only out-of-scope leftovers need clearing.
+            _state.update { st ->
+                val updated = st.copy(
+                    loading = false,
+                    loadingMore = false,
+                    error = null,
+                    series = if (wantsSeries) st.series else emptyList(),
+                    books = if (wantsBooks) st.books else emptyList(),
+                    readLists = if (wantsReadLists) st.readLists else emptyList(),
+                    collections = if (wantsCollections) st.collections else emptyList(),
+                    seriesHasMore = if (wantsSeries) st.seriesHasMore else false,
+                    booksHasMore = if (wantsBooks) st.booksHasMore else false,
+                    readListsHasMore = if (wantsReadLists) st.readListsHasMore else false,
+                    collectionsHasMore = if (wantsCollections) st.collectionsHasMore else false,
+                )
+                updated.copy(hasMore = computeHasMore(updated, request.scope))
+            }
+            return
+        }
+
         _state.update { it.copy(loading = true, error = null) }
         try {
             val seriesResult = coroutineScope {
                 val series = async {
-                    if (request.scope == SearchScope.All || request.scope == SearchScope.Series) {
+                    if (fetchSeries) {
                         searchRepository.searchSeriesPage(
                             request.query,
                             request.libraryIds,
@@ -387,7 +565,7 @@ class BrowseViewModel @Inject constructor(
                     }
                 }
                 val books = async {
-                    if (request.scope == SearchScope.All || request.scope == SearchScope.Books) {
+                    if (fetchBooks) {
                         searchRepository.searchBooksPage(
                             request.query,
                             request.libraryIds,
@@ -400,7 +578,7 @@ class BrowseViewModel @Inject constructor(
                     }
                 }
                 val readLists = async {
-                    if (request.scope == SearchScope.All || request.scope == SearchScope.ReadLists) {
+                    if (fetchReadLists) {
                         searchRepository.searchReadListsPage(
                             request.query,
                             request.libraryIds,
@@ -412,7 +590,7 @@ class BrowseViewModel @Inject constructor(
                     }
                 }
                 val collections = async {
-                    if (request.scope == SearchScope.All || request.scope == SearchScope.Collections) {
+                    if (fetchCollections) {
                         searchRepository.searchCollectionsPage(
                             request.query,
                             request.libraryIds,
@@ -430,18 +608,22 @@ class BrowseViewModel @Inject constructor(
                     collections = collections.await(),
                 )
             }
+            if (fetchSeries) kindSignatures[SearchScope.Series] = seriesKey(request)
+            if (fetchBooks) kindSignatures[SearchScope.Books] = booksKey(request)
+            if (fetchReadLists) kindSignatures[SearchScope.ReadLists] = listsKey(request)
+            if (fetchCollections) kindSignatures[SearchScope.Collections] = listsKey(request)
             _state.update { st ->
                 val updated = st.copy(
                     loading = false,
                     loadingMore = false,
-                    series = seriesResult.series?.items.orEmpty(),
-                    books = seriesResult.books?.items.orEmpty(),
-                    readLists = seriesResult.readLists?.items.orEmpty(),
-                    collections = seriesResult.collections?.items.orEmpty(),
-                    seriesHasMore = seriesResult.series?.hasMore ?: false,
-                    booksHasMore = seriesResult.books?.hasMore ?: false,
-                    readListsHasMore = seriesResult.readLists?.hasMore ?: false,
-                    collectionsHasMore = seriesResult.collections?.hasMore ?: false,
+                    series = if (fetchSeries) seriesResult.series?.items.orEmpty() else if (wantsSeries) st.series else emptyList(),
+                    books = if (fetchBooks) seriesResult.books?.items.orEmpty() else if (wantsBooks) st.books else emptyList(),
+                    readLists = if (fetchReadLists) seriesResult.readLists?.items.orEmpty() else if (wantsReadLists) st.readLists else emptyList(),
+                    collections = if (fetchCollections) seriesResult.collections?.items.orEmpty() else if (wantsCollections) st.collections else emptyList(),
+                    seriesHasMore = if (fetchSeries) seriesResult.series?.hasMore ?: false else if (wantsSeries) st.seriesHasMore else false,
+                    booksHasMore = if (fetchBooks) seriesResult.books?.hasMore ?: false else if (wantsBooks) st.booksHasMore else false,
+                    readListsHasMore = if (fetchReadLists) seriesResult.readLists?.hasMore ?: false else if (wantsReadLists) st.readListsHasMore else false,
+                    collectionsHasMore = if (fetchCollections) seriesResult.collections?.hasMore ?: false else if (wantsCollections) st.collectionsHasMore else false,
                 )
                 updated.copy(hasMore = computeHasMore(updated, request.scope))
             }
