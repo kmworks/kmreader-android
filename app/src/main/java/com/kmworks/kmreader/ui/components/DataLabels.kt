@@ -93,12 +93,15 @@ fun bookSortFieldLabel(field: String): String = when (field) {
 /** Display label for a series sort-field token (see SeriesSortFields in data/BrowseFilter.kt). */
 @Composable
 fun seriesSortFieldLabel(field: String): String = when (field) {
-    "metadata.titleSort" -> stringResource(R.string.common_title)
+    // The two title-ish series fields must not read the same: metadata.titleSort is the sort key
+    // (排序标题), metadata.title is the title itself (标题). Labels reuse the metadata editor's
+    // wording so the sort list, the chip and the edit form agree.
+    "metadata.titleSort" -> stringResource(R.string.detail_field_title_sort)
     "created" -> stringResource(R.string.sort_added_date)
     "lastModified" -> stringResource(R.string.sort_updated_date)
     "fileLastModified" -> stringResource(R.string.sort_read_date)
     "booksMetadata.releaseDate" -> stringResource(R.string.sort_release_date)
-    "metadata.title" -> stringResource(R.string.sort_folder_name)
+    "metadata.title" -> stringResource(R.string.common_title)
     "booksCount" -> stringResource(R.string.sort_books_count)
     "random" -> stringResource(R.string.sort_random)
     else -> field

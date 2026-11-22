@@ -170,7 +170,6 @@
     <string name="sort_page_count">Pages</string>
     <string name="sort_read_date">Date Read</string>
     <string name="sort_file_name">File Name</string>
-    <string name="sort_folder_name">Folder Name</string>
     <string name="sort_books_count">Book Count</string>
     <string name="sort_random">Random</string>
     <string name="filter_complete">Complete</string>
