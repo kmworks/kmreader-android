@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,6 +76,7 @@ import com.kmworks.kmreader.ui.browse.BrowseScreen
 import com.kmworks.kmreader.ui.components.AppTab
 import com.kmworks.kmreader.ui.components.LocalDownloadedIndex
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
+import com.kmworks.kmreader.ui.components.OfflineIndicator
 import com.kmworks.kmreader.ui.dashboard.DashboardScreen
 import com.kmworks.kmreader.ui.dashboard.DashboardSectionDetailScreen
 import com.kmworks.kmreader.ui.dashboard.DashboardViewModel
@@ -272,6 +274,9 @@ fun AppRoot(
     val updateState by updateViewModel.state.collectAsStateWithLifecycle()
     // Completed downloads for the card badges (books + per-series aggregates), one app-wide snapshot.
     val downloadedIndex by rootViewModel.downloadedIndex.collectAsStateWithLifecycle()
+    // Server reachability (fed by the shared OkHttp client): drives the global offline indicator,
+    // the counterpart of the red wifi.slash the iOS app shows (startup failures and mid-session alike).
+    val serverOffline by rootViewModel.serverOffline.collectAsStateWithLifecycle()
     when (sessionGate) {
         SessionGate.Loading -> {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
@@ -791,6 +796,16 @@ fun AppRoot(
                 }
             }
         }
+        // The offline pill floats at the top centre, above every tab page and every pushed page
+        // (reader included): the frosted top bars keep their title left and actions right, so the
+        // centre is free everywhere. Drawn before the update dialog, which still tops it.
+        OfflineIndicator(
+            visible = serverOffline,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 8.dp),
+        )
         // One "new version" prompt for the whole app: it sits above the page stack, so a release found at
         // launch is announced on whatever page the user is on.
         if (updateState.dialogVisible) {

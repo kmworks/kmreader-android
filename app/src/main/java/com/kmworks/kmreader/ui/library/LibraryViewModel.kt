@@ -578,12 +578,17 @@ class LibraryViewModel @Inject constructor(
         } catch (e: Exception) {
             if (currentGeneration != generation) return
             _state.update {
+                // Keep whatever is on screen (the cached first page): a failed refresh must not blank
+                // the tab. The offline indicator carries the connectivity signal; the error line is
+                // only for the nothing-to-show case.
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    error = e.message ?: context.getString(R.string.common_load_failed),
-                    series = null,
-                    books = null,
+                    error = if (it.series == null && it.books == null) {
+                        e.message ?: context.getString(R.string.common_load_failed)
+                    } else {
+                        null
+                    },
                 )
             }
         }

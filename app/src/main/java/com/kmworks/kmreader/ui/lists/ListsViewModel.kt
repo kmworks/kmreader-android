@@ -293,13 +293,17 @@ class ListsViewModel @Inject constructor(
         } catch (e: Exception) {
             if (gen != generation) return
             _state.update {
+                // Keep whatever is on screen (the cached rows): a failed refresh must not blank the
+                // tab. The offline indicator carries the connectivity signal; the error line is only
+                // for the nothing-to-show case.
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    error = e.message ?: context.getString(R.string.common_load_failed),
-                    collections = null,
-                    readLists = null,
-                    smartLists = null,
+                    error = if (it.collections == null && it.readLists == null && it.smartLists == null) {
+                        e.message ?: context.getString(R.string.common_load_failed)
+                    } else {
+                        null
+                    },
                 )
             }
         }

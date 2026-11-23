@@ -29,6 +29,8 @@
     <string name="common_off">关</string>
     <string name="common_on">开</string>
     <string name="common_load_more_failed">加载更多失败</string>
+    <string name="common_offline">离线</string>
+    <string name="common_offline_cached_hint">无法连接服务器，当前显示缓存数据</string>
     <string name="common_action_failed_retry">%1$s 失败，请稍后重试</string>
 
     <string name="common_author">作者</string>

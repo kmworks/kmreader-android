@@ -9,6 +9,7 @@ import com.kmworks.kmreader.core.download.DownloadedIndex
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.core.network.ServerConfig
 import com.kmworks.kmreader.core.network.ServerConfigStore
+import com.kmworks.kmreader.core.network.ServerReachability
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
@@ -45,6 +46,7 @@ class RootViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
     private val downloadRepository: DownloadRepository,
+    serverReachability: ServerReachability,
 ) : ViewModel() {
 
     val config: StateFlow<ServerConfig?> = configStore.config
@@ -54,6 +56,9 @@ class RootViewModel @Inject constructor(
     val sessionGate: StateFlow<SessionGate> = configStore.config
         .map { config -> if (config?.isConfigured == true) SessionGate.SignedIn else SessionGate.SignedOut }
         .stateIn(viewModelScope, SharingStarted.Eagerly, SessionGate.Loading)
+
+    /** Server reachability (fed by the shared OkHttp client): drives the global offline indicator. */
+    val serverOffline: StateFlow<Boolean> = serverReachability.offline
 
     val sseConnectionState: StateFlow<SseConnectionState> = sseService.connectionState
 

@@ -30,6 +30,8 @@
     <string name="common_off">Off</string>
     <string name="common_on">On</string>
     <string name="common_load_more_failed">Failed to load more</string>
+    <string name="common_offline">Offline</string>
+    <string name="common_offline_cached_hint">Server unreachable – showing cached data</string>
     <string name="common_action_failed_retry">%1$s failed, please try again later</string>
 
     <string name="common_author">Author</string>
