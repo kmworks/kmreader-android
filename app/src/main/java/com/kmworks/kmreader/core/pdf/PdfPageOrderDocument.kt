@@ -27,8 +27,10 @@ import java.util.concurrent.Executor
  * to the delegate's numbering.
  *
  * The virtual solo-cover blank is served locally: cover-sized [PageInfo], an empty text /
- * link / annotation surface and a transparent bitmap, so the reader background shows
- * through where iOS `displaysAsBook` leaves the cover unpaired.
+ * link / annotation surface and a bitmap filled with [PdfPageOrder.blankColorArgb], so it
+ * blends into the reader background where iOS `displaysAsBook` leaves the cover unpaired
+ * (PdfView paints a white underlay below transparent bitmaps, so transparency shows as a
+ * white box).
  *
  * Ownership: the wrapper does not own [delegate]; `close` forwards, and PdfView never
  * closes replaced documents (verified in the pdf-viewer 1.0.0-beta01 sources), so swapping
@@ -151,7 +153,7 @@ class PdfPageOrderDocument(
 
     override fun getPageBitmapSource(pageNumber: Int): PdfDocument.BitmapSource {
         val physical = order.positionToPhysical(pageNumber)
-        if (physical < 0) return BlankBitmapSource(pageNumber)
+        if (physical < 0) return BlankBitmapSource(pageNumber, order.blankColorArgb)
         return RemappedBitmapSource(delegate.getPageBitmapSource(physical), pageNumber)
     }
 
@@ -227,18 +229,19 @@ class PdfPageOrderDocument(
     }
 
     /**
-     * Bitmap source for the virtual solo-cover blank: a fully transparent bitmap (fresh
-     * [Bitmap.createBitmap] memory is zeroed), so the reader background shows through.
+     * Bitmap source for the virtual solo-cover blank: a solid [fillColorArgb] bitmap, so
+     * the blank blends into the reader background instead of showing as a white box.
      */
     private class BlankBitmapSource(
         override val pageNumber: Int,
+        private val fillColorArgb: Int,
     ) : PdfDocument.BitmapSource {
         override suspend fun getBitmap(scaledPageSizePx: Size, tileRegion: Rect?): Bitmap =
             Bitmap.createBitmap(
                 (tileRegion?.width() ?: scaledPageSizePx.width).coerceAtLeast(1),
                 (tileRegion?.height() ?: scaledPageSizePx.height).coerceAtLeast(1),
                 Bitmap.Config.ARGB_8888,
-            )
+            ).also { it.eraseColor(fillColorArgb) }
 
         override fun close() {}
     }

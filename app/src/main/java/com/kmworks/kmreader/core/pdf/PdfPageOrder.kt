@@ -12,7 +12,8 @@ package com.kmworks.kmreader.core.pdf
  * - Solo cover (`displaysAsBook`): one virtual blank position is inserted at the front of a
  *   two-page layout, so TwoPageLayoutStrategy's fixed pairing (0+1, 2+3…) pairs the blank
  *   with the cover and shifts the rest into book spreads (1+2, 3+4…). The blank renders as
- *   the reader background; it is not a page and has no page number.
+ *   a solid [blankColorArgb] surface (PdfView paints a white underlay below transparent
+ *   bitmaps, so transparency shows as a white box) — it is not a page and has no number.
  */
 data class PdfPageOrder(
     /** Physical pages in the document. */
@@ -23,6 +24,8 @@ data class PdfPageOrder(
     val rtl: Boolean,
     /** Solo-cover setting (only takes effect in two-page layouts). */
     val coverOffset: Boolean,
+    /** Fill color (ARGB) of the virtual blank, matched to the reader background. */
+    val blankColorArgb: Int,
 ) {
     /** Mirroring is a no-op on single-page rows. */
     private val mirrorRows = rtl && pagesPerRow > 1
