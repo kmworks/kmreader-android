@@ -79,6 +79,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.pdf.PdfDocument
 import androidx.pdf.view.PdfView
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.pdf.PdfPageOrder
+import com.kmworks.kmreader.core.pdf.PdfPageOrderDocument
 import com.kmworks.kmreader.data.Book
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -110,9 +112,8 @@ fun PdfReaderScreen(
     // the reader and the defaults page share the same values
     val pdfSettings by settingsViewModel.pdfSettings.collectAsStateWithLifecycle()
     // Reading direction: series metadata, overridable by the forced default (same precedence as the
-    // DIVINA and EPUB readers). PdfView lays the pages out top-to-bottom and cannot mirror page
-    // order, so the direction reaches the chrome that has one — the page-jump strip and the
-    // settings summary — instead of the page grid itself.
+    // DIVINA and EPUB readers). It drives the page-order decoration below (spread mirroring), the
+    // discrete-turn gestures, the progress bar and the page-jump strip.
     val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
     val readingDirection = resolveReadingDirection(
@@ -159,14 +160,29 @@ fun PdfReaderScreen(
     )
     val pagesPerRow = if (resolvedPresentation == PDF_PRESENTATION_DUAL_CONTINUOUS) 2 else 1
     // Discrete page-turn matrix (P2): singlePaged is always discrete; the other layouts
-    // become discrete when continuous scroll is off. P3 soloCoverPage stays a TODO — see
-    // the pagesPerRow wiring below.
+    // become discrete when continuous scroll is off.
     val discretePages = resolvedPresentation == PDF_PRESENTATION_SINGLE || !pdfSettings.continuousScroll
+
+    // Page-order decoration (P1b/P3): RTL mirrors each spread row (iOS displaysRTL) and the
+    // solo cover inserts a virtual blank position in two-page layouts (iOS displaysAsBook).
+    // Everything user-facing keeps physical page numbers — the capsule, TOC, search, jump
+    // sheet and progress — only the positions handed to PdfView are remapped.
+    val rtl = readingDirection == ReadingDirection.Rtl
+    val pageOrder =
+        remember(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage) {
+            PdfPageOrder(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage)
+        }
+    val displayDocument =
+        remember(state.document, pageOrder) {
+            state.document?.let { doc ->
+                if (pageOrder.isIdentity) doc else PdfPageOrderDocument(doc, pageOrder)
+            }
+        }
 
     fun jumpTo(page: Int) {
         val target = page.coerceIn(1, pageCount)
         currentPage = target
-        pdfViewRef?.scrollToPage(target - 1)
+        pdfViewRef?.scrollToPage(pageOrder.physicalToPosition(target - 1))
     }
 
     val backgroundColor =
@@ -281,37 +297,48 @@ fun PdfReaderScreen(
                 AndroidView(
                     factory = { ctx ->
                         DiscretePdfContainer(ctx).also { container ->
-                            container.pdfView.setOnScrollChangeListener { _, _, _, _, _ ->
-                                if (state.document != null) {
-                                    currentPage =
-                                        (container.pdfView.firstVisiblePage + 1).coerceIn(1, pageCount)
-                                }
-                            }
                             pdfViewRef = container.pdfView
                         }
                     },
                     update = { container ->
                         val view = container.pdfView
-                        if (view.pdfDocument !== state.document) {
-                            view.pdfDocument = state.document
+                        // Swapping the decorated document resets the view (verified in the
+                        // pdf-viewer sources: the setter never closes the old document), so
+                        // the scroll position is re-applied below on every re-wrap.
+                        val documentChanged = view.pdfDocument !== displayDocument
+                        if (documentChanged) {
+                            view.pdfDocument = displayDocument
                         }
-                        // P3 soloCoverPage TODO: TwoPageLayoutStrategy pairs pages hard
-                        // (0+1, 2+3…) with no cover offset; the only route is a PdfDocument
-                        // decorator shifting every page index, which also shifts search,
-                        // TOC and progress bookkeeping. Deferred — see
-                        // docs/pdf-native-reader-plan.md §4 task 3.
                         if (view.pagesPerRow != pagesPerRow) view.pagesPerRow = pagesPerRow
                         container.discreteMode = discretePages
-                        container.rtl = readingDirection == ReadingDirection.Rtl
+                        container.rtl = rtl
                         container.onNextPage = { jumpTo(currentPage + pagesPerRow) }
                         container.onPrevPage = { jumpTo(currentPage - pagesPerRow) }
                         view.setBackgroundColor(backgroundColor.toArgb())
-                        val doc = state.document
-                        if (doc != null && initialApply.appliedFor !== doc) {
-                            initialApply.appliedFor = doc
-                            view.scrollToPage(state.initialPage - 1)
-                            currentPage = state.initialPage
-                            initialPageApplied = true
+                        // The view speaks display positions; page numbers stay physical
+                        view.setOnScrollChangeListener { _, _, _, _, _ ->
+                            if (state.document != null) {
+                                val physical =
+                                    pageOrder.positionToPhysical(view.firstVisiblePage)
+                                        .coerceAtLeast(0)
+                                currentPage = (physical + 1).coerceIn(1, pageCount)
+                            }
+                        }
+                        if (documentChanged && displayDocument != null) {
+                            // First open lands on the restored progress page; later re-wraps
+                            // (rotation, direction or presentation changes) keep the current
+                            // physical page. Applied last so the pagesPerRow setter's own
+                            // scroll restore cannot override it.
+                            val target =
+                                if (initialApply.appliedFor !== state.document) {
+                                    initialApply.appliedFor = state.document
+                                    currentPage = state.initialPage
+                                    initialPageApplied = true
+                                    state.initialPage
+                                } else {
+                                    currentPage
+                                }
+                            view.scrollToPage(pageOrder.physicalToPosition(target - 1))
                         }
                     },
                     modifier =
