@@ -32,3 +32,9 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# ---- PdfBox-Android --------------------------------------------------------
+# Optional JPEG2000 decoder that pdfbox-android references from JPXFilter but
+# does not ship; outline parsing never touches image filters, so it is safe to
+# be absent (only PDFs with JPXDecode image streams would need it at runtime).
+-dontwarn com.gemalto.jp2.**
