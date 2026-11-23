@@ -40,6 +40,7 @@ class SessionManager @Inject constructor(
     @ApplicationContext context: Context,
     configStore: ServerConfigStore,
     appSettings: AppSettingsStore,
+    reachability: ServerReachability,
     scope: CoroutineScope,
 ) {
 
@@ -48,7 +49,7 @@ class SessionManager @Inject constructor(
         configStore.config,
         appSettings.networkTimeoutSeconds,
     ) { config, timeoutSeconds ->
-        config?.takeIf { it.isConfigured }?.let { ApiClients(it, timeoutSeconds) }
+        config?.takeIf { it.isConfigured }?.let { ApiClients(it, timeoutSeconds, reachability) }
     }.stateIn(scope, SharingStarted.Eagerly, null)
 
     /**

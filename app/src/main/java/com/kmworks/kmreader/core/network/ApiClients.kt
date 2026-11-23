@@ -15,6 +15,7 @@ import com.kmworks.kmreader.core.data.MetadataApi
 import com.kmworks.kmreader.core.data.SmartListsApi
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.server.ServerApi
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
@@ -34,7 +35,17 @@ import retrofit2.converter.scalars.ScalarsConverterFactory
  * Authentication: an apiKey goes through the `X-API-Key` header; otherwise every request carries Basic
  * Auth (Komga supports both; a session cookie is not required).
  */
-class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS) {
+class ApiClients(
+    config: ServerConfig,
+    timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
+    reachability: ServerReachability? = null,
+) {
+
+    init {
+        // A rebuilt client means another instance (or another timeout): the old verdict is about a
+        // different server, so reachability starts over instead of flashing the offline indicator.
+        reachability?.reset()
+    }
 
     /** Normalized base URL (used to compose direct URLs such as thumbnails). */
     val baseUrl: String = config.normalizedBaseUrl
@@ -61,15 +72,19 @@ class ApiClients(config: ServerConfig, timeoutSeconds: Int = DEFAULT_TIMEOUT_SEC
                 }
             }.build()
             // Network-layer failure instrumentation: IO exceptions and non-2xx responses go to AppLog (evidence available on the logs page / in shares).
+            // The same two outcomes feed ServerReachability: a response of any status means the server
+            // answered (reachable), an IOException means nothing answered (a step towards offline).
             val response = try {
                 chain.proceed(request)
-            } catch (e: Exception) {
+            } catch (e: IOException) {
                 AppLog.e("HTTP", "${request.method} ${request.url} network error", e)
+                reachability?.recordFailure()
                 throw e
             }
             if (!response.isSuccessful) {
                 AppLog.w("HTTP", "HTTP ${response.code} ${request.method} ${request.url}")
             }
+            reachability?.recordSuccess()
             response
         }
         .addInterceptor(

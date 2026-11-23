@@ -544,7 +544,19 @@ class DashboardViewModel @Inject constructor(
                 )
             }
         } catch (e: Exception) {
-            _state.update { it.copy(loading = false, error = e.message ?: context.getString(R.string.common_load_failed), sections = null) }
+            _state.update {
+                // Keep whatever is on screen (the cached first page): a failed refresh must not blank
+                // the tab. The global offline indicator carries the connectivity signal, so the error
+                // line only appears when there is nothing to show at all.
+                it.copy(
+                    loading = false,
+                    error = if (it.sections == null) {
+                        e.message ?: context.getString(R.string.common_load_failed)
+                    } else {
+                        null
+                    },
+                )
+            }
         }
     }
 
