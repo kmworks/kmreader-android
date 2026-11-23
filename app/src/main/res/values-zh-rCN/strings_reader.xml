@@ -138,6 +138,7 @@
     <string name="pdf_continuous_scroll">连续滚动</string>
     <string name="pdf_downloading">正在下载 PDF…</string>
     <string name="pdf_downloading_progress">正在下载 PDF… %1$d%%</string>
+    <string name="pdf_preparing">正在准备 PDF…</string>
     <string name="pdf_load_failed">PDF 加载失败</string>
 
     <!-- Reader: EPUB settings -->

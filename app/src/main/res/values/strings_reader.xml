@@ -138,6 +138,7 @@
     <string name="pdf_continuous_scroll">Continuous scroll</string>
     <string name="pdf_downloading">Downloading PDF…</string>
     <string name="pdf_downloading_progress">Downloading PDF… %1$d%%</string>
+    <string name="pdf_preparing">Preparing PDF…</string>
     <string name="pdf_load_failed">Failed to load PDF</string>
 
     <!-- Reader: EPUB settings -->

@@ -412,7 +412,7 @@ private fun MenuSectionHeader(title: String) {
 
 /** Menu value item: label + current value + chevron (opens an option dialog, mirroring the iOS picker row). */
 @Composable
-private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
+internal fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
     androidx.compose.material3.DropdownMenuItem(
         text = {
             Row(
@@ -440,7 +440,7 @@ private fun MenuValueItem(label: String, value: String, onClick: () -> Unit) {
 
 /** Option dialog: single-choice list of all options, checkmark on the current value (mirrors the iOS menu picker submenu). */
 @Composable
-private fun OptionPickerDialog(
+internal fun OptionPickerDialog(
     title: String,
     options: List<String>,
     selected: String,
