@@ -1,10 +1,14 @@
 package com.kmworks.kmreader.core.epub
 
 import android.annotation.SuppressLint
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -96,6 +100,24 @@ data class EpubThemeConfig(
     val fontCss: String? = null,
     /** The story reads right-to-left: the document root gets dir="rtl" (mirrors the iOS page builder). */
     val rtl: Boolean = false,
+    /** Manifest-declared vertical writing (readingProgression ttb/btt): pins writing-mode on
+     *  the root. Content-declared vertical is detected from computed styles instead. */
+    val vertical: Boolean = false,
+    /** paged = CSS multi-column horizontal pages driven by native gestures; scrolled = vertical flow. */
+    val paged: Boolean = false,
+    /** Columns per page in paged mode (1 or 2; mirrors the iOS --USER__colCount auto→2 on wide screens). */
+    val colCount: Int = 1,
+    /** CSS font-weight (100–900) applied to the body text. */
+    val fontWeight: Int = 400,
+    /** Smooth scroll animation on page turns (the animatePageTurns setting). */
+    val animatePageTurns: Boolean = true,
+    /** Extra top/bottom content inset (CSS px) reserving room for the header/footer info
+     *  overlay, so page text never slides under it (mirrors the iOS containerInsets +24pt). */
+    val insetVPx: Int = 0,
+    /** True when the resolved background/foreground pair is a dark theme: enables the dark-mode
+     *  text/link rewrites and the monochrome/inline image inversion in the page JS
+     *  (iOS makeDarkTextColorOverrideCSS / readest imageClassifier parity). */
+    val darkTheme: Boolean = false,
 ) {
 
     /** JS object literal (values are whitelisted/formatted — no injection surface). */
@@ -103,11 +125,23 @@ data class EpubThemeConfig(
         val safeFamily = fontFamily.replace("'", "")
         return "{bg:'$background',fg:'$foreground',fontSize:$fontSizePx," +
             "fontFamily:'$safeFamily',lineHeight:$lineHeight," +
-            "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl}"
+            "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl,vertical:$vertical," +
+            "paged:$paged,colCount:$colCount,fontWeight:$fontWeight,animate:$animatePageTurns," +
+            "insetV:$insetVPx,darkTheme:$darkTheme}"
     }
 }
 
-/** Injected JS: theme overrides + scroll measurement reporting + tap callbacks (mirrors the injection approach of ScrolledEpubViewController). */
+/**
+ * Injected JS: theme overrides + scroll/pagination state machine + tap callbacks.
+ *
+ * Paged mode mirrors the iOS WebPubPagedJavaScriptBuilder pipeline: CSS multi-column layout turns
+ * the chapter into a horizontal strip of exactly `ceil(scrollWidth / viewportWidth)` pages
+ * (column width = vw/colCount - 2*margin, column gap = 2*margin, so the strip width is an exact
+ * multiple of the viewport); the native side disables user scrolling and drives `scrollTo`
+ * itself; fonts.ready + a measure pass produce the page count, and a ResizeObserver re-measures
+ * when images finish loading. RTL books page along the negative scroll axis, so positions are
+ * always computed through |scrollX| and the direction multiplier `dir`.
+ */
 object EpubJs {
 
     const val BRIDGE = "kmBridge"
@@ -119,95 +153,824 @@ object EpubJs {
     fun injectScript(config: EpubThemeConfig): String {
         val fontCssJs = org.json.JSONObject.quote(config.fontCss ?: "")
         return """
-        (function() {
+        (function() { try {
           window.__kmFontCss = $fontCssJs;
           if (window.__kmInjected) { window.__kmApplyTheme(${config.toJs()}); return; }
           window.__kmInjected = true;
+          window.__kmGen = 0;
+
+          // Pin the layout viewport to the device width (mirrors the iOS page builder's meta).
+          // Without this the WebView auto-fits wide content: once the paged column strip grows
+          // past one screen, the layout viewport silently widens (e.g. 411 -> 1645 CSS px) and
+          // every vw-based measure and clientX-based tap-zone ratio breaks in different units.
+          var head = document.head || document.getElementsByTagName('head')[0];
+          if (head) {
+            var metas = head.querySelectorAll('meta[name="viewport"]');
+            for (var mi = 0; mi < metas.length; mi++) metas[mi].remove();
+            var meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no';
+            head.appendChild(meta);
+          }
+
+          var S = { c: null, paged: false, vw: 1, vh: 1, pages: 1, page: 0, dir: 1,
+                    animate: true, marginH: 24, ready: false, pendingFrac: null, quiet: false,
+                    // Vertical writing mode (writing-mode: vertical-rl): paged columns stack
+                    // DOWNWARD, so pagination runs along scrollTop — always positive, no dir
+                    // flip (foliate: "vertical books page along scrollTop, which never flips")
+                    vertical: false };
+
+          function doc() { return document.documentElement; }
+          function sx() { return window.scrollX || window.pageXOffset || 0; }
+          function sy() { return window.scrollY || window.pageYOffset || 0; }
+
+          // ---------- position <-> fraction ----------
+          function fraction() {
+            if (S.paged && !S.vertical) {
+              var maxX = Math.max((S.pages - 1) * S.vw, 1);
+              return Math.min(Math.max(Math.abs(sx()) / maxX, 0), 1);
+            }
+            if (S.paged && S.vertical) {
+              var maxY = Math.max((S.pages - 1) * S.vh, 1);
+              return Math.min(Math.max(sy() / maxY, 0), 1);
+            }
+            var sh = Math.max(doc().scrollHeight, document.body ? document.body.scrollHeight : 0);
+            var vh = window.innerHeight || 1;
+            var max = Math.max(sh - vh, 1);
+            return Math.min(Math.max(sy() / max, 0), 1);
+          }
+          window.__kmChapterFraction = fraction;
+
+          function restoreFraction(f, animate) {
+            if (S.paged) { goToPage(Math.round(f * (S.pages - 1)), animate); return; }
+            var sh = Math.max(doc().scrollHeight, document.body ? document.body.scrollHeight : 0);
+            var vh = window.innerHeight || 1;
+            window.scrollTo(0, Math.max(sh - vh, 0) * f);
+          }
+          // Restores queue until the first measure pass: before it, the paged page count is unknown.
+          window.__kmScrollToFraction = function(f) {
+            if (!S.ready) { S.pendingFrac = f; return; }
+            restoreFraction(f, false);
+          };
+
+          // ---------- paging ----------
+          function goToPage(i, animate) {
+            if (!S.paged) return;
+            S.page = Math.max(0, Math.min(S.pages - 1, Math.round(i)));
+            cancelSnap();
+            if (S.vertical) {
+              var y = S.page * S.vh;
+              if (animate && S.animate) { animateScrollTo(y, true); }
+              else { window.scrollTo(0, y); }
+            } else {
+              var x = S.dir * S.page * S.vw;
+              if (animate && S.animate) { animateScrollTo(x, false); }
+              else { window.scrollTo(x, 0); }
+            }
+            // The Kotlin side keeps its page state exclusively from this callback: every turn
+            // must report, or the next tap/swipe computes its target from a stale page.
+            // Suppressed while repaginate performs its restore (S.quiet): scrollTo updates the
+            // offset synchronously but the COMPOSITOR rasterizes the new position a frame
+            // later — notifying here would lift the alpha gate in the same frame and flash the
+            // stale raster (the previous scroll position, i.e. the chapter start) for one or
+            // two frames before the restored page paints. repaginate notifies after a double
+            // rAF instead (the iOS controller likewise delays its ready signal by 16-60ms).
+            if (!S.quiet) { notifyPages(); report(); }
+          }
+          window.__kmGoToPage = goToPage;
+
+          // Page-turn animation driven by rAF on the main thread. Chromium's own
+          // scrollTo({behavior:'smooth'}) runs on the compositor in Android WebView: a
+          // programmatic snap during the animation gets overridden, and the strip is left
+          // resting between two pages (cut glyphs on both edges). Main-thread steps are
+          // exact and cancellable.
+          function animateScrollTo(target, alongY) {
+            var start = alongY ? sy() : sx();
+            var delta = target - start;
+            if (Math.abs(delta) < 1) { window.scrollTo(alongY ? 0 : target, alongY ? target : 0); return; }
+            var dur = 260;
+            var t0 = null;
+            function step(ts) {
+              if (t0 == null) t0 = ts;
+              var k = Math.min(1, (ts - t0) / dur);
+              var e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+              var pos = start + delta * e;
+              window.scrollTo(alongY ? 0 : pos, alongY ? pos : 0);
+              if (k < 1) { S.animId = requestAnimationFrame(step); }
+              else { S.animId = null; window.scrollTo(alongY ? 0 : target, alongY ? target : 0); }
+            }
+            S.animId = requestAnimationFrame(step);
+          }
+
+          function cancelSnap() {
+            if (S.snapTimer) { clearTimeout(S.snapTimer); S.snapTimer = null; }
+            if (S.animId) { cancelAnimationFrame(S.animId); S.animId = null; }
+          }
+
+          // Interactive page drag (mirrors the iOS pan-to-turn and the comic pager): the finger
+          // drags the page strip directly, overshoot past either end is damped at 0.35 (iOS
+          // value). The native side settles the target page on release.
+          window.__kmDragTo = function(dx) {
+            // No horizontal strip to drag in vertical mode: pages stack downward, so the
+            // finger-follow is skipped and the release snap animates along scrollTop instead.
+            if (!S.paged || S.vertical) return;
+            cancelSnap();
+            var x = S.dir * S.page * S.vw - dx;
+            var lo = S.dir === 1 ? 0 : -(S.pages - 1) * S.vw;
+            var hi = S.dir === 1 ? (S.pages - 1) * S.vw : 0;
+            if (x < lo) x = lo + (x - lo) * 0.35;
+            if (x > hi) x = hi + (x - hi) * 0.35;
+            window.scrollTo(x, 0);
+          };
+
+          function measure() {
+            S.vw = window.innerWidth || 1;
+            S.vh = window.innerHeight || 1;
+            // Re-detect vertical writing: at theme-apply time the publisher stylesheet may not
+            // be parsed yet, so the first detection can miss a content-declared vertical book.
+            // The manifest-forced case (c.vertical) never flips back.
+            if (S.c && !S.c.vertical) {
+              var v = contentIsVertical();
+              if (v !== S.vertical) { S.vertical = v; refreshLayout(); }
+            }
+            if (!S.paged) { S.pages = 1; S.page = 0; return; }
+            var b = document.body || doc();
+            if (S.vertical) {
+              // Columns advance along the (vertical) inline axis, so the strip grows downward
+              // and pages are vh-sized steps of scrollTop.
+              var sh = Math.max(doc().scrollHeight, b.scrollHeight || 0);
+              S.pages = Math.max(1, Math.ceil(sh / S.vh - 0.002));
+              S.page = Math.max(0, Math.min(S.pages - 1, Math.round(sy() / S.vh)));
+              return;
+            }
+            var sw = Math.max(doc().scrollWidth, b.scrollWidth || 0);
+            // Rounding slack: Chrome reports integral scrollWidth for fractional column widths.
+            S.pages = Math.max(1, Math.ceil(sw / S.vw - 0.002));
+            S.page = Math.max(0, Math.min(S.pages - 1, Math.round(Math.abs(sx()) / S.vw)));
+          }
+
+          // The load token ties a measure pass to its page load (mirrors the iOS generation/
+          // readyToken): the Kotlin side reveals the WebView only for the newest token, so a
+          // late repaginate from the PREVIOUS chapter (backstop timers, late image loads in
+          // the loadUrl window) can never un-hide it mid-load and flash the old page.
+          function notifyPages() {
+            // dir: 0 = ltr, 1 = rtl, 2 = vertical — Kotlin mirrors its tap zones for 1 and 2
+            var d = S.vertical ? 2 : (S.dir === -1 ? 1 : 0);
+            $BRIDGE.onPageMeasured(S.pages, S.page, window.__kmLoadToken || 0, d);
+          }
+
+          // Unfragmentable boxes (flex/grid/table/inline-block) taller than the page cannot
+          // split across columns: the overflow is silently CLIPPED, losing whole blocks of
+          // content. Demote them to plain block so they fragment (mirrors foliate's
+          // #demoteUnfragmentableBoxes). Marked so re-runs stay cheap; never restored —
+          // chapter content is static for the chapter's lifetime.
+          var DEMOTE_DISPLAY = /^(inline-block|flex|inline-flex|grid|inline-grid|table|inline-table)$/;
+          function demoteUnfragmentableBoxes() {
+            if (!S.paged || !document.body) return;
+            var all = document.body.querySelectorAll('*');
+            var vh = window.innerHeight || 1;
+            for (var i = 0; i < all.length; i++) {
+              var el = all[i];
+              if (el.getAttribute('data-km-demoted') != null) continue;
+              if (el.offsetHeight <= vh) continue;
+              var d = '';
+              try { d = window.getComputedStyle(el).display || ''; } catch (e) { continue; }
+              if (DEMOTE_DISPLAY.test(d)) {
+                el.setAttribute('data-km-demoted', d);
+                el.style.setProperty('display', 'block', 'important');
+              }
+            }
+          }
+
+          // A chapter-leading image whose top sits below some leading space (a heading, an
+          // epigraph) overflows its page vertically even under the global max-height clamp:
+          // Chromium moves the whole image and leaves the first page blank, other engines
+          // slice its bottom into the next page (readest#6676). Shrink the clamp by the
+          // leading amount and pin the image to the top (mirrors foliate getLeadingSpace).
+          function compensateLeadingImage() {
+            if (!S.paged || !document.body || !S.c) return;
+            var img = document.body.querySelector('img');
+            if (!img) return;
+            var insetV = S.c.insetV || 0;
+            var topPad = (S.vertical ? S.marginH : 24) + insetV;
+            var pageCap = S.vertical ? Math.max(80, S.vh - 2 * S.marginH) : (S.vh - 48);
+            var r = img.getBoundingClientRect();
+            var absTop = r.top + sy();
+            var leading = absTop - topPad;
+            if (leading <= 8) return;
+            var cap = pageCap - leading;
+            if (cap > 80 && r.height > cap) {
+              img.style.setProperty('max-height', Math.floor(cap) + 'px', 'important');
+              img.style.setProperty('vertical-align', 'top', 'important');
+            }
+          }
+
+          // Measure, then restore the pending (or current) position and report the page count.
+          // keepPage matters for late content growth (an image finishing after the capped
+          // measure wait inserts pages mid-strip): keeping the page INDEX leaves a reader
+          // before the insertion untouched and drops a reader who paged past the not-yet-
+          // measured image back onto it — fraction-keeping would pin them to the strip end
+          // and silently skip the image page (the "page turn jumps over the picture" bug).
+          function repaginate(keepPage) {
+            var keepFrac = S.pendingFrac != null ? S.pendingFrac : (keepPage ? null : fraction());
+            var keepIdx = S.page;
+            // A reader sitting on the LAST page almost always got there through the
+            // previous-chapter seam (restoreFraction(1)). If late content (an image finishing
+            // after the measure cap) then grows the strip, keeping the bare page INDEX strands
+            // them near the chapter start — track the end instead (mirrors the iOS
+            // preferLastPageOnReady intent surviving late pagination).
+            var wasAtEnd = keepPage && S.paged && S.pages > 0 && keepIdx >= S.pages - 1;
+            demoteUnfragmentableBoxes();
+            compensateLeadingImage();
+            classifyAllImages();
+            rewriteDarkText(S.c);
+            measure();
+            S.pendingFrac = null;
+            S.quiet = true;
+            try {
+              if (keepFrac != null) restoreFraction(keepFrac, false);
+              else if (wasAtEnd) goToPage(S.pages - 1, false);
+              else goToPage(keepIdx, false);
+            } finally { S.quiet = false; }
+            measure();
+            // Defer the notification (and with it the Kotlin-side reveal) until the compositor
+            // has had two frames to rasterize the restored scroll position — see goToPage.
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { notifyPages(); report(); });
+            });
+          }
+
+          // ---------- layout ----------
+          function layoutCss() {
+            var c = S.c;
+            // Vertical books always need the column layout: without it the block axis runs
+            // right-to-left and the document extends off-screen instead of scrolling.
+            if (!c || (!c.paged && !S.vertical)) return '';
+            var vw = window.innerWidth || 1;
+            var vh = window.innerHeight || 1;
+            var m = c.marginH;
+            if (S.vertical) {
+              // Vertical-rl multicol: the inline axis is vertical, so column-width is a
+              // VERTICAL extent and columns repeat downward. Pitch = column-width + gap =
+              // vh keeps every page exactly one screen tall; body width is pinned so the
+              // block (horizontal) size cannot exceed one screen either.
+              var ch = Math.max(80, vh - 2 * m);
+              return 'html,body{margin:0 !important;}'
+                + 'html{overflow-x:hidden !important;overflow-y:auto !important;}'
+                + 'body{box-sizing:border-box !important;width:' + vw + 'px !important;'
+                + 'padding:' + (m + (c.insetV || 0)) + 'px 24px !important;'
+                + 'column-width:' + ch + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+                + 'column-fill:auto !important;}'
+                // break-inside: an image must not be sliced across two columns/pages (foliate
+                // setImageSize); the max-* clamps keep it inside one page box.
+                + 'img,svg,video{max-width:' + Math.max(120, vw - 48) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
+            }
+            // No floor(): a fractional viewport width (common on Android) floored here makes the
+            // column pitch shorter than vw, so later pages drift off the page boundary — the
+            // "two pages stuck halfway" bug. Chrome handles fractional column widths fine, and
+            // measure() already carries integral-scrollWidth slack.
+            var cw = Math.max(80, vw / S.cols - 2 * m);
+            return 'html,body{margin:0 !important;}'
+              + 'html{overflow-y:hidden !important;}'
+              + 'body{box-sizing:border-box !important;height:' + vh + 'px !important;'
+              + 'padding:' + (24 + (c.insetV || 0)) + 'px ' + m + 'px !important;'
+              + 'column-width:' + cw + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+              + 'column-fill:auto !important;}'
+              + 'img,svg,video{max-height:' + Math.max(120, vh - 48) + 'px !important;break-inside:avoid !important;}';
+          }
+          function refreshLayout() {
+            var lay = document.getElementById('km-layout');
+            if (!lay) { lay = document.createElement('style'); lay.id = 'km-layout'; document.head.appendChild(lay); }
+            lay.textContent = layoutCss();
+          }
+
+          function forceEagerImages() {
+            var imgs = document.querySelectorAll('img[loading="lazy"]');
+            for (var i = 0; i < imgs.length; i++) imgs[i].setAttribute('loading', 'eager');
+          }
+
+          // Images pending on the network; resolves once every <img> settled (load or error)
+          // or after a cap, so a hanging image can never wedge the measure pass. Loaded images
+          // also go through decode(): "complete" only means the bytes arrived — without a decode
+          // pass the rasterizer shows a white band through a big illustration for a few frames
+          // right after the page is revealed (the video-captured "white stripe" flash).
+          function imagesReady(capMs) {
+            var imgs = document.querySelectorAll('img');
+            var pending = [];
+            for (var i = 0; i < imgs.length; i++) {
+              (function(img) {
+                // complete covers broken images too (naturalWidth == 0): they are settled,
+                // and treating them as pending would burn the whole 3s cap on every chapter
+                // that references a missing file.
+                if (img.complete) {
+                  if (img.naturalWidth > 0 && img.decode) {
+                    pending.push(img.decode().catch(function() {}));
+                  }
+                  return;
+                }
+                pending.push(new Promise(function(res) {
+                  img.addEventListener('load', function() {
+                    if (img.decode) img.decode().catch(function() {}).then(res); else res();
+                  }, { once: true });
+                  img.addEventListener('error', res, { once: true });
+                }));
+              })(imgs[i]);
+            }
+            if (!pending.length) return Promise.resolve();
+            return Promise.race([
+              Promise.all(pending),
+              new Promise(function(res) { setTimeout(res, capMs); }),
+            ]);
+          }
+
+          function imagesStillPending() {
+            var imgs = document.querySelectorAll('img');
+            for (var i = 0; i < imgs.length; i++) { if (!imgs[i].complete) return true; }
+            return false;
+          }
+
+          // Publisher stylesheets load asynchronously; the dark-text rewrite reads COMPUTED
+          // colours, so it must not run before <link rel=stylesheet> sheets have landed —
+          // otherwise a class like .colorg{color:#000} applies after the pass and repaints
+          // the text black on the dark page. Stylesheets are local (fake-host intercept), so
+          // waiting for them costs nothing; the 2s cap guards a hanging request.
+          function stylesReady() {
+            var links = document.querySelectorAll('link[rel="stylesheet"]');
+            var ps = [];
+            for (var i = 0; i < links.length; i++) {
+              (function(l) {
+                if (l.sheet) return; // already loaded
+                ps.push(new Promise(function(res) {
+                  l.addEventListener('load', res, { once: true });
+                  l.addEventListener('error', res, { once: true });
+                }));
+              })(links[i]);
+            }
+            if (!ps.length) return Promise.resolve();
+            return Promise.race([Promise.all(ps), new Promise(function(res) { setTimeout(res, 2000); })]);
+          }
+
+          // Async measure pass. Fonts are always awaited (they are local and fast); images
+          // follow the iOS fullExtentGuard split (preferLast || target > 0): a POSITIONED
+          // landing (progress restore, backward turn onto the previous chapter's last page)
+          // needs the true strip width and waits out unsettled images once, bounded — a
+          // forward turn starts at page 0 and does not wait at all, leaving growth to the
+          // keepPage repagination below. Hard backstops (3s/10s, mirrors the iOS 10s fallback)
+          // make a hanging resource unwedgeable.
+          function kickMeasure() {
+            // Injection now happens at commitVisible (much earlier than pageFinished — that one
+            // waits for every image request to settle, which is exactly what made chapter turns
+            // flash blank for a second on image-heavy books). The parser may not have produced
+            // <body> yet: without it no layout can be measured, so wait for DOMContentLoaded.
+            if (!document.body) {
+              document.addEventListener('DOMContentLoaded', function() { kickMeasure(); }, { once: true });
+              return;
+            }
+            var gen = ++window.__kmGen;
+            var done = false;
+            var finish = function(force) {
+              if (done || gen !== window.__kmGen) return;
+              requestAnimationFrame(function() {
+                if (done || gen !== window.__kmGen) return;
+                if (!force && S.paged && imagesStillPending()) {
+                  var positioned = S.pendingFrac != null && S.pendingFrac > 0;
+                  // A POSITIONED landing (progress restore, backward turn onto the previous
+                  // chapter's last page) needs the true strip width, so it waits out unsettled
+                  // images once, bounded. A FORWARD turn lands on page 0 — its content does not
+                  // depend on later images, so (mirroring the iOS fullExtentGuard: target=0 has
+                  // needsFullExtent=false) it reveals immediately and lets the keepPage
+                  // repagination absorb late image growth instead of paying an 800ms wait on
+                  // every image chapter.
+                  if (positioned) {
+                    imagesReady(3000).then(function() { finish(true); });
+                    return;
+                  }
+                }
+                done = true;
+                if (S.paged) { repaginate(false); }
+                else {
+                  measure();
+                  // The scrolled branch never goes through repaginate, and the commit-time
+                  // theme application may have run before the parser produced <body> — so
+                  // the dark-mode text/image rewrite must run here too (covers both modes).
+                  if (S.c && S.c.darkTheme) { classifyAllImages(); rewriteDarkText(S.c); }
+                  if (S.pendingFrac != null) {
+                    var f = S.pendingFrac;
+                    S.pendingFrac = null;
+                    restoreFraction(f, false);
+                    scheduleReRestore(f);
+                  }
+                  // Same rasterization race as the paged restore: reveal only after the new
+                  // scroll position has actually painted (double rAF).
+                  requestAnimationFrame(function() {
+                    requestAnimationFrame(function() { notifyPages(); });
+                  });
+                  // Scrolled mode reveals before stylesheets may have landed: re-run the
+                  // rewrite once they are in (idempotent — a no-op when already applied).
+                  stylesReady().then(function() {
+                    if (S.ready && S.c && S.c.darkTheme) rewriteDarkText(S.c);
+                  });
+                }
+                S.ready = true;
+              });
+            };
+            if (!S.paged) { finish(false); return; }
+            forceEagerImages();
+            var fontWait = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+            // Wait for publisher stylesheets too: the dark-text rewrite reads computed colours
+            // and must see the final cascade, not the pre-stylesheet default.
+            Promise.all([fontWait, stylesReady()]).then(function() { finish(false); });
+            setTimeout(function() { finish(false); }, 3000);
+            setTimeout(function() { finish(true); }, 10000);
+          }
+
+          // Scrolled mode restores before images/fonts settle — first paint must stay fast —
+          // so the fraction is re-applied once every <img> has loaded or errored. Skipped when
+          // the reader already scrolled on their own: growth below the viewport never moves
+          // scrollTop, so an unchanged offset means "still where we put them".
+          function scheduleReRestore(f) {
+            var y0 = sy();
+            imagesReady(3000).then(function() {
+              if (!S.ready || S.paged) return;
+              if (Math.abs(sy() - y0) > 4) return;
+              restoreFraction(f, false);
+              report();
+            });
+          }
+
+          // Vertical writing detection (mirrors foliate getDirection): the publisher's own
+          // stylesheet decides — CJK novels declare writing-mode on body or its first child;
+          // a manga EPUB on an RTL series must NOT be misread as vertical. c.vertical only
+          // forces the mode when the manifest says ttb/btt.
+          function contentIsVertical() {
+            var b = document.body;
+            if (!b || !window.getComputedStyle) return false;
+            var wm = getComputedStyle(b).writingMode || '';
+            if (wm.indexOf('vertical') === 0) return true;
+            var f = b.firstElementChild;
+            if (f) {
+              var wm2 = getComputedStyle(f).writingMode || '';
+              if (wm2.indexOf('vertical') === 0) return true;
+            }
+            return false;
+          }
+
+          // Dark-mode image classification (mirrors readest imageClassifier.ts): black ink on
+          // a transparent background — title calligraphy, diagrams, gaiji — is invisible on a
+          // dark theme. Those images get invert(1) hue-rotate(180deg) (flips luminance, keeps
+          // hue, so the coloured parts of a mixed logo survive). Opaque (non-transparent)
+          // images are NEVER inverted: a colour plate, photo or opaque diagram keeps its
+          // original colours. Page and images share the fake origin, so canvas reads are
+          // untainted.
+          var kmCanvas = null;
+          function classifyImage(img) {
+            if (!img || img.kmClassified) return;
+            img.kmClassified = true;
+            var p = img.parentElement;
+            var txt = p ? (p.textContent || '').replace(/\s+/g, '') : '';
+            var inline = /[\p{L}\p{N}]/u.test(txt);
+            var w = img.naturalWidth | 0, h = img.naturalHeight | 0;
+            if (!w || !h) return;
+            try {
+              if (!kmCanvas) kmCanvas = document.createElement('canvas');
+              var sw = Math.min(w, 96);
+              var sh = Math.max(1, Math.round(sw * h / w));
+              if (sh > 96) { sh = 96; sw = Math.max(1, Math.round(sw * w / h)); }
+              kmCanvas.width = sw; kmCanvas.height = sh;
+              var ctx = kmCanvas.getContext('2d', { willReadFrequently: true });
+              if (!ctx) return;
+              ctx.clearRect(0, 0, sw, sh);
+              ctx.drawImage(img, 0, 0, sw, sh);
+              var d = ctx.getImageData(0, 0, sw, sh).data;
+              var total = d.length / 4, opaque = 0, colored = 0, dark = 0, light = 0;
+              for (var i = 0; i < d.length; i += 4) {
+                if (d[i + 3] < 40) continue;
+                opaque++;
+                var r = d[i], g = d[i + 1], b = d[i + 2];
+                var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+                if (mx - mn > 24) colored++;
+                var luma = 0.299 * r + 0.587 * g + 0.114 * b;
+                if (luma < 96) dark++;
+                else if (luma > 200) light++;
+              }
+              if (!opaque) return;
+              var transparentRatio = 1 - opaque / total;
+              // 非透明图一律不反色：彩页、照片、不透明的单色图都保持原样。
+              if (transparentRatio <= 0.3) return;
+              // Inline glyph (an image sitting inside a text run): invert so it follows the
+              // surrounding text colour — only reached when the image IS transparent.
+              if (inline) { img.classList.add('km-inline-img'); return; }
+              // Transparent calligraphy / logo glyph with black strokes: invert so the
+              // strokes turn light. Coloured badges (pink CONTENTS chip) stay colourful.
+              if (dark / opaque > 0.25) img.classList.add('km-mono-img');
+            } catch (e) { /* canvas unavailable — leave the image alone */ }
+          }
+          function classifyAllImages() {
+            if (!S.c || !S.c.darkTheme) return;
+            var imgs = document.querySelectorAll('img');
+            for (var i = 0; i < imgs.length; i++) {
+              if (imgs[i].complete && imgs[i].naturalWidth) classifyImage(imgs[i]);
+            }
+          }
+
+          // Dark-mode overrides (iOS makeDarkTextColorOverrideCSS + the readest dark rewrites).
+          // Deliberately NO blanket background-color:transparent — that would erase a book's
+          // coloured chips/badges. Links get the iOS dark link blue; hard-coded black text is
+          // additionally caught by the computed-style rewrite pass below (attribute selectors
+          // only see INLINE styles — black text from a publisher stylesheet class, like the
+          // mixed-colour title glyphs of a TOC page, needs the runtime pass); classified images
+          // are inverted.
+          function darkModeCss(c) {
+            return 'html{color-scheme:dark}'
+              + 'a:link,a:link *{color:#63CAFF !important;-webkit-text-fill-color:#63CAFF !important}'
+              + 'a:visited,a:visited *{color:#0099E5 !important;-webkit-text-fill-color:#0099E5 !important}'
+              + 'body svg text{fill:currentColor !important;stroke:none !important}'
+              + 'font[color="#000000"],font[color="#000"],font[color="black"],'
+              + 'font[color="rgb(0,0,0)"],font[color="rgb(0, 0, 0)"],'
+              + '*[style*="color: #000"],*[style*="color: #000000"],*[style*="color: black"],'
+              + '*[style*="color:#000"],*[style*="color:#000000"],*[style*="color:black"],'
+              + '*[style*="color: rgb(0, 0, 0)"],*[style*="color: rgb(0,0,0)"],'
+              + '*[style*="color:rgb(0, 0, 0)"],*[style*="color:rgb(0,0,0)"]'
+              + '{color:' + c.fg + ' !important;-webkit-text-fill-color:' + c.fg + ' !important}'
+              + '*[style*="background-color: #fff"],*[style*="background-color:#fff"],'
+              + '*[style*="background-color: #ffffff"],*[style*="background-color:#ffffff"],'
+              + '*[style*="background-color: white"],*[style*="background-color:white"],'
+              + '*[style*="background: #fff"],*[style*="background:#fff"],'
+              + '*[style*="background: #ffffff"],*[style*="background:#ffffff"],'
+              + '*[style*="background: white"],*[style*="background:white"],'
+              + '*[style*="background-color: rgb(255"],*[style*="background-color:rgb(255"],'
+              + '*[style*="background: rgb(255"],*[style*="background:rgb(255"]'
+              + '{background-color:' + c.bg + ' !important}'
+              + 'img.km-mono-img,img.km-inline-img{filter:invert(1) hue-rotate(180deg)}';
+          }
+
+          // Computed-style dark-text rewrite: any element whose effective text colour is
+          // near-black gets repinned to the theme foreground. Covers stylesheet classes, inline
+          // styles and fill-colour tricks in one pass — the attribute selectors above can only
+          // see inline styles. Coloured text (pink/orange glyphs) passes the threshold and is
+          // left alone. Judge by `color` only, and DO NOT touch -webkit-text-fill-color unless
+          // the publisher set it explicitly (fill != color): fill INHERITS, so writing it on a
+          // heading would flatten every coloured span inside it to the theme foreground.
+          function rewriteDarkText(c) {
+            if (!c || !c.darkTheme) return;
+            // NOTE: must be document.body — doc() is document.documentElement and
+            // documentElement.body is undefined (that early-return made this pass a
+            // silent no-op until the headless-Edge harness caught it).
+            var b = document.body;
+            if (!b) return;
+            var els = b.querySelectorAll('*');
+            for (var i = 0; i < els.length; i++) {
+              var el = els[i];
+              var cs = getComputedStyle(el);
+              var color = cs.color || '';
+              var m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(color);
+              if (!m) continue;
+              var mx = Math.max(+m[1], +m[2], +m[3]);
+              var fill = cs.getPropertyValue('-webkit-text-fill-color');
+              if (mx > 96) {
+                // Coloured text stays — but fill INHERITS and beats color at paint time, so
+                // a rewritten (near-black) ancestor would still flatten this element through
+                // its inherited fill. Pin the element's fill to its own colour (harness:
+                // the pink/orange TOC glyphs rendered grey until pinned).
+                if (fill && fill !== color) {
+                  el.style.setProperty('-webkit-text-fill-color', color, 'important');
+                }
+                continue; // only near-black text is unreadable on a dark page
+              }
+              // Links are NOT exempt: a TOC entry whose publisher class paints it black is
+              // exactly the invisible text we are fixing (the a:link dark-blue rule loses to a
+              // higher-specificity publisher rule). Properly-blue links pass the mx check above.
+              el.style.setProperty('color', c.fg, 'important');
+              if (fill && fill !== color) {
+                el.style.setProperty('-webkit-text-fill-color', c.fg, 'important');
+              }
+              if (el.namespaceURI === 'http://www.w3.org/2000/svg') {
+                el.style.setProperty('fill', c.fg, 'important');
+              }
+            }
+          }
+
           window.__kmApplyTheme = function(c) {
+            var had = S.c != null;
+            var keep = had ? fraction() : null;
+            S.c = c;
+            S.paged = !!c.paged;
+            S.dir = c.rtl ? -1 : 1;
+            S.cols = c.colCount > 1 ? 2 : 1;
+            S.animate = !!c.animate;
+            S.marginH = c.marginH;
             var style = document.getElementById('km-theme');
             if (!style) { style = document.createElement('style'); style.id = 'km-theme'; document.head.appendChild(style); }
             var ff = c.fontFamily ? 'font-family:' + c.fontFamily + ' !important;' : '';
-            var css = 'html,body{background:' + c.bg + ' !important;color:' + c.fg + ' !important;}'
-              + 'body{padding:24px ' + c.marginH + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + ff + '}'
-              + (c.publisherStyles ? '' : 'body,body *{font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + ff + 'color:' + c.fg + ' !important;}')
-              + 'img,svg,video{max-width:100% !important;height:auto !important;}';
+            var fw = 'font-weight:' + c.fontWeight + ' !important;';
+            var css = 'html,body{background:' + c.bg + ' !important;color:' + c.fg + ' !important;'
+              // Blink's font autosizing silently inflates "small" text runs, which desyncs the
+              // column pitch from the measured page width (readest #5641) — pin it off.
+              + '-webkit-text-size-adjust:none !important;text-size-adjust:none !important;}'
+              // Unbreakable long words (URLs, CJK-less runs) must not overflow their column:
+              // an overflowing run widens the strip past the computed page boundary.
+              + 'body{padding:' + (24 + (c.insetV || 0)) + 'px ' + c.marginH + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;overflow-wrap:break-word !important;' + fw + ff + '}'
+              + (c.publisherStyles ? '' : 'body,body *{font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + fw + ff + 'color:' + c.fg + ' !important;}')
+              + 'img,svg,video{max-width:100% !important;height:auto !important;}'
+              // Manifest-forced vertical (readingProgression ttb/btt): pinned on the root so
+              // publisher styles cannot talk it back into horizontal.
+              + (c.vertical ? 'html{writing-mode:vertical-rl !important;-webkit-writing-mode:vertical-rl !important;}' : '')
+              + (c.darkTheme ? darkModeCss(c) : '');
             style.textContent = css;
+            S.vertical = !!c.vertical || contentIsVertical();
             var fontStyle = document.getElementById('km-fonts');
             if (!fontStyle) { fontStyle = document.createElement('style'); fontStyle.id = 'km-fonts'; document.head.appendChild(fontStyle); }
             fontStyle.textContent = window.__kmFontCss || '';
             document.documentElement.style.background = c.bg;
             // Reading direction: a right-to-left story gets dir='rtl' on the root element, which is
-            // what the iOS page builder does. Attributes set here are marked, and only those are
-            // removed again: a publisher-declared dir='rtl' must survive when the series says LTR.
+            // what the iOS page builder does. Vertical books must NOT get it (mirrors foliate):
+            // dir=rtl would flip the vertical line direction; their strip runs along scrollTop,
+            // which never flips sign. Attributes set here are marked, and only those are removed
+            // again: a publisher-declared dir='rtl' must survive when the series says LTR.
             var root = document.documentElement;
-            if (c.rtl) {
+            if (c.rtl && !S.vertical) {
               if (root.getAttribute('dir') !== 'rtl') root.setAttribute('dir', 'rtl');
               root.setAttribute('data-km-rtl', '1');
             } else if (root.getAttribute('data-km-rtl') === '1') {
               root.removeAttribute('dir');
               root.removeAttribute('data-km-rtl');
             }
-            window.__kmReport();
+            refreshLayout();
+            // Never clobber a queued restore (a mid-load theme re-apply while pendingFrac
+            // still holds the target would re-impose the half-laid-out strip's position).
+            if (keep != null && S.pendingFrac == null) S.pendingFrac = keep;
+            if (c.darkTheme) { classifyAllImages(); rewriteDarkText(c); }
+            kickMeasure();
+            report();
           };
+
+          // ---------- reporting ----------
           var timer = null;
-          window.__kmReport = function() {
+          function report() {
             if (timer) return;
             timer = setTimeout(function() {
               timer = null;
-              var st = window.scrollY || document.documentElement.scrollTop || 0;
-              var sh = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-              var vh = window.innerHeight || 1;
-              var max = Math.max(sh - vh, 1);
-              var f = Math.min(Math.max(st / max, 0), 1);
-              $BRIDGE.onMetrics(f.toFixed(6), st, sh, vh);
+              if (S.paged) {
+                S.page = S.vertical
+                  ? Math.max(0, Math.min(S.pages - 1, Math.round(sy() / S.vh)))
+                  : Math.max(0, Math.min(S.pages - 1, Math.round(Math.abs(sx()) / S.vw)));
+              }
+              var f = fraction();
+              // The load token rides along (same reason as notifyPages): a report still in
+              // flight from the PREVIOUS chapter in the loadUrl window must not be attributed
+              // to the new chapter index — that corrupts the whole-book progression.
+              $BRIDGE.onMetrics(f.toFixed(6), S.page, S.pages, window.__kmLoadToken || 0);
             }, 200);
-          };
-          window.__kmScrollToFraction = function(f) {
-            var sh = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+          }
+          window.__kmReport = report;
+
+          // ---------- helpers called from Kotlin ----------
+          window.__kmScrollByViewport = function(dir, animate) {
             var vh = window.innerHeight || 1;
-            window.scrollTo(0, Math.max(sh - vh, 0) * f);
+            if (animate && S.animate) { window.scrollBy({ top: dir * vh * 0.96, behavior: 'smooth' }); }
+            else { window.scrollBy(0, dir * vh * 0.96); }
           };
-          window.__kmChapterFraction = function() {
-            var st = window.scrollY || document.documentElement.scrollTop || 0;
-            var sh = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-            var vh = window.innerHeight || 1;
-            var max = Math.max(sh - vh, 1);
-            return Math.min(Math.max(st / max, 0), 1);
+          window.__kmGoToAnchor = function(id) {
+            var el = document.getElementById(id);
+            if (!el) { try { el = document.querySelector('[name="' + id + '"]'); } catch (e) { el = null; } }
+            if (!el) return;
+            if (S.paged) {
+              var r = el.getBoundingClientRect();
+              if (S.vertical) {
+                goToPage(Math.floor((r.top + sy()) / S.vh), false);
+              } else {
+                var absX = Math.abs(r.left + sx());
+                goToPage(Math.floor(absX / S.vw), false);
+              }
+            } else {
+              el.scrollIntoView();
+            }
           };
-          window.addEventListener('scroll', window.__kmReport, { passive: true });
-          window.addEventListener('resize', window.__kmReport);
+
+          // ---------- listeners ----------
+          window.addEventListener('scroll', report, { passive: true });
+          window.addEventListener('resize', function() {
+            if (S.paged && S.ready) { refreshLayout(); repaginate(false); }
+            report();
+          });
+          // Content growth (images finishing) changes the paged page count: re-measure and keep
+          // the reader on the same fraction (mirrors the iOS ResizeObserver pageCountUpdate).
+          var roTimer = null;
+          function scheduleRepaginate() {
+            if (!S.ready || roTimer) return;
+            roTimer = setTimeout(function() {
+              roTimer = null;
+              if (!S.ready) return;
+              if (S.paged) { repaginate(true); }
+              // Scrolled mode: growth changes the chapter fraction — re-report so the
+              // whole-book progression does not go stale until the next scroll.
+              else { measure(); report(); }
+            }, 150);
+          }
+          if (window.ResizeObserver) {
+            var ro = new ResizeObserver(scheduleRepaginate);
+            ro.observe(document.body || doc());
+          }
+          // foliate also watches DOM mutations: books that inject content through scripts
+          // (deferred galleries, ad-style wrappers) change the page count without any image
+          // load or body resize. Our own <style> writes live in <head> and are filtered out.
+          if (window.MutationObserver) {
+            var mo = new MutationObserver(function(muts) {
+              for (var i = 0; i < muts.length; i++) {
+                var t = muts[i].target;
+                if (t && t.closest && t.closest('body')) { scheduleRepaginate(); return; }
+              }
+            });
+            mo.observe(doc(), { childList: true, subtree: true });
+          }
+          // The body's box is pinned to the viewport, so the ResizeObserver above never fires
+          // for late-loading images — catch them through capture-phase load events instead.
+          document.addEventListener('load', function(e) {
+            var t = e.target;
+            if (t && t.tagName === 'IMG') { if (S.c && S.c.darkTheme) classifyImage(t); scheduleRepaginate(); }
+          }, true);
           document.addEventListener('click', function(e) {
             var sel = window.getSelection();
             if (sel && !sel.isCollapsed) return;
-            var vh = window.innerWidth || 1;
-            $BRIDGE.onTap(e.clientX / vh);
+            var t = e.target;
+            // ALL in-book links route through Kotlin (mirrors foliate's link event): a
+            // same-document hash hop never reaches shouldOverrideUrlLoading — the WebView
+            // just scrolls natively — so without this interception a jump link desyncs the
+            // chapter index, skips the progress pipeline and never pushes the return chip.
+            // Footnote/note references navigate the same way (jump to the note, return chip
+            // brings you back) — there is deliberately no popup layer.
+            var link = t && t.closest ? t.closest('a[href]') : null;
+            if (link) {
+              var u = null;
+              try { u = new URL(link.getAttribute('href') || '', location.href); } catch (err) { u = null; }
+              if (u && u.origin === location.origin) {
+                // An anchor pointing straight at a media file is the classic full-page
+                // illustration link: this reader has no image viewer, and swallowing the tap
+                // makes the whole page a dead zone — treat it as a page-turn tap instead.
+                if (!/\.(jpe?g|png|gif|webp|avif|svg|bmp|heic|m4a|mp[34]|webm|ogg)$/.test(u.pathname.toLowerCase())) {
+                  // Notes and footnote references navigate like every other in-book link (no
+                  // popup): the reader jumps to the note and the return chip takes you back.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  $BRIDGE.onLink(u.href);
+                  return;
+                }
+              } else {
+                // External links keep the default navigation: shouldOverrideUrlLoading blocks
+                // them (the do-not-leave-the-book policy).
+                return;
+              }
+            }
+            // Non-link interactive elements keep their own behaviour.
+            if (t && t.closest && t.closest('button,input,select,textarea,audio,video')) return;
+            var vw = window.innerWidth || 1;
+            $BRIDGE.onTap(e.clientX / vw);
           }, true);
+
           window.__kmApplyTheme(${config.toJs()});
-        })();
+        } catch (e) { console.error('kmInject: ' + (e && e.stack ? e.stack : e)); } })();
     """.trimIndent()
     }
 }
 
 /** JS bridge (@JavascriptInterface callbacks arrive on the JS thread; everything hops to the main thread). */
 class EpubJsBridge(
-    private val metricsCallback: (Float) -> Unit,
+    /** Scroll/position metrics. [loadToken] identifies the page load the report came from:
+     *  a stale token means the report was emitted by the previous chapter's dying JS. */
+    private val metricsCallback: (fraction: Float, loadToken: Int) -> Unit,
     private val tapCallback: (Float) -> Unit,
+    /** Paged-mode measure pass result (in scrolled mode this fires once per theme apply as 1/0).
+     *  [direction]: 0 = ltr, 1 = rtl, 2 = vertical. */
+    private val paginationCallback: (totalPages: Int, currentPage: Int, loadToken: Int, direction: Int) -> Unit = { _, _, _, _ -> },
+    /** In-book link tap routed from the page JS (same-document hash hops never reach
+     *  shouldOverrideUrlLoading, so the click handler preventDefaults and reports here). */
+    private val linkCallback: (url: String) -> Unit = {},
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @JavascriptInterface
-    fun onMetrics(fraction: String, scrollTop: Int, scrollHeight: Int, viewportHeight: Int) {
+    fun onLink(url: String) {
+        mainHandler.post { linkCallback(url) }
+    }
+
+    @JavascriptInterface
+    fun onMetrics(fraction: String, scrollTop: Int, scrollHeight: Int, loadToken: Int) {
         val f = fraction.toFloatOrNull() ?: return
         // The callback properties must not carry the @JavascriptInterface method names: a
         // `post { onTap(x) }` would resolve to the member function instead of the property and
         // repost itself on the main thread forever, starving the queue.
-        mainHandler.post { metricsCallback(f) }
+        mainHandler.post { metricsCallback(f, loadToken) }
     }
 
     @JavascriptInterface
     fun onTap(xFraction: Float) {
         mainHandler.post { tapCallback(xFraction) }
+    }
+
+    @JavascriptInterface
+    fun onPageMeasured(totalPages: Int, currentPage: Int, loadToken: Int, direction: Int) {
+        mainHandler.post { paginationCallback(totalPages, currentPage, loadToken, direction) }
     }
 }
 
@@ -220,6 +983,12 @@ class EpubWebViewClient(
     private val resolveResource: (String) -> EpubResource?,
     private val onPageReady: (WebView) -> Unit,
     private val resolveFont: (String) -> EpubResource? = { null },
+    /**
+     * In-book navigation (chapter links, footnote references, anchors). The reader must resolve
+     * these itself: letting the WebView load a chapter URL directly would bypass the chapter
+     * index, the position restore and the progress reporting. Return value: handled.
+     */
+    private val onNavigate: (href: String, anchor: String?) -> Boolean = { _, _ -> true },
 ) : WebViewClient() {
 
     override fun shouldInterceptRequest(
@@ -240,8 +1009,26 @@ class EpubWebViewClient(
         return WebResourceResponse(resource.mimeType, encoding, ByteArrayInputStream(resource.data))
     }
 
-    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-        request.url?.host != EpubWeb.FAKE_HOST
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        val uri = request.url ?: return false
+        Log.d("EpubNav", "override url=$uri host=${uri.host} frag=${uri.fragment}")
+        // External links stay blocked (mirrors the original do-not-leave-the-book policy).
+        if (uri.host != EpubWeb.FAKE_HOST) return true
+        // In-book link: route through the reader so the chapter index and the anchor stay in sync.
+        val href = EpubWeb.hrefFromUrl(uri.toString()) ?: return true
+        Log.d("EpubNav", "in-book href=$href anchor=${uri.fragment}")
+        return onNavigate(href, uri.fragment)
+    }
+
+    // Inject as early as the new document can run scripts: commitVisible fires when the first
+    // frame of the new page is about to paint, while onPageFinished waits for every subresource
+    // (all chapter images) to settle — injecting there was what left the WebView hidden (or the
+    // old page blanked) for a visible beat on image-heavy chapters. The JS side is idempotent
+    // (window.__kmInjected re-applies the theme and returns), so the pageFinished fallback only
+    // matters when commitVisible never comes (failed load).
+    override fun onPageCommitVisible(view: WebView, url: String?) {
+        onPageReady(view)
+    }
 
     override fun onPageFinished(view: WebView, url: String?) {
         onPageReady(view)
@@ -251,13 +1038,14 @@ class EpubWebViewClient(
         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 }
 
-/** Create and configure the reading WebView (scroll mode, external network disabled for JS). */
+/** Create and configure the reading WebView (scroll/paged modes, external network disabled for JS). */
 @SuppressLint("SetJavaScriptEnabled")
 fun createEpubWebView(
     context: android.content.Context,
     bridge: EpubJsBridge,
     client: EpubWebViewClient,
     onBottomOverscroll: (() -> Unit)? = null,
+    onTopOverscroll: (() -> Unit)? = null,
 ): EpubScrollWebView = EpubScrollWebView(context).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = false
@@ -265,7 +1053,27 @@ fun createEpubWebView(
     settings.allowContentAccess = false
     settings.loadsImagesAutomatically = true
     settings.mediaPlaybackRequiresUserGesture = true
+    // Pin WebView text scaling: the reader's own font-size setting is the only sizing input —
+    // Android's system font scale must not multiply through (it desyncs the paged column math).
+    settings.textZoom = 100
+    // The injected viewport meta pins the page at scale 1; pinch zoom would break the
+    // vw-based page math (mirrors user-scalable=no on the iOS page builder)
+    settings.setSupportZoom(false)
+    settings.builtInZoomControls = false
+    settings.displayZoomControls = false
     webViewClient = client
+    // JS console surfaces in logcat (tag EpubJs): injected-script failures would otherwise be
+    // silent, and chrome://inspect stays available in debug builds
+    webChromeClient = object : WebChromeClient() {
+        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+            Log.d("EpubJs", "${message.message()} (@${message.sourceId()}:${message.lineNumber()})")
+            return true
+        }
+    }
+    if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+        WebView.setWebContentsDebuggingEnabled(true)
+    }
     addJavascriptInterface(bridge, EpubJs.BRIDGE)
     this.onBottomOverscroll = onBottomOverscroll
+    this.onTopOverscroll = onTopOverscroll
 }

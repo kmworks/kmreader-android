@@ -64,6 +64,7 @@ fun ReaderDefaultsScreen(
         .firstOrNull { it.name.lowercase() == persistedDirection } ?: ReadingDirection.Ltr
     val divinaSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
     val epubSettings by readerSettingsViewModel.epubSettings.collectAsStateWithLifecycle()
+    val epubOverlay by readerSettingsViewModel.epubOverlay.collectAsStateWithLifecycle()
     val pdfSettings by readerSettingsViewModel.pdfSettings.collectAsStateWithLifecycle()
     // Mirrors the original AppConfig.progressRecordingThreshold (default 3; 0 = immediately)
     val progressThreshold by prefsViewModel.progressRecordingThreshold.collectAsStateWithLifecycle()
@@ -174,6 +175,8 @@ fun ReaderDefaultsScreen(
                         customFonts = emptyList(),
                         onOpenPresets = { showEpubPresets = true },
                         onOpenCustomFonts = onOpenCustomFonts,
+                        overlay = epubOverlay,
+                        onOverlayChange = { new -> readerSettingsViewModel.updateEpubOverlay { new } },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
                 }

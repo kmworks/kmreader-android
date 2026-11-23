@@ -114,4 +114,6 @@ dependencies {
     implementation("androidx.pdf:pdf-viewer:1.0.0-beta01")
     implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
     testImplementation(libs.junit)
+    // JVM org.json for unit tests that exercise org.json.JSONObject based models (EpubOverlayPreferences)
+    testImplementation("org.json:json:20250517")
 }
