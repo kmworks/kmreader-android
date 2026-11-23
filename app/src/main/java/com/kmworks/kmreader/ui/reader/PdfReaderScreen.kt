@@ -32,9 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.filled.Search
@@ -47,7 +44,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,6 +64,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -82,6 +79,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.pdf.PdfDocument
 import androidx.pdf.view.PdfView
+import coil3.ImageLoader
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.pdf.PdfPageOrder
 import com.kmworks.kmreader.core.pdf.PdfPageOrderDocument
@@ -140,18 +138,15 @@ fun PdfReaderScreen(
     var showDirectionPicker by remember { mutableStateOf(false) }
     var showPresentationPicker by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
-    var searchVisible by remember { mutableStateOf(false) }
+    var showSearchSheet by remember { mutableStateOf(false) }
     // A modal sheet dims the reader window, so the chrome scrim must not stay painted behind it
     // (it would show through the dim as a band above/below the sheet). chromeVisible itself is
     // left untouched: dismissing the sheet brings the chrome back, and the hidden-chrome progress
     // bar keeps its "chrome is up" reading. The overflow menu is not a sheet — its items close it
     // before opening one.
     val sheetOpen = showSettings || showPageJump || showToc || showDetailSheet ||
-        showDirectionPicker || showPresentationPicker
+        showDirectionPicker || showPresentationPicker || showSearchSheet
     val chromeShown = chromeVisible && !sheetOpen
-    var searchQuery by remember { mutableStateOf("") }
-    var searchMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var searchIndex by remember { mutableIntStateOf(0) }
     var pdfViewRef by remember { mutableStateOf<PdfView?>(null) }
     // Initial-page application marker, keyed to the loaded document
     val initialApply = remember { InitialApply() }
@@ -204,6 +199,18 @@ fun PdfReaderScreen(
         currentPage = target
         pdfViewRef?.scrollToPage(pageOrder.physicalToPosition(target - 1))
     }
+
+    // Coil loader that renders jump-sheet thumbnails straight from the physical document (the
+    // decorated wrapper has virtual slots that are not real pages); rebuilt when the book changes.
+    val context = LocalContext.current
+    val thumbImageLoader =
+        remember(state.document, context) {
+            state.document?.let { doc ->
+                ImageLoader.Builder(context)
+                    .components { add(PdfPageThumbFetcher.Factory(doc)) }
+                    .build()
+            }
+        }
 
     val backgroundColor =
         when (normalizePdfBackground(pdfSettings.background)) {
@@ -273,21 +280,6 @@ fun PdfReaderScreen(
             controller?.hide(WindowInsetsCompat.Type.systemBars())
         }
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
-    }
-
-    // Debounced full-text search
-    LaunchedEffect(searchQuery, state.document) {
-        val query = searchQuery.trim()
-        if (query.isEmpty() || state.document == null) {
-            searchMatches = emptyList()
-            searchIndex = 0
-            return@LaunchedEffect
-        }
-        delay(400)
-        val matches = viewModel.search(query)
-        searchMatches = matches
-        searchIndex = 0
-        if (matches.isNotEmpty()) jumpTo(matches[0])
     }
 
     Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
@@ -429,32 +421,6 @@ fun PdfReaderScreen(
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
         ) {
-            if (searchVisible) {
-                SearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    matchIndex = searchIndex,
-                    matchCount = searchMatches.size,
-                    onPrev = {
-                        if (searchMatches.isNotEmpty()) {
-                            searchIndex =
-                                (searchIndex - 1 + searchMatches.size) % searchMatches.size
-                            jumpTo(searchMatches[searchIndex])
-                        }
-                    },
-                    onNext = {
-                        if (searchMatches.isNotEmpty()) {
-                            searchIndex = (searchIndex + 1) % searchMatches.size
-                            jumpTo(searchMatches[searchIndex])
-                        }
-                    },
-                    onClose = {
-                        searchVisible = false
-                        searchQuery = ""
-                    },
-                    scrimBrush = topChromeBrush,
-                )
-            } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -577,7 +543,7 @@ fun PdfReaderScreen(
                                 },
                                 onClick = {
                                     menuExpanded = false
-                                    searchVisible = true
+                                    showSearchSheet = true
                                 },
                                 enabled = state.document != null,
                             )
@@ -642,13 +608,12 @@ fun PdfReaderScreen(
                         }
                     }
                 }
-            }
         }
 
         // Bottom bar: page capsule + capsule progress bar (mirrors the comic reader and
         // iOS DivinaControlsOverlayView bottomOverlayContent — no interactive slider there)
         AnimatedVisibility(
-            visible = chromeShown && !searchVisible,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
@@ -724,10 +689,21 @@ fun PdfReaderScreen(
             onJumpToPage = { page -> jumpTo(page) },
         )
     }
+    if (showSearchSheet) {
+        PdfSearchSheet(
+            search = viewModel::searchWithSnippets,
+            onSelectResult = { result -> jumpTo(result.pageNumber) },
+            onDismiss = { showSearchSheet = false },
+        )
+    }
     if (showPageJump) {
         ReaderPageJumpSheet(
             currentPage = currentPage,
             pageCount = pageCount,
+            // Real page thumbnails via the document's own render pipeline (Coil-fetched,
+            // keyed by the physical page number so RTL/cover reordering cannot mislabel them)
+            imageLoader = thumbImageLoader,
+            pageThumbnailModel = { PdfPageThumb(it - 1) },
             onJump = {
                 jumpTo(it)
                 showPageJump = false
@@ -785,55 +761,6 @@ fun PdfReaderScreen(
 /** Tracks whether the initial page has been applied for the current document. */
 private class InitialApply {
     var appliedFor: PdfDocument? = null
-}
-
-/** Search chrome row (query input + prev/next navigation). */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    matchIndex: Int,
-    matchCount: Int,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onClose: () -> Unit,
-    scrimBrush: Brush,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // Swallow stray taps across the whole row so they cannot fall through to the PdfView below
-            .pointerInput(Unit) { detectTapGestures { } }
-            .background(scrimBrush)
-            .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onClose) {
-            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.reader_close_search), tint = Color.White)
-        }
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            placeholder = { Text(stringResource(R.string.reader_search_document)) },
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            if (matchCount > 0) "${matchIndex + 1}/$matchCount" else "0/0",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f),
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-        IconButton(onClick = onPrev, enabled = matchCount > 0) {
-            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.reader_previous_match), tint = Color.White)
-        }
-        IconButton(onClick = onNext, enabled = matchCount > 0) {
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.reader_next_match), tint = Color.White)
-        }
-    }
 }
 
 /** Detects short taps without consuming events (PdfView keeps selection/gestures). */

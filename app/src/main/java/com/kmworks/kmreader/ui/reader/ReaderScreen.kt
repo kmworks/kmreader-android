@@ -1274,7 +1274,7 @@ fun ReaderScreen(
             pageCount = pageCount,
             imageLoader = imageLoader,
             isRtl = directionNow == ReadingDirection.Rtl,
-            pageThumbnailUrl = viewModel::pageThumbnailUrl,
+            pageThumbnailModel = viewModel::pageThumbnailUrl,
             onJump = {
                 page = it.coerceIn(1, pageCount)
                 showPageJump = false

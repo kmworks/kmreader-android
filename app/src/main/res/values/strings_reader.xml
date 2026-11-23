@@ -139,6 +139,10 @@
     <string name="pdf_downloading">Downloading PDF…</string>
     <string name="pdf_downloading_progress">Downloading PDF… %1$d%%</string>
     <string name="pdf_preparing">Preparing PDF…</string>
+    <string name="pdf_search_hint">Search in PDF</string>
+    <string name="pdf_searching">Searching…</string>
+    <string name="pdf_search_no_matches">No matches found</string>
+    <string name="pdf_search_results">%1$d results</string>
     <string name="pdf_load_failed">Failed to load PDF</string>
 
     <!-- Reader: EPUB settings -->

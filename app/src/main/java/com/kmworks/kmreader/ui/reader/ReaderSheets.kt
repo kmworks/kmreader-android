@@ -555,7 +555,8 @@ fun ReaderPageJumpSheet(
     onDismiss: () -> Unit,
     imageLoader: ImageLoader? = null,
     isRtl: Boolean = false,
-    pageThumbnailUrl: (Int) -> String? = { null },
+    /** Preview model per 1-based page: a remote URL (DIVINA) or a local render key (PDF pages). */
+    pageThumbnailModel: (Int) -> Any? = { null },
     onShare: ((Int) -> Unit)? = null,
 ) {
     var target by remember { mutableIntStateOf(currentPage) }
@@ -655,7 +656,7 @@ fun ReaderPageJumpSheet(
                                             ),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        val thumb = pageThumbnailUrl(pageNumber)
+                                        val thumb = pageThumbnailModel(pageNumber)
                                         if (thumb != null && imageLoader != null) {
                                             AsyncImage(
                                                 model = thumb,

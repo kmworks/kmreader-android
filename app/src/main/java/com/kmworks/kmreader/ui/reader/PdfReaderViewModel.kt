@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
+/** One search hit: the matching page (1-based) and a context snippet around its first match. */
+data class PdfSearchResult(val pageNumber: Int, val snippet: String)
+
 data class PdfReaderUiState(
     val hasSession: Boolean = false,
     val bookDtoId: String? = null,
@@ -209,14 +212,43 @@ constructor(
         _uiState.update { it.copy(adjacent = adjacent) }
     }
 
-    /** Full-text search: returns the list of matching page numbers (1-based, ascending). */
-    suspend fun search(query: String): List<Int> {
+    /**
+     * Full-text search with one result per matching page (the page's first match), mirroring the
+     * iOS PdfReaderViewModel.search: the snippet is 40 characters before / 80 after the match with
+     * whitespace collapsed, and the list is capped at 200 results. The match set comes from
+     * androidx.pdf (PDFium); the snippet text comes from the page's text contents, so pages whose
+     * text cannot be extracted still appear, with an empty snippet.
+     */
+    suspend fun searchWithSnippets(query: String): List<PdfSearchResult> {
         val doc = document ?: return emptyList()
         return runCatching {
-                val results = doc.searchDocument(query, 0 until doc.pageCount)
-                (0 until results.size()).map { results.keyAt(it) + 1 }
+                val matches = doc.searchDocument(query, 0 until doc.pageCount)
+                val results = ArrayList<PdfSearchResult>()
+                for (i in 0 until matches.size()) {
+                    val page = matches.keyAt(i)
+                    val text =
+                        doc.getPageContent(page)
+                            ?.textContents
+                            ?.joinToString(" ") { it.text }
+                            .orEmpty()
+                    val start = text.indexOf(query, ignoreCase = true)
+                    val snippet = if (start >= 0) buildSnippet(text, start, start + query.length) else ""
+                    results.add(PdfSearchResult(pageNumber = page + 1, snippet = snippet))
+                    if (results.size >= MAX_SEARCH_RESULTS) break
+                }
+                results
             }
             .getOrDefault(emptyList())
+    }
+
+    /** Mirrors the iOS buildSnippet: -40/+80 window, collapsed whitespace, "..." at cut ends. */
+    private fun buildSnippet(text: String, start: Int, end: Int): String {
+        val lower = (start - SNIPPET_CONTEXT_BEFORE).coerceAtLeast(0)
+        val upper = (end + SNIPPET_CONTEXT_AFTER).coerceAtMost(text.length)
+        var snippet = text.substring(lower, upper).replace(Regex("\\s+"), " ").trim()
+        if (lower > 0) snippet = "...$snippet"
+        if (upper < text.length) snippet += "..."
+        return snippet
     }
 
     /** Reports the current page (de-duplicated; last page marks completion). Skipped when incognito. */
@@ -283,5 +315,13 @@ constructor(
     override fun onCleared() {
         document?.close()
         document = null
+    }
+
+    private companion object {
+        /** iOS caps the search result list at 200 entries. */
+        const val MAX_SEARCH_RESULTS = 200
+        /** iOS buildSnippet: 40 characters of context before the match, 80 after it. */
+        const val SNIPPET_CONTEXT_BEFORE = 40
+        const val SNIPPET_CONTEXT_AFTER = 80
     }
 }
