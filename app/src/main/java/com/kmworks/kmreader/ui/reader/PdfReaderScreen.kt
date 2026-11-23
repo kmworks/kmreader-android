@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -178,14 +179,26 @@ fun PdfReaderScreen(
     // become discrete when continuous scroll is off.
     val discretePages = resolvedPresentation == PDF_PRESENTATION_SINGLE || !pdfSettings.continuousScroll
 
+    val backgroundColor =
+        when (normalizePdfBackground(pdfSettings.background)) {
+            PDF_BACKGROUND_WHITE -> Color.White
+            PDF_BACKGROUND_GRAY -> Color(0xFF3A3A3C)
+            PDF_BACKGROUND_BLACK -> Color.Black
+            else -> if (isSystemInDarkTheme()) Color.Black else Color.White
+        }
+    // backgroundColor is one of White / 0xFF3A3A3C / Black (system maps to Black or White),
+    // so a white check is enough to know the page is light
+    val onBackgroundColor = if (backgroundColor == Color.White) Color.Black else Color.White
+
     // Page-order decoration (P1b/P3): RTL mirrors each spread row (iOS displaysRTL) and the
     // solo cover inserts a virtual blank position in two-page layouts (iOS displaysAsBook).
     // Everything user-facing keeps physical page numbers — the capsule, TOC, search, jump
-    // sheet and progress — only the positions handed to PdfView are remapped.
+    // sheet and progress — only the positions handed to PdfView are remapped. The virtual
+    // blank is filled with the reader background so it blends in instead of showing white.
     val rtl = readingDirection == ReadingDirection.Rtl
     val pageOrder =
-        remember(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage) {
-            PdfPageOrder(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage)
+        remember(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage, backgroundColor) {
+            PdfPageOrder(state.pageCount, pagesPerRow, rtl, pdfSettings.soloCoverPage, backgroundColor.toArgb())
         }
     val displayDocument =
         remember(state.document, pageOrder) {
@@ -212,33 +225,14 @@ fun PdfReaderScreen(
             }
         }
 
-    val backgroundColor =
-        when (normalizePdfBackground(pdfSettings.background)) {
-            PDF_BACKGROUND_WHITE -> Color.White
-            PDF_BACKGROUND_GRAY -> Color(0xFF3A3A3C)
-            PDF_BACKGROUND_BLACK -> Color.Black
-            else -> if (isSystemInDarkTheme()) Color.Black else Color.White
-        }
     // Chrome styling mirrors the comic reader (ReaderScreen): a gradient scrim when the
-    // toggle is on and a solid scrim otherwise — never fully transparent, so the white
-    // icons stay readable on any page background. The foreground of elements that sit
-    // directly on the page (loading state, hidden-chrome progress bar) adapts to it.
-    val chromeScrim = Color.Black.copy(alpha = 0.82f)
-    val topChromeBrush =
-        if (pdfSettings.controlsScrim) {
-            Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent))
-        } else {
-            Brush.verticalGradient(listOf(chromeScrim, chromeScrim))
-        }
-    val bottomChromeBrush =
-        if (pdfSettings.controlsScrim) {
-            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)))
-        } else {
-            Brush.verticalGradient(listOf(chromeScrim, chromeScrim))
-        }
-    // backgroundColor is one of White / 0xFF3A3A3C / Black (system maps to Black or White),
-    // so a white check is enough to know the page is light
-    val onBackgroundColor = if (backgroundColor == Color.White) Color.Black else Color.White
+    // toggle is on and a solid scrim otherwise — never fully transparent. The scrim is the
+    // page background itself (adaptive scrim), so the bars match the page in every theme
+    // and background option, with the contrasting foreground color for icons and text.
+    // The brushes are only used in gradient mode; solid mode uses chromeScrim directly.
+    val chromeScrim = backgroundColor.copy(alpha = 0.9f)
+    val topChromeBrush = Brush.verticalGradient(listOf(chromeScrim, Color.Transparent))
+    val bottomChromeBrush = Brush.verticalGradient(listOf(Color.Transparent, chromeScrim))
 
     // Progress reporting (real session only; incognito = Peek, no reporting)
     // Mirrors the original: throttle reports by 2s and flush the last one on exit
@@ -339,6 +333,14 @@ fun PdfReaderScreen(
                         }
                         if (view.pagesPerRow != pagesPerRow) view.pagesPerRow = pagesPerRow
                         container.discreteMode = discretePages
+                        // iOS PDFView displayDirection: LTR/RTL turn pages horizontally
+                        // (RTL flips the swipe semantics), Vertical turns vertically.
+                        container.axis =
+                            if (readingDirection == ReadingDirection.Vertical) {
+                                DiscretePdfContainer.Axis.Vertical
+                            } else {
+                                DiscretePdfContainer.Axis.Horizontal
+                            }
                         container.rtl = rtl
                         container.onNextPage = { jumpTo(currentPage + pagesPerRow) }
                         container.onPrevPage = { jumpTo(currentPage - pagesPerRow) }
@@ -367,6 +369,9 @@ fun PdfReaderScreen(
                                     currentPage
                                 }
                             view.scrollToPage(pageOrder.physicalToPosition(target - 1))
+                            // The document swap re-fits the zoom; re-baseline the discrete
+                            // container's pinch detection against the new resting zoom.
+                            container.syncReferenceZoom()
                         }
                     },
                     modifier =
@@ -421,23 +426,15 @@ fun PdfReaderScreen(
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
         ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // Swallow stray taps across the whole row so they cannot fall through
-                        // to the PdfView below and toggle the chrome
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .background(topChromeBrush)
-                        // ignoringVisibility: layout must not jump when system bars show/hide
-                        .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                // Shared top-bar content pieces: gradient mode lays them out as one full-width
+                // band; solid mode splits them into a left adaptive-length capsule (back +
+                // title) and a right capsule (menu)
+                val topBarBack: @Composable () -> Unit = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
-                            tint = Color.White,
+                            tint = onBackgroundColor,
                         )
                     }
                     // Private-reading indicator (mirrors the original top-bar eye.slash before the title)
@@ -445,13 +442,14 @@ fun PdfReaderScreen(
                         Icon(
                             Icons.Filled.VisibilityOff,
                             contentDescription = stringResource(R.string.reader_incognito),
-                            tint = Color.White.copy(alpha = 0.85f),
+                            tint = onBackgroundColor.copy(alpha = 0.85f),
                             modifier = Modifier.padding(start = 4.dp, end = 8.dp),
                         )
                     }
+                }
+                val topBarTitle: @Composable (Modifier) -> Unit = { titleModifier ->
                     Column(
-                        modifier = Modifier
-                            .weight(1f)
+                        modifier = titleModifier
                             // Mirrors the iOS top-bar title button: tapping the title opens the book detail sheet
                             .clickable { showDetailSheet = true },
                     ) {
@@ -459,8 +457,9 @@ fun PdfReaderScreen(
                         Text(
                             if (book.oneshot) book.title else book.seriesTitle,
                             style = MaterialTheme.typography.titleSmall,
-                            color = Color.White,
+                            color = onBackgroundColor,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             if (book.oneshot) {
@@ -469,16 +468,19 @@ fun PdfReaderScreen(
                                 stringResource(R.string.reader_volume_pdf, book.number)
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = onBackgroundColor.copy(alpha = 0.65f),
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                val topBarMenu: @Composable () -> Unit = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
                                 Icons.Filled.MoreVert,
                                 contentDescription = stringResource(R.string.common_more),
-                                tint = Color.White,
+                                tint = onBackgroundColor,
                             )
                         }
                         DropdownMenu(
@@ -608,6 +610,63 @@ fun PdfReaderScreen(
                         }
                     }
                 }
+                if (pdfSettings.controlsScrim) {
+                    // Gradient mode: full-width band that fades into the page, extending under
+                    // the status bar (background is applied before the insets padding)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // Swallow stray taps across the whole band so they cannot fall
+                            // through to the PdfView below and toggle the chrome
+                            .pointerInput(Unit) { detectTapGestures { } }
+                            .background(topChromeBrush)
+                            // ignoringVisibility: layout must not jump when system bars show/hide
+                            .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        topBarBack()
+                        topBarTitle(Modifier.weight(1f))
+                        topBarMenu()
+                    }
+                } else {
+                    // Solid mode: left adaptive-length capsule (back + title) and right capsule
+                    // (menu); the gap between the capsules stays clear so taps still reach the
+                    // PdfView below
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // ignoringVisibility: layout must not jump when system bars show/hide
+                            .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                // Hug the content, but shrink (title ellipsizes) when space is tight
+                                .weight(1f, fill = false)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(chromeScrim)
+                                // Swallow stray taps inside the capsule so they cannot fall
+                                // through to the PdfView below
+                                .pointerInput(Unit) { detectTapGestures { } }
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            topBarBack()
+                            topBarTitle(Modifier)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(chromeScrim)
+                                .pointerInput(Unit) { detectTapGestures { } },
+                        ) {
+                            topBarMenu()
+                        }
+                    }
+                }
         }
 
         // Bottom bar: page capsule + capsule progress bar (mirrors the comic reader and
@@ -621,10 +680,25 @@ fun PdfReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Swallow stray taps so they cannot fall through to the PdfView below
-                    .pointerInput(Unit) { detectTapGestures { } }
-                    .background(bottomChromeBrush)
-                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility),
+                    .then(
+                        if (pdfSettings.controlsScrim) {
+                            // Gradient mode: full-width band that fades upward into the page,
+                            // extending under the navigation bar
+                            Modifier
+                                // Swallow stray taps across the whole band so they cannot fall
+                                // through to the PdfView below
+                                .pointerInput(Unit) { detectTapGestures { } }
+                                .background(bottomChromeBrush)
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                        } else {
+                            // Solid mode: no wrapping card — the page-jump capsule and the
+                            // progress bar float on their own, so taps between them reach the
+                            // PdfView below
+                            Modifier
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        },
+                    ),
             ) {
                 Row(
                     modifier = Modifier
@@ -636,6 +710,10 @@ fun PdfReaderScreen(
                         page = currentPage,
                         pageCount = pageCount,
                         onClick = { showPageJump = true },
+                        contentColor = onBackgroundColor,
+                        // On the gradient band a translucent content-tinted capsule reads well;
+                        // floating free it needs the scrim itself as its container
+                        containerColor = if (pdfSettings.controlsScrim) onBackgroundColor.copy(alpha = 0.14f) else chromeScrim,
                     )
                 }
                 // Capsule progress bar (mirrors the comic reader / iOS ReadingProgressBar:
@@ -653,7 +731,7 @@ fun PdfReaderScreen(
                         .padding(top = 8.dp, bottom = 12.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.3f)),
+                        .background(if (pdfSettings.controlsScrim) onBackgroundColor.copy(alpha = 0.3f) else chromeScrim),
                 ) {
                     Box(
                         modifier = Modifier
@@ -666,7 +744,7 @@ fun PdfReaderScreen(
                                     Alignment.CenterStart
                                 }
                             )
-                            .background(Color.White),
+                            .background(onBackgroundColor),
                     )
                 }
             }
