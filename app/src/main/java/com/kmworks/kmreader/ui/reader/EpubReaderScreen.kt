@@ -703,6 +703,11 @@ private fun RealEpubReader(
     var showDetailSheet by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showCustomFonts by remember { mutableStateOf(false) }
+    // A modal sheet (or the full-page fonts screen) covers the reader, so the floating chrome must
+    // hide too: left visible it would bleed through the dialog dim. chromeVisible itself is kept —
+    // dismissing the sheet restores the chrome as it was, and the reading overlay stays consistent.
+    val sheetOpen = showSettings || showDetailSheet || showToc || showCustomFonts
+    val chromeShown = chromeVisible && !sheetOpen
     var scrub by remember { mutableStateOf<Float?>(null) }
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
     // Bumped for every chapter load and stamped into the page's JS after injection: measure
@@ -1137,7 +1142,7 @@ private fun RealEpubReader(
         if (!showingEndPage && !showingPreviousPage) {
             EpubReadingOverlay(
                 prefs = epubOverlay,
-                showingControls = chromeVisible,
+                showingControls = chromeShown,
                 paged = themeConfig.paged,
                 // Mirrors iOS: oneshot shows the book title and hides the series line
                 bookTitle = if (book.oneshot) book.title else book.seriesTitle,
@@ -1155,7 +1160,7 @@ private fun RealEpubReader(
         // and a round quick-actions button bottom-trailing whose capsule panel carries the
         // scrubber, contents, book info, settings and the neighbouring books.
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.TopEnd),
             enter = scaleIn() + fadeIn(),
             exit = scaleOut() + fadeOut(),
@@ -1186,7 +1191,7 @@ private fun RealEpubReader(
         }
 
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.BottomEnd),
             enter = scaleIn() + fadeIn(),
             exit = scaleOut() + fadeOut(),

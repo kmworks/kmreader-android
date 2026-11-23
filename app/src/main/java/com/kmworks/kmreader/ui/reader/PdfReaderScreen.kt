@@ -129,6 +129,13 @@ fun PdfReaderScreen(
     var showDetailSheet by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
     var searchVisible by remember { mutableStateOf(false) }
+    // A modal sheet dims the reader window, so the chrome scrim must not stay painted behind it
+    // (it would show through the dim as a band above/below the sheet). chromeVisible itself is
+    // left untouched: dismissing the sheet brings the chrome back, and the hidden-chrome progress
+    // bar keeps its "chrome is up" reading. The overflow menu is not a sheet — its items close it
+    // before opening one.
+    val sheetOpen = showSettings || showPageJump || showToc || showDetailSheet
+    val chromeShown = chromeVisible && !sheetOpen
     var searchQuery by remember { mutableStateOf("") }
     var searchMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
     var searchIndex by remember { mutableIntStateOf(0) }
@@ -388,7 +395,7 @@ fun PdfReaderScreen(
 
         // Top bar (mirrors PdfControlsOverlayView top bar)
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
@@ -589,7 +596,7 @@ fun PdfReaderScreen(
         // Bottom bar: page capsule + capsule progress bar (mirrors the comic reader and
         // iOS DivinaControlsOverlayView bottomOverlayContent — no interactive slider there)
         AnimatedVisibility(
-            visible = chromeVisible && !searchVisible,
+            visible = chromeShown && !searchVisible,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),

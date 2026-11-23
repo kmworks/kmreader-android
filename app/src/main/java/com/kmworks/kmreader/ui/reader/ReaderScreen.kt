@@ -231,6 +231,14 @@ fun ReaderScreen(
     var showDetailSheet by remember { mutableStateOf(false) }
     var contextMenuPage by remember { mutableStateOf<ReaderPage?>(null) }
 
+    // A modal sheet dims the whole reader window, so the chrome must not stay painted behind it:
+    // its scrim would show through the dim as a band above/below the sheet. chromeVisible itself is
+    // left untouched — dismissing the sheet brings the chrome back, and the hidden-chrome page
+    // number / progress indicators stay consistent (menuOpen is not a sheet: its popup is anchored
+    // to the top bar and closes before any sheet opens).
+    val sheetOpen = showSettings || showPageJump || showDetailSheet || contextMenuPage != null
+    val chromeShown = chromeVisible && !sheetOpen
+
     // Zoom: double tap toggles between 1x and the configured scale, pinch zooms continuously
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -1050,7 +1058,7 @@ fun ReaderScreen(
 
         // Top bar
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
@@ -1198,7 +1206,7 @@ fun ReaderScreen(
 
         // Bottom bar: page capsule + capsule progress bar (mirrors iOS DivinaControlsOverlayView bottomOverlayContent)
         AnimatedVisibility(
-            visible = chromeVisible && uiState.status == ReaderPagesStatus.Ready,
+            visible = chromeShown && uiState.status == ReaderPagesStatus.Ready,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
