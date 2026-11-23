@@ -2,9 +2,7 @@ package com.kmworks.kmreader.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -17,7 +15,6 @@ import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -168,18 +165,21 @@ fun ReaderDefaultsScreen(
                 }
             }
             item {
-                DefaultsSectionTitle("EPUB")
-                EpubSettingsContent(
-                    settings = epubSettings,
-                    onSettingsChange = { new -> readerSettingsViewModel.updateEpub { new } },
-                    customFonts = emptyList(),
-                    onOpenPresets = { showEpubPresets = true },
-                    onOpenCustomFonts = onOpenCustomFonts,
-                )
+                // EPUB defaults share the sheet content; the SettingsSection card keeps the page in
+                // the same settings-form style as the Divina section above (label + rounded card).
+                SettingsSection(title = "EPUB") {
+                    EpubSettingsContent(
+                        settings = epubSettings,
+                        onSettingsChange = { new -> readerSettingsViewModel.updateEpub { new } },
+                        customFonts = emptyList(),
+                        onOpenPresets = { showEpubPresets = true },
+                        onOpenCustomFonts = onOpenCustomFonts,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
             }
             item {
-                DefaultsSectionTitle("PDF")
-                SettingsSection {
+                SettingsSection(title = "PDF") {
                     SettingsSwitchRow(
                         title = stringResource(R.string.pdf_native_engine),
                         subtitle = stringResource(
@@ -193,17 +193,17 @@ fun ReaderDefaultsScreen(
                         onCheckedChange = prefsViewModel::setUseNativePdfReader,
                         icon = Icons.Outlined.PictureAsPdf,
                     )
+                    // Reading options below belong to the PDF reader; the comic reader has its own
+                    // defaults page, exactly as the "Use Native PDF Reader" switch gates them on iOS.
+                    if (useNativePdfReader) {
+                        SettingsRowDivider()
+                        PdfSettingsContent(
+                            settings = pdfSettings,
+                            onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
                 }
-                // Reading options below belong to the PDF reader; the comic reader has its own
-                // defaults page, exactly as the "Use Native PDF Reader" switch gates them on iOS.
-                if (useNativePdfReader) {
-                    Spacer(Modifier.height(12.dp))
-                    PdfSettingsContent(
-                        settings = pdfSettings,
-                        onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
-                    )
-                }
-                Spacer(Modifier.height(24.dp))
             }
         }
     }
@@ -218,16 +218,6 @@ fun ReaderDefaultsScreen(
             onDismiss = { showEpubPresets = false },
         )
     }
-}
-
-@Composable
-private fun DefaultsSectionTitle(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
-    )
 }
 
 /** Mirrors the original progressRecordingThresholdLabel: 0 -> Immediately, N -> N pages. */
