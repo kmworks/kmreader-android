@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 /**
  * One flattened table-of-contents row parsed from the PDF outline.
  *
- * @param title display title (may be blank for malformed outlines)
+ * @param title display title (blank outline titles fall back to `Page N`, mirroring iOS)
  * @param pageIndex zero-based target page
  * @param depth nesting depth, root entries are 0
  */
@@ -71,24 +71,33 @@ class PdfOutlineExtractor @Inject constructor() {
         depth: Int,
         entries: MutableList<PdfTocEntry>,
     ) {
-        // findDestinationPage resolves named destinations and GoTo actions; null when the
-        // entry has no page target (e.g. a pure grouping node or external action).
-        val page = runCatching { item.findDestinationPage(document) }.getOrNull()
-        if (page != null) {
-            val pageIndex = document.pages.indexOf(page)
-            if (pageIndex >= 0) {
-                entries += PdfTocEntry(
-                    title = item.title.orEmpty(),
-                    pageIndex = pageIndex,
-                    depth = depth,
-                )
-            }
+        val pageIndex = resolvePageIndex(item, document)
+        if (pageIndex != null) {
+            // iOS buildTOCEntry parity: blank titles fall back to "Page N"
+            val title = item.title?.takeIf { it.isNotBlank() } ?: "Page ${pageIndex + 1}"
+            entries += PdfTocEntry(title = title, pageIndex = pageIndex, depth = depth)
         }
         var child = item.firstChild
         while (child != null) {
             appendItem(child, document, depth + 1, entries)
             child = child.nextSibling
         }
+    }
+
+    /**
+     * The entry's own destination, else the first descendant's page — grouping nodes without
+     * a page target point at their first child, mirroring iOS buildTOCEntry. Null when no
+     * descendant targets a page either (e.g. external-action-only subtrees).
+     */
+    private fun resolvePageIndex(item: PDOutlineItem, document: PDDocument): Int? {
+        // findDestinationPage resolves named destinations and GoTo actions
+        val page = runCatching { item.findDestinationPage(document) }.getOrNull()
+        if (page != null) {
+            val index = document.pages.indexOf(page)
+            if (index >= 0) return index
+        }
+        val child = item.firstChild ?: return null
+        return resolvePageIndex(child, document)
     }
 
     private companion object {
