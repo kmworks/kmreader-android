@@ -797,8 +797,9 @@ private fun FilterSection(title: String, content: @Composable ColumnScope.() -> 
         )
         Surface(
             shape = RoundedCornerShape(16.dp),
-            // One step above the dialog surface, otherwise the card would vanish into it.
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            // One step above the dialog surface (surfaceContainerHigh), otherwise the card
+            // would vanish into it.
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(content = content)
@@ -1138,7 +1139,7 @@ private fun MetadataPickerSheet(
                 // Grouped list card, matching the form cards of the filter panel and the iOS grouped List.
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()

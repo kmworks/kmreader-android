@@ -70,7 +70,11 @@ fun AppModalDialog(
             val cardWidth = maxWidth.coerceAtMost(640.dp)
             Surface(
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                // M3 assigns dialogs the surfaceContainerHigh role: in dark themes the card must
+                // sit ABOVE the page surface in lightness (tonal elevation replaces the shadow,
+                // which is invisible on dark pages). surfaceContainerLow made the card darker than
+                // the dimmed backdrop, melting the edge in dark mode.
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shadowElevation = 8.dp,
                 modifier = Modifier
                     .width(cardWidth)
