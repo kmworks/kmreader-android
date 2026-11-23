@@ -2,13 +2,18 @@ package com.kmworks.kmreader.ui.reader
 
 import android.app.Activity
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -25,21 +30,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +66,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,16 +74,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import android.webkit.WebView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -92,10 +107,12 @@ import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
 import com.kmworks.kmreader.core.epub.EpubRepository
 import com.kmworks.kmreader.core.epub.EpubResource
+import com.kmworks.kmreader.core.epub.EpubScrollWebView
 import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.reader.EpubOverlayItem
 import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
@@ -108,11 +125,17 @@ import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** EPUB reader UI state. */
 data class EpubUiState(
@@ -133,6 +156,8 @@ data class EpubUiState(
      * manifest omits it, so the reader falls back to the global default.
      */
     val readingProgression: String? = null,
+    /** Read list this session continues in (names the end page's relation row instead of the series). */
+    val readListName: String? = null,
 )
 
 /**
@@ -163,9 +188,20 @@ class EpubReaderViewModel @Inject constructor(
     private val _downloadedFamilies = MutableStateFlow<Set<String>>(emptySet())
     val downloadedFamilies: StateFlow<Set<String>> = _downloadedFamilies.asStateFlow()
 
+    /** App-wide theme mode ("system"/"light"/"dark"): the reader theme follows the APP theme,
+     *  not the raw system dark flag (mirrors MainActivity's theme resolution). */
+    val themeMode: StateFlow<String> = appSettings.themeMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.THEME_SYSTEM)
+
     private var bookDtoId: String? = null
     private var loadedBookId: Int = -1
+
+    /** Read list the current book was opened from; kept so the end page can retry the sibling lookup. */
+    private var sessionReadListStableId: Int? = null
     private var weightsByHref: Map<String, Float> = emptyMap()
+
+    /** Sorted position progressions per chapter href (Komga positions); used to snap reported fractions to exact positions. */
+    private var progressionsByHref: Map<String, List<Float>> = emptyMap()
     private var equalWeight: Float = 1f
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
@@ -204,6 +240,7 @@ class EpubReaderViewModel @Inject constructor(
     fun load(book: Book, readListStableId: Int? = null, startAtEnd: Boolean = false) {
         if (loadedBookId == book.id) return
         loadedBookId = book.id
+        sessionReadListStableId = readListStableId
         if (sessionManager.clients.value == null) return
         _uiState.value = _uiState.value.copy(loading = true, error = null)
         viewModelScope.launch {
@@ -248,6 +285,14 @@ class EpubReaderViewModel @Inject constructor(
                 ?.groupingBy { EpubHref.normalize(it.href) }
                 ?.eachCount()
                 ?.mapValues { it.value.toFloat() / positionsTotal }
+                .orEmpty()
+            progressionsByHref = positions
+                ?.takeIf { it.total > 0 }
+                ?.positions
+                ?.groupBy { EpubHref.normalize(it.href) }
+                ?.mapValues { entry ->
+                    entry.value.mapNotNull { it.locations?.progression }.sorted()
+                }
                 .orEmpty()
             estimatedTotalPages = positionsTotal
 
@@ -300,7 +345,14 @@ class EpubReaderViewModel @Inject constructor(
         val adjacent = adjacentBooksResolver.resolve(dtoId, context?.readListId)
         // A different book was opened while the lookup was in flight
         if (_uiState.value.bookDtoId != dtoId) return
-        _uiState.value = _uiState.value.copy(adjacent = adjacent)
+        _uiState.value = _uiState.value.copy(adjacent = adjacent, readListName = context?.name)
+    }
+
+    /** Retries the sibling lookup after it failed (the end page offers this when the device was offline). */
+    fun retryAdjacent() {
+        val dtoId = _uiState.value.bookDtoId ?: return
+        _uiState.value = _uiState.value.copy(adjacent = ReaderAdjacentBooks())
+        viewModelScope.launch { resolveAdjacent(dtoId, sessionReadListStableId) }
     }
 
     /** Scroll-metrics callback from the JS bridge: updates the in-chapter and whole-book fractions, then reports throttled (mirrors the original updateThrottleInterval=2s). */
@@ -322,6 +374,30 @@ class EpubReaderViewModel @Inject constructor(
         if (index !in state.chapters.indices) return
         flushReport()
         selectChapter(index, null)
+    }
+
+    /**
+     * Advance one chapter, landing on its start. False when already on the last chapter — the
+     * caller then opens the end page instead (mirrors the iOS goToNextPage chapter seam).
+     */
+    fun nextChapter(): Boolean {
+        val state = _uiState.value
+        if (state.currentChapterIndex >= state.chapters.lastIndex) return false
+        flushReport()
+        selectChapter(state.currentChapterIndex + 1, 0f)
+        return true
+    }
+
+    /**
+     * Back one chapter, landing on its last page: fraction 1 is the sentinel for "the target
+     * chapter's end" (mirrors the iOS targetPageIndex = -1), in both flow styles.
+     */
+    fun previousChapter(): Boolean {
+        val state = _uiState.value
+        if (state.currentChapterIndex <= 0) return false
+        flushReport()
+        selectChapter(state.currentChapterIndex - 1, 1f)
+        return true
     }
 
     /** Whole-book fraction seek (bottom-bar slider): derives the chapter and in-chapter fraction from the chapter weights. */
@@ -387,6 +463,10 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
+    /** Canonical href of the chapter matching [href] (null when it points outside the spine). */
+    private fun state0ChapterHrefFor(href: String): String? =
+        _uiState.value.chapters.firstOrNull { EpubHref.matches(it.href, href) }?.href
+
     /** Reads a local font for the fake-domain fonts route (called synchronously on the WebViewClient thread). */
     fun fetchLocalFont(path: String): EpubResource? = fontRepository.localFontResource(path)
 
@@ -438,7 +518,7 @@ class EpubReaderViewModel @Inject constructor(
             val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
                 href = chapter.href,
-                chapterFraction = fraction,
+                chapterFraction = snapToPosition(chapter.href, fraction),
                 totalProgression = total,
                 deviceId = deviceId,
                 deviceName = deviceName,
@@ -470,6 +550,18 @@ class EpubReaderViewModel @Inject constructor(
 
     private fun weightOf(chapter: EpubChapter): Float =
         weightsByHref[chapter.href] ?: equalWeight
+
+    /**
+     * Snaps the in-chapter fraction to the nearest Komga position of that chapter. The server (Komga/kmrs)
+     * requires the reported progression to exactly match a position or sit strictly between two positions of
+     * the same href — a raw fraction past the chapter's last position is rejected with 400 "Invalid
+     * progression". Sending back the exact f32 the server advertised round-trips to an exact match.
+     */
+    private fun snapToPosition(href: String, fraction: Float): Float {
+        val progressions = progressionsByHref[href].orEmpty()
+        if (progressions.isEmpty()) return fraction
+        return progressions.minBy { abs(it - fraction) }
+    }
 
     private fun totalFor(chapters: List<EpubChapter>, index: Int, fraction: Float): Float {
         var acc = 0f
@@ -556,18 +648,22 @@ private fun RealEpubReader(
     // EPUB preferences are persisted globally (mirrors the original @AppStorage epubPreferences), so
     // the reader and the defaults page share the same copy
     val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
-    val dark = isSystemInDarkTheme()
-    // Reading direction: the manifest's reading progression (Komga derives it from the series
-    // reading direction), overridable by the forced default. A reflowable WebView has no page turn,
-    // so the direction reaches the document itself — dir="rtl" on the root element, exactly what the
-    // iOS page builder does — instead of the chrome.
-    val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
-    val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
-    val rtl = resolveReadingDirection(
-        seriesDirection = readingDirectionFromProgression(state.readingProgression),
-        forceDefault = readerSettings.forceDefaultDirection,
-        defaultDirection = defaultDirection,
-    ) == ReadingDirection.Rtl
+    // Margin-note ("info overlay") preferences, persisted globally like the theme settings
+    val epubOverlay by settingsViewModel.epubOverlay.collectAsStateWithLifecycle()
+    // The reader theme follows the APP theme setting, not the raw system dark flag (the user
+    // may run the app dark on a light system, or vice versa); "system" still defers to the OS.
+    val appThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (appThemeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDark
+    }
+    // Reading direction: ONLY the publication's own reading progression (mirrors the iOS
+    // tapReadingDirection — ltr/auto/missing all resolve to LTR). The global comic default
+    // direction must not leak into EPUB: a manga RTL default would mirror a Chinese novel's
+    // tap zones and page order (left tap turned pages "forward", right tap went backwards).
+    val rtl = state.readingProgression?.trim()?.lowercase() == "rtl"
     val downloadedFamilies by viewModel.downloadedFamilies.collectAsStateWithLifecycle()
     val fontCss = remember(epubSettings.typeface, downloadedFamilies) {
         if (epubSettings.typeface in downloadedFamilies) {
@@ -576,41 +672,284 @@ private fun RealEpubReader(
             null
         }
     }
-    val themeConfig = remember(epubSettings, dark, fontCss, rtl) {
-        mapEpubThemeConfig(epubSettings, dark, fontCss, rtl)
+    val viewportWidthDp = LocalConfiguration.current.screenWidthDp
+    // Reserve vertical room for the header/footer info overlay in the page layout itself, so
+    // text never slides under the overlay (mirrors the iOS containerInsets top/bottom +24pt,
+    // applied only when at least one reading slot shows content)
+    val overlayHasContent = epubOverlay.readerHeaderLeading != EpubOverlayItem.NONE ||
+        epubOverlay.readerHeaderCenter != EpubOverlayItem.NONE ||
+        epubOverlay.readerHeaderTrailing != EpubOverlayItem.NONE ||
+        epubOverlay.readerFooterLeading != EpubOverlayItem.NONE ||
+        epubOverlay.readerFooterCenter != EpubOverlayItem.NONE ||
+        epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE
+    val overlayInsetVPx = with(LocalDensity.current) {
+        if (overlayHasContent) 24.dp.roundToPx() else 0
+    }
+    val themeConfig = remember(
+        epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+    ) {
+        mapEpubThemeConfig(
+            epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+        )
     }
     var latestConfig by remember { mutableStateOf(themeConfig) }
     SideEffect { latestConfig = themeConfig }
 
     var chromeVisible by remember { mutableStateOf(false) }
-    var menuExpanded by remember { mutableStateOf(false) }
+    // Quick-actions panel of the floating chrome (mirrors the iOS showingQuickActions): lives
+    // under the bottom-end menu button and folds whenever the chrome hides
+    var quickActionsExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showCustomFonts by remember { mutableStateOf(false) }
     var scrub by remember { mutableStateOf<Float?>(null) }
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    // Bumped for every chapter load and stamped into the page's JS after injection: measure
+    // passes carry it back, so stale callbacks from the previous chapter can be dropped
+    var loadToken by remember { mutableStateOf(0) }
+    // onPageReady fires on BOTH onPageCommitVisible and onPageFinished for the same load (the
+    // finished callback is only the fallback for loads where commit never fires). Injecting the
+    // script twice re-runs __kmApplyTheme mid-load, which re-measures and re-imposes whatever
+    // fraction the half-laid-out strip happens to sit at — destroying a queued end-of-chapter
+    // restore (the "back-seam lands at the chapter start" bug).
+    var injectedForToken by remember { mutableStateOf(-1) }
+    var webView by remember { mutableStateOf<EpubScrollWebView?>(null) }
     // The WebView stays invisible until the restored progression has been applied: the chapter is
     // loaded from its top, so without this the first paint shows the chapter start and the injected
     // scroll only lands one or more frames later (same first-frame jump as the pager's cell 0)
     var restorePositioned by remember { mutableStateOf(false) }
+    // Bitmap of the page being left, shown over the WebView while the next chapter loads (see
+    // the chapter-change effect); fades out once the new page has been positioned.
+    var chapterSnapshot by remember { mutableStateOf<ImageBitmap?>(null) }
+    // Whether the WebView has ever revealed a positioned page in this session. The chapter
+    // effect cannot gate the leaving-page snapshot on restorePositioned: the scrollToFraction
+    // effect clears that flag first on a backward seam (fraction 1.0 > 0), so the snapshot
+    // silently never happened and the load window showed a blank panel instead of the old page.
+    var webViewEverRevealed by remember { mutableStateOf(false) }
     var showingEndPage by remember { mutableStateOf(false) }
+    // Mirror image of the end page: swiping past the START of chapter 0 shows the previous
+    // book's card (mirrors the DIVINA PreviousEnd pager cell)
+    var showingPreviousPage by remember { mutableStateOf(false) }
+    // Paged-mode measure results (scrolled mode always reports 1/0)
+    var pageCount by remember { mutableStateOf(1) }
+    var currentPage by remember { mutableStateOf(0) }
+    // Actual reading direction reported by the page JS: 0 = ltr, 1 = rtl, 2 = vertical.
+    // Vertical books paginate downward but pages stack right-to-left, so the tap zones mirror.
+    var jsDirection by remember { mutableStateOf(0) }
+    // Last reported in-chapter fraction: the scrolled-mode edge test for page stepping
+    var lastFraction by remember { mutableStateOf(0f) }
+    // Anchor of an in-book link, applied once the target chapter's measure pass reports
+    var pendingAnchor by remember { mutableStateOf<String?>(null) }
+    // Link-jump back stack (mirrors readest's History.back): following an in-book link pushes
+    // (chapterIndex, in-chapter fraction); the floating return chip pops it and jumps back.
+    var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
+    // Cooldown so one overscroll drag cannot skip several chapters (the seam callback repeats
+    // while the finger holds past the edge)
+    var lastSeamAt by remember { mutableStateOf(0L) }
+
+    // Chapter seams (mirrors the iOS goToNextPage/goToPreviousPage): past the last page of the
+    // book the end page opens, otherwise the neighbouring chapter loads. The paged WebView drives
+    // the position itself, so "beyond the edge" here always means a chapter switch.
+    // Centre-tap chrome toggle (mirrors the iOS toggleControls): hiding the chrome always folds
+    // the quick-actions panel with it
+    fun toggleChrome() {
+        chromeVisible = !chromeVisible
+        if (!chromeVisible) quickActionsExpanded = false
+    }
+
+    fun seamNext() {
+        val now = System.currentTimeMillis()
+        if (now - lastSeamAt < 900L) {
+            return
+        }
+        lastSeamAt = now
+        if (EpubEndPageTrigger.shouldShow(state.currentChapterIndex, state.chapters.size)) {
+            if (!showingEndPage) {
+                showingEndPage = true
+                chromeVisible = false
+                quickActionsExpanded = false
+            }
+        } else {
+            viewModel.nextChapter()
+        }
+    }
+
+    fun seamPrevious() {
+        val now = System.currentTimeMillis()
+        if (now - lastSeamAt < 900L) {
+            return
+        }
+        lastSeamAt = now
+        if (!viewModel.previousChapter() && state.adjacent.previous != null && !showingPreviousPage) {
+            // Chapter 0's leading edge: surface the previous book instead of swallowing the gesture
+            showingPreviousPage = true
+            chromeVisible = false
+            quickActionsExpanded = false
+        }
+    }
+
+    // One page step in either flow style: paged jumps a page, scrolled scrolls a screenful, and
+    // crossing the chapter edge falls through to the seam.
+    fun turnPage(forward: Boolean) {
+        if (themeConfig.paged) {
+            val target = currentPage + (if (forward) 1 else -1)
+            when {
+                target < 0 -> seamPrevious()
+                target >= pageCount -> seamNext()
+                else -> webView?.evaluateJavascript("window.__kmGoToPage($target, true)", null)
+            }
+        } else if (forward && lastFraction >= 0.999f) {
+            seamNext()
+        } else if (!forward && lastFraction <= 0.001f) {
+            seamPrevious()
+        } else {
+            webView?.evaluateJavascript(
+                "window.__kmScrollByViewport(${if (forward) 1 else -1}, true)",
+                null,
+            )
+        }
+    }
+
+    // Callback holders: the bridge and the WebView outlive recompositions, so they invoke through
+    // rememberUpdatedState to always act on the current state.
+    val scope = rememberCoroutineScope()
+    val tapHandler = rememberUpdatedState<(Float) -> Unit> { x ->
+        if (themeConfig.paged) {
+            // Tap zones (mirrors the iOS TapZoneHelper): the outer quarters turn a page, the
+            // centre toggles the chrome; RTL and vertical writing mirror the zones.
+            val mirror = themeConfig.rtl || jsDirection == 2
+            val zone = when {
+                x < 0.25f -> if (mirror) 1 else -1
+                x > 0.75f -> if (mirror) -1 else 1
+                else -> 0
+            }
+            when (zone) {
+                -1 -> turnPage(false)
+                1 -> turnPage(true)
+                else -> toggleChrome()
+            }
+        } else {
+            toggleChrome()
+        }
+    }
+    val paginationHandler = rememberUpdatedState<(Int, Int, Int, Int) -> Unit> { total, page, token, dir ->
+        // Stale measure pass from the previous chapter (its backstop timers and late image
+        // loads outlive the loadUrl call): ignore it, or the reveal fires before the new
+        // chapter is positioned and the old page flashes (mirrors the iOS generation token).
+        if (token != loadToken) return@rememberUpdatedState
+        pageCount = total
+        currentPage = page
+        jsDirection = dir
+        // The first measure pass of a chapter means the restored position has been applied:
+        // reveal the WebView (covers both flow styles; later passes are idempotent)
+        restorePositioned = true
+        webViewEverRevealed = true
+        pendingAnchor?.let { anchor ->
+            pendingAnchor = null
+            webView?.evaluateJavascript("window.__kmGoToAnchor(${JSONObject.quote(anchor)})", null)
+        }
+    }
+    val swipeHandler = rememberUpdatedState<(Float, Float) -> Unit> { dx, vx ->
+        val width = webView?.width?.toFloat() ?: 0f
+        // Comic-pager feel: the page follows the finger live (onDrag), so a modest fling or a
+        // quarter-page drag already turns; anything weaker animates back to the current page.
+        val strong = abs(vx) > 300f || (width > 0f && abs(dx) > width * 0.25f)
+        // Vertical books page along scrollTop but keep horizontal swipes: in vertical-rl the
+        // page progression is right-to-left, so a leftward swipe goes forward (mirrors foliate).
+        val forward = when {
+            jsDirection == 2 -> dx < 0f
+            themeConfig.rtl -> dx > 0f
+            else -> dx < 0f
+        }
+        if (strong) {
+            turnPage(forward)
+        } else {
+            webView?.evaluateJavascript("window.__kmGoToPage($currentPage, true)", null)
+        }
+    }
+    // In-book links (chapter xrefs, footnotes, TOC anchors inside the text): resolve them against
+    // the reading order instead of letting the WebView navigate, which would desync the chapter
+    // index and the progress reporting.
+    val navigateHandler = rememberUpdatedState<(String, String?) -> Boolean>(
+        { href, anchor ->
+            fun navigateFallback() {
+                val index = state.chapters.indexOfFirst { EpubHref.matches(it.href, href) }
+                if (index >= 0) {
+                    if (index != state.currentChapterIndex) {
+                        // Remember where the jump started so the return chip can bring the
+                        // reader back (readest pushes every goTo onto its history stack)
+                        linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
+                        pendingAnchor = anchor
+                        viewModel.goToChapter(index)
+                    } else if (anchor != null) {
+                        linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
+                        webView?.evaluateJavascript(
+                            "window.__kmGoToAnchor(${JSONObject.quote(anchor)})",
+                            null,
+                        )
+                    }
+                }
+            }
+            // Notes and footnote references navigate like every other in-book link: jump to the
+            // anchor, push the return chip (linkBackStack). The popup layer was removed by design.
+            navigateFallback()
+            // Unknown in-book targets are still swallowed: loading them raw would leave the book
+            true
+        },
+    )
+
+    // Metrics carry the page's load token (like the pagination callback): a throttled report
+    // still in flight from the previous chapter in the loadUrl window must not be attributed
+    // to the new chapter index, or the whole-book progression (and the persisted progression
+    // it feeds) jumps to a wrong value.
+    val metricsHandler = rememberUpdatedState<(Float, Int) -> Unit>(
+        { fraction, token ->
+            if (token != loadToken) return@rememberUpdatedState
+            lastFraction = fraction
+            viewModel.onMetrics(fraction)
+        },
+    )
 
     val bridge = remember {
         EpubJsBridge(
-            metricsCallback = viewModel::onMetrics,
-            tapCallback = { chromeVisible = !chromeVisible },
+            metricsCallback = { fraction, token -> metricsHandler.value(fraction, token) },
+            tapCallback = { x -> tapHandler.value(x) },
+            paginationCallback = { total, page, token, dir -> paginationHandler.value(total, page, token, dir) },
+            linkCallback = { url ->
+                // In-book link click reported by the page JS (it preventDefaults because a
+                // same-document hash hop never reaches shouldOverrideUrlLoading)
+                val uri = android.net.Uri.parse(url)
+                if (uri.host == EpubWeb.FAKE_HOST) {
+                    val href = EpubWeb.hrefFromUrl(url)
+                    if (href != null) navigateHandler.value(href, uri.fragment)
+                }
+            },
         )
     }
 
     LaunchedEffect(state.scrollToFraction) {
         state.scrollToFraction?.let {
             pendingScroll = it
+            // A mid-book jump (saved progression, previous-chapter seam landing on the last page)
+            // is applied after the measure pass: hide the WebView until the pagination callback
+            // confirms the position, exactly like the initial restore
+            if (it > 0f) restorePositioned = false
             viewModel.consumeScroll()
         }
     }
-    // Never leave the WebView hidden if the chapter failed to load (onPageReady may not fire)
+    // Never leave the WebView hidden if the position never arrives (load error, dead JS). This
+    // backstop must outlast the JS measurement chain (stylesReady 2s cap + imagesReady 3s cap +
+    // the 10s hard backstop in kickMeasure, mirroring the iOS 10s global one): a shorter timer
+    // reveals the UNRESTORED page 0 mid-wait, which then jumps to the last page once the real
+    // restore lands — the "backward turn flashes the chapter start on image chapters" bug
+    // (image loads push the chain past 3.6s; a pure-text book never comes close).
+    LaunchedEffect(restorePositioned) {
+        if (!restorePositioned) {
+            delay(12_000)
+            restorePositioned = true
+        }
+    }
     LaunchedEffect(state.error) {
         if (state.error != null) restorePositioned = true
     }
@@ -623,6 +962,15 @@ private fun RealEpubReader(
     LaunchedEffect(state.bookDtoId, state.currentChapterIndex, webView) {
         val dtoId = state.bookDtoId ?: return@LaunchedEffect
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return@LaunchedEffect
+        // Hide the old chapter while the new one loads and measures: the container's themed
+        // background shows through instead of a white flash, and the pagination callback (or
+        // the safety timer) reveals the positioned page. A live page leaves a bitmap snapshot
+        // of itself first (Koharia's PixelCopy approach adapted to a single WebView — the iOS
+        // three-slot deck keeps the old page alive, we cannot), so the user sees the old page
+        // until the new one is ready, then an instant swap.
+        if (webViewEverRevealed) chapterSnapshot = webView?.takeSnapshot()
+        restorePositioned = false
+        loadToken += 1
         webView?.loadUrl(EpubWeb.pageUrl(dtoId, chapter.href))
     }
     DisposableEffect(Unit) {
@@ -659,17 +1007,24 @@ private fun RealEpubReader(
     }
     // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
     val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
+    // Chrome follows the page theme (mirrors the iOS material-adaptive bars): the bar is the page
+    // background slightly translucent, its text and icons the page's foreground. A hairline
+    // divider separates the bar from the page instead of the old flat black slab.
+    // Floating chrome tint: the page background near-opaque, so the buttons read on both light
+    // and dark themes (mirrors the iOS borderedProminent chrome look)
+    // Floating chrome sits directly over the page text, so it must read as solid: an opaque
+    // disc in the page color plus a hairline border (the iOS borderedProminent material look).
+    val chromeBackground = pageBackground
+    val chromeBorder = pageContent.copy(alpha = 0.10f)
 
-    // The end page opens when the last chapter is scrolled past its bottom (mirrors
-    // EpubReaderView's showingEndPage, reached there by advancing past the last page). The WebView
-    // outlives this composition, so the callback reads the current state through rememberUpdatedState.
+    // Overscroll past an edge is a chapter seam in scrolled mode (mirrors the iOS overscroll
+    // chapter switch, reached here by dragging beyond the edge instead of panning past the last
+    // page). The paged WebView never overscrolls — its seams come from swipes and tap zones.
     val onBottomOverscroll = rememberUpdatedState {
-        if (!showingEndPage &&
-            EpubEndPageTrigger.shouldShow(state.currentChapterIndex, state.chapters.size)
-        ) {
-            showingEndPage = true
-            chromeVisible = false
-        }
+        if (!themeConfig.paged) seamNext()
+    }
+    val onTopOverscroll = rememberUpdatedState {
+        if (!themeConfig.paged) seamPrevious()
     }
 
     Box(
@@ -682,21 +1037,21 @@ private fun RealEpubReader(
                 val client = EpubWebViewClient(
                     resolveResource = viewModel::fetchResource,
                     onPageReady = { view ->
-                        view.evaluateJavascript(EpubJs.injectScript(latestConfig), null)
-                        val fraction = pendingScroll
-                        pendingScroll = null
-                        if (fraction != null && fraction > 0f) {
-                            // Apply the saved progression first, then reveal the WebView once the
-                            // scrolled frame has had a chance to commit; revealing inside the JS
-                            // callback can still paint the chapter top for a frame
-                            view.evaluateJavascript("window.__kmScrollToFraction($fraction)") {
-                                view.postDelayed({ restorePositioned = true }, 48L)
+                        if (injectedForToken != loadToken) {
+                            injectedForToken = loadToken
+                            view.evaluateJavascript(EpubJs.injectScript(latestConfig), null)
+                            view.evaluateJavascript("window.__kmLoadToken = $loadToken", null)
+                            val fraction = pendingScroll
+                            pendingScroll = null
+                            if (fraction != null && fraction > 0f) {
+                                // Queued inside the JS until the measure pass has sized the pages;
+                                // the reveal then comes from the pagination callback (safety timer in
+                                // the restorePositioned effect covers a dead page)
+                                view.evaluateJavascript("window.__kmScrollToFraction($fraction)", null)
                             }
-                        } else {
-                            // Chapter start (or no saved progression): the first paint is correct
-                            restorePositioned = true
                         }
                     },
+                    onNavigate = { href, anchor -> navigateHandler.value(href, anchor) },
                     resolveFont = viewModel::fetchLocalFont,
                 )
                 createEpubWebView(
@@ -704,26 +1059,71 @@ private fun RealEpubReader(
                     bridge,
                     client,
                     onBottomOverscroll = { onBottomOverscroll.value() },
+                    onTopOverscroll = { onTopOverscroll.value() },
                 ).also { webView = it }
+            },
+            update = { view ->
+                view.pagedMode = themeConfig.paged
+                view.onSwipe = { dx, vx -> swipeHandler.value(dx, vx) }
+                view.onWheelTurn = { forward -> turnPage(forward) }
+                // Finger-following page drag (the comic pager's feel). MotionEvent deltas are
+                // physical px but the paged strip lives in CSS px: with the viewport pinned to
+                // the device width at scale 1 the ratio is exactly the screen density.
+                val cssDensity = view.resources.displayMetrics.density
+                view.onDrag = { dx ->
+                    if (themeConfig.paged) {
+                        view.evaluateJavascript(
+                            "window.__kmDragTo && window.__kmDragTo(${dx / cssDensity})",
+                            null,
+                        )
+                    }
+                }
+                // The WebView's own background paints before the chapter CSS does: without this
+                // it flashes white in dark mode on every chapter load
+                view.setBackgroundColor(android.graphics.Color.parseColor(themeConfig.background))
             },
             modifier =
                 Modifier
                     .fillMaxSize()
-                    // Hidden until the restored page position has been applied (see onPageReady)
-                    .alpha(if (restorePositioned) 1f else 0f),
+                    // Hidden until the restored page position has been applied (see onPageReady).
+                    // 0.01 instead of 0 (the iOS reader does the same): HWUI skips drawing a
+                    // zero-alpha view, the WebView's draw functor then never runs, Chromium gets
+                    // no BeginFrames and the surface stays FROZEN on the last pre-hide frame —
+                    // revealing it flashes that stale frame (the chapter start you turned away
+                    // from) for a frame or two. 0.01 is invisible but keeps frames flowing, so
+                    // the reveal shows the live, already-restored page.
+                    .alpha(if (restorePositioned) 1f else 0.01f),
         )
+
+        // Frozen copy of the previous page: covers the blank WebView window between loadUrl and
+        // the positioned reveal, then swaps out INSTANTLY (no crossfade — iOS/readest reveal the
+        // new page with a hard cut; a fade makes a backward turn flash the old chapter's first
+        // page over the revealed last page). draw() ignores the Compose alpha gate, so the
+        // capture still works while the WebView is hidden.
+        if (!restorePositioned) {
+            chapterSnapshot?.let { snapshot ->
+                Image(
+                    bitmap = snapshot,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else if (chapterSnapshot != null) {
+            SideEffect { chapterSnapshot = null }
+        }
 
         if (state.loading) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
-                color = Color.White,
+                color = pageContent,
             )
         }
         state.error?.let { message ->
             Text(
                 message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f),
+                color = pageContent.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -731,169 +1131,293 @@ private fun RealEpubReader(
             )
         }
 
-        // Top bar (mirrors DIVINA chrome)
+        // Margin notes (mirrors the iOS WebPubInfoOverlay): configurable header/footer slots
+        // around the page, reduced to the two "controls" slots while the chrome is up. Pure
+        // text — touches fall through to the WebView below.
+        if (!showingEndPage && !showingPreviousPage) {
+            EpubReadingOverlay(
+                prefs = epubOverlay,
+                showingControls = chromeVisible,
+                paged = themeConfig.paged,
+                // Mirrors iOS: oneshot shows the book title and hides the series line
+                bookTitle = if (book.oneshot) book.title else book.seriesTitle,
+                chapterTitle = state.chapters.getOrNull(state.currentChapterIndex)?.title,
+                totalProgression = scrub ?: state.totalProgression,
+                currentPage = currentPage,
+                totalPages = if (themeConfig.paged) pageCount else 0,
+                chapterProgressFraction = if (themeConfig.paged) null else lastFraction,
+                isRtl = rtl || jsDirection == 2,
+                textColor = pageContent,
+            )
+        }
+
+        // Floating chrome (mirrors the iOS controlsOverlay): a round close button top-trailing
+        // and a round quick-actions button bottom-trailing whose capsule panel carries the
+        // scrubber, contents, book info, settings and the neighbouring books.
         AnimatedVisibility(
             visible = chromeVisible,
-            modifier = Modifier.align(Alignment.TopCenter),
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd),
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // The whole row swallows stray taps so they do not reach the WebView below and
-                    // toggle the chrome
-                    .pointerInput(Unit) { detectTapGestures { } }
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    // ignoringVisibility: the layout must not jump when the system bars toggle
-                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                    .padding(top = 8.dp, end = 12.dp),
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.reader_back),
-                        tint = Color.White,
-                    )
-                }
-                // Incognito indicator (mirrors the eye.slash before the top-bar title in the original)
+                // Incognito indicator (mirrors the eye.slash in the original chrome)
                 if (incognito) {
                     Icon(
                         Icons.Filled.VisibilityOff,
                         contentDescription = stringResource(R.string.reader_incognito),
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                        tint = pageContent.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(end = 10.dp),
                     )
                 }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        // Mirrors the iOS top-bar title button: tapping the title opens the book
-                        // detail sheet
-                        .clickable { showDetailSheet = true },
-                ) {
-                    // Mirrors iOS: oneshot shows the book title and hides "Vol. N"
-                    Text(
-                        if (book.oneshot) book.title else book.seriesTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Text(
-                        state.chapters.getOrNull(state.currentChapterIndex)?.title
-                            ?: if (book.oneshot) "EPUB" else stringResource(R.string.epub_volume, book.number),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
-                        maxLines = 1,
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = stringResource(R.string.common_more),
-                            tint = Color.White,
-                        )
-                    }
-                    EpubReaderOptionsMenu(
-                        expanded = menuExpanded,
-                        items = buildList {
-                            // The book-detail entry is the top-bar title (mirrors iOS), so it is not
-                            // repeated in the menu
-                            add(
-                                EpubMenuItem(stringResource(R.string.reader_settings_title)) {
-                                    menuExpanded = false
-                                    showSettings = true
-                                },
-                            )
-                            add(
-                                EpubMenuItem(stringResource(R.string.epub_toc)) {
-                                    menuExpanded = false
-                                    showToc = true
-                                },
-                            )
-                            // Neighbouring books: the read list order, else the series (mirrors the
-                            // Divina menu; another reader takes over through onOpenBook). Both sides
-                            // resume on their own progress, never on the end page.
-                            state.adjacent.previous?.let { previous ->
-                                add(
-                                    EpubMenuItem(stringResource(R.string.reader_menu_previous_book)) {
-                                        menuExpanded = false
-                                        viewModel.flushReport()
-                                        onOpenBook(previous, false)
-                                    },
-                                )
-                            }
-                            state.adjacent.next?.let { next ->
-                                add(
-                                    EpubMenuItem(stringResource(R.string.reader_menu_next_book)) {
-                                        menuExpanded = false
-                                        viewModel.flushReport()
-                                        onOpenBook(next, false)
-                                    },
-                                )
-                            }
-                        },
-                        onDismiss = { menuExpanded = false },
+                FloatingChromeButton(onClick = onBack, background = chromeBackground, border = chromeBorder) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.epub_close),
+                        tint = pageContent,
                     )
                 }
             }
         }
 
-        // Bottom bar: total-progress slider + chapter capsule
         AnimatedVisibility(
             visible = chromeVisible,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomEnd),
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
         ) {
             Column(
+                horizontalAlignment = Alignment.End,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    // Swallow stray taps so they do not reach the WebView below
-                    .pointerInput(Unit) { detectTapGestures { } }
-                    .background(Color.Black.copy(alpha = 0.78f))
                     .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(end = 12.dp, bottom = 16.dp),
             ) {
-                val progress = scrub ?: state.totalProgression
-                Slider(
-                    value = progress,
-                    onValueChange = { scrub = it },
-                    onValueChangeFinished = {
-                        scrub?.let(viewModel::seekTo)
-                        scrub = null
-                    },
-                    valueRange = 0f..1f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                    ),
+                // Quick-actions panel (mirrors the iOS quickActionsPanel): trailing-aligned
+                // capsules above the menu button; the label leads, the icon trails.
+                AnimatedVisibility(
+                    visible = quickActionsExpanded,
+                    enter = slideInHorizontally { it } + fadeIn(),
+                    exit = slideOutHorizontally { it } + fadeOut(),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    ) {
+                        // Total-progress scrubber (the old bottom bar's slider lives in the panel
+                        // now, so the reading surface stays chrome-free)
+                        val progress = scrub ?: state.totalProgression
+                        Slider(
+                            value = progress,
+                            onValueChange = { scrub = it },
+                            onValueChangeFinished = {
+                                scrub?.let(viewModel::seekTo)
+                                scrub = null
+                            },
+                            valueRange = 0f..1f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = pageContent,
+                                activeTrackColor = pageContent,
+                                inactiveTrackColor = pageContent.copy(alpha = 0.3f),
+                            ),
+                            modifier = Modifier
+                                .width(240.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(chromeBackground)
+                                .padding(horizontal = 12.dp),
+                        )
+                        QuickActionCapsule(
+                            // The contents capsule doubles as the progress readout (mirrors the
+                            // iOS "Contents · 42.3%")
+                            text = stringResource(R.string.epub_toc) +
+                                " · " + "%.1f%%".format(progress * 100f),
+                            icon = Icons.AutoMirrored.Filled.List,
+                            background = chromeBackground,
+                            border = chromeBorder,
+                            contentColor = pageContent,
+                            onClick = {
+                                quickActionsExpanded = false
+                                showToc = true
+                            },
+                        )
+                        QuickActionCapsule(
+                            text = stringResource(R.string.epub_book_info),
+                            icon = Icons.Outlined.Info,
+                            background = chromeBackground,
+                            border = chromeBorder,
+                            contentColor = pageContent,
+                            onClick = {
+                                quickActionsExpanded = false
+                                showDetailSheet = true
+                            },
+                        )
+                        QuickActionCapsule(
+                            text = stringResource(R.string.reader_settings_title),
+                            icon = Icons.Filled.Settings,
+                            background = chromeBackground,
+                            border = chromeBorder,
+                            contentColor = pageContent,
+                            onClick = {
+                                quickActionsExpanded = false
+                                showSettings = true
+                            },
+                        )
+                        // Neighbouring books (the old overflow menu entries): the read list order,
+                        // else the series; another reader takes over through onOpenBook. Both
+                        // sides resume on their own progress, never on the end page.
+                        state.adjacent.previous?.let { previous ->
+                            QuickActionCapsule(
+                                text = stringResource(R.string.reader_menu_previous_book),
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                background = chromeBackground,
+                                border = chromeBorder,
+                                contentColor = pageContent,
+                                onClick = {
+                                    quickActionsExpanded = false
+                                    viewModel.flushReport()
+                                    onOpenBook(previous, false)
+                                },
+                            )
+                        }
+                        state.adjacent.next?.let { next ->
+                            QuickActionCapsule(
+                                text = stringResource(R.string.reader_menu_next_book),
+                                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                                background = chromeBackground,
+                                border = chromeBorder,
+                                contentColor = pageContent,
+                                onClick = {
+                                    quickActionsExpanded = false
+                                    viewModel.flushReport()
+                                    onOpenBook(next, false)
+                                },
+                            )
+                        }
+                    }
+                }
+                FloatingChromeButton(
+                    onClick = { quickActionsExpanded = !quickActionsExpanded },
+                    background = chromeBackground,
+                    border = chromeBorder,
+                ) {
+                    Icon(
+                        if (quickActionsExpanded) Icons.Filled.Close else Icons.Filled.Menu,
+                        contentDescription = stringResource(R.string.epub_quick_actions),
+                        tint = pageContent,
+                    )
+                }
+            }
+        }
+
+        // Link-jump return chip (mirrors readest's history back() affordance): after following
+        // an in-book link, a floating pill offers the trip back to where the jump started.
+        if (linkBackStack.isNotEmpty() && !showingEndPage && !showingPreviousPage) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                    .padding(start = 16.dp, bottom = 16.dp)
+                    .clip(CircleShape)
+                    .background(chromeBackground)
+                    .clickable {
+                        val target = linkBackStack.last()
+                        linkBackStack = linkBackStack.dropLast(1)
+                        if (target.first != state.currentChapterIndex) {
+                            pendingScroll = target.second
+                            if (target.second > 0f) restorePositioned = false
+                            viewModel.goToChapter(target.first)
+                        } else {
+                            webView?.evaluateJavascript(
+                                "window.__kmScrollToFraction(${target.second})",
+                                null,
+                            )
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = pageContent,
+                    modifier = Modifier.size(16.dp),
                 )
-                ChapterCapsule(
-                    text = stringResource(
-                        R.string.epub_chapter_progress,
-                        state.currentChapterIndex + 1,
-                        state.chapters.size,
-                        (progress * 100).toInt(),
-                    ),
-                    onClick = { showToc = true },
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.epub_end_return),
+                    color = pageContent,
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
         }
 
-        // End page (mirrors iOS EpubEndPageView): Return dismisses it, Close leaves the reader
+        // System back dismisses a transition page before leaving the reader (the old end page's
+        // "Return" button role); with the bars up it folds the chrome first (readest-style
+        // back-key interception), so an accidental back never drops the book outright.
+        BackHandler(enabled = showingEndPage) { showingEndPage = false }
+        BackHandler(enabled = showingPreviousPage) { showingPreviousPage = false }
+        BackHandler(enabled = chromeVisible && !showingEndPage && !showingPreviousPage) {
+            chromeVisible = false
+            quickActionsExpanded = false
+        }
+        // With the panel open, back folds the panel first (it is composed last, so it wins)
+        BackHandler(enabled = quickActionsExpanded && chromeVisible) { quickActionsExpanded = false }
+
+        // End page (mirrors the DIVINA end-page cell): the current book's card on the leading
+        // side, the next book (or the caught-up state) trailing, so finishing a book rolls
+        // straight into the next one. A swipe past the bottom of the last chapter opens it.
         if (showingEndPage) {
-            EpubEndPage(
+            ReaderEndPage(
                 book = book,
-                background = pageBackground,
+                adjacent = state.adjacent,
+                unreadCount = null,
+                relationTitle = state.readListName ?: book.seriesTitle,
+                isRtl = rtl,
                 contentColor = pageContent,
-                onReturn = { showingEndPage = false },
+                onOpenNext = { nextBook ->
+                    viewModel.flushReport()
+                    onOpenBook(nextBook, false)
+                },
+                onRetry = viewModel::retryAdjacent,
                 onClose = onBack,
-                modifier = Modifier.fillMaxSize(),
+                // Tapping the current book's card returns into it (the old page's "Return")
+                onOpenPrevious = { showingEndPage = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(pageBackground)
+                    // Swallow taps so they cannot reach the WebView behind the end page
+                    .pointerInput(Unit) { detectTapGestures { } },
+            )
+        }
+
+        // Previous-book transition page (mirror image of the end page): a swipe past the top of
+        // chapter 0 offers the previous book; its "next" side is this book and dismisses back
+        // into it (mirrors the DIVINA PreviousEnd cell).
+        val adjacentPrevious = state.adjacent.previous
+        if (showingPreviousPage && adjacentPrevious != null) {
+            ReaderEndPage(
+                book = adjacentPrevious,
+                adjacent = ReaderAdjacentBooks(next = book, loaded = true),
+                unreadCount = null,
+                relationTitle = state.readListName ?: adjacentPrevious.seriesTitle,
+                isRtl = rtl,
+                contentColor = pageContent,
+                onOpenNext = { showingPreviousPage = false },
+                onRetry = viewModel::retryAdjacent,
+                onClose = onBack,
+                onOpenPrevious = {
+                    viewModel.flushReport()
+                    onOpenBook(adjacentPrevious, false)
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(pageBackground)
+                    .pointerInput(Unit) { detectTapGestures { } },
             )
         }
     }
@@ -916,6 +1440,8 @@ private fun RealEpubReader(
                 showSettings = false
                 showCustomFonts = true
             },
+            overlay = epubOverlay,
+            onOverlayChange = { new -> settingsViewModel.updateEpubOverlay { new } },
             onDismiss = { showSettings = false },
         )
     }
@@ -951,46 +1477,66 @@ private fun RealEpubReader(
     }
 }
 
-/** EPUB overflow menu item (icon optional). */
-private data class EpubMenuItem(
-    val label: String,
-    val icon: ImageVector? = null,
-    val onClick: () -> Unit,
-)
+/**
+ * Freeze the currently displayed page into a bitmap (chapter-change crossfade). draw() renders
+ * the WebView's own content and ignores the Compose alpha gate, so this also works while the
+ * WebView is hidden mid-restore.
+ */
+private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
+    if (width <= 0 || height <= 0) return null
+    return runCatching {
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            width, height, android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        draw(android.graphics.Canvas(bitmap))
+        bitmap.asImageBitmap()
+    }.getOrNull()
+}
 
-/** Overflow menu for the EPUB chrome. */
+/** Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle). */
 @Composable
-private fun EpubReaderOptionsMenu(
-    expanded: Boolean,
-    items: List<EpubMenuItem>,
-    onDismiss: () -> Unit,
+private fun FloatingChromeButton(
+    onClick: () -> Unit,
+    background: Color,
+    border: Color,
+    content: @Composable () -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        items.forEach { item ->
-            DropdownMenuItem(
-                text = { Text(item.label) },
-                leadingIcon = item.icon?.let { icon ->
-                    { Icon(icon, contentDescription = null) }
-                },
-                onClick = item.onClick,
-            )
-        }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(background)
+            .border(1.dp, border, CircleShape)
+            .clickable(onClick = onClick),
+    ) {
+        content()
     }
 }
 
-/** Chapter progress capsule (mirrors PageJumpCapsule styling). */
+/** Capsule of the quick-actions panel (mirrors the iOS quickActionButton: label leads, icon trails). */
 @Composable
-private fun ChapterCapsule(text: String, onClick: () -> Unit) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = Color.White,
+private fun QuickActionCapsule(
+    text: String,
+    icon: ImageVector,
+    background: Color,
+    border: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.18f))
+            .background(background)
+            .border(1.dp, border, CircleShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelMedium, color = contentColor)
+        Spacer(Modifier.width(8.dp))
+        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
+    }
 }
 
 /** Flattened toc row (path identifies the expanded state, depth drives the indentation). */
@@ -1058,6 +1604,18 @@ private fun EpubChapterSheet(
     val rows = remember(toc, expanded) {
         mutableListOf<TocRow>().also { flattenToc(toc, expanded, "", 0, it) }
     }
+    // Open scrolled to the current entry, roughly centred (mirrors the iOS ScrollViewReader
+    // scrollTo(currentLink, anchor: .center) and readest's scrollToIndex align:center)
+    val listState = rememberLazyListState()
+    val tocCenterOffset = with(LocalDensity.current) { -180.dp.roundToPx() }
+    LaunchedEffect(Unit) {
+        val target = if (rows.isEmpty()) {
+            currentIndex
+        } else {
+            rows.indexOfFirst { it.link.href != null && EpubHref.matches(it.link.href, currentHref ?: "") }
+        }
+        if (target > 0) listState.scrollToItem(target, tocCenterOffset)
+    }
 
     fun jumpTo(link: EpubLinkDto) {
         val href = firstDescendantHref(link) ?: return
@@ -1073,7 +1631,7 @@ private fun EpubChapterSheet(
         )
         // Dialog card bounds the height, so the toc list just takes the remaining space below the
         // title and scrolls inside the card.
-        LazyColumn(modifier = Modifier.weight(1f)) {
+        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
             if (rows.isEmpty()) {
                 // Missing toc: fall back to a flat readingOrder list
                 items(chapters.size) { index ->
@@ -1170,18 +1728,23 @@ private fun TocEntryRow(
     }
 }
 
-/** EpubReaderSettings → WebView injected config (theme greys align with the custom themes). */
+/** EpubReaderSettings → WebView injected config (theme colors mirror the iOS ReaderTheme hexes). */
 private fun mapEpubThemeConfig(
     settings: EpubReaderSettings,
     dark: Boolean,
     fontCss: String?,
     rtl: Boolean = false,
+    viewportWidthDp: Int = 0,
+    readingProgression: String? = null,
+    overlayInsetVPx: Int = 0,
 ): EpubThemeConfig {
+    // Every family resolves to a light/dark pair, like the iOS ReaderTheme light*/dark* cases —
+    // the old mapping had grey placeholders for sepia/green and a mixed-up quiet pair.
     val (background, foreground) = when (normalizeEpubTheme(settings.theme)) {
-        EPUB_THEME_QUIET -> "#FAFAFA" to "#1E1E1E"
-        EPUB_THEME_SEPIA -> "#F0F0F0" to "#2A2A2A"
-        EPUB_THEME_INK_GREEN -> "#ECECEC" to "#202020"
-        else -> if (dark) "#000000" to "#E0E0E0" else "#FFFFFF" to "#1A1A1A"
+        EPUB_THEME_QUIET -> if (dark) "#1E1E1E" to "#BDBDBD" else "#FAFAFA" to "#111111"
+        EPUB_THEME_SEPIA -> if (dark) "#382E25" to "#E3D5C1" else "#F4ECD8" to "#5C4A37"
+        EPUB_THEME_INK_GREEN -> if (dark) "#1B261B" to "#D1E0D1" else "#C7EDCC" to "#1A3A1F"
+        else -> if (dark) "#000000" to "#E0E0E0" else "#FFFFFF" to "#000000"
     }
     val fontFamily = when (normalizeEpubTypeface(settings.typeface)) {
         EPUB_TYPEFACE_PUBLISHER -> ""
@@ -1198,6 +1761,25 @@ private fun mapEpubThemeConfig(
         publisherStyles = settings.publisherStyles,
         fontCss = fontCss,
         rtl = rtl,
+        // Manifest-declared vertical (ttb/btt): forces writing-mode even when the publisher
+        // styles omit it. Content-declared vertical is detected in the page JS instead.
+        vertical = readingProgression?.lowercase() in listOf("ttb", "btt"),
+        paged = normalizeEpubFlowStyle(settings.flowStyle) == EPUB_FLOW_PAGED,
+        colCount = when (normalizeEpubColumns(settings.columns)) {
+            EPUB_COLUMNS_DUAL -> 2
+            // Mirrors the iOS resolvedReadiumColumnCount auto rule: paged-only, 900dp wide
+            // viewport or wider gets two columns (tablets, landscape, desktop windows)
+            EPUB_COLUMNS_AUTO -> if (viewportWidthDp >= 900) 2 else 1
+            else -> 1
+        },
+        // The slider is 0..1 (0.4 = regular); the CSS weight steps by 100 (mirrors the iOS
+        // EpubThemePreferences font-weight mapping)
+        fontWeight = (100 + (settings.fontWeight * 8f).roundToInt() * 100).coerceIn(100, 900),
+        animatePageTurns = settings.animatePageTurns,
+        insetVPx = overlayInsetVPx,
+        // Every family resolves to a light/dark pair, so "dark theme" is exactly the dark slot
+        // being active — drives the JS dark-mode overrides (links, hard-coded colors, images).
+        darkTheme = dark,
     )
 }
 

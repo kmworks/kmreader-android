@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.reader
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.settings.DivinaSettingsStore
 import com.kmworks.kmreader.core.settings.Remembered
@@ -43,6 +44,10 @@ class DivinaSettingsViewModel @Inject constructor(
     private val _pdfSettings = MutableStateFlow(PdfReaderSettings())
     val pdfSettings: StateFlow<PdfReaderSettings> = _pdfSettings.asStateFlow()
 
+    // EPUB margin-note ("info overlay") preferences (mirrors the iOS EpubOverlayPreferences @AppStorage).
+    private val _epubOverlay = MutableStateFlow(EpubOverlayPreferences())
+    val epubOverlay: StateFlow<EpubOverlayPreferences> = _epubOverlay.asStateFlow()
+
     /** Default reading direction saved in settings (divinaDefaultDirection persisted under Settings - Reader Defaults). */
     val defaultDirection: StateFlow<ReadingDirection> = appSettings.divinaDefaultDirection
         .map { raw -> ReadingDirection.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: ReadingDirection.Ltr }
@@ -62,6 +67,9 @@ class DivinaSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             store.pdfSettings.collect { _pdfSettings.value = it }
         }
+        viewModelScope.launch {
+            store.epubOverlay.collect { _epubOverlay.value = it }
+        }
     }
 
     /** Apply locally first (UI takes effect immediately), then persist. */
@@ -78,6 +86,12 @@ class DivinaSettingsViewModel @Inject constructor(
     fun updatePdf(transform: (PdfReaderSettings) -> PdfReaderSettings) {
         _pdfSettings.value = transform(_pdfSettings.value)
         viewModelScope.launch { store.updatePdfSettings(transform) }
+    }
+
+    /** Apply locally first (UI takes effect immediately), then persist. */
+    fun updateEpubOverlay(transform: (EpubOverlayPreferences) -> EpubOverlayPreferences) {
+        _epubOverlay.value = transform(_epubOverlay.value)
+        viewModelScope.launch { store.updateEpubOverlay(transform) }
     }
 
     /** Reading direction follows the default from "Settings - Reader Defaults" (same AppStorage semantics as the original). */

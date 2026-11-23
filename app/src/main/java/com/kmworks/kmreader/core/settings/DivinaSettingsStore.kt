@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.ui.reader.BorderCropMode
 import com.kmworks.kmreader.ui.reader.DivinaSettings
 import com.kmworks.kmreader.ui.reader.DoubleTapZoomMode
@@ -197,6 +198,19 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
+    // ---- EPUB margin-note ("info overlay") preferences: header/footer slots + optional progress bar,
+    // persisted as one JSON string (mirrors the iOS EpubOverlayPreferences @AppStorage value) ----
+    val epubOverlay: Flow<EpubOverlayPreferences> = store.data.map { prefs ->
+        EpubOverlayPreferences.fromJson(prefs[Keys.EPUB_OVERLAY])
+    }
+
+    suspend fun updateEpubOverlay(transform: (EpubOverlayPreferences) -> EpubOverlayPreferences) {
+        store.edit { prefs ->
+            val next = transform(EpubOverlayPreferences.fromJson(prefs[Keys.EPUB_OVERLAY]))
+            prefs[Keys.EPUB_OVERLAY] = next.toJson()
+        }
+    }
+
     // ---- PDF reader settings (mirrors the original pdfReaderBackground/showPdfControlsGradientBackground/showPdfProgressBarWhileReading etc.) ----
     val pdfSettings: Flow<PdfReaderSettings> = store.data.map { prefs ->
         val defaults = PdfReaderSettings()
@@ -295,6 +309,7 @@ class DivinaSettingsStore @Inject constructor(
         val EPUB_COLUMNS = stringPreferencesKey("epubColumns")
         val EPUB_PUBLISHER_STYLES = booleanPreferencesKey("epubPublisherStyles")
         val EPUB_ANIMATE_TURNS = booleanPreferencesKey("animateEpubTapTurns")
+        val EPUB_OVERLAY = stringPreferencesKey("epubOverlayPreferences")
         val PDF_CONTINUOUS_SCROLL = booleanPreferencesKey("pdfContinuousScroll")
         val PDF_PAGE_PRESENTATION = stringPreferencesKey("pdfPagePresentation")
         val PDF_BACKGROUND = stringPreferencesKey("pdfReaderBackground")

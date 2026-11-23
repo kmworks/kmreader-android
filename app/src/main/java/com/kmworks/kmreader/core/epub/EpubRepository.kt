@@ -59,7 +59,10 @@ data class EpubLocatorLocationsDto(
 @Serializable
 data class EpubLocatorDto(
     val href: String = "",
-    val type: String = "text/html",
+    // Default "" (not "text/html"): kotlinx.serialization omits values equal to their default, which
+    // silently dropped `type` from PUT bodies ("text/html" == default) and the server rejected them 422.
+    // With "" the explicit "text/html" always serializes; decoding still tolerates a missing field.
+    val type: String = "",
     val title: String? = null,
     val locations: EpubLocatorLocationsDto? = null,
 )

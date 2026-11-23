@@ -55,6 +55,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import com.kmworks.kmreader.core.reader.EpubOverlayItem
+import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.core.reader.EpubThemePreset
 import com.kmworks.kmreader.core.reader.EpubThemePresetStore
 import com.kmworks.kmreader.data.CustomFont
@@ -75,7 +79,7 @@ data class EpubReaderSettings(
     val margins: Float = 1.0f,
     val lineHeight: Float = 1.4f,
     val flowStyle: String = EPUB_FLOW_PAGED,
-    val columns: String = EPUB_COLUMNS_SINGLE,
+    val columns: String = EPUB_COLUMNS_AUTO,
     val publisherStyles: Boolean = true,
     val animatePageTurns: Boolean = true,
 )
@@ -95,6 +99,7 @@ const val EPUB_FLOW_PAGED = "paged"
 const val EPUB_FLOW_SCROLLED = "scrolled"
 
 /** Stable storage keys for [EpubReaderSettings.columns]. */
+const val EPUB_COLUMNS_AUTO = "auto"
 const val EPUB_COLUMNS_SINGLE = "single"
 const val EPUB_COLUMNS_DUAL = "dual"
 
@@ -121,6 +126,7 @@ fun normalizeEpubFlowStyle(value: String): String = when (value) {
 }
 
 fun normalizeEpubColumns(value: String): String = when (value) {
+    "\u81ea\u52a8" -> EPUB_COLUMNS_AUTO
     "\u5355\u680f" -> EPUB_COLUMNS_SINGLE
     "\u53cc\u680f" -> EPUB_COLUMNS_DUAL
     else -> value
@@ -145,8 +151,23 @@ fun epubFlowStyleLabelRes(value: String): Int =
     if (normalizeEpubFlowStyle(value) == EPUB_FLOW_SCROLLED) R.string.epub_flow_scrolled else R.string.epub_flow_paged
 
 @StringRes
-fun epubColumnsLabelRes(value: String): Int =
-    if (normalizeEpubColumns(value) == EPUB_COLUMNS_DUAL) R.string.epub_columns_dual else R.string.epub_columns_single
+fun epubColumnsLabelRes(value: String): Int = when (normalizeEpubColumns(value)) {
+    EPUB_COLUMNS_DUAL -> R.string.epub_columns_dual
+    EPUB_COLUMNS_AUTO -> R.string.epub_columns_auto
+    else -> R.string.epub_columns_single
+}
+
+@StringRes
+fun epubOverlayItemLabelRes(item: EpubOverlayItem): Int = when (item) {
+    EpubOverlayItem.NONE -> R.string.epub_overlay_item_none
+    EpubOverlayItem.BOOK_TITLE -> R.string.epub_overlay_item_book_title
+    EpubOverlayItem.CHAPTER_TITLE -> R.string.epub_overlay_item_chapter_title
+    EpubOverlayItem.BOOK_PROGRESS_PERCENT -> R.string.epub_overlay_item_book_progress
+    EpubOverlayItem.BOOK_REMAINING_PERCENT -> R.string.epub_overlay_item_book_remaining
+    EpubOverlayItem.CHAPTER_PROGRESS_PERCENT -> R.string.epub_overlay_item_chapter_progress
+    EpubOverlayItem.CHAPTER_REMAINING -> R.string.epub_overlay_item_chapter_remaining
+    EpubOverlayItem.CHAPTER_POSITION -> R.string.epub_overlay_item_chapter_position
+}
 
 /** Theme preset row (mirrors EpubThemePresetDisplayItem). */
 private fun EpubThemePreset.toSettings(): EpubReaderSettings = EpubReaderSettings(
@@ -234,6 +255,8 @@ fun EpubSettingsContent(
     customFonts: List<CustomFont>,
     onOpenPresets: () -> Unit,
     onOpenCustomFonts: () -> Unit,
+    overlay: EpubOverlayPreferences,
+    onOverlayChange: (EpubOverlayPreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -344,7 +367,7 @@ fun EpubSettingsContent(
         )
         EpubChipRow(
             label = stringResource(R.string.reader_menu_page_layout),
-            options = listOf(EPUB_COLUMNS_SINGLE, EPUB_COLUMNS_DUAL),
+            options = listOf(EPUB_COLUMNS_AUTO, EPUB_COLUMNS_SINGLE, EPUB_COLUMNS_DUAL),
             selected = normalizeEpubColumns(settings.columns),
             optionLabel = { stringResource(epubColumnsLabelRes(it)) },
             onSelect = { onSettingsChange(settings.copy(columns = it)) },
@@ -353,6 +376,57 @@ fun EpubSettingsContent(
             label = stringResource(R.string.epub_animate_page_turns),
             checked = settings.animatePageTurns,
             onCheckedChange = { onSettingsChange(settings.copy(animatePageTurns = it)) },
+        )
+
+        // Margin notes (mirrors the iOS EpubOverlayPreferencesEditor "Reading" section).
+        EpubSectionTitle(stringResource(R.string.epub_section_overlay))
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_header_leading),
+            selected = overlay.readerHeaderLeading,
+            onSelect = { onOverlayChange(overlay.copy(readerHeaderLeading = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_header_center),
+            selected = overlay.readerHeaderCenter,
+            onSelect = { onOverlayChange(overlay.copy(readerHeaderCenter = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_header_trailing),
+            selected = overlay.readerHeaderTrailing,
+            onSelect = { onOverlayChange(overlay.copy(readerHeaderTrailing = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_footer_leading),
+            selected = overlay.readerFooterLeading,
+            onSelect = { onOverlayChange(overlay.copy(readerFooterLeading = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_footer_center),
+            selected = overlay.readerFooterCenter,
+            onSelect = { onOverlayChange(overlay.copy(readerFooterCenter = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_footer_trailing),
+            selected = overlay.readerFooterTrailing,
+            onSelect = { onOverlayChange(overlay.copy(readerFooterTrailing = it)) },
+        )
+        EpubSwitchRow(
+            label = stringResource(R.string.epub_overlay_progress_bar),
+            checked = overlay.showsReaderProgressBar,
+            onCheckedChange = { onOverlayChange(overlay.copy(showsReaderProgressBar = it)) },
+        )
+
+        // Slots shown while the reader chrome is visible (mirrors the iOS "Controls" section).
+        EpubSectionTitle(stringResource(R.string.epub_section_overlay_controls))
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_controls_header_center),
+            selected = overlay.controlsHeaderCenter,
+            onSelect = { onOverlayChange(overlay.copy(controlsHeaderCenter = it)) },
+        )
+        EpubOverlayPickerRow(
+            label = stringResource(R.string.epub_overlay_controls_footer_center),
+            selected = overlay.controlsFooterCenter,
+            onSelect = { onOverlayChange(overlay.copy(controlsFooterCenter = it)) },
         )
     }
 }
@@ -365,6 +439,8 @@ fun EpubSettingsSheet(
     onSettingsChange: (EpubReaderSettings) -> Unit,
     customFonts: List<CustomFont>,
     onOpenCustomFonts: () -> Unit,
+    overlay: EpubOverlayPreferences,
+    onOverlayChange: (EpubOverlayPreferences) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var showPresets by remember { mutableStateOf(false) }
@@ -386,6 +462,8 @@ fun EpubSettingsSheet(
                 customFonts = customFonts,
                 onOpenPresets = { showPresets = true },
                 onOpenCustomFonts = onOpenCustomFonts,
+                overlay = overlay,
+                onOverlayChange = onOverlayChange,
             )
         }
     }
@@ -602,6 +680,42 @@ private fun EpubChipRow(
                     selected = selected == option,
                     onClick = { onSelect(option) },
                     label = { Text(optionLabel(option), style = MaterialTheme.typography.labelMedium) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpubOverlayPickerRow(
+    label: String,
+    selected: EpubOverlayItem,
+    onSelect: (EpubOverlayItem) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                stringResource(epubOverlayItemLabelRes(selected)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            EpubOverlayItem.entries.forEach { item ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(epubOverlayItemLabelRes(item))) },
+                    onClick = {
+                        onSelect(item)
+                        expanded = false
+                    },
                 )
             }
         }
