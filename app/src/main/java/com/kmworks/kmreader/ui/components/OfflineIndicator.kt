@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,12 +29,19 @@ import com.kmworks.kmreader.R
 
 /**
  * Global "server unreachable" indicator, the counterpart of the red `wifi.slash` the iOS app shows
- * (LibraryScopeHeader / ConnectionStatusButton). Rendered as a floating red pill at the top center,
- * above every tab and pushed page including the reader, driven by ServerReachability — so it
- * appears for failures at startup and for connections that die while the app is running.
+ * (LibraryScopeHeader / ConnectionStatusButton — tapping iOS's button retries the connection too).
+ * Rendered as a floating red pill at the top centre, above every tab and pushed page including the
+ * reader, driven by ServerReachability — so it appears for failures at startup and for connections
+ * that die while the app is running. Tapping it fires one lightweight probe request; a response of
+ * any status clears the flag, another failure keeps it (the interceptor does the bookkeeping).
  */
 @Composable
-fun OfflineIndicator(visible: Boolean, modifier: Modifier = Modifier) {
+fun OfflineIndicator(
+    visible: Boolean,
+    probing: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val label = stringResource(R.string.common_offline)
     val hint = stringResource(R.string.common_offline_cached_hint)
     AnimatedVisibility(
@@ -43,6 +51,8 @@ fun OfflineIndicator(visible: Boolean, modifier: Modifier = Modifier) {
         exit = fadeOut() + slideOutVertically { -it },
     ) {
         Surface(
+            onClick = onRetry,
+            enabled = !probing,
             color = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
             shape = CircleShape,
@@ -54,11 +64,19 @@ fun OfflineIndicator(visible: Boolean, modifier: Modifier = Modifier) {
                     .semantics { contentDescription = hint }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.WifiOff,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
+                if (probing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onError,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.WifiOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 Spacer(Modifier.width(6.dp))
                 Text(text = label, style = MaterialTheme.typography.labelLarge)
             }
