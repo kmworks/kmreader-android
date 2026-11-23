@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,8 +20,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -43,11 +46,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +60,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -174,8 +176,26 @@ fun PdfReaderScreen(
             PDF_BACKGROUND_BLACK -> Color.Black
             else -> if (isSystemInDarkTheme()) Color.Black else Color.White
         }
-    val scrim =
-        if (pdfSettings.controlsScrim) Color.Black.copy(alpha = 0.78f) else Color.Transparent
+    // Chrome styling mirrors the comic reader (ReaderScreen): a gradient scrim when the
+    // toggle is on and a solid scrim otherwise — never fully transparent, so the white
+    // icons stay readable on any page background. The foreground of elements that sit
+    // directly on the page (loading state, hidden-chrome progress bar) adapts to it.
+    val chromeScrim = Color.Black.copy(alpha = 0.82f)
+    val topChromeBrush =
+        if (pdfSettings.controlsScrim) {
+            Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent))
+        } else {
+            Brush.verticalGradient(listOf(chromeScrim, chromeScrim))
+        }
+    val bottomChromeBrush =
+        if (pdfSettings.controlsScrim) {
+            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)))
+        } else {
+            Brush.verticalGradient(listOf(chromeScrim, chromeScrim))
+        }
+    // backgroundColor is one of White / 0xFF3A3A3C / Black (system maps to Black or White),
+    // so a white check is enough to know the page is light
+    val onBackgroundColor = if (backgroundColor == Color.White) Color.Black else Color.White
 
     // Progress reporting (real session only; incognito = Peek, no reporting)
     // Mirrors the original: throttle reports by 2s and flush the last one on exit
@@ -228,7 +248,7 @@ fun PdfReaderScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = onBackgroundColor)
                     val progress = state.downloadProgress
                     Text(
                         if (progress != null) {
@@ -237,7 +257,7 @@ fun PdfReaderScreen(
                             stringResource(R.string.pdf_downloading)
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
+                        color = onBackgroundColor.copy(alpha = 0.65f),
                     )
                 }
             }
@@ -251,7 +271,7 @@ fun PdfReaderScreen(
                     Text(
                         stringResource(R.string.pdf_load_failed),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White,
+                        color = onBackgroundColor,
                     )
                     Button(onClick = { viewModel.retry() }) { Text(stringResource(R.string.common_retry)) }
                 }
@@ -313,23 +333,30 @@ fun PdfReaderScreen(
                     Text(
                         stringResource(R.string.reader_connection_required),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White,
+                        color = onBackgroundColor,
                     )
-                    TextButton(onClick = onBack) { Text(stringResource(R.string.common_back), color = Color.White) }
+                    TextButton(onClick = onBack) { Text(stringResource(R.string.common_back), color = onBackgroundColor) }
                 }
             }
         }
 
-        // Mini progress bar while chrome is hidden (mirrors showProgressBarWhileReading)
+        // Mini progress bar while chrome is hidden (mirrors showProgressBarWhileReading):
+        // the comic reader's 2dp bar, tinted against the page background
         if (!chromeVisible && pdfSettings.showProgressWhileReading) {
-            LinearProgressIndicator(
-                progress = { currentPage / pageCount.toFloat() },
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-                color = Color.White.copy(alpha = 0.8f),
-                trackColor = Color.White.copy(alpha = 0.2f),
-            )
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(onBackgroundColor.copy(alpha = 0.15f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth((currentPage.toFloat() / pageCount).coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(onBackgroundColor.copy(alpha = 0.85f)),
+                )
+            }
         }
 
         // Top bar (mirrors PdfControlsOverlayView top bar)
@@ -362,7 +389,7 @@ fun PdfReaderScreen(
                         searchVisible = false
                         searchQuery = ""
                     },
-                    scrim = scrim,
+                    scrimBrush = topChromeBrush,
                 )
             } else {
                 Row(
@@ -371,7 +398,7 @@ fun PdfReaderScreen(
                         // Swallow stray taps across the whole row so they cannot fall through
                         // to the PdfView below and toggle the chrome
                         .pointerInput(Unit) { detectTapGestures { } }
-                        .background(scrim)
+                        .background(topChromeBrush)
                         // ignoringVisibility: layout must not jump when system bars show/hide
                         .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                         .padding(horizontal = 4.dp, vertical = 6.dp),
@@ -532,7 +559,8 @@ fun PdfReaderScreen(
             }
         }
 
-        // Bottom bar: slider + page capsule
+        // Bottom bar: page capsule + capsule progress bar (mirrors the comic reader and
+        // iOS DivinaControlsOverlayView bottomOverlayContent — no interactive slider there)
         AnimatedVisibility(
             visible = chromeVisible && !searchVisible,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -544,26 +572,52 @@ fun PdfReaderScreen(
                     .fillMaxWidth()
                     // Swallow stray taps so they cannot fall through to the PdfView below
                     .pointerInput(Unit) { detectTapGestures { } }
-                    .background(scrim)
-                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .background(bottomChromeBrush)
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility),
             ) {
-                Slider(
-                    value = currentPage.toFloat(),
-                    onValueChange = { jumpTo(it.toInt()) },
-                    valueRange = 1f..pageCount.toFloat(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                    ),
-                )
-                PageJumpCapsule(
-                    page = currentPage,
-                    pageCount = pageCount,
-                    onClick = { showPageJump = true },
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    PageJumpCapsule(
+                        page = currentPage,
+                        pageCount = pageCount,
+                        onClick = { showPageJump = true },
+                    )
+                }
+                // Capsule progress bar (mirrors the comic reader / iOS ReadingProgressBar:
+                // dim track, white fill, reversed in RTL)
+                val fillFraction =
+                    if (pageCount > 0) {
+                        (currentPage.toFloat() / pageCount).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 8.dp, bottom = 12.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.3f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fillFraction)
+                            .align(
+                                if (readingDirection == ReadingDirection.Rtl) {
+                                    Alignment.CenterEnd
+                                } else {
+                                    Alignment.CenterStart
+                                }
+                            )
+                            .background(Color.White),
+                    )
+                }
             }
         }
     }
@@ -625,14 +679,14 @@ private fun SearchBar(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onClose: () -> Unit,
-    scrim: Color,
+    scrimBrush: Brush,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             // Swallow stray taps across the whole row so they cannot fall through to the PdfView below
             .pointerInput(Unit) { detectTapGestures { } }
-            .background(scrim)
+            .background(scrimBrush)
             .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
             .padding(horizontal = 4.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
