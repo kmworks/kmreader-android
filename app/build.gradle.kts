@@ -113,6 +113,9 @@ dependencies {
     // PDF text layer (select/copy/search): official Jetpack PdfView + sandboxed document loading
     implementation("androidx.pdf:pdf-viewer:1.0.0-beta01")
     implementation("androidx.pdf:pdf-document-service:1.0.0-beta01")
+    // PDF outline/TOC extraction only (androidx.pdf beta01 has no outline API; see
+    // docs/pdf-native-reader-plan.md §3). Drop once androidx.pdf ships an outline API.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     testImplementation(libs.junit)
     // JVM org.json for unit tests that exercise org.json.JSONObject based models (EpubOverlayPreferences)
     testImplementation("org.json:json:20250517")
