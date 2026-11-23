@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -94,6 +95,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -129,10 +131,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
-private val ChromeScrim = Color.Black.copy(alpha = 0.82f)
 private val PageFill = Color(0xFF1C1C1F)
 private val PageLine = Color.White.copy(alpha = 0.12f)
-private val ChromeText = Color.White
 
 /**
  * Comic reader (DIVINA): real page pipeline (ReaderViewModel → BookPagesApi). Every option in the
@@ -191,6 +191,19 @@ fun ReaderScreen(
     val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val readerBackground = settings.background.color(darkTheme)
     val pageContentColor = settings.background.contentColor(darkTheme)
+    // Adaptive chrome: in solid (capsule) mode the bars are tinted with the reader
+    // background itself, so they match the page in every theme and every background
+    // option (black/white/gray/sepia/system), and the icons and text use the
+    // background's own content color.
+    // Gradient mode instead keeps the original always-black scrim with white content:
+    // an adaptive scrim fades into the page, so on a same-coloured page the text would
+    // end up sitting directly on the page and become unreadable.
+    val chromeScrim = readerBackground.copy(alpha = 0.9f)
+    val chromeContent = if (settings.controlsGradient) Color.White else pageContentColor
+    // Mid-tone between background and content: a free-floating progress track in the
+    // scrim colour would vanish on pages matching the reader background, this stays
+    // visible on pages of either colour
+    val chromeTrack = lerp(readerBackground, pageContentColor, 0.35f)
 
     // The book on screen: the route's book, replaced when the end page opens the next one (mirrors the
     // original currentBook, which the session keeps while the reader stays open)
@@ -1025,14 +1038,22 @@ fun ReaderScreen(
 
                 // Page number (shown while the chrome is hidden, avoiding duplication with the bottom bar)
                 if (settings.showPageNumber && !chromeVisible && pageCount > 0) {
+                    // Floated over arbitrary page art: put the text on a scrim capsule so it
+                    // stays readable on same-coloured pages (mirrors the page-jump capsule)
                     Text(
                         text = "$page / $pageCount",
                         style = MaterialTheme.typography.labelMedium,
                         fontFamily = FontFamily.Monospace,
-                        color = pageContentColor.copy(alpha = 0.7f),
+                        color = pageContentColor,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 20.dp),
+                            .padding(bottom = 20.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(chromeScrim)
+                            // Faint edge keeps the capsule visible on pages matching the
+                            // reader background colour
+                            .border(1.dp, pageContentColor.copy(alpha = 0.25f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
 
@@ -1043,7 +1064,9 @@ fun ReaderScreen(
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .height(2.dp)
-                            .background(pageContentColor.copy(alpha = 0.15f)),
+                            // Solid mid-tone track: stays visible on pages of either colour,
+                            // the fill contrasts it
+                            .background(chromeTrack),
                     ) {
                         Box(
                             modifier = Modifier
@@ -1063,45 +1086,29 @@ fun ReaderScreen(
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // Swallow stray taps across the whole row (mirrors iOS .contentShape(Rectangle()))
-                    // so they cannot fall through to the tap-to-turn gestures
-                    .pointerInput(Unit) { detectTapGestures { } }
-                    .background(
-                        if (settings.controlsGradient) {
-                            Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent),
-                            )
-                        } else {
-                            Brush.verticalGradient(listOf(ChromeScrim, ChromeScrim))
-                        },
-                    )
-                    // Avoid the status bar; ignoringVisibility keeps the layout stable while system
-                    // bars show/hide
-                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // Shared top-bar content pieces: gradient mode lays them out as one full-width
+            // band; solid mode splits them into a left adaptive-length capsule (back + title)
+            // and a right capsule (menu)
+            val topBarBack: @Composable () -> Unit = {
                 IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = stringResource(R.string.reader_exit_reading),
-                        tint = ChromeText,
+                        tint = chromeContent,
                     )
                 }
                 if (incognito) {
                     Icon(
                         Icons.Filled.VisibilityOff,
                         contentDescription = stringResource(R.string.reader_incognito),
-                        tint = ChromeText.copy(alpha = 0.85f),
+                        tint = chromeContent.copy(alpha = 0.85f),
                         modifier = Modifier.padding(start = 4.dp),
                     )
                 }
+            }
+            val topBarTitle: @Composable (Modifier) -> Unit = { titleModifier ->
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
+                    modifier = titleModifier
                         .padding(start = if (incognito) 8.dp else 0.dp)
                         // Mirrors the iOS top-bar title button: tapping the title opens the book detail sheet
                         .clickable { showDetailSheet = true },
@@ -1111,19 +1118,25 @@ fun ReaderScreen(
                     Text(
                         if (presentedBook.oneshot) presentedBook.title else presentedBook.seriesTitle,
                         style = MaterialTheme.typography.titleSmall,
-                        color = ChromeText,
+                        color = chromeContent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     if (!presentedBook.oneshot) {
                         Text(
                             presentedBook.number,
                             style = MaterialTheme.typography.bodySmall,
-                            color = ChromeText.copy(alpha = 0.7f),
+                            color = chromeContent.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
+            }
+            val topBarMenu: @Composable () -> Unit = {
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more), tint = ChromeText)
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more), tint = chromeContent)
                     }
                     ReaderOptionsMenu(
                         expanded = menuOpen,
@@ -1202,6 +1215,88 @@ fun ReaderScreen(
                     )
                 }
             }
+            if (settings.controlsGradient) {
+                // Gradient mode: full-width band that fades into the page, extending under the
+                // status bar (background is applied before the insets padding)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Swallow stray taps across the whole band (mirrors iOS
+                        // .contentShape(Rectangle())) so they cannot fall through to the
+                        // tap-to-turn gestures
+                        .pointerInput(Unit) { detectTapGestures { } }
+                        .background(
+                            // Ease-out multi-stop fade: a raw two-stop linear ramp fades too
+                            // steeply inside the short band and shows a visible edge; the
+                            // extra bottom padding below lengthens the fade area
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.85f),
+                                0.45f to Color.Black.copy(alpha = 0.5f),
+                                0.75f to Color.Black.copy(alpha = 0.18f),
+                                1f to Color.Transparent,
+                            ),
+                        )
+                        // Avoid the status bar; ignoringVisibility keeps the layout stable
+                        // while system bars show/hide
+                        .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        // Extra transparent strip at the bottom so the fade has room to
+                        // dissolve into the page instead of ending at the buttons
+                        .padding(bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    topBarBack()
+                    topBarTitle(Modifier.weight(1f))
+                    topBarMenu()
+                }
+            } else {
+                // Solid mode: left adaptive-length capsule (back + title) and right capsule
+                // (menu); the gap between the capsules stays clear so taps still turn pages
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Avoid the status bar; ignoringVisibility keeps the layout stable
+                        // while system bars show/hide
+                        .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    // Push the menu capsule to the trailing edge while the title capsule
+                    // keeps its adaptive, content-hugging length
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            // Hug the content, but shrink (title ellipsizes) when space is tight
+                            .weight(1f, fill = false)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(chromeScrim)
+                            // Faint edge: keeps the capsule visible on pages matching the
+                            // reader background colour
+                            .border(1.dp, chromeContent.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                            // Swallow stray taps inside the capsule; taps in the gap between the
+                            // capsules still turn pages
+                            .pointerInput(Unit) { detectTapGestures { } }
+                            // Asymmetric padding: the back IconButton already contributes its
+                            // own internal padding on the left, so the trailing side gets the
+                            // matching 16dp for a visually equal margin
+                            .padding(start = 4.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        topBarBack()
+                        topBarTitle(Modifier)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(chromeScrim)
+                            .border(1.dp, chromeContent.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                            .pointerInput(Unit) { detectTapGestures { } },
+                    ) {
+                        topBarMenu()
+                    }
+                }
+            }
         }
 
         // Bottom bar: page capsule + capsule progress bar (mirrors iOS DivinaControlsOverlayView bottomOverlayContent)
@@ -1214,20 +1309,38 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Swallow stray taps so they cannot fall through to the tap-to-turn gestures
-                    .pointerInput(Unit) { detectTapGestures { } }
-                    .background(
+                    .then(
                         if (settings.controlsGradient) {
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)),
-                            )
+                            // Gradient mode: full-width band that fades upward into the page,
+                            // extending under the navigation bar
+                            Modifier
+                                // Swallow stray taps across the whole band so they cannot fall
+                                // through to the tap-to-turn gestures
+                                .pointerInput(Unit) { detectTapGestures { } }
+                                .background(
+                                    // Ease-out multi-stop fade (mirrors the top bar); the
+                                    // extra top padding below lengthens the fade area
+                                    Brush.verticalGradient(
+                                        0f to Color.Transparent,
+                                        0.25f to Color.Black.copy(alpha = 0.18f),
+                                        0.55f to Color.Black.copy(alpha = 0.5f),
+                                        1f to Color.Black.copy(alpha = 0.9f),
+                                    ),
+                                )
+                                // Avoid the navigation bar; ignoringVisibility keeps the layout
+                                // stable while system bars show/hide
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                // Extra transparent strip at the top so the fade has room to
+                                // dissolve into the page
+                                .padding(top = 14.dp)
                         } else {
-                            Brush.verticalGradient(listOf(ChromeScrim, ChromeScrim))
+                            // Solid mode: no wrapping card — the page-jump capsule and the
+                            // progress bar float on their own, so taps between them turn pages
+                            Modifier
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         },
-                    )
-                    // Avoid the navigation bar; ignoringVisibility keeps the layout stable while
-                    // system bars show/hide
-                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility),
+                    ),
             ) {
                 Row(
                     modifier = Modifier
@@ -1235,7 +1348,15 @@ fun ReaderScreen(
                         .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    PageJumpCapsule(page = page, pageCount = pageCount, onClick = { showPageJump = true })
+                    PageJumpCapsule(
+                        page = page,
+                        pageCount = pageCount,
+                        onClick = { showPageJump = true },
+                        contentColor = chromeContent,
+                        // On the gradient band a translucent content-tinted capsule reads well;
+                        // floating free it needs the scrim itself as its container
+                        containerColor = if (settings.controlsGradient) chromeContent.copy(alpha = 0.14f) else chromeScrim,
+                    )
                 }
                 // Capsule progress bar (mirrors iOS ReadingProgressBar: dim track, white fill, reversed in RTL)
                 val fillFraction = if (pageCount > 0) (page.toFloat() / pageCount).coerceIn(0f, 1f) else 0f
@@ -1246,14 +1367,14 @@ fun ReaderScreen(
                         .padding(top = 8.dp, bottom = 12.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(ChromeText.copy(alpha = 0.3f)),
+                        .background(if (settings.controlsGradient) chromeContent.copy(alpha = 0.3f) else chromeTrack),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(fillFraction)
                             .align(if (directionNow == ReadingDirection.Rtl) Alignment.CenterEnd else Alignment.CenterStart)
-                            .background(ChromeText),
+                            .background(chromeContent),
                     )
                 }
             }

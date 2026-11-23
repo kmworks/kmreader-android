@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -759,11 +760,23 @@ fun ReaderPageJumpSheet(
 
 /** Bottom-bar page capsule (mirrors the bottom-center capsule of DivinaControlsOverlayView: bookmark icon + current/total pages, opens PageJumpSheetView). */
 @Composable
-fun PageJumpCapsule(page: Int, pageCount: Int, onClick: () -> Unit) {
+fun PageJumpCapsule(
+    page: Int,
+    pageCount: Int,
+    onClick: () -> Unit,
+    // Foreground color of the capsule; callers pass the chrome's adaptive content color so
+    // the capsule stays readable on any reader background
+    contentColor: Color = Color.White,
+    // Container color: a translucent content tint when the capsule sits on the gradient band,
+    // or the scrim itself when it floats free (solid mode)
+    containerColor: Color = contentColor.copy(alpha = 0.14f),
+) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(50),
-        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
+        color = containerColor,
+        // Faint edge keeps the capsule visible on pages matching the container colour
+        border = BorderStroke(1.dp, contentColor.copy(alpha = 0.25f)),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -772,7 +785,7 @@ fun PageJumpCapsule(page: Int, pageCount: Int, onClick: () -> Unit) {
             Icon(
                 Icons.Filled.Bookmark,
                 contentDescription = null,
-                tint = androidx.compose.ui.graphics.Color.White,
+                tint = contentColor,
                 modifier = Modifier.size(14.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -780,7 +793,7 @@ fun PageJumpCapsule(page: Int, pageCount: Int, onClick: () -> Unit) {
                 "$page / $pageCount",
                 style = MaterialTheme.typography.labelMedium,
                 fontFamily = FontFamily.Monospace,
-                color = androidx.compose.ui.graphics.Color.White,
+                color = contentColor,
             )
         }
     }
