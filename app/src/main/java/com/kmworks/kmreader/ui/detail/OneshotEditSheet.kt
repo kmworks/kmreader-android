@@ -417,7 +417,8 @@ fun OneshotEditSheet(
 }
 
 /**
- * Grouped Form-style card (16dp rounded surfaceContainerHigh, mirrors KomfGroupCard in KomfIdentifySheet).
+ * Grouped Form-style card (16dp rounded, mirrors KomfGroupCard in KomfIdentifySheet): one tonal
+ * step above the dialog surface (surfaceContainerHigh).
  * When locked/onToggleLock are provided, a lock toggle is shown on the right of the title row.
  */
 @Composable
@@ -429,7 +430,7 @@ private fun OneshotGroupCard(
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {

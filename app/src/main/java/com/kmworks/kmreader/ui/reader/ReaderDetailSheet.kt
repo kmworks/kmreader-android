@@ -46,6 +46,9 @@ fun ReaderDetailSheet(
             onOpenReadList = onOpenReadList,
             onReadIncognito = { onDismiss() },
             onBrowseFilter = onBrowseFilter,
+            // Hosted in AppModalDialog: keep the body transparent so the dialog card's
+            // surfaceContainerHigh is the visible background (see BookDetailBody.inModal).
+            inModal = true,
         )
     }
 }

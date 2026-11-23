@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.detail
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -60,8 +62,10 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -70,6 +74,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -91,6 +96,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
@@ -205,6 +211,11 @@ internal fun BookDetailBody(
     onOpenReadList: (Int) -> Unit = {},
     onReadIncognito: () -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
+    // True when hosted inside AppModalDialog (ReaderDetailSheet): the Scaffold must be transparent
+    // so the dialog's surfaceContainerHigh card shows through (otherwise it paints the page
+    // `background` over the card — pure black in the dark theme — and the dialog shows a different
+    // tone than every other sheet), and the action card steps up one tonal level to stay visible.
+    inModal: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: BookDetailViewModel = hiltViewModel(),
 ) {
@@ -244,11 +255,150 @@ internal fun BookDetailBody(
     val railScrollState = rememberScrollState()
     val detailScrollState = rememberScrollState()
     val narrowScrollState = rememberScrollState()
+    val barSheetVisible = railScrollState.hasScrolled() || detailScrollState.hasScrolled() || narrowScrollState.hasScrolled()
+    // Bar content shared by the floating glass bar (full page) and the fixed sheet header (modal).
+    val barNavigationIcon: @Composable () -> Unit = {
+        IconButton(onClick = onBack) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+            )
+        }
+    }
+    val barActions: @Composable RowScope.() -> Unit = {
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.common_more),
+                )
+            }
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.common_share)) },
+                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        viewModel.bookWebUrl()?.let { url ->
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, url)
+                            }
+                            context.startActivity(
+                                Intent.createChooser(
+                                    send,
+                                    context.getString(R.string.book_share_chooser),
+                                ),
+                            )
+                        }
+                        onMenuAction(BookMenuAction.Share)
+                    },
+                )
+                if (state.isAdmin) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.menu_edit_metadata)) },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            editOpen = true
+                            onMenuAction(BookMenuAction.Edit)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_analyze)) },
+                        leadingIcon = { Icon(Icons.Outlined.Analytics, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            viewModel.analyze { }
+                            onMenuAction(BookMenuAction.Analyze)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_refresh_metadata)) },
+                        leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            viewModel.refreshMetadata { }
+                            onMenuAction(BookMenuAction.Refresh)
+                        },
+                    )
+                }
+                if (state.isAdmin) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_add_to_readlist)) },
+                        leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            viewModel.ensureReadListsLoaded()
+                            addToReadListOpen = true
+                            onAddToReadList(displayed)
+                        },
+                    )
+                }
+                val completed = displayed.progress == 1f
+                val hasStarted = displayed.progress != null
+                if (!completed) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_mark_read)) },
+                        leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            if (!viewModel.setRead(true)) {
+                                progressToggled = true
+                            }
+                            onMarkReadToggle(displayed)
+                        },
+                    )
+                }
+                if (hasStarted) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_mark_unread)) },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            if (!viewModel.setRead(false)) {
+                                progressToggled = false
+                            }
+                            onMarkReadToggle(displayed)
+                        },
+                    )
+                }
+                if (state.isAdmin) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(R.string.common_delete),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Outlined.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            menuOpen = false
+                            deleteOpen = true
+                            onMenuAction(BookMenuAction.Delete)
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
     Scaffold(
         modifier = modifier,
+        containerColor = if (inModal) Color.Transparent else MaterialTheme.colorScheme.background,
         contentWindowInsets = glassPageContentWindowInsets(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -257,150 +407,54 @@ internal fun BookDetailBody(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            GlassTopBar(
-                title = "",
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .zIndex(2f),
-                sheetVisible = railScrollState.hasScrolled() || detailScrollState.hasScrolled() || narrowScrollState.hasScrolled(),
-                hazeState = barHazeState,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.common_back),
-                        )
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                Icons.Filled.MoreVert,
-                                contentDescription = stringResource(R.string.common_more),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
+            if (inModal) {
+                // Modal host (ReaderDetailSheet): the floating glass bar has no page behind it to
+                // frost (the card itself is the surface) and its corner-hugging icons fight the
+                // card's 28dp rounded corners, so the sheet gets a fixed header in the card's own
+                // tone instead — invisible at rest, covering scrolled content, with a hairline
+                // divider that fades in once content scrolls under it (the boundary the glass
+                // plate provides on the full page).
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .zIndex(2f),
+                ) {
+                    Column {
+                        CompositionLocalProvider(
+                            LocalContentColor provides MaterialTheme.colorScheme.onSurface,
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_share)) },
-                                leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    viewModel.bookWebUrl()?.let { url ->
-                                        val send = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, url)
-                                        }
-                                        context.startActivity(
-                                            Intent.createChooser(
-                                                send,
-                                                context.getString(R.string.book_share_chooser),
-                                            ),
-                                        )
-                                    }
-                                    onMenuAction(BookMenuAction.Share)
-                                },
-                            )
-                            if (state.isAdmin) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.menu_edit_metadata)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        editOpen = true
-                                        onMenuAction(BookMenuAction.Edit)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_analyze)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Analytics, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.analyze { }
-                                        onMenuAction(BookMenuAction.Analyze)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_refresh_metadata)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.refreshMetadata { }
-                                        onMenuAction(BookMenuAction.Refresh)
-                                    },
-                                )
-                            }
-                            if (state.isAdmin) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_add_to_readlist)) },
-                                    leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        viewModel.ensureReadListsLoaded()
-                                        addToReadListOpen = true
-                                        onAddToReadList(displayed)
-                                    },
-                                )
-                            }
-                            val completed = displayed.progress == 1f
-                            val hasStarted = displayed.progress != null
-                            if (!completed) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_mark_read)) },
-                                    leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        if (!viewModel.setRead(true)) {
-                                            progressToggled = true
-                                        }
-                                        onMarkReadToggle(displayed)
-                                    },
-                                )
-                            }
-                            if (hasStarted) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_mark_unread)) },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.RadioButtonUnchecked, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        if (!viewModel.setRead(false)) {
-                                            progressToggled = false
-                                        }
-                                        onMarkReadToggle(displayed)
-                                    },
-                                )
-                            }
-                            if (state.isAdmin) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(R.string.common_delete),
-                                            color = MaterialTheme.colorScheme.error,
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Outlined.Delete,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        deleteOpen = true
-                                        onMenuAction(BookMenuAction.Delete)
-                                    },
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(GlassTopBarContentHeight)
+                                    .padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                barNavigationIcon()
+                                Spacer(Modifier.weight(1f))
+                                barActions()
                             }
                         }
+                        AnimatedVisibility(visible = barSheetVisible) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                            )
+                        }
                     }
-                },
-            )
+                }
+            } else {
+                GlassTopBar(
+                    title = "",
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .zIndex(2f),
+                    sheetVisible = barSheetVisible,
+                    hazeState = barHazeState,
+                    navigationIcon = barNavigationIcon,
+                    actions = barActions,
+                )
+            }
             if (maxWidth >= WideLayoutBreakpoint) {
                 // Wide golden split: info column maxOf(maxWidth*0.382f, 340.dp), both columns
                 // scroll independently
@@ -444,6 +498,7 @@ internal fun BookDetailBody(
                                 onDownload(displayed)
                             },
                             onReadIncognito = onReadIncognito,
+                            inModal = inModal,
                         )
                         DetailTimestamps(
                             created = meta?.created,
@@ -517,6 +572,7 @@ internal fun BookDetailBody(
                                 onDownload(displayed)
                             },
                             onReadIncognito = onReadIncognito,
+                            inModal = inModal,
                         )
                         DetailTimestamps(
                             created = meta?.created,
@@ -824,6 +880,9 @@ internal fun BookActionCard(
     onRead: (Book) -> Unit,
     onDownloadToggle: () -> Unit,
     onReadIncognito: () -> Unit = {},
+    // Inside a modal dialog the page `surface` would sit BELOW the dialog's surfaceContainerHigh
+    // (inverted hierarchy); step up one tonal level to keep the card lighter than its backdrop.
+    inModal: Boolean = false,
 ) {
     Column(
         modifier = Modifier
@@ -835,7 +894,14 @@ internal fun BookActionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = ActionCardMaxWidth)
-                .background(MaterialTheme.colorScheme.surface, ActionCardShape)
+                .background(
+                    if (inModal) {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    ActionCardShape,
+                )
                 .padding(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

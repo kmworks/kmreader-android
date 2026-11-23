@@ -27,6 +27,9 @@ private val LightColors = lightColorScheme(
     surfaceContainerLow = Color(0xFFF5F5F6),
     surfaceContainer = Color(0xFFFFFFFF),
     surfaceContainerHigh = Color(0xFFF0F0F2),
+    // One monochrome step past High for cards that float on a High surface (e.g. group cards
+    // inside AppModalDialog). In the light theme elevation reads darker, in dark themes lighter.
+    surfaceContainerHighest = Color(0xFFE8E8EB),
     outline = Color(0xFFD6D6DA),
 )
 
@@ -46,6 +49,7 @@ private val DarkColors = darkColorScheme(
     surfaceContainerLow = Color(0xFF0E0E10),
     surfaceContainer = Color(0xFF141416),
     surfaceContainerHigh = Color(0xFF1C1C1F),
+    surfaceContainerHighest = Color(0xFF242428),
     outline = Color(0xFF2E2E33),
 )
 
@@ -66,6 +70,7 @@ private val DarkSoftColors = darkColorScheme(
     surfaceContainerLow = Color(0xFF161618),
     surfaceContainer = Color(0xFF1C1C1F),
     surfaceContainerHigh = Color(0xFF242428),
+    surfaceContainerHighest = Color(0xFF2C2C31),
     outline = Color(0xFF34343A),
 )
 

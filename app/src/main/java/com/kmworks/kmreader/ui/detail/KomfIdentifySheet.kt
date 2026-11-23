@@ -269,12 +269,13 @@ fun KomfIdentifySheet(
 }
 
 /** Grouped Form-style card (mirrors the iOS inset-grouped section).
- *  Its color must be one step above the sheet background (surfaceContainerLow), otherwise the card is invisible. */
+ *  Its color must be one step above the sheet background (surfaceContainerHigh, the AppModalDialog
+ *  surface), otherwise the card is invisible. */
 @Composable
 private fun KomfGroupCard(content: @Composable () -> Unit) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
