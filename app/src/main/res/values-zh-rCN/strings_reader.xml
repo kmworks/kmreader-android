@@ -139,6 +139,10 @@
     <string name="pdf_downloading">正在下载 PDF…</string>
     <string name="pdf_downloading_progress">正在下载 PDF… %1$d%%</string>
     <string name="pdf_preparing">正在准备 PDF…</string>
+    <string name="pdf_search_hint">在 PDF 中搜索</string>
+    <string name="pdf_searching">正在搜索…</string>
+    <string name="pdf_search_no_matches">未找到匹配项</string>
+    <string name="pdf_search_results">%1$d 个结果</string>
     <string name="pdf_load_failed">PDF 加载失败</string>
 
     <!-- Reader: EPUB settings -->
