@@ -19,6 +19,7 @@ import com.kmworks.kmreader.core.sse.SseService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -46,7 +47,7 @@ class RootViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val detailRepository: DetailRepository,
     private val downloadRepository: DownloadRepository,
-    serverReachability: ServerReachability,
+    private val serverReachability: ServerReachability,
 ) : ViewModel() {
 
     val config: StateFlow<ServerConfig?> = configStore.config
@@ -59,6 +60,35 @@ class RootViewModel @Inject constructor(
 
     /** Server reachability (fed by the shared OkHttp client): drives the global offline indicator. */
     val serverOffline: StateFlow<Boolean> = serverReachability.offline
+
+    /** True while a tap on the offline indicator has a probe request in flight. */
+    val probingServer: StateFlow<Boolean> get() = _probingServer
+    private val _probingServer = MutableStateFlow(false)
+
+    /**
+     * Tap-to-retry on the offline indicator: fire one lightweight authenticated request. The OkHttp
+     * interceptor does the bookkeeping (a response of any status clears the offline flag, another
+     * network failure keeps it); on success the SSE loop — possibly asleep in exponential backoff —
+     * is restarted so the live connection comes back immediately instead of at the next retry tick.
+     */
+    fun retryConnection() {
+        if (_probingServer.value) return
+        val clients = sessionManager.clients.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            _probingServer.value = true
+            try {
+                clients.serverApi.getServerInfo().execute()
+            } catch (_: Exception) {
+                // still unreachable: the interceptor already counted the failure
+            } finally {
+                _probingServer.value = false
+            }
+            if (!serverReachability.offline.value && sseEnabled.value) {
+                sseService.stop()
+                sseService.start(clients)
+            }
+        }
+    }
 
     val sseConnectionState: StateFlow<SseConnectionState> = sseService.connectionState
 

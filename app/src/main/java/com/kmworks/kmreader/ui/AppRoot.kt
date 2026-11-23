@@ -277,6 +277,8 @@ fun AppRoot(
     // Server reachability (fed by the shared OkHttp client): drives the global offline indicator,
     // the counterpart of the red wifi.slash the iOS app shows (startup failures and mid-session alike).
     val serverOffline by rootViewModel.serverOffline.collectAsStateWithLifecycle()
+    // True while the indicator's tap-to-retry probe is in flight (spinner in the pill).
+    val probingServer by rootViewModel.probingServer.collectAsStateWithLifecycle()
     when (sessionGate) {
         SessionGate.Loading -> {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
@@ -801,6 +803,8 @@ fun AppRoot(
         // centre is free everywhere. Drawn before the update dialog, which still tops it.
         OfflineIndicator(
             visible = serverOffline,
+            probing = probingServer,
+            onRetry = rootViewModel::retryConnection,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
