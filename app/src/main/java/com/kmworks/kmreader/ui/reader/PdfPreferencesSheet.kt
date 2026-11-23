@@ -68,6 +68,18 @@ fun normalizePdfPagePresentation(value: String): String = when (value) {
     else -> PDF_PRESENTATION_AUTO
 }
 
+/**
+ * Resolves [PDF_PRESENTATION_AUTO] against the current orientation, mirroring iOS
+ * `PdfPagePresentation.resolved(for:)`: auto = dualContinuous in landscape, single (paged)
+ * in portrait. Non-auto values pass through normalized.
+ */
+fun resolvePdfPresentation(presentation: String, isLandscape: Boolean): String =
+    when (val normalized = normalizePdfPagePresentation(presentation)) {
+        PDF_PRESENTATION_AUTO ->
+            if (isLandscape) PDF_PRESENTATION_DUAL_CONTINUOUS else PDF_PRESENTATION_SINGLE
+        else -> normalized
+    }
+
 fun normalizePdfBackground(value: String): String = when (value) {
     PDF_BACKGROUND_WHITE, "\u767d" -> PDF_BACKGROUND_WHITE
     PDF_BACKGROUND_GRAY, "\u7070" -> PDF_BACKGROUND_GRAY

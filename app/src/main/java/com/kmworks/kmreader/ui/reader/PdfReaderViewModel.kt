@@ -10,7 +10,9 @@ import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.pdf.PdfAndroidxLoader
+import com.kmworks.kmreader.core.pdf.PdfOutlineExtractor
 import com.kmworks.kmreader.core.pdf.PdfRepository
+import com.kmworks.kmreader.core.pdf.PdfTocEntry
 import com.kmworks.kmreader.core.reading.ReadListReadingService
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
@@ -45,6 +47,8 @@ data class PdfReaderUiState(
      * global default (mirrors the original PdfReaderView.fetchSeries fallback).
      */
     val seriesDirection: String? = null,
+    /** Parsed PDF outline (flattened with depth); empty while parsing or when the file has none. */
+    val toc: List<PdfTocEntry> = emptyList(),
 )
 
 @HiltViewModel
@@ -53,6 +57,7 @@ class PdfReaderViewModel
 constructor(
     @ApplicationContext private val context: Context,
     private val pdfRepository: PdfRepository,
+    private val pdfOutlineExtractor: PdfOutlineExtractor,
     private val detailRepository: DetailRepository,
     private val actionRepository: ActionRepository,
     private val sessionManager: SessionManager,
@@ -148,6 +153,15 @@ constructor(
 
             resolveSeriesDirection(dtoId, detail?.seriesId)
             resolveAdjacent(dtoId, readListStableId)
+
+            // Outline parsing runs after the first page so it never delays opening the book;
+            // failures degrade to an empty list and the TOC entry point stays hidden.
+            launch {
+                val toc = pdfOutlineExtractor.extract(file)
+                if (_uiState.value.bookDtoId == dtoId) {
+                    _uiState.update { it.copy(toc = toc) }
+                }
+            }
         }
     }
 

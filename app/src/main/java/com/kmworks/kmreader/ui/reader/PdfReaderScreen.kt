@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.app.Activity
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -62,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -119,6 +122,7 @@ fun PdfReaderScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showPageJump by remember { mutableStateOf(false) }
+    var showToc by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
     var searchVisible by remember { mutableStateOf(false) }
@@ -142,6 +146,20 @@ fun PdfReaderScreen(
             state.ready && state.pageCount > 0 -> state.pageCount
             else -> book.pageCount.coerceAtLeast(1)
         }
+
+    // Page presentation resolved against the live orientation (the activity keeps
+    // configChanges, so rotation recomposes instead of recreating). auto = dualContinuous
+    // landscape / singlePaged portrait, mirroring iOS PdfPagePresentation.resolved(for:).
+    val configuration = LocalConfiguration.current
+    val resolvedPresentation = resolvePdfPresentation(
+        pdfSettings.pagePresentation,
+        isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
+    )
+    val pagesPerRow = if (resolvedPresentation == PDF_PRESENTATION_DUAL_CONTINUOUS) 2 else 1
+    // Discrete page-turn matrix (P2): singlePaged is always discrete; the other layouts
+    // become discrete when continuous scroll is off. P3 soloCoverPage stays a TODO — see
+    // the pagesPerRow wiring below.
+    val discretePages = resolvedPresentation == PDF_PRESENTATION_SINGLE || !pdfSettings.continuousScroll
 
     fun jumpTo(page: Int) {
         val target = page.coerceIn(1, pageCount)
@@ -242,28 +260,31 @@ fun PdfReaderScreen(
             state.ready && state.document != null -> {
                 AndroidView(
                     factory = { ctx ->
-                        PdfView(ctx).also { view ->
-                            view.setOnScrollChangeListener { _, _, _, _, _ ->
+                        DiscretePdfContainer(ctx).also { container ->
+                            container.pdfView.setOnScrollChangeListener { _, _, _, _, _ ->
                                 if (state.document != null) {
-                                    currentPage = (view.firstVisiblePage + 1).coerceIn(1, pageCount)
+                                    currentPage =
+                                        (container.pdfView.firstVisiblePage + 1).coerceIn(1, pageCount)
                                 }
                             }
-                            pdfViewRef = view
+                            pdfViewRef = container.pdfView
                         }
                     },
-                    update = { view ->
+                    update = { container ->
+                        val view = container.pdfView
                         if (view.pdfDocument !== state.document) {
                             view.pdfDocument = state.document
                         }
-                        val wantedRows =
-                            if (normalizePdfPagePresentation(pdfSettings.pagePresentation) ==
-                                PDF_PRESENTATION_DUAL_CONTINUOUS
-                            ) {
-                                2
-                            } else {
-                                1
-                            }
-                        if (view.pagesPerRow != wantedRows) view.pagesPerRow = wantedRows
+                        // P3 soloCoverPage TODO: TwoPageLayoutStrategy pairs pages hard
+                        // (0+1, 2+3…) with no cover offset; the only route is a PdfDocument
+                        // decorator shifting every page index, which also shifts search,
+                        // TOC and progress bookkeeping. Deferred — see
+                        // docs/pdf-native-reader-plan.md §4 task 3.
+                        if (view.pagesPerRow != pagesPerRow) view.pagesPerRow = pagesPerRow
+                        container.discreteMode = discretePages
+                        container.rtl = readingDirection == ReadingDirection.Rtl
+                        container.onNextPage = { jumpTo(currentPage + pagesPerRow) }
+                        container.onPrevPage = { jumpTo(currentPage - pagesPerRow) }
                         view.setBackgroundColor(backgroundColor.toArgb())
                         val doc = state.document
                         if (doc != null && initialApply.appliedFor !== doc) {
@@ -447,6 +468,26 @@ fun PdfReaderScreen(
                                 },
                                 enabled = state.document != null,
                             )
+                            // TOC entry point is hidden when the file has no outline or the
+                            // outline failed to parse (encrypted/malformed → empty list).
+                            if (state.toc.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(stringResource(R.string.pdf_toc), modifier = Modifier.weight(1f))
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.List,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        showToc = true
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.reader_settings_title)) },
                                 onClick = {
@@ -533,6 +574,14 @@ fun PdfReaderScreen(
             readingDirection = readingDirection,
             onSettingsChange = { new -> settingsViewModel.updatePdf { new } },
             onDismiss = { showSettings = false },
+        )
+    }
+    if (showToc && state.toc.isNotEmpty()) {
+        PdfTocSheet(
+            entries = state.toc,
+            currentPage = currentPage,
+            onDismiss = { showToc = false },
+            onJumpToPage = { page -> jumpTo(page) },
         )
     }
     if (showPageJump) {
