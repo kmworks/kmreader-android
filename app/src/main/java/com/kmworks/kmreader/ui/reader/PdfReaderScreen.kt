@@ -57,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -75,6 +77,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.pdf.PdfDocument
 import androidx.pdf.view.PdfView
@@ -116,17 +120,25 @@ fun PdfReaderScreen(
     // discrete-turn gestures, the progress bar and the page-jump strip.
     val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val defaultDirection by settingsViewModel.defaultDirection.collectAsStateWithLifecycle()
-    val readingDirection = resolveReadingDirection(
+    val resolvedDirection = resolveReadingDirection(
         seriesDirection = readingDirectionFromSeriesToken(state.seriesDirection),
         forceDefault = readerSettings.forceDefaultDirection,
         defaultDirection = defaultDirection,
     ).forPdfReader()
+    // Menu quick pickers (mirror iOS PdfControlsOverlayView's picker rows): session-only
+    // overrides on top of the resolved chain / persisted preferences — never written back,
+    // so reopening the book re-resolves from settings and series metadata.
+    var directionOverride by remember { mutableStateOf<ReadingDirection?>(null) }
+    var presentationOverride by remember { mutableStateOf<String?>(null) }
+    val readingDirection = directionOverride ?: resolvedDirection
     var chromeVisible by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showPageJump by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
+    var showDirectionPicker by remember { mutableStateOf(false) }
+    var showPresentationPicker by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
     var searchVisible by remember { mutableStateOf(false) }
     // A modal sheet dims the reader window, so the chrome scrim must not stay painted behind it
@@ -134,7 +146,8 @@ fun PdfReaderScreen(
     // left untouched: dismissing the sheet brings the chrome back, and the hidden-chrome progress
     // bar keeps its "chrome is up" reading. The overflow menu is not a sheet — its items close it
     // before opening one.
-    val sheetOpen = showSettings || showPageJump || showToc || showDetailSheet
+    val sheetOpen = showSettings || showPageJump || showToc || showDetailSheet ||
+        showDirectionPicker || showPresentationPicker
     val chromeShown = chromeVisible && !sheetOpen
     var searchQuery by remember { mutableStateOf("") }
     var searchMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -162,7 +175,7 @@ fun PdfReaderScreen(
     // landscape / singlePaged portrait, mirroring iOS PdfPagePresentation.resolved(for:).
     val configuration = LocalConfiguration.current
     val resolvedPresentation = resolvePdfPresentation(
-        pdfSettings.pagePresentation,
+        presentationOverride ?: pdfSettings.pagePresentation,
         isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
     )
     val pagesPerRow = if (resolvedPresentation == PDF_PRESENTATION_DUAL_CONTINUOUS) 2 else 1
@@ -231,6 +244,20 @@ fun PdfReaderScreen(
     DisposableEffect(Unit) {
         onDispose { if (initialPageApplied) viewModel.flushProgress(currentPage) }
     }
+    // Flush when the app goes to the background (iOS PdfReaderView flushes on scenePhase
+    // → background; ON_STOP is the closest Android equivalent)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestPage by rememberUpdatedState(currentPage)
+    val latestPageApplied by rememberUpdatedState(initialPageApplied)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && latestPageApplied) {
+                viewModel.flushProgress(latestPage)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Immersive mode: hide system bars while the chrome is hidden, restore them when the
     // chrome appears (mirrors iOS PdfReaderView .statusBarHidden)
@@ -274,10 +301,12 @@ fun PdfReaderScreen(
                     CircularProgressIndicator(color = onBackgroundColor)
                     val progress = state.downloadProgress
                     Text(
-                        if (progress != null) {
-                            stringResource(R.string.pdf_downloading_progress, (progress * 100).toInt())
-                        } else {
-                            stringResource(R.string.pdf_downloading)
+                        when {
+                            // The file is local; opening/parsing the document (iOS "Preparing PDF…")
+                            state.preparing -> stringResource(R.string.pdf_preparing)
+                            progress != null ->
+                                stringResource(R.string.pdf_downloading_progress, (progress * 100).toInt())
+                            else -> stringResource(R.string.pdf_downloading)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = onBackgroundColor.copy(alpha = 0.65f),
@@ -492,6 +521,29 @@ fun PdfReaderScreen(
                         ) {
                             // The book-detail entry lives in the top-bar title (mirrors iOS);
                             // it is not repeated in this menu
+                            // Quick pickers (mirror the iOS "Current Reading Options" section):
+                            // session-only, never written back to preferences.
+                            MenuValueItem(
+                                label = stringResource(R.string.reader_menu_direction),
+                                value = stringResource(readingDirection.labelRes),
+                                onClick = {
+                                    menuExpanded = false
+                                    showDirectionPicker = true
+                                },
+                            )
+                            MenuValueItem(
+                                label = stringResource(R.string.pdf_page_presentation),
+                                value = stringResource(
+                                    pdfPagePresentationLabelRes(
+                                        presentationOverride ?: pdfSettings.pagePresentation,
+                                    ),
+                                ),
+                                onClick = {
+                                    menuExpanded = false
+                                    showPresentationPicker = true
+                                },
+                            )
+                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -693,6 +745,39 @@ fun PdfReaderScreen(
             onVisitSeries = onVisitSeries,
             onOpenReadList = onOpenReadList,
             onBrowseFilter = onBrowseFilter,
+        )
+    }
+
+    // Quick-picker dialogs (mirror the iOS menu picker submenus): single-choice list with a
+    // checkmark on the current value; picking is session-only (see the overrides above).
+    if (showDirectionPicker) {
+        val directions = listOf(ReadingDirection.Ltr, ReadingDirection.Rtl, ReadingDirection.Vertical)
+        val labels = directions.associateWith { stringResource(it.labelRes) }
+        OptionPickerDialog(
+            title = stringResource(R.string.reader_menu_direction),
+            options = labels.values.toList(),
+            selected = labels[readingDirection].orEmpty(),
+            onSelect = { label ->
+                directionOverride = labels.entries.firstOrNull { it.value == label }?.key
+                showDirectionPicker = false
+            },
+            onDismiss = { showDirectionPicker = false },
+        )
+    }
+    if (showPresentationPicker) {
+        val labels = PdfPagePresentationOptions.associateWith {
+            stringResource(pdfPagePresentationLabelRes(it))
+        }
+        val current = normalizePdfPagePresentation(presentationOverride ?: pdfSettings.pagePresentation)
+        OptionPickerDialog(
+            title = stringResource(R.string.pdf_page_presentation),
+            options = labels.values.toList(),
+            selected = labels[current].orEmpty(),
+            onSelect = { label ->
+                presentationOverride = labels.entries.firstOrNull { it.value == label }?.key
+                showPresentationPicker = false
+            },
+            onDismiss = { showPresentationPicker = false },
         )
     }
 }

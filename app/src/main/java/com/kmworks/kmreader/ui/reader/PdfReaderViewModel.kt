@@ -33,6 +33,8 @@ data class PdfReaderUiState(
     val loading: Boolean = false,
     /** Download progress; null when contentLength is unknown (indeterminate). */
     val downloadProgress: Float? = null,
+    /** File is local and the document is being opened (the iOS "Preparing PDF…" loading stage). */
+    val preparing: Boolean = false,
     val error: Boolean = false,
     val ready: Boolean = false,
     val pageCount: Int = 0,
@@ -110,7 +112,14 @@ constructor(
             return
         }
         _uiState.update {
-            it.copy(hasSession = true, bookDtoId = dtoId, loading = true, error = false, ready = false)
+            it.copy(
+                hasSession = true,
+                bookDtoId = dtoId,
+                loading = true,
+                preparing = false,
+                error = false,
+                ready = false,
+            )
         }
         viewModelScope.launch {
             val file =
@@ -123,6 +132,7 @@ constructor(
                 _uiState.update { it.copy(loading = false, error = true) }
                 return@launch
             }
+            _uiState.update { it.copy(preparing = true) }
             val doc = PdfAndroidxLoader(context).open(file)
             if (doc == null) {
                 _uiState.update { it.copy(loading = false, error = true) }
@@ -144,6 +154,7 @@ constructor(
             _uiState.update {
                 it.copy(
                     loading = false,
+                    preparing = false,
                     ready = true,
                     pageCount = doc.pageCount,
                     initialPage = initialPage,
