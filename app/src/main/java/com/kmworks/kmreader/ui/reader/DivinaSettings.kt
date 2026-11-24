@@ -133,11 +133,23 @@ enum class DenoiseLevel(@StringRes val labelRes: Int) {
         get() = com.kmworks.kmreader.core.image.upscale.Waifu2xBridge.DenoiseModel.valueOf(name.uppercase())
 }
 
+/**
+ * Waifu2x compute precision. Auto self-tests FP16 on the device's driver and falls back to FP32,
+ * which is what mihon does automatically; the explicit levels exist for drivers where the
+ * self-test passes but pages still look wrong (FP16 storage can band on some Mali/Adreno builds).
+ */
+enum class UpscalePrecision(@StringRes val labelRes: Int) {
+    Auto(R.string.upscale_precision_auto),
+    Fp16(R.string.upscale_precision_fp16),
+    Fp32(R.string.upscale_precision_fp32),
+}
+
 /** Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model). */
 data class UpscaleSettings(
     val mode: UpscaleMode = UpscaleMode.Auto,
     val denoise: DenoiseLevel = DenoiseLevel.Low,
     val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+    val precision: UpscalePrecision = UpscalePrecision.Auto,
 )
 
 /**

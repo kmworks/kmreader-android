@@ -44,6 +44,10 @@
     <string name="upscale_denoise_medium">中</string>
     <string name="upscale_denoise_high">高</string>
     <string name="upscale_denoise_max">最高</string>
+    <string name="reader_upscale_precision_title">计算精度</string>
+    <string name="upscale_precision_auto">自动（FP16，失败回退）</string>
+    <string name="upscale_precision_fp16">FP16（更快）</string>
+    <string name="upscale_precision_fp32">FP32（更准）</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">从左到右</string>

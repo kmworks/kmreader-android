@@ -12,6 +12,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -41,6 +45,9 @@ class ImageEnhancer @Inject constructor(
         const val PRIORITY_VISIBLE = 3
 
         private const val MAX_CONSECUTIVE_FAILURES = 3
+
+        /** How many finished-page keys the reader keeps for the source→enhanced swap. */
+        private const val MAX_READY_KEYS = 64
     }
 
     private class Task(
@@ -62,6 +69,15 @@ class ImageEnhancer @Inject constructor(
     private val taskByKey = HashMap<String, Task>()
     private val lock = ReentrantLock()
     private val signal = Channel<Unit>(Channel.CONFLATED)
+
+    private val _readyKeys = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * EnhancementCache keys that finished since the reader opened. The reader watches this to swap
+     * a page from the already-shown source bitmap to the enhanced result (plan §5.4, item 3),
+     * instead of blocking the first frame on a ~1 s native run.
+     */
+    val readyKeys: StateFlow<Set<String>> = _readyKeys.asStateFlow()
 
     @Volatile
     private var generation = 0
@@ -121,6 +137,7 @@ class ImageEnhancer @Inject constructor(
             generation++
             consecutiveFailures = 0
             isDisabled = false
+            _readyKeys.value = emptySet()
             val iterator = queue.iterator()
             while (iterator.hasNext()) {
                 val task = iterator.next()
@@ -131,6 +148,14 @@ class ImageEnhancer @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Fire-and-forget variant of [submit]: queues the work and returns immediately, so the caller
+     * can show the source image and let [readyKeys] trigger the swap once the result is cached.
+     */
+    fun prefetch(key: String, priority: Int, distance: Int = 0, block: suspend () -> Any?) {
+        scope.launch { submit(key, priority, distance, block) }
     }
 
     private fun pickNext(): Task? {
@@ -181,6 +206,11 @@ class ImageEnhancer @Inject constructor(
                         }
                     } else {
                         consecutiveFailures = 0
+                        _readyKeys.update { ready ->
+                            // Bounded: trimming only drops stale flags — the enhanced result is in the
+                            // EnhancementCache, so a re-request still resolves to it.
+                            if (ready.size > MAX_READY_KEYS) setOf(task.key) else ready + task.key
+                        }
                     }
                     task.deferred.complete(result)
                 }

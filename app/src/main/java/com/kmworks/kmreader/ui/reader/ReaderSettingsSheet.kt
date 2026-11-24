@@ -205,6 +205,13 @@ fun ReaderSettingsSheet(
                     optionLabel = { stringResource(it.labelRes) },
                     onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(denoise = value)) } },
                 )
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_precision_title),
+                    options = UpscalePrecision.entries,
+                    selected = settings.upscale.precision,
+                    optionLabel = { stringResource(it.labelRes) },
+                    onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(precision = value)) } },
+                )
                 SettingsHintText(stringResource(R.string.reader_upscale_hint))
             }
         }

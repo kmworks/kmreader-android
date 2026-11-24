@@ -18,6 +18,7 @@ import coil3.size.Dimension
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.ui.reader.DenoiseLevel
 import com.kmworks.kmreader.ui.reader.UpscaleMode
+import com.kmworks.kmreader.ui.reader.UpscalePrecision
 
 /**
  * Coil decoder that upscales page images with waifu2x (docs/waifu2x-upscaling-plan.md §5.2).
@@ -88,21 +89,20 @@ class EnhancementDecoder private constructor(
             warn("full-size decode failed, showing source page: $pageUrl")
             return null
         }
-        val enhanced = enhancer.submit(cacheKey, priority) {
-            if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel)) {
+        // Do not hold the first frame hostage to a ~1 s native run: hand the source bitmap back
+        // immediately and let the enhancer fill the cache. ReaderScreen watches
+        // ImageEnhancer.readyKeys and re-requests this page, which then hits the cache.
+        enhancer.prefetch(cacheKey, priority) {
+            if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel, config.precision)) {
                 warn("engine unavailable (${config.denoise.bridgeModel.modelSuffix})")
-                null
-            } else {
-                Waifu2xBridge.process(sourceBitmap)
+                return@prefetch null
             }
+            val enhanced = Waifu2xBridge.process(sourceBitmap) ?: return@prefetch null
+            cache.write(cacheKey, enhanced)
+            info("enhanced: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height} ($pageUrl)")
+            enhanced
         }
-        if (enhanced == null) {
-            info("enhancement unavailable, showing source page: $pageUrl")
-            return DecodeResult(sourceBitmap.asImage(), false)
-        }
-        cache.write(cacheKey, enhanced)
-        info("enhanced: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height} ($pageUrl)")
-        return DecodeResult(enhanced.asImage(), false)
+        return DecodeResult(sourceBitmap.asImage(), false)
     }
 
     /** Device texture limits (0,0 = unknown), read once from a scratch software canvas. */
@@ -211,6 +211,7 @@ class EnhancementDecoder private constructor(
                 mode = enumExtra(extras[KEY_MODE], UpscaleMode.Auto),
                 denoise = enumExtra(extras[KEY_DENOISE], DenoiseLevel.Low),
                 autoTriggerScale = extras[KEY_AUTO_SCALE] ?: UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+                precision = enumExtra(extras[KEY_PRECISION], UpscalePrecision.Auto),
             )
             val priority = extras[KEY_PRIORITY] ?: ImageEnhancer.PRIORITY_VISIBLE
             Log.i(TAG, "marked for upscaling: $pageUrl (mode=${config.mode}, denoise=${config.denoise}, priority=$priority)")
@@ -234,6 +235,7 @@ class EnhancementDecoder private constructor(
         private val KEY_MODE = Extras.Key(default = UpscaleMode.Auto.name)
         private val KEY_DENOISE = Extras.Key(default = DenoiseLevel.Low.name)
         private val KEY_AUTO_SCALE = Extras.Key(default = UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE)
+        private val KEY_PRECISION = Extras.Key(default = UpscalePrecision.Auto.name)
         private val KEY_PRIORITY = Extras.Key(default = ImageEnhancer.PRIORITY_VISIBLE)
 
         private inline fun <reified T : Enum<T>> enumExtra(name: String?, fallback: T): T =
@@ -246,6 +248,7 @@ class EnhancementDecoder private constructor(
             builder.extras.set(KEY_MODE, config.mode.name)
             builder.extras.set(KEY_DENOISE, config.denoise.name)
             builder.extras.set(KEY_AUTO_SCALE, config.autoTriggerScale)
+            builder.extras.set(KEY_PRECISION, config.precision.name)
             builder.extras.set(KEY_PRIORITY, priority)
         }
     }

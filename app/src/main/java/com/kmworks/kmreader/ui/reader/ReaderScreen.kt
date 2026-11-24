@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -297,6 +298,9 @@ fun ReaderScreen(
     val sessionLoader by entryPoint.imageCacheStore().pageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
     val imageEnhancer = remember { entryPoint.imageEnhancer() }
+    // Pages whose enhanced bitmap has landed in the cache; each new entry re-requests that page so
+    // the source bitmap on screen is swapped for the sharp 2x one (plan §5.4, item 3).
+    val enhancedKeys by imageEnhancer.readyKeys.collectAsState()
     // Upscaling diagnostics go to the in-app log too, so a device without adb can be inspected
     // from the Logs screen instead (tag "Upscale").
     LaunchedEffect(sessionLoader != null) {
@@ -1768,6 +1772,14 @@ private fun PageImage(
     // UIImage size): the server page.width/height is only the pre-load guess, so missing or stale
     // metadata cannot leave a band inside an otherwise width-hugging box.
     var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
+    // Kept across a model swap (source → enhanced): while the sharp version decodes, the frame
+    // keeps painting the bitmap the reader was already looking at instead of flashing a spinner.
+    var lastPainter by remember(page.number, half) {
+        mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null)
+    }
+    LaunchedEffect(imageState) {
+        (imageState as? AsyncImagePainter.State.Success)?.let { lastPainter = it.painter }
+    }
     val decodedRatio = (imageState as? AsyncImagePainter.State.Success)
         ?.painter?.intrinsicSize
         ?.takeIf { it.width > 0f && it.height > 0f }
@@ -1798,6 +1810,13 @@ private fun PageImage(
     val context = LocalContext.current
     val crop = settings.borderCrop
     val upscale = settings.upscale
+    // Watched per page cell: each finished enhancement flips this page's request key, which swaps
+    // the already-visible source bitmap for the cached 2x one (plan §5.4, item 3).
+    val imageEnhancer = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, ImageLoaderEntryPoint::class.java)
+            .imageEnhancer()
+    }
+    val enhancedKeys by imageEnhancer.readyKeys.collectAsState()
     // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
     // into the page image
     val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
@@ -1805,7 +1824,7 @@ private fun PageImage(
     } else {
         null
     }
-    val request = remember(context, url, crop, upscale) {
+    val request = remember(context, url, crop, upscale, enhancedKeys) {
         url?.let {
             ImageRequest.Builder(context).data(it).apply {
                 if (crop != BorderCropMode.Disabled) {
@@ -1818,11 +1837,11 @@ private fun PageImage(
                             mode = upscale.mode,
                             denoise = upscale.denoise,
                             autoTriggerScale = upscale.autoTriggerScale,
+                            precision = upscale.precision,
                         ),
                         pageUrl = it,
                         priority = ImageEnhancer.PRIORITY_VISIBLE,
                     )
-                    AppLog.i(EnhancementDecoder.APP_TAG, "page request marked for upscaling (mode=${upscale.mode})")
                     // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
                     // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
                     memoryCachePolicy(CachePolicy.DISABLED)
@@ -1885,7 +1904,13 @@ private fun PageImage(
                     onState = { imageState = it },
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                    PageImageStates(
+                        pageNumber = page.number,
+                        contentColor = contentColor,
+                        fallbackPainter = lastPainter,
+                        fallbackScale = ContentScale.Crop,
+                        fallbackAlignment = if (halfAnchorLeft) Alignment.CenterStart else Alignment.CenterEnd,
+                    )
                 }
             } else {
                 SubcomposeAsyncImage(
@@ -1897,7 +1922,12 @@ private fun PageImage(
                     onState = { imageState = it },
                     modifier = Modifier.fillMaxSize().then(rotationModifier),
                 ) {
-                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                    PageImageStates(
+                        pageNumber = page.number,
+                        contentColor = contentColor,
+                        fallbackPainter = lastPainter,
+                        fallbackScale = ContentScale.Fit,
+                    )
                 }
             }
         }
@@ -1935,10 +1965,29 @@ private fun FitRatioBox(
 
 /** Loading/error/success states of SubcomposeAsyncImage (the coil3 state is a StateFlow and must be collected). */
 @Composable
-private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(pageNumber: Int, contentColor: Color) {
+private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(
+    pageNumber: Int,
+    contentColor: Color,
+    fallbackPainter: androidx.compose.ui.graphics.painter.Painter? = null,
+    fallbackScale: ContentScale = ContentScale.Fit,
+    fallbackAlignment: Alignment = Alignment.Center,
+) {
     val state by painter.state.collectAsState()
     when (state) {
-        is AsyncImagePainter.State.Loading -> PageLoadingIndicator(pageNumber = pageNumber, contentColor = contentColor)
+        is AsyncImagePainter.State.Loading ->
+            if (fallbackPainter != null) {
+                // Model swapped (source → enhanced page): keep the previous bitmap on screen while
+                // the new one decodes, so the page never blinks back to the placeholder.
+                Image(
+                    painter = fallbackPainter,
+                    contentDescription = null,
+                    contentScale = fallbackScale,
+                    alignment = fallbackAlignment,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                PageLoadingIndicator(pageNumber = pageNumber, contentColor = contentColor)
+            }
         is AsyncImagePainter.State.Error -> PageErrorIndicator(
             pageNumber = pageNumber,
             contentColor = contentColor,
@@ -2162,6 +2211,7 @@ private suspend fun coil3.ImageLoader.enhancedPreload(context: Context, url: Str
                         mode = upscale.mode,
                         denoise = upscale.denoise,
                         autoTriggerScale = upscale.autoTriggerScale,
+                        precision = upscale.precision,
                     ),
                     pageUrl = url,
                     priority = ImageEnhancer.PRIORITY_PRELOAD,

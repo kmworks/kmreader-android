@@ -24,6 +24,7 @@ import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.TapZoneInversion
 import com.kmworks.kmreader.ui.reader.TapZoneMode
 import com.kmworks.kmreader.ui.reader.UpscaleMode
+import com.kmworks.kmreader.ui.reader.UpscalePrecision
 import com.kmworks.kmreader.ui.reader.UpscaleSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -70,6 +71,7 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.UPSCALE_MODE] = next.upscale.mode.name
             prefs[Keys.UPSCALE_DENOISE] = next.upscale.denoise.name
             prefs[Keys.UPSCALE_AUTO_SCALE] = next.upscale.autoTriggerScale
+            prefs[Keys.UPSCALE_PRECISION] = next.upscale.precision.name
             prefs[Keys.KEEP_SCREEN_AWAKE] = next.keepScreenAwake
             prefs[Keys.DEFAULT_PAGE_LAYOUT] = next.defaultPageLayout.name
             prefs[Keys.DEFAULT_SPLIT_WIDE_MODE] = next.defaultSplitWideMode.name
@@ -275,6 +277,7 @@ class DivinaSettingsStore @Inject constructor(
                 mode = enumOrNull<UpscaleMode>(this[Keys.UPSCALE_MODE]) ?: defaults.upscale.mode,
                 denoise = enumOrNull<DenoiseLevel>(this[Keys.UPSCALE_DENOISE]) ?: defaults.upscale.denoise,
                 autoTriggerScale = this[Keys.UPSCALE_AUTO_SCALE] ?: defaults.upscale.autoTriggerScale,
+                precision = enumOrNull<UpscalePrecision>(this[Keys.UPSCALE_PRECISION]) ?: defaults.upscale.precision,
             ),
             keepScreenAwake = this[Keys.KEEP_SCREEN_AWAKE] ?: defaults.keepScreenAwake,
             defaultPageLayout = enumOrNull<PageLayout>(this[Keys.DEFAULT_PAGE_LAYOUT]) ?: defaults.defaultPageLayout,
@@ -308,6 +311,7 @@ class DivinaSettingsStore @Inject constructor(
         val UPSCALE_MODE = stringPreferencesKey("divinaWaifu2xMode")
         val UPSCALE_DENOISE = stringPreferencesKey("divinaWaifu2xDenoise")
         val UPSCALE_AUTO_SCALE = floatPreferencesKey("divinaWaifu2xAutoTriggerScale")
+        val UPSCALE_PRECISION = stringPreferencesKey("divinaWaifu2xPrecision")
         val KEEP_SCREEN_AWAKE = booleanPreferencesKey("keepScreenAwakeWhileReading")
         val DEFAULT_PAGE_LAYOUT = stringPreferencesKey("defaultPageLayout")
         val DEFAULT_SPLIT_WIDE_MODE = stringPreferencesKey("splitWidePageMode")

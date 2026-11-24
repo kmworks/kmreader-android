@@ -44,6 +44,10 @@
     <string name="upscale_denoise_medium">Medium</string>
     <string name="upscale_denoise_high">High</string>
     <string name="upscale_denoise_max">Max</string>
+    <string name="reader_upscale_precision_title">Compute precision</string>
+    <string name="upscale_precision_auto">Auto (FP16, falls back)</string>
+    <string name="upscale_precision_fp16">FP16 (faster)</string>
+    <string name="upscale_precision_fp32">FP32 (accurate)</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">Left to right</string>

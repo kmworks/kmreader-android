@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.kmworks.kmreader.core.logging.AppLog
+import com.kmworks.kmreader.ui.reader.UpscalePrecision
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +46,9 @@ object Waifu2xBridge {
     private var activeModel: DenoiseModel? = null
 
     @Volatile
+    private var activePrecision: UpscalePrecision? = null
+
+    @Volatile
     var isVulkan: Boolean = false
         private set
 
@@ -60,12 +64,16 @@ object Waifu2xBridge {
     }
 
     /**
-     * Ensures the engine is initialized for [model], re-initializing when the denoise
-     * level changes. Returns false when the engine/model failed to load — callers must
+     * Ensures the engine is initialized for [model] at [precision], re-initializing when either
+     * changes. Returns false when the engine/model failed to load — callers must
      * treat that as "upscaling unavailable" and fall back to the source image.
      */
-    suspend fun ensureInitialized(context: Context, model: DenoiseModel): Boolean = mutex.withLock {
-        if (handle != 0L && activeModel == model) return@withLock true
+    suspend fun ensureInitialized(
+        context: Context,
+        model: DenoiseModel,
+        precision: UpscalePrecision = UpscalePrecision.Auto,
+    ): Boolean = mutex.withLock {
+        if (handle != 0L && activeModel == model && activePrecision == precision) return@withLock true
         releaseLocked()
         val dir = try {
             extractModels(context)
@@ -74,21 +82,23 @@ object Waifu2xBridge {
             AppLog.e(EnhancementDecoder.APP_TAG, "model extraction failed: ${e.message}", e)
             return@withLock false
         }
-        val h = nativeInit(dir.absolutePath, model.modelSuffix)
+        val h = nativeInit(dir.absolutePath, model.modelSuffix, precision.ordinal)
         if (h == 0L) {
             val reason = lastError()
             Log.e(TAG, "nativeInit failed for ${model.modelSuffix}: $reason")
-            AppLog.e(EnhancementDecoder.APP_TAG, "engine init failed (${model.modelSuffix}): $reason")
+            AppLog.e(EnhancementDecoder.APP_TAG, "engine init failed (${model.modelSuffix}, ${precision.name}): $reason")
             return@withLock false
         }
         handle = h
         activeModel = model
+        activePrecision = precision
         isVulkan = nativeIsVulkan(h)
         isFp16 = nativeIsFp16(h)
         Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan, fp16=$isFp16")
         AppLog.i(
             EnhancementDecoder.APP_TAG,
-            "engine initialized: ${model.modelSuffix}, vulkan=$isVulkan, precision=${if (isFp16) "fp16" else "fp32"}",
+            "engine initialized: ${model.modelSuffix}, request=${precision.name}, " +
+                "vulkan=$isVulkan, precision=${if (isFp16) "fp16" else "fp32"}",
         )
         true
     }
@@ -130,6 +140,7 @@ object Waifu2xBridge {
             nativeRelease(handle)
             handle = 0L
             activeModel = null
+            activePrecision = null
             isVulkan = false
         }
     }
@@ -170,7 +181,7 @@ object Waifu2xBridge {
 
     private external fun nativeIsFp16(handle: Long): Boolean
 
-    private external fun nativeInit(modelDir: String, modelSuffix: String): Long
+    private external fun nativeInit(modelDir: String, modelSuffix: String, precisionMode: Int): Long
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean
     private external fun nativeIsVulkan(handle: Long): Boolean
     private external fun nativeRelease(handle: Long)

@@ -40,6 +40,7 @@ import com.kmworks.kmreader.ui.reader.PdfSettingsContent
 import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.UpscaleMode
+import com.kmworks.kmreader.ui.reader.UpscalePrecision
 
 /**
  * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub/Pdf preferences).
@@ -179,6 +180,17 @@ fun ReaderDefaultsScreen(
                             onSelect = { denoise ->
                                 readerSettingsViewModel.update {
                                     it.copy(upscale = it.upscale.copy(denoise = denoise))
+                                }
+                            },
+                        )
+                        SettingsRowDivider()
+                        SettingsPickerRow(
+                            title = stringResource(R.string.reader_upscale_precision_title),
+                            selectedLabel = stringResource(divinaSettings.upscale.precision.labelRes),
+                            options = UpscalePrecision.entries.map { it to stringResource(it.labelRes) },
+                            onSelect = { precision ->
+                                readerSettingsViewModel.update {
+                                    it.copy(upscale = it.upscale.copy(precision = precision))
                                 }
                             },
                         )

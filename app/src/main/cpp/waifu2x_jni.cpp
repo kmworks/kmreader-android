@@ -422,7 +422,7 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
-    JNIEnv* env, jobject /* thiz */, jstring model_dir, jstring model_suffix) {
+    JNIEnv* env, jobject /* thiz */, jstring model_dir, jstring model_suffix, jint precision_mode) {
     ensure_gpu_instance();
 
     const char* dir = env->GetStringUTFChars(model_dir, nullptr);
@@ -438,19 +438,30 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
         LOGW("vulkan unavailable, falling back to CPU inference (slow)");
     }
 
-    // Prefer FP16 storage for bandwidth, but prove it on this driver with a self-test and fall
-    // back to FP32 rather than shipping a page full of driver artifacts.
+    // precision_mode mirrors the Kotlin UpscalePrecision enum:
+    //   0 = Auto  — try FP16 storage, prove it on this driver, fall back to FP32 (mihon's default)
+    //   1 = Fp16  — force FP16 storage (still self-tested, so a broken driver errors instead of
+    //               painting artifacts)
+    //   2 = Fp32  — force FP32 storage; the escape hatch for drivers where FP16 passes the
+    //               self-test but pages still band or sparkle
     bool ok = false;
-    if (ctx->use_vulkan) {
-        ok = load_net(ctx, /*fp16=*/true) && run_selftest(ctx);
+    if (!ctx->use_vulkan) {
+        // No compute queue: ncnn runs on CPU where fp16 storage needs a hardware-capable backend.
+        ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+    } else if (precision_mode == 2) {
+        ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
         if (!ok) {
-            LOGW("fp16 path rejected on this device (%s), retrying with fp32",
-                 g_last_error.c_str());
-            ctx->net.clear();
-            ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+            LOGE("fp32 engine self-test failed: %s", g_last_error.c_str());
         }
     } else {
-        ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+        ok = load_net(ctx, /*fp16=*/true) && run_selftest(ctx);
+        if (!ok && precision_mode == 0) {
+            LOGW("fp16 path rejected on this device (%s), retrying with fp32", g_last_error.c_str());
+            ctx->net.clear();
+            ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+        } else if (!ok) {
+            LOGE("fp16 forced but the engine self-test failed: %s", g_last_error.c_str());
+        }
     }
 
     if (!ok) {
