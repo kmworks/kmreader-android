@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -57,6 +58,9 @@ constexpr int kPrepadding = 7;
 constexpr const char* kInputBlob = "Input1";
 constexpr const char* kOutputBlob = "Eltwise4";
 
+/** Tag shared with EnhancementDecoder.APP_TAG so native breadcrumbs file under the same filter. */
+constexpr const char* kAppTag = "Upscale";
+
 /**
  * Last failure, readable from Kotlin via nativeLastError(). Native logs only reach logcat, so
  * without this an "upscaling did nothing" report is undiagnosable on a device with no adb —
@@ -68,6 +72,39 @@ std::string g_last_error;
 
 /** Timing summary of the last run, readable from Kotlin via nativeLastStats(). */
 std::string g_last_stats;
+
+/**
+ * Breadcrumb log: native logs only reach logcat, which is unreachable on the test tablet when a
+ * Vulkan call segfaults. Appending to the app's own log file leaves a last-reached-milestone trail
+ * that survives the crash, so the next report actually says where it died.
+ */
+std::mutex g_log_mutex;
+std::string g_log_path;
+
+void nlog(const char* fmt, ...) {
+    char buf[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    LOGE("%s", buf);
+
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_log_path.empty()) return;
+    FILE* f = fopen(g_log_path.c_str(), "a");
+    if (!f) return;
+    // Match AppLog's own line format (yyyy-MM-dd HH:mm:ss.SSS LEVEL [tag] message) so the entries
+    // show up as normal rows on the logs page instead of being folded into the previous message.
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t secs = std::chrono::system_clock::to_time_t(now);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    std::tm tm_buf{};
+    localtime_r(&secs, &tm_buf);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm_buf);
+    fprintf(f, "%s.%03lld INFO [%s-native] %s\n", stamp, static_cast<long long>(ms), kAppTag, buf);
+    fclose(f);
+}
 
 void set_error(const char* fmt, ...) {
     char buf[512];
@@ -114,6 +151,9 @@ public:
             return -1;
         }
         set_shader_info(shader_info);
+        // Mirrors upstream (waifu2x.cpp:247-262): the dispatch size in record_pipeline() is derived
+        // from these values, so they must agree with the literal local sizes in the shader (8x8x1).
+        set_optimal_local_size_xyz(8, 8, 1);
         const std::vector<ncnn::vk_specialization_type> specializations;
         const int ret = create(spirv.data(), spirv.size() * sizeof(uint32_t), specializations);
         if (ret != 0) {
@@ -302,8 +342,11 @@ bool create_fused_pipelines(Waifu2xContext* ctx) {
     auto postproc_fp32 = std::make_unique<ShaderPipeline>(vkdev);
     auto postproc_fp16 = std::make_unique<ShaderPipeline>(vkdev);
     const ncnn::Option& opt = ctx->net.opt;
+    nlog("fused: compiling preproc shader");
     if (preproc->create_from_source("preproc", kPreprocShader, opt) != 0) return false;
+    nlog("fused: preproc ready, compiling postproc_fp32 shader");
     if (postproc_fp32->create_from_source("postproc_fp32", kPostprocFp32Shader, opt) != 0) return false;
+    nlog("fused: postproc_fp32 ready, compiling postproc_fp16 shader");
     if (postproc_fp16->create_from_source("postproc_fp16", kPostprocFp16Shader, opt) != 0) return false;
 
     ctx->preproc = std::move(preproc);
@@ -475,9 +518,16 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 ok = false;
             }
             timing.convert_us += us(clock::now() - c0);
+            nlog("fused: page %dx%d uploaded (stride %d)", w, h, in_stride);
         }
 
         ncnn::Extractor ex = ctx->net.create_extractor();
+        // Upstream binds the same allocators the fused shaders write into (waifu2x.cpp:474-482):
+        // otherwise the network allocates its blobs from the default pool while our bindings come
+        // from the page allocator.
+        ex.set_blob_vkallocator(blob_alloc);
+        ex.set_workspace_vkallocator(blob_alloc);
+        ex.set_staging_vkallocator(staging_alloc);
         for (int yi = 0; ok && yi < h; yi += kTileSize) {
             const int yi1 = std::min(h, yi + kTileSize);
             for (int xi = 0; ok && xi < w; xi += kTileSize) {
@@ -564,6 +614,10 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                     element_size == 2 ? ctx->postproc_fp16.get() : ctx->postproc_fp32.get();
                 cmd.record_pipeline(post, {out_tile, dst_vk}, post_constants, post_dispatcher);
 
+                if (tiles < 2 || tiles % 20 == 0) {
+                    nlog("fused: tile %d at (%d,%d) %dx%d -> %dx%d, submitting", tiles, xi, yi, tw, th,
+                         out_tile.w, out_tile.h);
+                }
                 if (cmd.submit_and_wait() != 0) {
                     set_error("fused: tile submit failed at (%d,%d)", xi, yi);
                     ok = false;
@@ -600,6 +654,7 @@ bool load_and_verify(Waifu2xContext* ctx, bool fp16) {
     if (!load_net(ctx, fp16)) return false;
 
     ctx->fused = ctx->use_vulkan && create_fused_pipelines(ctx);
+    nlog("init: net loaded (fp16=%d), fused pipelines=%d", fp16 ? 1 : 0, ctx->fused ? 1 : 0);
     if (run_selftest(ctx)) return true;
 
     if (ctx->fused) {
@@ -692,11 +747,21 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
-    JNIEnv* env, jobject /* thiz */, jstring model_dir, jstring model_suffix, jint precision_mode) {
+    JNIEnv* env, jobject /* thiz */, jstring model_dir, jstring model_suffix, jint precision_mode,
+    jstring log_path) {
     ensure_gpu_instance();
 
     const char* dir = env->GetStringUTFChars(model_dir, nullptr);
     const char* suffix = env->GetStringUTFChars(model_suffix, nullptr);
+    if (log_path) {
+        const char* path = env->GetStringUTFChars(log_path, nullptr);
+        {
+            std::lock_guard<std::mutex> lock(g_log_mutex);
+            g_log_path = path;
+        }
+        env->ReleaseStringUTFChars(log_path, path);
+    }
+    nlog("init: model=%s precision_mode=%d", suffix, precision_mode);
     auto* ctx = new Waifu2xContext();
     ctx->param_path = std::string(dir) + "/" + suffix + "_model.param";
     ctx->bin_path = std::string(dir) + "/" + suffix + "_model.bin";

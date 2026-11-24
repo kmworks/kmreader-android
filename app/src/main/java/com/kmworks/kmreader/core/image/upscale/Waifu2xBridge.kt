@@ -87,7 +87,7 @@ object Waifu2xBridge {
             AppLog.e(EnhancementDecoder.APP_TAG, "model extraction failed: ${e.message}", e)
             return@withLock false
         }
-        val h = nativeInit(dir.absolutePath, model.modelSuffix, precision.ordinal)
+        val h = nativeInit(dir.absolutePath, model.modelSuffix, precision.ordinal, nativeLogPath(context))
         if (h == 0L) {
             val reason = lastError()
             Log.e(TAG, "nativeInit failed for ${model.modelSuffix}: $reason")
@@ -192,7 +192,22 @@ object Waifu2xBridge {
 
     private external fun nativeIsFused(handle: Long): Boolean
 
-    private external fun nativeInit(modelDir: String, modelSuffix: String, precisionMode: Int): Long
+    /**
+     * Where the native side appends its breadcrumbs. Vulkan bring-up can die with a segfault that
+     * only logcat would explain, and logcat is not reachable on the test device — writing into the
+     * app's own log file leaves the last-reached milestone visible on the logs page after a crash.
+     */
+    private fun nativeLogPath(context: Context): String {
+        val dir = File(context.filesDir, "logs").apply { mkdirs() }
+        return File(dir, "app.log").absolutePath
+    }
+
+    private external fun nativeInit(
+        modelDir: String,
+        modelSuffix: String,
+        precisionMode: Int,
+        logPath: String,
+    ): Long
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean
     private external fun nativeIsVulkan(handle: Long): Boolean
     private external fun nativeRelease(handle: Long)
