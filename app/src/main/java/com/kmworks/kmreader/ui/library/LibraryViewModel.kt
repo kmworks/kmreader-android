@@ -63,6 +63,8 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /** Library grid state; series/books == null means no session or load failure. */
@@ -498,9 +500,18 @@ class LibraryViewModel @Inject constructor(
     private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? =
         resolveLibraryScopeIds(scope, pinned)
 
-    /** Cache key of the current browse query (one row set per scope + filter combination). */
+    private val cacheKeyJson = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Cache key of the current browse query (one row set per scope + filter combination).
+     *
+     * The options are serialized: [BrowseOptions] carries enums (TriState, ReadStatus, …) whose
+     * `hashCode()` is identity-based and changes on every process start, so a data-class hashCode
+     * key could never find the rows a previous launch wrote. `String.hashCode()` is specified and
+     * stable across processes, which is all this key needs.
+     */
     private fun listKey(scope: String, options: BrowseOptions): String =
-        "library:$scope:${options.hashCode()}"
+        "library:$scope:${cacheKeyJson.encodeToString(options).hashCode()}"
 
     private suspend fun load(
         scope: String,
