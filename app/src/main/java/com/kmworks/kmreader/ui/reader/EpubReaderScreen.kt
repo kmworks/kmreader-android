@@ -682,9 +682,11 @@ private fun RealEpubReader(
         epubOverlay.readerFooterLeading != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterCenter != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE
-    val overlayInsetVPx = with(LocalDensity.current) {
-        if (overlayHasContent) 24.dp.roundToPx() else 0
-    }
+    // CSS px, NOT physical px: the injected page CSS consumes this as padding-top/bottom in
+    // CSS px (the EpubThemeConfig.insetVPx contract). roundToPx() here handed the page a
+    // density-scaled value — 24dp became 77 "CSS px" at density 3.2, which ate four lines per
+    // page and pushed the text block into the middle of the screen.
+    val overlayInsetVPx = if (overlayHasContent) 24 else 0
     val themeConfig = remember(
         epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
     ) {

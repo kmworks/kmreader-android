@@ -175,6 +175,9 @@ object EpubJs {
 
           var S = { c: null, paged: false, vw: 1, vh: 1, pages: 1, page: 0, dir: 1,
                     animate: true, marginH: 24, ready: false, pendingFrac: null, quiet: false,
+                    // Bumped by every navigation attempt; a deferred scroll re-assert only runs
+                    // while its generation is still the current one (see goToPage/cancelSnap).
+                    pageGen: 0,
                     // Vertical writing mode (writing-mode: vertical-rl): paged columns stack
                     // DOWNWARD, so pagination runs along scrollTop — always positive, no dir
                     // flip (foliate: "vertical books page along scrollTop, which never flips")
@@ -218,14 +221,30 @@ object EpubJs {
             if (!S.paged) return;
             S.page = Math.max(0, Math.min(S.pages - 1, Math.round(i)));
             cancelSnap();
+            var animating = !!(animate && S.animate);
             if (S.vertical) {
               var y = S.page * S.vh;
-              if (animate && S.animate) { animateScrollTo(y, true); }
+              if (animating) { animateScrollTo(y, true); }
               else { window.scrollTo(0, y); }
             } else {
               var x = S.dir * S.page * S.vw;
-              if (animate && S.animate) { animateScrollTo(x, false); }
+              if (animating) { animateScrollTo(x, false); }
               else { window.scrollTo(x, 0); }
+            }
+            // A direct scrollTo is exact, but the compositor can still adjust or drop the offset
+            // on the next frame (see animateScrollTo), leaving the strip between two pages.
+            // Verify once on the following frame unless a newer navigation superseded this one;
+            // the animated path verifies itself when its last frame lands.
+            var gen = S.pageGen;
+            if (!animating) {
+              requestAnimationFrame(function() {
+                if (gen !== S.pageGen) return;
+                var want = S.vertical ? S.page * S.vh : S.dir * S.page * S.vw;
+                var now = S.vertical ? sy() : sx();
+                if (Math.abs(now - want) > 1) {
+                  if (S.vertical) { window.scrollTo(0, want); } else { window.scrollTo(want, 0); }
+                }
+              });
             }
             // The Kotlin side keeps its page state exclusively from this callback: every turn
             // must report, or the next tap/swipe computes its target from a stale page.
@@ -247,6 +266,7 @@ object EpubJs {
           function animateScrollTo(target, alongY) {
             var start = alongY ? sy() : sx();
             var delta = target - start;
+            var gen = (S.pageGen = (S.pageGen || 0) + 1);
             if (Math.abs(delta) < 1) { window.scrollTo(alongY ? 0 : target, alongY ? target : 0); return; }
             var dur = 260;
             var t0 = null;
@@ -257,7 +277,18 @@ object EpubJs {
               var pos = start + delta * e;
               window.scrollTo(alongY ? 0 : pos, alongY ? pos : 0);
               if (k < 1) { S.animId = requestAnimationFrame(step); }
-              else { S.animId = null; window.scrollTo(alongY ? 0 : target, alongY ? target : 0); }
+              else {
+                S.animId = null;
+                window.scrollTo(alongY ? 0 : target, alongY ? target : 0);
+                // The compositor owns the scroll offset for a frame after the last step, so a
+                // snap written inside it can still be dropped or adjusted. Re-assert once on
+                // the next frame unless a newer navigation took over in the meantime.
+                requestAnimationFrame(function() {
+                  if (gen !== S.pageGen) return;
+                  var now = alongY ? sy() : sx();
+                  if (Math.abs(now - target) > 1) window.scrollTo(alongY ? 0 : target, alongY ? target : 0);
+                });
+              }
             }
             S.animId = requestAnimationFrame(step);
           }
@@ -265,6 +296,51 @@ object EpubJs {
           function cancelSnap() {
             if (S.snapTimer) { clearTimeout(S.snapTimer); S.snapTimer = null; }
             if (S.animId) { cancelAnimationFrame(S.animId); S.animId = null; }
+            // Invalidate any deferred re-assert from a navigation that is no longer current.
+            S.pageGen = (S.pageGen || 0) + 1;
+          }
+
+          // A page turn must rest exactly on a page boundary. Two things move the strip off the
+          // grid after the turn has landed: a rAF snap interrupted before its last frame (the
+          // WebView stops drawing mid-gesture) and a reflow that redistributes the columns while
+          // body's box keeps its size (an image finishing in an EARLIER column, a font swap).
+          // Chromium's scroll anchoring only compensates the BLOCK axis, so a horizontal paged
+          // strip slides silently and the reader ends up between two pages — the previous
+          // column's glyph tails at the left edge and the current column clipped on the right.
+          function settlePage(animate) {
+            if (!S.paged || !S.ready) return;
+            var want = S.vertical ? S.page * S.vh : S.dir * S.page * S.vw;
+            var now = S.vertical ? sy() : sx();
+            if (Math.abs(now - want) <= 1) return;
+            if (animate && S.animate) { animateScrollTo(want, S.vertical); }
+            else if (S.vertical) { window.scrollTo(0, want); }
+            else { window.scrollTo(want, 0); }
+          }
+
+          // A multicol container's inline-end padding is NOT part of its scrollable overflow, so
+          // the strip ends at pages*vw - marginH and the browser clamps the last page one margin
+          // short: the last page shows a doubled left margin with the text flush against the
+          // right edge. A zero-sized absolute spacer pinned to the strip's true end restores that
+          // scroll room — absolute boxes neither fragment into a new column nor take part in the
+          // flow, and visibility:hidden still contributes scrollable overflow.
+          function ensureStripEnd() {
+            if (!S.c) return;
+            var el = document.getElementById('km-tail');
+            // Scrolled mode, RTL and vertical books have no horizontal page grid to extend: drop
+            // the spacer so it cannot leave the document horizontally scrollable.
+            if (!S.paged || S.vertical || S.dir !== 1 || !document.body) {
+              if (el && el.parentNode) el.parentNode.removeChild(el);
+              return;
+            }
+            if (!el) {
+              el = document.createElement('div');
+              el.id = 'km-tail';
+              el.setAttribute('aria-hidden', 'true');
+              el.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;'
+                + 'margin:0;padding:0;border:0;visibility:hidden;pointer-events:none;';
+              document.body.appendChild(el);
+            }
+            el.style.left = Math.max(0, S.pages * S.vw - 1) + 'px';
           }
 
           // Interactive page drag (mirrors the iOS pan-to-turn and the comic pager): the finger
@@ -304,9 +380,15 @@ object EpubJs {
               return;
             }
             var sw = Math.max(doc().scrollWidth, b.scrollWidth || 0);
-            // Rounding slack: Chrome reports integral scrollWidth for fractional column widths.
-            S.pages = Math.max(1, Math.ceil(sw / S.vw - 0.002));
+            // The strip is one inline-end margin short of the page grid (a multicol container's
+            // trailing padding is not scrollable overflow), so add that margin back before
+            // dividing: measuring the bare scrollWidth would be right today but a build that
+            // DOES count the padding would invent a phantom page. Math.round (not ceil) keeps an
+            // overflowing word from adding a page, and absorbs Chrome's integral scrollWidth for
+            // fractional column widths.
+            S.pages = Math.max(1, Math.round((sw + S.marginH) / S.vw));
             S.page = Math.max(0, Math.min(S.pages - 1, Math.round(Math.abs(sx()) / S.vw)));
+            ensureStripEnd();
           }
 
           // The load token ties a measure pass to its page load (mirrors the iOS generation/
@@ -393,11 +475,24 @@ object EpubJs {
               else goToPage(keepIdx, false);
             } finally { S.quiet = false; }
             measure();
+            // The restore above went through goToPage, but measure() can have changed the page
+            // COUNT and a restore target can clamp short at either end of the strip, so re-assert
+            // the grid: a late repagination must never leave the strip resting between two pages.
+            settlePage(false);
             // Defer the notification (and with it the Kotlin-side reveal) until the compositor
             // has had two frames to rasterize the restored scroll position — see goToPage.
             requestAnimationFrame(function() {
-              requestAnimationFrame(function() { notifyPages(); report(); });
+              requestAnimationFrame(function() { settlePage(false); notifyPages(); report(); });
             });
+            // Late content can still be in flight when the capped measure wait expired (a large
+            // illustration). Re-run once it actually settles so the page count and the resting
+            // offset follow the final layout; the !imagesStillPending() guard keeps a
+            // never-loading image from re-triggering this on every pass.
+            if (imagesStillPending()) {
+              imagesReady(3000).then(function() {
+                if (S.ready && S.paged && !imagesStillPending()) scheduleRepaginate();
+              });
+            }
           }
 
           // ---------- layout ----------
@@ -415,7 +510,9 @@ object EpubJs {
               // vh keeps every page exactly one screen tall; body width is pinned so the
               // block (horizontal) size cannot exceed one screen either.
               var ch = Math.max(80, vh - 2 * m);
-              return 'html,body{margin:0 !important;}'
+              // overflow-anchor:none — a paged strip that Chromium may "anchor" scrolls itself
+              // off the page grid whenever late layout lands above the reader (see settlePage).
+              return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
                 + 'html{overflow-x:hidden !important;overflow-y:auto !important;}'
                 + 'body{box-sizing:border-box !important;width:' + vw + 'px !important;'
                 + 'padding:' + (m + (c.insetV || 0)) + 'px 24px !important;'
@@ -430,7 +527,12 @@ object EpubJs {
             // "two pages stuck halfway" bug. Chrome handles fractional column widths fine, and
             // measure() already carries integral-scrollWidth slack.
             var cw = Math.max(80, vw / S.cols - 2 * m);
-            return 'html,body{margin:0 !important;}'
+            // overflow-anchor:none is load-bearing: scroll anchoring only compensates the BLOCK
+            // axis, so when a late image or font changes the column distribution above the
+            // reader, Chromium "anchors" the horizontal strip and moves it off the page grid by
+            // a fraction of a page — the reported mobile symptom (the previous column's glyph
+            // tails visible at the left edge, the current column clipped on the right).
+            return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
               + 'html{overflow-y:hidden !important;}'
               + 'body{box-sizing:border-box !important;height:' + vh + 'px !important;'
               + 'padding:' + (24 + (c.insetV || 0)) + 'px ' + m + 'px !important;'
@@ -442,6 +544,9 @@ object EpubJs {
             var lay = document.getElementById('km-layout');
             if (!lay) { lay = document.createElement('style'); lay.id = 'km-layout'; document.head.appendChild(lay); }
             lay.textContent = layoutCss();
+            // Layout mode can flip here (paged <-> scrolled, horizontal <-> vertical): the strip
+            // end spacer only belongs to a horizontal paged strip, so reconcile it with the mode.
+            ensureStripEnd();
           }
 
           function forceEagerImages() {
@@ -885,6 +990,12 @@ object EpubJs {
           }
           // The body's box is pinned to the viewport, so the ResizeObserver above never fires
           // for late-loading images — catch them through capture-phase load events instead.
+          // A web font that lands after kickMeasure's fonts.ready pass (font-display:swap, or a
+          // family the chapter only starts using later) reflows every column without resizing
+          // body's box either, so neither observer sees it.
+          if (document.fonts && document.fonts.addEventListener) {
+            document.fonts.addEventListener('loadingdone', scheduleRepaginate);
+          }
           document.addEventListener('load', function(e) {
             var t = e.target;
             if (t && t.tagName === 'IMG') { if (S.c && S.c.darkTheme) classifyImage(t); scheduleRepaginate(); }
