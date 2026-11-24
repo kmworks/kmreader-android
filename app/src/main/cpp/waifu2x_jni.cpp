@@ -122,11 +122,14 @@ ncnn::Mat make_tile(const unsigned char* rgba, int stride, int w, int h,
     return tile;
 }
 
-/** Writes the inner (unpadded) region of a scaled tile into the output RGBA buffer. */
+/** Writes the scaled tile into the output RGBA buffer at (dx,dy). */
 void write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
                 int dx, int dy, int w, int h) {
-    const int sx = kPrepadding * kScale;
-    const int sy = kPrepadding * kScale;
+    // No output crop: the network's valid convolutions already consume the padding. Feeding a
+    // (tile + 2*7) input yields exactly a (2*tile) output whose pixels correspond 1:1 to the
+    // tile — see expected geometry in process_tile().
+    const int sx = 0;
+    const int sy = 0;
     const float* r = out_tile.channel(0).row(sy) + sx;
     const float* g = out_tile.channel(1).row(sy) + sx;
     const float* b = out_tile.channel(2).row(sy) + sx;
@@ -178,8 +181,13 @@ bool process_tile(ncnn::Net& net, const unsigned char* in, int in_stride, int w,
         ncnn::convert_packing(out_tile, unpacked, 1, net.opt);
         out_tile = unpacked;
     }
-    const int expected_w = (xi1 - xi0 + 2 * kPrepadding) * kScale;
-    const int expected_h = (yi1 - yi0 + 2 * kPrepadding) * kScale;
+    // Geometry of the upconv7 model (see the bundled .param): six 3x3 valid convolutions shrink
+    // the input by 1px per side each, then a 4x4/stride-2 deconvolution computes
+    // out = (in - 12 - 1) * 2 + 4 - 2 * 3 = 2 * in - 28. So a (tile + 2*kPrepadding) input with
+    // kPrepadding = 7 produces exactly 2 * tile: the padding is consumed as receptive-field
+    // context and never appears in the output, hence no output crop.
+    const int expected_w = (xi1 - xi0) * kScale;
+    const int expected_h = (yi1 - yi0) * kScale;
     if (out_tile.empty() || out_tile.c < 3 || out_tile.w != expected_w || out_tile.h != expected_h) {
         set_error("unexpected output tile %dx%dx%d elemsize=%zu elempack=%d (expected %dx%dx3)",
                   out_tile.w, out_tile.h, out_tile.c, out_tile.elemsize, out_tile.elempack,
