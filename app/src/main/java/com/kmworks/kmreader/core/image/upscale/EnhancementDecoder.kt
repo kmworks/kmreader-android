@@ -21,7 +21,7 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 /**
  * Coil decoder that upscales page images with waifu2x (docs/waifu2x-upscaling-plan.md §5.2).
  *
- * Registered only on the page loader, and only for requests carrying [parameters], so covers,
+ * Registered only on the page loader, and only for requests marked by [applyTo], so covers,
  * thumbnails and plain page loads keep the default decoder. Flow:
  *
  * 1. decode bounds only
@@ -46,18 +46,22 @@ class EnhancementDecoder private constructor(
 ) : Decoder {
 
     override suspend fun decode(): DecodeResult? {
-        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        source.source().inputStream().use { BitmapFactory.decodeStream(it, null, boundsOptions) }
-        val srcWidth = boundsOptions.outWidth
-        val srcHeight = boundsOptions.outHeight
-        // Malformed / unsupported source: leave it to the default decoder's error reporting.
-        if (srcWidth <= 0 || srcHeight <= 0) return null
+        val (srcWidth, srcHeight) = decodeBounds() ?: run {
+            // Malformed / unsupported source: leave it to the default decoder's error reporting.
+            Log.w(TAG, "unreadable source, deferring to default decoder: $pageUrl")
+            return null
+        }
 
         val (targetWidth, targetHeight) = resolveTargetSize()
         val upscale = UpscaleDecision.shouldUpscale(
             srcWidth, srcHeight, targetWidth, targetHeight, config,
             maxTextureWidth = textureLimits.first,
             maxTextureHeight = textureLimits.second,
+        )
+        Log.i(
+            TAG,
+            "decision $pageUrl: src=${srcWidth}x$srcHeight target=${targetWidth}x$targetHeight " +
+                "mode=${config.mode} threshold=${config.autoTriggerScale} -> upscale=$upscale",
         )
         if (!upscale) {
             // Preload requests only warm the disk source cache: decoding the full page here would
@@ -71,20 +75,34 @@ class EnhancementDecoder private constructor(
         }
 
         val cacheKey = EnhancementCache.cacheKey(pageUrl, config.configHash)
-        cache.read(cacheKey)?.let { return DecodeResult(it.asImage(), false) }
+        cache.read(cacheKey)?.let {
+            Log.i(TAG, "cache hit (${it.width}x${it.height}): $pageUrl")
+            return DecodeResult(it.asImage(), false)
+        }
 
         // Enhancement input is the full-resolution source (plan §5.2): the 2x output IS the detail.
-        val sourceBitmap = decodeBitmap(sampleSize = 1) ?: return null
+        val sourceBitmap = decodeSample(1) ?: run {
+            Log.w(TAG, "full-size decode failed, showing source page: $pageUrl")
+            return null
+        }
         val enhanced = enhancer.submit(cacheKey, priority) {
-            if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel)) null
-            else Waifu2xBridge.process(sourceBitmap)
+            if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel)) {
+                Log.w(TAG, "engine unavailable (${config.denoise.bridgeModel.modelSuffix})")
+                null
+            } else {
+                Waifu2xBridge.process(sourceBitmap)
+            }
         }
-        if (enhanced != null) {
-            cache.write(cacheKey, enhanced)
-            return DecodeResult(enhanced.asImage(), false)
+        if (enhanced == null) {
+            Log.i(TAG, "enhancement unavailable, showing source page: $pageUrl")
+            return DecodeResult(sourceBitmap.asImage(), false)
         }
-        Log.i(TAG, "enhancement unavailable, showing source page: $pageUrl")
-        return DecodeResult(sourceBitmap.asImage(), false)
+        cache.write(cacheKey, enhanced)
+        Log.i(
+            TAG,
+            "enhanced $pageUrl: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height}",
+        )
+        return DecodeResult(enhanced.asImage(), false)
     }
 
     /** Device texture limits (0,0 = unknown), read once from a scratch software canvas. */
@@ -93,6 +111,24 @@ class EnhancementDecoder private constructor(
             val canvas = Canvas(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
             canvas.maximumBitmapWidth to canvas.maximumBitmapHeight
         }.getOrDefault(0 to 0)
+    }
+
+    /**
+     * Backing bytes for repeated decodes. [ImageSource.source] can only be consumed once, so the
+     * bounds pass and the real decode share one read: prefer the on-disk path Coil already has
+     * (network fetches land in a temp file, disk-cache hits are files), and only buffer the bytes
+     * when the source has no file at all.
+     */
+    private val sourcePath: String? by lazy {
+        runCatching { source.file().toString() }.getOrNull()
+    }
+
+    private val sourceBytes: ByteArray? by lazy {
+        if (sourcePath != null) {
+            null
+        } else {
+            source.sourceOrNull()?.use { input -> runCatching { input.readByteArray() }.getOrNull() }
+        }
     }
 
     /** Request target in px; prefetch requests have no target size, so fall back to the display metrics. */
@@ -106,7 +142,7 @@ class EnhancementDecoder private constructor(
     /** Plain Coil-style sampled decode for pages that stay below the trigger scale. */
     private fun decodeSampled(srcWidth: Int, srcHeight: Int, targetWidth: Int, targetHeight: Int): DecodeResult? {
         val sample = sampleSizeFor(srcWidth, srcHeight, targetWidth, targetHeight)
-        val bitmap = decodeBitmap(sample) ?: return null
+        val bitmap = decodeSample(sample) ?: return null
         return DecodeResult(bitmap.asImage(), sample > 1)
     }
 
@@ -118,15 +154,35 @@ class EnhancementDecoder private constructor(
         return sample
     }
 
-    private fun decodeBitmap(sampleSize: Int): Bitmap? {
+    private fun decodeBounds(): Pair<Int, Int>? {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { decode(opts) }
+        return if (opts.outWidth > 0 && opts.outHeight > 0) opts.outWidth to opts.outHeight else null
+    }
+
+    private fun decodeSample(sampleSize: Int): Bitmap? {
         val opts = BitmapFactory.Options().apply {
             inPreferredConfig = Bitmap.Config.ARGB_8888
             inSampleSize = sampleSize
         }
         return try {
-            source.source().inputStream().use { BitmapFactory.decodeStream(it, null, opts) }
+            decode(opts)
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "decode failed: $pageUrl (sample=$sampleSize)", e)
+            null
+        }
+    }
+
+    private fun decode(opts: BitmapFactory.Options): Bitmap? {
+        val path = sourcePath
+        return runCatching {
+            if (path != null) {
+                BitmapFactory.decodeFile(path, opts)
+            } else {
+                sourceBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size, opts) }
+            }
+        }.getOrElse { e ->
+            Log.w(TAG, "source decode failed (sample=${opts.inSampleSize}): $pageUrl", e)
             null
         }
     }
@@ -146,6 +202,7 @@ class EnhancementDecoder private constructor(
                 autoTriggerScale = extras[KEY_AUTO_SCALE] ?: UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
             )
             val priority = extras[KEY_PRIORITY] ?: ImageEnhancer.PRIORITY_VISIBLE
+            Log.i(TAG, "marked for upscaling: $pageUrl (mode=${config.mode}, denoise=${config.denoise}, priority=$priority)")
             return EnhancementDecoder(result.source, pageUrl, config, priority, options, context, cache, enhancer)
         }
     }

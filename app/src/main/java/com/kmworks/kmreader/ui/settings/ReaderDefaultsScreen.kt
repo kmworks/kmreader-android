@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.PhotoFilter
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SwapHoriz
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.reader.DenoiseLevel
 import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
 import com.kmworks.kmreader.ui.reader.EpubThemePresetsSheet
@@ -37,6 +39,7 @@ import com.kmworks.kmreader.ui.reader.PageLayout
 import com.kmworks.kmreader.ui.reader.PdfSettingsContent
 import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
+import com.kmworks.kmreader.ui.reader.UpscaleMode
 
 /**
  * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub/Pdf preferences).
@@ -147,6 +150,39 @@ fun ReaderDefaultsScreen(
                             readerSettingsViewModel.update { it.copy(defaultSoloCoverPage = value) }
                         },
                     )
+                }
+            }
+            item {
+                // waifu2x upscaling defaults (docs/waifu2x-upscaling-plan.md §8); mirrors the sheet's
+                // "Image processing" group so the global defaults page can configure it too.
+                SettingsSection(
+                    title = stringResource(R.string.reader_upscale_title),
+                    footer = stringResource(R.string.reader_upscale_hint),
+                ) {
+                    SettingsPickerRow(
+                        title = stringResource(R.string.reader_upscale_mode_title),
+                        selectedLabel = stringResource(divinaSettings.upscale.mode.labelRes),
+                        options = UpscaleMode.entries.map { it to stringResource(it.labelRes) },
+                        onSelect = { mode ->
+                            readerSettingsViewModel.update {
+                                it.copy(upscale = it.upscale.copy(mode = mode))
+                            }
+                        },
+                        icon = Icons.Outlined.PhotoFilter,
+                    )
+                    if (divinaSettings.upscale.mode != UpscaleMode.Off) {
+                        SettingsRowDivider()
+                        SettingsPickerRow(
+                            title = stringResource(R.string.reader_upscale_denoise_title),
+                            selectedLabel = stringResource(divinaSettings.upscale.denoise.labelRes),
+                            options = DenoiseLevel.entries.map { it to stringResource(it.labelRes) },
+                            onSelect = { denoise ->
+                                readerSettingsViewModel.update {
+                                    it.copy(upscale = it.upscale.copy(denoise = denoise))
+                                }
+                            },
+                        )
+                    }
                 }
             }
             item {
