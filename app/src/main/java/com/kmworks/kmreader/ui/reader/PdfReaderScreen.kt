@@ -299,6 +299,12 @@ fun PdfReaderScreen(
     Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
         when {
             state.loading -> {
+                // No PdfView exists yet to receive taps; toggle the chrome from here
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } },
+                )
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
