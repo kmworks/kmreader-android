@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.app.Activity
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -60,6 +61,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -106,9 +108,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImagePainter
 import coil3.compose.SubcomposeAsyncImage
 import coil3.compose.SubcomposeAsyncImageContent
+import coil3.decode.BlackholeDecoder
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.transformations
 import coil3.size.Size
@@ -435,6 +440,7 @@ fun ReaderScreen(
     // They are also rebuilt when the previous book resolves: its end page is prepended, which shifts every
     // index by one, so a kept index would silently show the cell before the current one. Rebuilding around
     // the page on screen (the restored page before the first seek has run) keeps the reader in place.
+    val scope = rememberCoroutineScope()
     val pagerState = key(ready, presentedBook.id, previousBook?.id) {
         val anchor = if (pageInitialized) page else (uiState.initialPage ?: 1)
         val start = if (ready) {
@@ -453,7 +459,22 @@ fun ReaderScreen(
         }
         rememberLazyListState(initialFirstVisibleItemIndex = start)
     }
-    val scope = rememberCoroutineScope()
+    // Cover transition: a three-slot deck (the original NativeCoverDeckState) instead of the pager.
+    // It follows the same anchor/rebuild rules as the scroll states above, and every effect below
+    // talks to the shared ReaderTurnState surface so the style can change without touching them.
+    val coverDeck = isPaged && settings.pageTransition == PageTransitionStyle.Cover
+    val deckState = key(ready, presentedBook.id, previousBook?.id) {
+        val anchor = if (pageInitialized) page else (uiState.initialPage ?: 1)
+        val start = if (ready) {
+            items.indexOfFirst { it.pages.contains(anchor) }.coerceAtLeast(0)
+        } else {
+            0
+        }
+        remember { CoverDeckState(start, scope) }
+    }
+    DisposableEffect(deckState) { onDispose { deckState.release() } }
+    val pagerTurnState = remember(pagerState) { PagerTurnState(pagerState) }
+    val turnState: ReaderTurnState = if (coverDeck) deckState else pagerTurnState
 
     // Page-load lifecycle in the trail: a death before Ready (or right after it) reads very differently
     // from one while paging through already decoded images.
@@ -473,14 +494,14 @@ fun ReaderScreen(
             if (target > 0) webtoonState.scrollToItem(target)
         } else {
             val target = items.indexOfFirst { it.pages.contains(page) }
-            if (target > 0) pagerState.scrollToPage(target)
+            if (target > 0) turnState.scrollTo(target)
         }
         progressArmed = true
     }
 
-    // Pager → page number (paged/vertical modes)
-    LaunchedEffect(pagerState, items) {
-        snapshotFlow { pagerState.settledPage }.collect { index ->
+    // Turn state → page number (paged/vertical modes)
+    LaunchedEffect(turnState, items) {
+        snapshotFlow { turnState.settledIndex }.collect { index ->
             items.getOrNull(index)?.pages?.firstOrNull()?.let { page = it }
         }
     }
@@ -502,12 +523,12 @@ fun ReaderScreen(
         // A wide page cut in half is two cells that both report the same page number: only seek when
         // the cell on screen does not already show this page, otherwise arriving on the second half
         // would be undone by a snap back to the first half (and going back would skip it entirely)
-        if (items.getOrNull(pagerState.currentPage)?.pages?.contains(page) == true) return@LaunchedEffect
+        if (items.getOrNull(turnState.currentIndex)?.pages?.contains(page) == true) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
-        if (target >= 0 && target != pagerState.currentPage) pagerState.scrollToPage(target)
+        if (target >= 0 && target != turnState.currentIndex) turnState.scrollTo(target)
     }
-    // After switching layout/split-wide/direction, land on the cell holding the current page
-    // (mirrors regenerateViewStatePreservingCurrentPosition)
+    // After switching layout/split-wide/direction/transition style, land on the cell holding the
+    // current page (mirrors regenerateViewStatePreservingCurrentPosition)
     LaunchedEffect(
         allowDualPairs,
         forceDualPairs,
@@ -517,15 +538,19 @@ fun ReaderScreen(
         noCover,
         isLandscapeScreen,
         rotationDegrees,
+        coverDeck,
     ) {
         if (!pageInitialized || isWebtoon) return@LaunchedEffect
         val target = items.indexOfFirst { it.pages.contains(page) }
-        if (target >= 0) pagerState.scrollToPage(target)
+        if (target >= 0) turnState.scrollTo(target)
     }
 
-    // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate)
-    LaunchedEffect(pagerState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
-        snapshotFlow { pagerState.settledPage }
+    // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate).
+    // The prefetch warms the disk cache only: a prefetched full-size decode would be rejected by the
+    // sized display request (Precision.EXACT), so decoding here just burns heap on bitmaps that can
+    // never be shown.
+    LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
+        snapshotFlow { turnState.settledIndex }
             .debounce(300)
             .collect { index ->
                 if (uiState.bookDtoId == null) return@collect
@@ -534,7 +559,7 @@ fun ReaderScreen(
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { number ->
                         viewModel.pageImageUrl(number)?.let { url ->
-                            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                            imageLoader.enqueueDiskPreload(context, url)
                         }
                     }
                 }
@@ -547,14 +572,14 @@ fun ReaderScreen(
         if (wifiOnlyPreload && !isWifiConnected(context)) return@LaunchedEffect
         listOfNotNull(uiState.adjacent.next, uiState.adjacent.previous).forEach { book ->
             viewModel.firstPageUrl(book.id)?.let { url ->
-                imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                imageLoader.enqueueDiskPreload(context, url)
             }
         }
     }
     // Progress reporting (paged/vertical)
-    LaunchedEffect(pagerState, items, uiState.bookDtoId, progressArmed) {
+    LaunchedEffect(turnState, items, uiState.bookDtoId, progressArmed) {
         if (!progressArmed) return@LaunchedEffect
-        snapshotFlow { pagerState.settledPage }.collect { index ->
+        snapshotFlow { turnState.settledIndex }.collect { index ->
             if (uiState.bookDtoId == null) return@collect
             // The end-of-book cell holds no pages (it must not be reported as a page)
             items.getOrNull(index)?.pages?.maxOrNull()?.let { viewModel.reportProgress(it) }
@@ -573,7 +598,7 @@ fun ReaderScreen(
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { n ->
                         viewModel.pageImageUrl(n)?.let { url ->
-                            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                            imageLoader.enqueueDiskPreload(context, url)
                         }
                     }
                 }
@@ -610,7 +635,7 @@ fun ReaderScreen(
         val target = items.indexOfFirst { it.pages.isNotEmpty() }.coerceAtLeast(0)
         scope.launch {
             if (isWebtoon) webtoonState.animateScrollToItem(target)
-            else pagerState.animateScrollToPage(target.coerceIn(0, max(0, items.lastIndex)))
+            else turnState.animateTo(target.coerceIn(0, max(0, items.lastIndex)))
         }
     }
     // Single-tap/double-tap/long-press/pinch gestures (run in parallel inside one pointerInput so
@@ -618,13 +643,13 @@ fun ReaderScreen(
     fun stepPage(target: Int) {
         val clamped = target.coerceIn(0, max(0, items.lastIndex))
         scope.launch {
-            if (settings.animateTapTurns) pagerState.animateScrollToPage(clamped)
-            else pagerState.scrollToPage(clamped)
+            if (settings.animateTapTurns) turnState.animateTo(clamped)
+            else turnState.scrollTo(clamped)
         }
     }
     // True while the end-of-book cell owns the screen (the last cell of either pager)
     fun atEndPage(): Boolean {
-        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else pagerState.currentPage
+        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else turnState.currentIndex
         return items.getOrNull(index.coerceIn(0, max(0, items.lastIndex))) is ReaderViewItem.End
     }
     // The end page has no page after it: turning past it opens the next book (the original pages
@@ -638,11 +663,11 @@ fun ReaderScreen(
     // Tap-zone navigation: one page per tap
     fun tapNext() {
         if (openNextIfAtEndPage()) return
-        stepPage(pagerState.currentPage + 1)
+        stepPage(turnState.currentIndex + 1)
     }
     // True while the previous book's end page owns the screen (the first cell of either pager)
     fun atPreviousEndPage(): Boolean {
-        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else pagerState.currentPage
+        val index = if (isWebtoon) webtoonState.firstVisibleItemIndex else turnState.currentIndex
         return items.getOrNull(index.coerceIn(0, max(0, items.lastIndex))) is ReaderViewItem.PreviousEnd
     }
     // Nothing precedes the previous book's end page: turning back opens that book (the original pages
@@ -655,7 +680,7 @@ fun ReaderScreen(
     }
     fun tapPrevious() {
         if (openPreviousIfAtPreviousEndPage()) return
-        stepPage(pagerState.currentPage - 1)
+        stepPage(turnState.currentIndex - 1)
     }
     // Continuation gesture: the pager only holds this book's cells, so at the seam a drag has nowhere to
     // go — it turns into overscroll, and the part the pager could not consume reaches this connection as
@@ -712,6 +737,30 @@ fun ReaderScreen(
                 return Velocity.Zero
             }
         }
+    }
+    // The cover deck has no scrollable, so its seam cannot arrive as nested-scroll leftover: the
+    // deck reports the rubber-banded drag itself, and it feeds the same continuation pull (one
+    // allowance per book, threshold, haptic, open the neighbour) as the connection above.
+    SideEffect {
+        deckState.onBoundaryOverscroll = boundary@{ distancePx, forward ->
+            if (!progressArmed) return@boundary
+            if (forward) {
+                val next = uiState.adjacent.next ?: return@boundary
+                if (continuePull.add(distancePx)) {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    openNext(next)
+                }
+            } else {
+                val previous = uiState.adjacent.previous ?: return@boundary
+                if (continuePull.add(distancePx)) {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    openPrevious(previous)
+                }
+            }
+        }
+        deckState.onBoundaryRelease = { continuePull.reset() }
+        // The original fires a light haptic when a boundary drag lifts off past a short distance
+        deckState.onBoundaryHit = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     }
     val gestureModifier = Modifier.pointerInput(
         settings.tapZoneMode,
@@ -774,7 +823,7 @@ fun ReaderScreen(
                 },
                 onLongPress = { offset ->
                     if (settings.longPressAction == LongPressAction.ContextMenu) {
-                        val item = items.getOrNull(pagerState.currentPage)
+                        val item = items.getOrNull(turnState.currentIndex)
                         val number = if (isWebtoon) page else item?.pages?.firstOrNull()
                         contextMenuPage = number?.let { n -> readerPages.firstOrNull { it.number == n } }
                     }
@@ -820,7 +869,7 @@ fun ReaderScreen(
     // Solo action for the current page (mirrors the original ReaderPageSoloActions: a portrait page
     // inside a dual pair can be shown solo; an already-solo page can be restored)
     val currentReaderPage = readerPages.firstOrNull { it.number == page }
-    val currentItem = items.getOrNull(pagerState.currentPage.coerceIn(0, max(0, items.lastIndex)))
+    val currentItem = items.getOrNull(turnState.currentIndex.coerceIn(0, max(0, items.lastIndex)))
     val soloAction: SoloMenuAction? = if (currentReaderPage != null) {
         val isSolo = currentReaderPage.number in soloPages
         val canSolo = allowDualPairs && !currentReaderPage.isLandscape && currentItem is ReaderViewItem.Dual
@@ -883,11 +932,11 @@ fun ReaderScreen(
     // write only moves the series count after the server has stored it). The settled cell is observed
     // rather than read in composition, which would recompose the screen while scrolling. A settled cell
     // also ends a continuation drag, so its accumulated pull starts over.
-    LaunchedEffect(pagerState, webtoonState, items, isWebtoon, uiState.bookDtoId) {
+    LaunchedEffect(turnState, webtoonState, items, isWebtoon, uiState.bookDtoId) {
         val settled = if (isWebtoon) {
             snapshotFlow { webtoonState.firstVisibleItemIndex }
         } else {
-            snapshotFlow { pagerState.settledPage }
+            snapshotFlow { turnState.settledIndex }
         }
         settled.collect { index ->
             continuePull.reset()
@@ -965,6 +1014,32 @@ fun ReaderScreen(
                         }
                     }
 
+                    coverDeck -> CoverDeck(
+                        state = deckState,
+                        items = items,
+                        rtl = directionNow == ReadingDirection.Rtl,
+                        zoomed = zoomed,
+                        backgroundColor = readerBackground,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(zoomModifier)
+                            .then(gestureModifier),
+                    ) { item ->
+                        when {
+                            item is ReaderViewItem.End -> endPage(Modifier.fillMaxSize())
+                            item is ReaderViewItem.PreviousEnd -> previousEndPage(Modifier.fillMaxSize())
+                            else -> ViewerPage(
+                                item = item,
+                                imageLoader = imageLoader,
+                                settings = settings,
+                                rotationDegrees = rotationDegrees,
+                                contentColor = pageContentColor,
+                                pageUrl = viewModel::pageImageUrl,
+                                firstHalfOnLeft = firstHalfOnLeft,
+                            )
+                        }
+                    }
+
                     else -> HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
@@ -982,15 +1057,9 @@ fun ReaderScreen(
                         // native pager): no loading placeholder flash while turning pages
                         beyondViewportPageCount = 1,
                     ) { index ->
-                        // A pager can only slide its pages. The Cover transition used to cancel
-                        // each page's own layout offset here
-                        // (`translationX = -relative * size.width` with
-                        // `relative = index - currentPage - currentPageOffsetFraction`), which put
-                        // every composed page at the same spot: dragging moved nothing, and the
-                        // loading placeholders of the pre-composed neighbours were painted on top
-                        // of each other. Keep the stack order (the current page above its
-                        // neighbours) and let the pager (and the reading direction) drive the
-                        // motion instead.
+                        // Scroll mode keeps the plain pager slide; the Cover transition lives in the
+                        // deck branch above (a per-page translationX inside the pager used to pin
+                        // every composed page at the same spot, so dragging moved nothing).
                         val item = items[index]
                         Box(
                             modifier = Modifier
@@ -2004,6 +2073,23 @@ private fun ReaderPageMenuSheet(
             }
         }
     }
+}
+
+/**
+ * Disk-cache-only page preload: fetch and store the bytes, but skip the decode and never touch the
+ * memory cache. A prefetched full-size bitmap would be rejected by the sized display request
+ * ([coil3.request.Precision.EXACT] does not serve a larger cached bitmap to a smaller target), so
+ * decoding at prefetch time only burns heap on images that can never be shown.
+ */
+@OptIn(ExperimentalCoilApi::class)
+private fun coil3.ImageLoader.enqueueDiskPreload(context: Context, url: String) {
+    enqueue(
+        ImageRequest.Builder(context)
+            .data(url)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .decoderFactory(BlackholeDecoder.Factory())
+            .build(),
+    )
 }
 
 /**
