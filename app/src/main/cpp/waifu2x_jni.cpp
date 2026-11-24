@@ -3,14 +3,21 @@
 // HaoweiLi97/mihon_img_upscale (Apache-2.0). See docs/waifu2x-upscaling-plan.md.
 //
 // Simplifications vs upstream: no custom preproc/postproc compute shaders —
-// pixel conversion runs on CPU via ncnn::Mat, only the network inference is on
-// Vulkan. Alpha channel is forced to opaque (same as the iOS implementation).
+// pixel conversion runs on CPU while only the network inference is on Vulkan.
+// Alpha is forced to opaque (same as the iOS implementation).
+//
+// Memory model: tiles are sampled straight out of the source bitmap and results are
+// written straight into the output bitmap, so the peak cost is one 156x156 float tile
+// per step. A full-page float Mat would be ~48 bytes per source pixel (100 MB+ for a
+// 1200x1800 page) and gets the app killed under memory pressure.
 
 #include <jni.h>
 #include <android/bitmap.h>
 #include <android/log.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <mutex>
 #include <string>
 
@@ -54,43 +61,75 @@ struct Waifu2xContext {
     ~Waifu2xContext() { net.clear(); }
 };
 
-// Copy src[channels][rows][cols] into dst at (dst_x, dst_y). Both 3-channel float Mats.
-void blit(const ncnn::Mat& src, int src_x, int src_y,
-          ncnn::Mat& dst, int dst_x, int dst_y, int w, int h) {
-    for (int c = 0; c < 3; c++) {
-        const float* sptr = src.channel(c).row(src_y) + src_x;
-        float* dptr = dst.channel(c).row(dst_y) + dst_x;
-        for (int y = 0; y < h; y++) {
-            memcpy(dptr, sptr, w * sizeof(float));
-            sptr += src.w;
-            dptr += dst.w;
+inline unsigned char to_u8(float v) {
+    const int i = static_cast<int>(std::lround(v * 255.f));
+    return static_cast<unsigned char>(std::clamp(i, 0, 255));
+}
+
+/**
+ * Samples the padded tile region for tile (xi0,yi0)-(xi1,yi1) out of the source RGBA buffer,
+ * replicating edge pixels, and normalizes to 0..1 floats. Size is
+ * (xi1-xi0+2*prepad) x (yi1-yi0+2*prepad), 3 channels.
+ */
+ncnn::Mat make_tile(const unsigned char* rgba, int stride, int w, int h,
+                    int xi0, int yi0, int xi1, int yi1) {
+    const int tw = (xi1 - xi0) + 2 * kPrepadding;
+    const int th = (yi1 - yi0) + 2 * kPrepadding;
+    ncnn::Mat tile(tw, th, 3, (size_t)sizeof(float));
+    if (tile.empty()) return tile;
+
+    float* r = tile.channel(0);
+    float* g = tile.channel(1);
+    float* b = tile.channel(2);
+    for (int ty = 0; ty < th; ty++) {
+        const int sy = std::clamp(yi0 - kPrepadding + ty, 0, h - 1);
+        const unsigned char* src = rgba + (size_t)sy * stride;
+        for (int tx = 0; tx < tw; tx++) {
+            const int sx = std::clamp(xi0 - kPrepadding + tx, 0, w - 1);
+            const unsigned char* px = src + (size_t)sx * 4;
+            r[tx] = px[0] / 255.f;
+            g[tx] = px[1] / 255.f;
+            b[tx] = px[2] / 255.f;
         }
+        r += tile.w;
+        g += tile.w;
+        b += tile.w;
+    }
+    return tile;
+}
+
+/** Writes the inner (unpadded) region of a scaled tile into the output RGBA buffer. */
+void write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
+                int dx, int dy, int w, int h) {
+    const int sx = kPrepadding * kScale;
+    const int sy = kPrepadding * kScale;
+    const float* r = out_tile.channel(0).row(sy) + sx;
+    const float* g = out_tile.channel(1).row(sy) + sx;
+    const float* b = out_tile.channel(2).row(sy) + sx;
+    for (int y = 0; y < h; y++) {
+        unsigned char* p = rgba + (size_t)(dy + y) * stride + (size_t)dx * 4;
+        for (int x = 0; x < w; x++) {
+            p[0] = to_u8(r[x]);
+            p[1] = to_u8(g[x]);
+            p[2] = to_u8(b[x]);
+            p[3] = 255;
+            p += 4;
+        }
+        r += out_tile.w;
+        g += out_tile.w;
+        b += out_tile.w;
     }
 }
 
 // Run one padded tile through the network and write the scaled inner region into `out`.
-bool process_tile(ncnn::Net& net, const ncnn::Mat& in, ncnn::Mat& out,
+bool process_tile(ncnn::Net& net, const unsigned char* in, int in_stride, int w, int h,
+                  unsigned char* out, int out_stride,
                   int xi0, int yi0, int xi1, int yi1) {
-    const int w = in.w;
-    const int h = in.h;
-
-    // Desired padded region, clamped to the image; borders beyond the edge are replicated.
-    const int px0 = std::max(0, xi0 - kPrepadding);
-    const int py0 = std::max(0, yi0 - kPrepadding);
-    const int px1 = std::min(w, xi1 + kPrepadding);
-    const int py1 = std::min(h, yi1 + kPrepadding);
-
-    // ncnn::Mat has no row/col range view in recent releases: copy the clamped
-    // region out with the blit helper, then replicate-pad it back to full prepad.
-    ncnn::Mat roi(px1 - px0, py1 - py0, 3, (size_t)sizeof(float));
-    if (roi.empty()) return false;
-    blit(in, px0, py0, roi, 0, 0, px1 - px0, py1 - py0);
-    ncnn::Mat in_tile;
-    ncnn::copy_make_border(roi, in_tile,
-                           py0 - (yi0 - kPrepadding), (yi1 + kPrepadding) - py1,
-                           px0 - (xi0 - kPrepadding), (xi1 + kPrepadding) - px1,
-                           ncnn::BORDER_REPLICATE, 0.f);
-    if (in_tile.empty()) return false;
+    ncnn::Mat in_tile = make_tile(in, in_stride, w, h, xi0, yi0, xi1, yi1);
+    if (in_tile.empty()) {
+        LOGE("tile allocation failed");
+        return false;
+    }
 
     ncnn::Extractor ex = net.create_extractor();
     if (ex.input(kInputBlob, in_tile) != 0) {
@@ -102,39 +141,51 @@ bool process_tile(ncnn::Net& net, const ncnn::Mat& in, ncnn::Mat& out,
         LOGE("extractor extract failed");
         return false;
     }
+    // With Vulkan + bf16 storage the extracted Mat may stay packed (elempack 4), which would
+    // make channel()/row() arithmetic invalid; unpack defensively and verify the geometry.
+    if (out_tile.elempack != 1) {
+        ncnn::Mat unpacked;
+        ncnn::convert_packing(out_tile, unpacked, 1);
+        out_tile = unpacked;
+    }
+    const int expected_w = (xi1 - xi0 + 2 * kPrepadding) * kScale;
+    const int expected_h = (yi1 - yi0 + 2 * kPrepadding) * kScale;
+    if (out_tile.empty() || out_tile.c < 3 || out_tile.w != expected_w || out_tile.h != expected_h) {
+        LOGE("unexpected output tile %dx%dx%d (expected %dx%dx3)",
+             out_tile.w, out_tile.h, out_tile.c, expected_w, expected_h);
+        return false;
+    }
 
-    // Crop the padding back off (scaled) and blit the inner region into the output.
-    blit(out_tile, kPrepadding * kScale, kPrepadding * kScale,
-         out, xi0 * kScale, yi0 * kScale,
-         (xi1 - xi0) * kScale, (yi1 - yi0) * kScale);
+    write_tile(out_tile, out, out_stride,
+               xi0 * kScale, yi0 * kScale,
+               (xi1 - xi0) * kScale, (yi1 - yi0) * kScale);
     return true;
 }
 
-bool process(Waifu2xContext* ctx, const void* rgba_in, int w, int h, void* rgba_out) {
+bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
+             int w, int h, unsigned char* rgba_out, int out_stride) {
     const auto t0 = std::chrono::steady_clock::now();
 
-    ncnn::Mat in = ncnn::Mat::from_pixels(
-        static_cast<const unsigned char*>(rgba_in), ncnn::Mat::PIXEL_RGBA2RGB, w, h);
-    const float norm[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
-    // NB: ncnn's historical "substract" spelling is kept upstream.
-    in.substract_mean_normalize(nullptr, norm);
-
-    ncnn::Mat out(3, w * kScale, h * kScale, (size_t)sizeof(float));
-    if (out.empty()) return false;
+    // A 2x page bitmap is 4x the source pixels; beyond this the output allocation (and the
+    // GPU uploads) reliably OOMs on mid-range devices, so refuse instead of crashing.
+    constexpr int kMaxOutputEdge = 4096;
+    if (w <= 0 || h <= 0 || w * kScale > kMaxOutputEdge || h * kScale > kMaxOutputEdge) {
+        LOGW("page too large to upscale: %dx%d -> %dx%d", w, h, w * kScale, h * kScale);
+        return false;
+    }
 
     int tiles = 0;
     for (int yi = 0; yi < h; yi += kTileSize) {
         const int yi1 = std::min(h, yi + kTileSize);
         for (int xi = 0; xi < w; xi += kTileSize) {
             const int xi1 = std::min(w, xi + kTileSize);
-            if (!process_tile(ctx->net, in, out, xi, yi, xi1, yi1)) return false;
+            if (!process_tile(ctx->net, rgba_in, in_stride, w, h, rgba_out, out_stride,
+                              xi, yi, xi1, yi1)) {
+                return false;
+            }
             tiles++;
         }
     }
-
-    const float scale255[3] = {255.f, 255.f, 255.f};
-    out.substract_mean_normalize(nullptr, scale255);
-    out.to_pixels(static_cast<unsigned char*>(rgba_out), ncnn::Mat::PIXEL_RGB2RGBA);
 
     const auto t1 = std::chrono::steady_clock::now();
     LOGI("process %dx%d -> %dx%d: %d tiles, %lld ms (%s)",
@@ -222,8 +273,12 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeProcess(
         return JNI_FALSE;
     }
 
-    const bool ok = process(ctx, in_pixels, static_cast<int>(in_info.width),
-                            static_cast<int>(in_info.height), out_pixels);
+    const bool ok = process(ctx, static_cast<const unsigned char*>(in_pixels),
+                            static_cast<int>(in_info.stride),
+                            static_cast<int>(in_info.width),
+                            static_cast<int>(in_info.height),
+                            static_cast<unsigned char*>(out_pixels),
+                            static_cast<int>(out_info.stride));
 
     AndroidBitmap_unlockPixels(env, in_bitmap);
     AndroidBitmap_unlockPixels(env, out_bitmap);
