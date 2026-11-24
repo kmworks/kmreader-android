@@ -48,6 +48,11 @@ object Waifu2xBridge {
     var isVulkan: Boolean = false
         private set
 
+    /** True when the engine initialized with FP16 storage (self-tested on this driver). */
+    @Volatile
+    var isFp16: Boolean = false
+        private set
+
     val isReady: Boolean get() = handle != 0L
 
     init {
@@ -79,8 +84,12 @@ object Waifu2xBridge {
         handle = h
         activeModel = model
         isVulkan = nativeIsVulkan(h)
-        Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan")
-        AppLog.i(EnhancementDecoder.APP_TAG, "engine initialized: ${model.modelSuffix}, vulkan=$isVulkan")
+        isFp16 = nativeIsFp16(h)
+        Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan, fp16=$isFp16")
+        AppLog.i(
+            EnhancementDecoder.APP_TAG,
+            "engine initialized: ${model.modelSuffix}, vulkan=$isVulkan, precision=${if (isFp16) "fp16" else "fp32"}",
+        )
         true
     }
 
@@ -110,6 +119,7 @@ object Waifu2xBridge {
             output.recycle()
             return@withLock null
         }
+        lastStats()?.let { AppLog.i(EnhancementDecoder.APP_TAG, it) }
         output
     }
 
@@ -149,9 +159,16 @@ object Waifu2xBridge {
     }
 
     /** Last native failure text (null when the previous call succeeded). */
+    /** Per-page timing breakdown of the last successful native run, for tuning. */
+    private fun lastStats(): String? = runCatching { nativeLastStats() }.getOrNull()
+
     private fun lastError(): String = runCatching { nativeLastError() }.getOrNull() ?: "unknown (no native error recorded)"
 
     private external fun nativeLastError(): String?
+
+    private external fun nativeLastStats(): String?
+
+    private external fun nativeIsFp16(handle: Long): Boolean
 
     private external fun nativeInit(modelDir: String, modelSuffix: String): Long
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean
