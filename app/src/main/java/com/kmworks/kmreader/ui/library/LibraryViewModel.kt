@@ -500,8 +500,6 @@ class LibraryViewModel @Inject constructor(
     private fun resolveLibraryIds(scope: String, pinned: Set<String>): List<String>? =
         resolveLibraryScopeIds(scope, pinned)
 
-    private val cacheKeyJson = Json { ignoreUnknownKeys = true }
-
     /**
      * Cache key of the current browse query (one row set per scope + filter combination).
      *
@@ -988,5 +986,11 @@ class LibraryViewModel @Inject constructor(
          * settle was waiting for.
          */
         const val SETTLE_SUPPRESS_MILLIS = 3_000L
+
+        /**
+         * Serializer for the cache list keys. Lives in the companion on purpose: an instance property
+         * would still be null while the constructor's init blocks run their first undispatched load.
+         */
+        val cacheKeyJson = Json { ignoreUnknownKeys = true }
     }
 }
