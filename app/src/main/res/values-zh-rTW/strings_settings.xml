@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings hub -->
+    <string name="settings_title">設定</string>
+    <string name="settings_true_black_title">真黑背景</string>
+    <string name="settings_true_black_subtitle">OLED 下閱讀器與儀表盤使用純黑背景</string>
+    <string name="settings_appearance_entry_title">外觀設定</string>
+    <string name="settings_appearance_entry_subtitle">主題、純黑、應用圖示</string>
+    <string name="settings_browse_entry_title">瀏覽設定</string>
+    <string name="settings_browse_entry_subtitle">卡片樣式與網格顯示項</string>
+    <string name="settings_dashboard_title">儀表盤</string>
+    <string name="settings_dashboard_subtitle">分區顯示、排序與卡片形態</string>
+    <string name="settings_section_reader">閱讀器</string>
+    <string name="settings_reader_defaults_subtitle">Divina / EPUB / PDF 預設偏好</string>
+    <string name="settings_section_tracking">閱讀進度追蹤</string>
+    <string name="settings_trackers_title">Tracker 帳號</string>
+    <string name="settings_trackers_subtitle">AniList / MyAnimeList / Bangumi / MangaBaka</string>
+    <string name="settings_trackers_subtitle_requires_kmrs">AniList / MyAnimeList / Bangumi / MangaBaka（需要 kmrs 伺服器）</string>
+    <string name="settings_stats_title">閱讀統計</string>
+    <string name="settings_stats_subtitle">閱讀歷史、連續天數與熱力圖</string>
+    <string name="settings_stats_subtitle_requires_kmrs">閱讀歷史、連續天數與熱力圖（需要 kmrs 伺服器）</string>
+    <string name="settings_custom_fonts_title">自訂字型</string>
+    <string name="settings_custom_fonts_subtitle">匯入並管理 EPUB 字型</string>
+    <string name="settings_cache">快取</string>
+    <string name="settings_cache_subtitle">圖片快取佔用與清理</string>
+    <string name="settings_section_system">系統</string>
+    <string name="settings_network">網路</string>
+    <string name="settings_network_subtitle">超時與併發設定</string>
+    <string name="settings_sse">SSE 連線</string>
+    <string name="settings_sse_subtitle">即時同步連線狀態</string>
+    <string name="settings_logs">日誌</string>
+    <string name="settings_logs_subtitle">檢視與分享執行日誌</string>
+    <string name="settings_account">帳戶</string>
+    <string name="settings_current_instance">當前實例</string>
+    <string name="settings_not_connected">未連線</string>
+    <string name="settings_server_accounts_subtitle">多伺服器切換與管理</string>
+    <string name="settings_server_title">伺服器</string>
+    <string name="settings_server_subtitle">狀態、任務、會話與維護</string>
+    <string name="settings_about">關於</string>
+    <string name="settings_about_title">關於 KMReader</string>
+    <string name="settings_about_subtitle">版本與專案連結</string>
+    <string name="settings_licenses">開源許可</string>
+    <string name="settings_licenses_subtitle">第三方元件許可列表</string>
+    <string name="settings_progress_immediately">立即</string>
+    <string name="settings_time_just_now">剛剛</string>
+    <string name="settings_time_minutes_ago">%1$d 分鐘前</string>
+    <string name="settings_time_hours_ago">%1$d 小時前</string>
+    <string name="settings_time_days_ago">%1$d 天前</string>
+
+    <!-- Appearance settings -->
+    <string name="appearance_title">外觀</string>
+    <string name="appearance_theme">主題</string>
+    <string name="appearance_color_scheme">主題模式</string>
+    <string name="appearance_theme_footer">跟隨系統時會隨裝置的深淺色設定切換。</string>
+    <string name="appearance_theme_system">跟隨系統</string>
+    <string name="appearance_theme_light">淺色</string>
+    <string name="appearance_theme_dark">深色</string>
+    <string name="appearance_true_black_title">純黑深色</string>
+    <string name="appearance_true_black_subtitle">深色模式下使用純黑背景（OLED 省電）</string>
+    <string name="appearance_app_icon">應用圖示</string>
+    <string name="appearance_app_icon_footer">切換後桌面圖示會立即更新。</string>
+    <string name="appearance_icon_default">預設</string>
+    <string name="appearance_icon_classic">經典</string>
+    <string name="appearance_icon_legacy">舊版</string>
+
+    <!-- Browse settings -->
+    <string name="browse_settings_title">瀏覽</string>
+    <string name="browse_settings_preview">卡片預覽</string>
+    <string name="browse_settings_preview_hint">預覽使用真實卡片元件渲染，開關立即生效。</string>
+    <string name="browse_settings_cards">卡片</string>
+    <string name="browse_settings_thumbnails">縮圖</string>
+    <string name="browse_settings_text_overlay_title">文字疊加封面</string>
+    <string name="browse_settings_text_overlay_subtitle">標題與說明壓在封面上，不佔額外高度</string>
+    <string name="browse_settings_cover_only_title">僅顯示封面</string>
+    <string name="browse_settings_cover_only_subtitle">隱藏卡片上的全部文字</string>
+    <string name="browse_settings_show_series_title">書籍卡顯示系列名</string>
+    <string name="browse_settings_show_series_subtitle">書籍卡第二行顯示所屬系列</string>
+    <string name="browse_settings_preserve_aspect_title">保持封面比例</string>
+    <string name="browse_settings_preserve_aspect_subtitle">關閉後封面按方形裁切</string>
+    <string name="browse_settings_shadow_title">封面投影</string>
+    <string name="browse_settings_shadow_subtitle">為封面加輕微陰影</string>
+    <string name="browse_settings_unread_indicator_title">未讀角標</string>
+    <string name="browse_settings_unread_indicator_subtitle">未讀內容右上角顯示圓點</string>
+    <string name="browse_settings_blur_unread_title">模糊未讀封面</string>
+    <string name="browse_settings_blur_unread_subtitle">未讀內容封面做模糊處理</string>
+    <string name="browse_settings_progress_bar_title">顯示進度條</string>
+    <string name="browse_settings_progress_bar_subtitle">在卡片下方顯示閱讀進度</string>
+
+    <!-- Reader defaults -->
+    <string name="reader_defaults_title">閱讀器預設</string>
+    <string name="reader_defaults_divina_section">Divina（漫畫）</string>
+    <string name="reader_defaults_reading_direction">預設閱讀方向</string>
+    <string name="reader_defaults_force_direction">強制預設閱讀方向</string>
+    <string name="reader_defaults_force_direction_hint">開啟後忽略系列自帶的閱讀方向</string>
+    <string name="reader_defaults_page_layout">頁面佈局</string>
+    <string name="reader_defaults_split_wide">拆分寬頁</string>
+    <string name="reader_defaults_solo_cover">雙頁模式下獨顯封面</string>
+    <string name="reader_defaults_progress_section">閱讀進度</string>
+    <string name="reader_defaults_record_after">翻頁後記錄進度</string>
+    <string name="reader_defaults_record_after_hint">未讀和已讀完的書翻滿該頁數後才記錄進度；閱讀中的書每翻一頁都會記錄</string>
+
+    <!-- Server accounts -->
+    <string name="server_list_title">伺服器帳戶</string>
+    <string name="server_list_empty">尚未新增伺服器</string>
+    <string name="server_add">新增伺服器</string>
+    <string name="server_logout">退出登入</string>
+    <string name="server_logout_message">將斷開當前連線；已儲存的伺服器憑據會保留，可隨時切回。</string>
+    <string name="server_delete_title">刪除伺服器</string>
+    <string name="server_delete_active_message">「%1$s」是當前連線的伺服器，刪除後將退出登入並移除本機儲存的憑據。</string>
+    <string name="server_delete_message">將移除「%1$s」本機儲存的憑據。</string>
+    <string name="server_active_badge">使用中</string>
+    <string name="server_role_admin">管理員許可權</string>
+    <string name="server_role_user">普通使用者</string>
+    <string name="server_auth_username_password">使用者名稱密碼</string>
+    <string name="server_last_used_format">上次使用：%1$s</string>
+    <string name="server_edit_title">編輯伺服器</string>
+    <string name="server_edit_credentials_changed">地址或憑據已修改，儲存前需要驗證連線</string>
+    <string name="server_edit_display_name">顯示名稱</string>
+    <string name="server_edit_display_name_hint">留空時使用伺服器地址顯示</string>
+    <string name="server_edit_server_url">伺服器地址</string>
+    <string name="server_edit_auth_method">認證方式</string>
+    <string name="server_username">使用者名稱</string>
+    <string name="server_password">密碼</string>
+    <string name="server_validate_connection">驗證連線</string>
+    <string name="server_verified_format">驗證透過：%1$s</string>
+    <string name="server_admin_suffix">（管理員）</string>
+    <string name="server_error_invalid_credentials">憑據無效</string>
+    <string name="server_error_unreachable">無法連線伺服器</string>
+
+    <!-- Cache settings -->
+    <string name="settings_cache_page">頁面圖片</string>
+    <string name="settings_cache_cover">封面</string>
+    <string name="settings_cache_used_of">已用 %1$s / %2$s</string>
+    <string name="settings_cache_cached_size">已用空間</string>
+    <string name="settings_cache_cached_images">快取圖片</string>
+    <string name="settings_cache_cached_covers">快取封面</string>
+    <string name="settings_cache_limit">容量上限</string>
+    <string name="settings_cache_clear_current">清除當前伺服器</string>
+    <string name="settings_cache_clear_all">清除全部伺服器</string>
+    <string name="settings_cache_clear_page_current_message">將刪除本伺服器快取的頁面圖片，下次閱讀時會重新下載。</string>
+    <string name="settings_cache_clear_page_all_message">將刪除所有已儲存伺服器快取的頁面圖片，下次閱讀時會重新下載。</string>
+    <string name="settings_cache_clear_cover_current_message">將刪除本伺服器快取的封面，再次顯示時會重新從伺服器載入。</string>
+    <string name="settings_cache_clear_cover_all_message">將刪除所有已儲存伺服器快取的封面，再次顯示時會重新從伺服器載入。</string>
+    <string name="settings_cache_cover_expiration_label">封面重新整理週期</string>
+    <string name="settings_cache_cover_expiration_value">%1$d 天</string>
+    <string name="settings_cache_pdf">PDF 快取</string>
+    <string name="settings_cache_pdf_size">已下載 PDF</string>
+    <string name="settings_cache_clear_pdf_message">將刪除已下載的 PDF 檔案，再次開啟時會重新下載。</string>
+    <string name="settings_cache_clear_action">清除</string>
+
+    <!-- Network settings -->
+    <string name="settings_network_requests">請求</string>
+    <string name="settings_network_timeout">請求超時</string>
+    <string name="settings_network_timeout_value">%1$d 秒</string>
+    <string name="settings_network_concurrency">下載併發數</string>
+    <string name="settings_network_concurrency_value">%1$d 個</string>
+    <string name="settings_network_wifi_only_title">僅 Wi-Fi 預載入</string>
+    <string name="settings_network_wifi_only_subtitle">閱讀器預載入下一章時僅使用 Wi-Fi</string>
+    <string name="settings_network_footer">更改會在下一次請求時生效。併發數越高下載越快，但會佔用更多頻寬。</string>
+
+    <!-- SSE settings -->
+    <string name="settings_sse_status">狀態</string>
+    <string name="settings_sse_connected">已連線</string>
+    <string name="settings_sse_connecting">連線中…</string>
+    <string name="settings_sse_retrying">重連中（%1$d 秒後）</string>
+    <string name="settings_sse_disconnected">未連線</string>
+    <string name="settings_sse_last_event">最近事件：%1$s</string>
+    <string name="settings_sse_connection_section">連線</string>
+    <string name="settings_sse_footer">即時更新會在伺服器內容變化時自動重新整理應用。</string>
+    <string name="settings_sse_updates_title">SSE 即時更新</string>
+    <string name="settings_sse_updates_subtitle">接收服務端即時事件，關閉後斷開長連</string>
+    <string name="settings_sse_auto_refresh_section">自動重新整理</string>
+    <string name="settings_sse_auto_refresh_title">自動重新整理儀表盤</string>
+    <string name="settings_sse_auto_refresh_subtitle">收到內容事件時自動重新整理儀表盤</string>
+    <string name="settings_sse_auto_refresh_footer">關閉後，收到事件時不會自動重新整理儀表盤，仍可手動重新整理。</string>
+    <string name="settings_sse_notifications_section">通知</string>
+    <string name="settings_sse_notify_title">連線通知</string>
+    <string name="settings_sse_notify_subtitle">連線狀態變化與任務完成時通知</string>
+    <string name="settings_sse_notify_footer">關閉後，將不顯示連線狀態與任務完成提示。</string>
+    <string name="settings_sse_enable_first">請先在上方開啟即時更新。</string>
+
+    <!-- Logs -->
+    <string name="settings_logs_share">分享日誌</string>
+    <string name="settings_logs_search">搜尋日誌</string>
+    <string name="settings_logs_all_categories">全部分類</string>
+    <string name="settings_logs_empty">暫無日誌</string>
+
+    <!-- About & licenses -->
+    <string name="settings_about_version_format">版本 %1$s</string>
+    <string name="settings_about_project">專案</string>
+    <string name="settings_about_original">KMReader-iOS</string>
+    <string name="settings_about_server">kmrs 伺服器</string>
+    <string name="settings_about_feedback">問題反饋</string>
+    <string name="settings_license_readium">Readium（EPUB 引擎參考）</string>
+    <string name="settings_license_pdfium">PDFium（PDF 引擎參考）</string>
+
+    <!-- Update check -->
+    <string name="settings_updates_title">更新</string>
+    <string name="settings_updates_auto_check">自動檢查更新</string>
+    <string name="settings_updates_auto_check_desc">每天最多透過 GitHub Release 檢查一次新版本。</string>
+    <string name="settings_updates_check_now">立即檢查</string>
+    <string name="settings_updates_checking">正在檢查…</string>
+    <string name="settings_updates_up_to_date">已是最新版本</string>
+    <string name="settings_updates_available">發現新版本 %1$s</string>
+    <string name="settings_updates_failed">檢查失敗</string>
+    <string name="settings_updates_last_checked">上次檢查：%1$s</string>
+    <string name="settings_updates_dialog_title">發現新版本</string>
+    <string name="settings_updates_dialog_message">新版本 %1$s 已釋出，當前版本為 %2$s。</string>
+    <string name="settings_updates_download">前往下載</string>
+    <string name="settings_updates_later">稍後</string>
+    <string name="settings_split_placeholder">從左側選擇一項設定</string>
+</resources>
