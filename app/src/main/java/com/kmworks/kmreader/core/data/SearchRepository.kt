@@ -53,7 +53,7 @@ class SearchRepository @Inject constructor(
             size = size,
             // The panel's sort applies here too; the search-specific default keeps the old behaviour.
             sort = options?.let { seriesSort(it) } ?: listOf("metadata.titleSort,asc"),
-        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         return result.toSeriesPage(size)
     }
 
@@ -79,7 +79,7 @@ class SearchRepository @Inject constructor(
             size = size,
             // Book sorting has its own vocabulary (series/number/title/...); no series-only tokens here.
             sort = options?.let { bookSort(it) } ?: listOf("metadata.numberSort,asc"),
-        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         return result.toBookPage(size)
     }
 
@@ -97,7 +97,7 @@ class SearchRepository @Inject constructor(
             libraryId = libraryIds,
             page = page,
             size = size,
-        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
         return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
     }
@@ -116,7 +116,7 @@ class SearchRepository @Inject constructor(
             libraryId = libraryIds,
             page = page,
             size = size,
-        ).awaitBody() ?: return Paged(emptyList(), hasMore = false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
         return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
     }
@@ -143,7 +143,7 @@ class SearchRepository @Inject constructor(
             page = page,
             size = size,
             sort = listOf("readProgress.readDate,desc"),
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
@@ -165,7 +165,7 @@ class SearchRepository @Inject constructor(
             page = page,
             size = size,
             sort = listOf("readProgress.readDate,desc"),
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
@@ -191,7 +191,7 @@ class SearchRepository @Inject constructor(
             page = page,
             size = size,
             sort = listOf("metadata.releaseDate,desc"),
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
@@ -206,7 +206,7 @@ class SearchRepository @Inject constructor(
             libraryId = libraryIds?.takeIf { it.isNotEmpty() },
             page = page,
             size = size,
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
@@ -218,7 +218,7 @@ class SearchRepository @Inject constructor(
     ): Paged<Book> {
         if (libraryIds.isNullOrEmpty()) {
             val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
-            val result = api.getBooksLatest(page = page, size = size).awaitBody()
+            val result = api.getBooksLatest(page = page, size = size).awaitBodyOrThrow()
                 ?: return Paged(emptyList(), false)
             return result.toBookPage(size)
         }
@@ -228,7 +228,7 @@ class SearchRepository @Inject constructor(
             page = page,
             size = size,
             sort = listOf("createdDate,desc"),
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toBookPage(size)
     }
 
@@ -245,7 +245,7 @@ class SearchRepository @Inject constructor(
             size = size,
             // Mirrors iOS: exclude oneshot one-shots
             oneshot = false,
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toSeriesPage(size)
     }
 
@@ -262,7 +262,7 @@ class SearchRepository @Inject constructor(
             size = size,
             // Mirrors iOS: exclude oneshot one-shots
             oneshot = false,
-        ).awaitBody() ?: return Paged(emptyList(), false)
+        ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
         return result.toSeriesPage(size)
     }
 
@@ -280,7 +280,7 @@ class SearchRepository @Inject constructor(
             condition = combinedCondition(seriesConditions(libraryIds, options)),
         )
         val result = api.series(body, page = page, size = size, sort = seriesSort(options))
-            .awaitBody() ?: return null
+            .awaitBodyOrThrow() ?: return null
         return result.toSeriesPage(size)
     }
 
@@ -296,7 +296,7 @@ class SearchRepository @Inject constructor(
             condition = combinedCondition(bookConditions(libraryIds, options)),
         )
         val result = api.books(body, page = page, size = size, sort = bookSort(options))
-            .awaitBody() ?: return null
+            .awaitBodyOrThrow() ?: return null
         return result.toBookPage(size)
     }
 

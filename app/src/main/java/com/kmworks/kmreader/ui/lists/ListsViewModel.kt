@@ -19,6 +19,7 @@ import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toDtoTarget
 import com.kmworks.kmreader.core.data.toListEntry
+import com.kmworks.kmreader.core.network.ServerReachability
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -84,6 +86,7 @@ class ListsViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val catalogCache: CatalogCache,
     private val serverProfileStore: ServerProfileStore,
+    private val serverReachability: ServerReachability,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ListsUiState())
@@ -107,6 +110,14 @@ class ListsViewModel @Inject constructor(
     private var displayedPinned: Set<String>? = null
 
     init {
+        viewModelScope.launch {
+            // Back online after an outage (probe, SSE reconnect or any request): reload the cached strips,
+            // mirroring the iOS recovery refresh. drop(1) skips the initial `false` (StateFlow conflates repeats).
+            serverReachability.offline
+                .drop(1)
+                .filter { !it }
+                .collect { refresh() }
+        }
         // The persisted scope and pinned set are the source of truth (like the library tab): changing either
         // re-queries the two strips with the resolved libraryIds.
         viewModelScope.launch {

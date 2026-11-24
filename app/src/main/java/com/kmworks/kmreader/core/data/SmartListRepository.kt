@@ -30,10 +30,18 @@ class SmartListRepository @Inject constructor(
     fun seriesThumbnailUrl(seriesId: String): String? =
         sessionManager.clients.value?.seriesThumbnailUrl(seriesId)
 
-    /** One page of smart lists; on failure (404 etc. — capability missing) returns an empty page. */
+    /**
+     * One page of smart lists; HTTP errors (404 etc. — capability missing on stock Komga) return an
+     * empty page so the caller hides the section, while network/decode failures RETHROW so the
+     * caller keeps its cached lists instead of overwriting them with a fake empty page.
+     */
     suspend fun smartListsPage(page: Int, size: Int): Paged<SmartListDto> {
         val api = sessionManager.clients.value?.smartLists ?: return Paged(emptyList(), hasMore = false)
-        val body = api.getSmartLists(page = page, size = size).awaitBody()
+        val body = try {
+            api.getSmartLists(page = page, size = size).awaitBodyOrThrow()
+        } catch (e: retrofit2.HttpException) {
+            return Paged(emptyList(), hasMore = false)
+        }
         val items = body?.content.orEmpty()
         items.forEach { DetailIdRegistry.registerSmartList(StableIds.smartList(it.id), it.id) }
         return Paged(items, hasMore = items.size >= size && body?.last != true)

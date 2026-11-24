@@ -22,6 +22,7 @@ import com.kmworks.kmreader.core.data.hueFor
 import com.kmworks.kmreader.core.data.toUiBook
 import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
+import com.kmworks.kmreader.core.network.ServerReachability
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.core.server.ServerFeature
@@ -56,6 +57,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -127,6 +129,7 @@ class DashboardViewModel @Inject constructor(
     private val catalogCache: CatalogCache,
     private val contentChangeBus: ContentChangeBus,
     private val serverAdminRepository: ServerAdminRepository,
+    private val serverReachability: ServerReachability,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
@@ -155,6 +158,14 @@ class DashboardViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            // Back online after an outage (probe, SSE reconnect or any request): reload the cached screen,
+            // mirroring the iOS recovery refresh. drop(1) skips the initial `false` (StateFlow conflates repeats).
+            serverReachability.offline
+                .drop(1)
+                .filter { !it }
+                .collect { load() }
+        }
         viewModelScope.launch {
             // Follow the active session: the admin role gates the card menus, and a server switch must
             // re-evaluate them instead of keeping the previous server's answer.

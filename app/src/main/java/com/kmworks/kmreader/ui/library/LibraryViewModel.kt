@@ -25,6 +25,7 @@ import com.kmworks.kmreader.core.data.SearchRepository
 import com.kmworks.kmreader.core.data.SeriesRepository
 import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.observeChanges
+import com.kmworks.kmreader.core.network.ServerReachability
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
@@ -58,6 +59,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -119,6 +121,7 @@ class LibraryViewModel @Inject constructor(
     private val catalogCache: CatalogCache,
     private val serverAdminRepository: ServerAdminRepository,
     private val serverProfileStore: ServerProfileStore,
+    private val serverReachability: ServerReachability,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -154,6 +157,14 @@ class LibraryViewModel @Inject constructor(
     private var filterInstanceKey: String? = null
 
     init {
+        viewModelScope.launch {
+            // Back online after an outage (probe, SSE reconnect or any request): reload the cached screen,
+            // mirroring the iOS recovery refresh. drop(1) skips the initial `false` (StateFlow conflates repeats).
+            serverReachability.offline
+                .drop(1)
+                .filter { !it }
+                .collect { refresh() }
+        }
         viewModelScope.launch {
             // Follow the active session: the admin role gates the card menus, and a server switch must
             // re-evaluate them instead of keeping the previous server's answer.
