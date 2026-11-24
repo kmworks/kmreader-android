@@ -286,6 +286,13 @@ bool normalize_output(const Waifu2xContext* ctx, ncnn::Mat& out_tile) {
     return true;
 }
 
+/** Marks a buffer written by one of our own pipelines so ncnn inserts the right barrier later. */
+void mark_shader_write(ncnn::VkMat& mat) {
+    if (!mat.data) return;
+    mat.data->access_flags = VK_ACCESS_SHADER_WRITE_BIT;
+    mat.data->stage_flags = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+}
+
 /** Loads param+model into a fresh net with the given precision; returns false on failure. */
 bool load_net(Waifu2xContext* ctx, bool fp16) {
     ncnn::Option& opt = ctx->net.opt;
@@ -562,6 +569,9 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 pre_dispatcher.h = th;
                 pre_dispatcher.c = 1;
                 cmd.record_pipeline(ctx->preproc.get(), {src_vk, tile_vk}, pre_constants, pre_dispatcher);
+                // ncnn tracks buffer hazards through these flags; a custom dispatch does not update
+                // them, so without this the network may read the tile before the write is visible.
+                mark_shader_write(tile_vk);
                 timing.convert_us += us(clock::now() - c0);
 
                 const auto i0 = clock::now();
@@ -613,6 +623,7 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 const ncnn::Pipeline* post =
                     element_size == 2 ? ctx->postproc_fp16.get() : ctx->postproc_fp32.get();
                 cmd.record_pipeline(post, {out_tile, dst_vk}, post_constants, post_dispatcher);
+                mark_shader_write(dst_vk);
 
                 if (tiles < 2 || tiles % 20 == 0) {
                     nlog("fused: tile %d at (%d,%d) %dx%d -> %dx%d, submitting", tiles, xi, yi, tw, th,
