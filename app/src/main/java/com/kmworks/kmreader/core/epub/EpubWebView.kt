@@ -317,32 +317,6 @@ object EpubJs {
             else { window.scrollTo(want, 0); }
           }
 
-          // A multicol container's inline-end padding is NOT part of its scrollable overflow, so
-          // the strip ends at pages*vw - marginH and the browser clamps the last page one margin
-          // short: the last page shows a doubled left margin with the text flush against the
-          // right edge. A zero-sized absolute spacer pinned to the strip's true end restores that
-          // scroll room — absolute boxes neither fragment into a new column nor take part in the
-          // flow, and visibility:hidden still contributes scrollable overflow.
-          function ensureStripEnd() {
-            if (!S.c) return;
-            var el = document.getElementById('km-tail');
-            // Scrolled mode, RTL and vertical books have no horizontal page grid to extend: drop
-            // the spacer so it cannot leave the document horizontally scrollable.
-            if (!S.paged || S.vertical || S.dir !== 1 || !document.body) {
-              if (el && el.parentNode) el.parentNode.removeChild(el);
-              return;
-            }
-            if (!el) {
-              el = document.createElement('div');
-              el.id = 'km-tail';
-              el.setAttribute('aria-hidden', 'true');
-              el.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;'
-                + 'margin:0;padding:0;border:0;visibility:hidden;pointer-events:none;';
-              document.body.appendChild(el);
-            }
-            el.style.left = Math.max(0, S.pages * S.vw - 1) + 'px';
-          }
-
           // Interactive page drag (mirrors the iOS pan-to-turn and the comic pager): the finger
           // drags the page strip directly, overshoot past either end is damped at 0.35 (iOS
           // value). The native side settles the target page on release.
@@ -380,15 +354,14 @@ object EpubJs {
               return;
             }
             var sw = Math.max(doc().scrollWidth, b.scrollWidth || 0);
-            // The strip is one inline-end margin short of the page grid (a multicol container's
-            // trailing padding is not scrollable overflow), so add that margin back before
-            // dividing: measuring the bare scrollWidth would be right today but a build that
-            // DOES count the padding would invent a phantom page. Math.round (not ceil) keeps an
-            // overflowing word from adding a page, and absorbs Chrome's integral scrollWidth for
-            // fractional column widths.
-            S.pages = Math.max(1, Math.round((sw + S.marginH) / S.vw));
+            // The strip is an exact multiple of the viewport: layoutCss() gives the columns to
+            // <html> with column-gap 0 and keeps the page gutter on the fragmented <body>, so the
+            // trailing gutter is part of the LAST column instead of trailing padding the scroll
+            // area drops. Round (not ceil) absorbs a fractional column width reported as an
+            // integral scrollWidth; with two columns per page the odd last column rounds up to a
+            // full page, which is the spread the reader expects.
+            S.pages = Math.max(1, Math.round(sw / S.vw));
             S.page = Math.max(0, Math.min(S.pages - 1, Math.round(Math.abs(sx()) / S.vw)));
-            ensureStripEnd();
           }
 
           // The load token ties a measure pass to its page load (mirrors the iOS generation/
@@ -522,31 +495,44 @@ object EpubJs {
                 // setImageSize); the max-* clamps keep it inside one page box.
                 + 'img,svg,video{max-width:' + Math.max(120, vw - 48) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
             }
-            // No floor(): a fractional viewport width (common on Android) floored here makes the
-            // column pitch shorter than vw, so later pages drift off the page boundary — the
-            // "two pages stuck halfway" bug. Chrome handles fractional column widths fine, and
-            // measure() already carries integral-scrollWidth slack.
-            var cw = Math.max(80, vw / S.cols - 2 * m);
+            // The columns live on <html> and the page gutter lives on the fragmented <body>, so
+            // the two invariants the pager relies on are structural instead of arithmetic:
+            //   * column pitch == the real ICB width (100%, resolved by the browser) — never a
+            //     rounded window.innerWidth, so a fractional viewport cannot desynchronise the
+            //     page step from the strip;
+            //   * strip width == pages * viewport, because the trailing gutter belongs to the
+            //     LAST column instead of being trailing padding that the scrollable overflow
+            //     drops. That is what lets a turn land exactly on page * vw and makes the last
+            //     page need no spacer.
+            // column-gap must stay 0: the gap is added OUTSIDE the column box, so as soon as the
+            // gutter is no longer container padding (the other half of the old pitch arithmetic)
+            // a non-zero gap turns the pitch into vw + gap and every page drifts.
+            // Which padding goes where matters: the horizontal gutter is <body> padding, because
+            // a fragmented element repeats its INLINE padding in every column fragment; the
+            // top/bottom reservation for the info overlay is the container's own padding, because
+            // it must shrink EVERY column box to vh - 2*(24+inset) — put on <body> instead it
+            // would pad only the first and last fragment and a page would gain two lines.
             // overflow-anchor:none is load-bearing: scroll anchoring only compensates the BLOCK
             // axis, so when a late image or font changes the column distribution above the
             // reader, Chromium "anchors" the horizontal strip and moves it off the page grid by
             // a fraction of a page — the reported mobile symptom (the previous column's glyph
             // tails visible at the left edge, the current column clipped on the right).
             return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
-              + 'html{overflow-y:hidden !important;}'
-              + 'body{box-sizing:border-box !important;height:' + vh + 'px !important;'
-              + 'padding:' + (24 + (c.insetV || 0)) + 'px ' + m + 'px !important;'
-              + 'column-width:' + cw + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+              + 'html{width:100% !important;height:' + vh + 'px !important;'
+              + 'overflow-y:hidden !important;box-sizing:border-box !important;'
+              + 'padding:' + (24 + (c.insetV || 0)) + 'px 0 !important;'
+              + 'column-count:' + S.cols + ' !important;column-gap:0 !important;'
               + 'column-fill:auto !important;}'
+              // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
+              // body padding, and this rule must win on specificity instead of on sheet order.
+              + 'html body{box-sizing:border-box !important;width:100% !important;'
+              + 'padding:0 ' + m + 'px !important;}'
               + 'img,svg,video{max-height:' + Math.max(120, vh - 48) + 'px !important;break-inside:avoid !important;}';
           }
           function refreshLayout() {
             var lay = document.getElementById('km-layout');
             if (!lay) { lay = document.createElement('style'); lay.id = 'km-layout'; document.head.appendChild(lay); }
             lay.textContent = layoutCss();
-            // Layout mode can flip here (paged <-> scrolled, horizontal <-> vertical): the strip
-            // end spacer only belongs to a horizontal paged strip, so reconcile it with the mode.
-            ensureStripEnd();
           }
 
           function forceEagerImages() {
