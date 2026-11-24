@@ -608,7 +608,9 @@ class TrackerSettingsViewModel @Inject constructor(
     private suspend fun loadAll() {
         loadAccounts()
         _preferences.value = trackerRepository.preferences()
-        _libraries.value = libraryRepository.libraries().map { it.id to it.name }
+        // Network failure (offline): keep the previous names instead of crashing the collect coroutine.
+        val libraries = runCatching { libraryRepository.libraries() }.getOrNull() ?: return
+        _libraries.value = libraries.map { it.id to it.name }
     }
 
     private suspend fun loadAccounts() {

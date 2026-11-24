@@ -47,6 +47,29 @@ internal suspend fun <T> Call<T>.awaitBody(): T? = withContext(Dispatchers.IO) {
 }
 
 /**
+ * Execute a Retrofit [Call] on IO and return the body, but RETHROW network/decode failures and
+ * throw [retrofit2.HttpException] on non-2xx. For read paths whose caller keeps cached content
+ * and must distinguish "server answered empty" from "server unreachable" — [awaitBody] cannot,
+ * and treating a failure as an empty page would blank the screen and overwrite the cache.
+ */
+internal suspend fun <T> Call<T>.awaitBodyOrThrow(): T? = withContext(Dispatchers.IO) {
+    val response = try {
+        execute()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        AppLog.e("API", "${request().method} ${request().url}", e)
+        throw e
+    }
+    if (response.isSuccessful) {
+        response.body()
+    } else {
+        AppLog.w("API", "HTTP ${response.code()} ${request().method} ${request().url}")
+        throw retrofit2.HttpException(response)
+    }
+}
+
+/**
  * Execute a Retrofit [Call] on IO keeping the failure: `success(null)` means the server answered
  * without a body (a missing neighbour), `failure` means the lookup itself failed (offline).
  */

@@ -11,8 +11,9 @@ class LibraryRepository @Inject constructor(
     private val sessionManager: SessionManager,
 ) {
 
+    /** Libraries of the current instance; empty without a session, throws on network/HTTP failure. */
     suspend fun libraries(): List<LibraryDto> {
         val api = sessionManager.clients.value?.libraries ?: return emptyList()
-        return api.getLibraries().awaitBody().orEmpty()
+        return api.getLibraries().awaitBodyOrThrow().orEmpty()
     }
 }

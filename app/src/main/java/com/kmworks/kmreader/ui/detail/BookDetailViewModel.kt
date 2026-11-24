@@ -258,7 +258,8 @@ class BookDetailViewModel @Inject constructor(
     fun ensureReadListsLoaded() {
         if (_readLists.value != null) return
         viewModelScope.launch {
-            _readLists.value = listRepository.readLists().map { dto ->
+            val dtos = runCatching { listRepository.readLists() }.getOrElse { return@launch }
+            _readLists.value = dtos.map { dto ->
                 ListEntry(
                     id = StableIds.readList(dto.id),
                     title = dto.name,

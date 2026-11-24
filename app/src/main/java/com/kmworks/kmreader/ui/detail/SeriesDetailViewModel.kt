@@ -295,7 +295,9 @@ class SeriesDetailViewModel @Inject constructor(
     fun ensureCollectionsLoaded() {
         if (_collections.value != null) return
         viewModelScope.launch {
-            _collections.value = listRepository.collections().map { dto ->
+            // Offline: leave the picker empty rather than crashing the launch.
+            val dtos = runCatching { listRepository.collections() }.getOrElse { return@launch }
+            _collections.value = dtos.map { dto ->
                 ListEntry(
                     id = StableIds.collection(dto.id),
                     title = dto.name,
@@ -363,7 +365,8 @@ class SeriesDetailViewModel @Inject constructor(
     fun ensureReadListsLoaded() {
         if (_readLists.value != null) return
         viewModelScope.launch {
-            _readLists.value = listRepository.readLists().map { dto ->
+            val dtos = runCatching { listRepository.readLists() }.getOrElse { return@launch }
+            _readLists.value = dtos.map { dto ->
                 ListEntry(
                     id = StableIds.readList(dto.id),
                     title = dto.name,
