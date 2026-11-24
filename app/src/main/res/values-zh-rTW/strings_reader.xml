@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Reader: settings sheet -->
+    <string name="reader_settings_title">閱讀器設定</string>
+    <string name="reader_group_appearance">外觀</string>
+    <string name="reader_background_title">閱讀器背景</string>
+    <string name="reader_background_black">黑色</string>
+    <string name="reader_background_white">白色</string>
+    <string name="reader_background_gray">灰色</string>
+    <string name="reader_background_sepia">米色</string>
+    <string name="reader_background_system">跟隨系統</string>
+    <string name="reader_show_page_number">顯示頁碼</string>
+    <string name="reader_show_page_shadow">頁面陰影</string>
+    <string name="reader_controls_gradient">控制元件漸變背景</string>
+    <string name="reader_show_progress_bar">閱讀時顯示進度條</string>
+    <string name="reader_keep_screen_awake">閱讀時保持螢幕常亮</string>
+    <string name="reader_webtoon_page_width">條漫頁面寬度</string>
+    <string name="reader_group_page_turn">翻頁</string>
+    <string name="reader_transition_title">翻頁動畫樣式</string>
+    <string name="reader_transition_scroll">滾動</string>
+    <string name="reader_transition_cover">覆蓋</string>
+    <string name="reader_animate_tap_turns">點按翻頁動畫</string>
+    <string name="reader_tap_zone_layout">點按區域佈局</string>
+    <string name="reader_tap_zone_inversion">點按區域映象</string>
+    <string name="reader_show_tap_zone_hints">顯示點按區域提示</string>
+    <string name="reader_webtoon_tap_scroll_height">條漫點按滾動高度</string>
+    <string name="reader_group_gestures">手勢</string>
+    <string name="reader_double_tap_action">雙擊動作</string>
+    <string name="reader_double_tap_zoom_scale">雙擊縮放倍率</string>
+    <string name="reader_long_press_action">長按動作</string>
+    <string name="reader_group_performance">效能</string>
+    <string name="reader_preload_title">圖片預載入</string>
+    <string name="reader_group_image_processing">影象處理</string>
+    <string name="reader_crop_title">裁邊模式</string>
+    <string name="reader_crop_hint">裁掉頁面四周與底色相同的留白；關閉後按原圖顯示。</string>
+
+    <!-- Reader: reading direction -->
+    <string name="reader_direction_ltr">從左到右</string>
+    <string name="reader_direction_rtl">從右到左</string>
+    <string name="reader_direction_vertical">垂直滾動</string>
+    <string name="reader_direction_webtoon">條漫</string>
+
+    <!-- Reader: wide page splitting -->
+    <string name="reader_split_none">關閉</string>
+    <string name="reader_split_hint_none">寬圖整頁顯示，不切分</string>
+    <string name="reader_split_auto">自動</string>
+    <string name="reader_split_hint_auto">按頁面內容自動判斷是否切分</string>
+    <string name="reader_split_ltr">從左到右</string>
+    <string name="reader_split_hint_ltr">切成前後兩半，按從左到右翻</string>
+    <string name="reader_split_rtl">從右到左</string>
+    <string name="reader_split_hint_rtl">切成前後兩半，按從右到左翻</string>
+
+    <!-- Reader: page layout -->
+    <string name="reader_page_layout_single">單頁</string>
+    <string name="reader_page_layout_auto">自動</string>
+    <string name="reader_page_layout_dual">雙頁</string>
+
+    <!-- Reader: tap zones / gestures -->
+    <string name="reader_tap_zone_none">關閉</string>
+    <string name="reader_tap_zone_default">預設</string>
+    <string name="reader_tap_zone_edge">邊緣</string>
+    <string name="reader_tap_zone_kindle">Kindle</string>
+    <string name="reader_tap_zone_l_shape">L 形</string>
+    <string name="reader_tap_zone_t_split">上下分欄</string>
+    <string name="reader_tap_inversion_normal">正常</string>
+    <string name="reader_tap_inversion_auto">自動</string>
+    <string name="reader_tap_inversion_inverted">反向</string>
+    <string name="reader_double_tap_zoom">縮放</string>
+    <string name="reader_off">關閉</string>
+    <string name="reader_long_press_menu">圖片選單</string>
+    <string name="reader_tap_zone_hint_previous">上一頁</string>
+    <string name="reader_tap_zone_hint_menu">選單</string>
+    <string name="reader_tap_zone_hint_next">下一頁</string>
+
+    <!-- Reader: image preloading -->
+    <string name="reader_preload_low_memory">低記憶體</string>
+    <string name="reader_preload_balanced">均衡</string>
+    <string name="reader_preload_fast_page_turns">快速翻頁</string>
+    <string name="reader_preload_hint_low_memory">解碼更少的鄰近頁面以降低記憶體佔用，翻頁時可能更常等待載入。</string>
+    <string name="reader_preload_hint_balanced">使用預設預載入視窗，兼顧記憶體佔用與翻頁流暢度。</string>
+    <string name="reader_preload_hint_fast_page_turns">預解碼更多鄰近頁面以加快翻頁，代價是更高的記憶體佔用。</string>
+
+    <!-- Reader: border cropping -->
+    <string name="reader_crop_conservative">保守</string>
+    <string name="reader_crop_aggressive">激進</string>
+
+    <!-- Reader: in-reader menu -->
+    <string name="reader_menu_current_options">當前閱讀選項</string>
+    <string name="reader_menu_direction">閱讀方向</string>
+    <string name="reader_menu_direction_follow_default">跟隨預設</string>
+    <string name="reader_menu_direction_follow_default_hint">由閱讀器預設設定和系列後設資料決定；不再記住本書及其系列的選擇</string>
+    <string name="reader_menu_direction_book_only">僅對本書生效</string>
+    <string name="reader_menu_direction_book_only_hint">關閉：該系列所有卷都用這個方向</string>
+    <string name="reader_menu_page_layout">頁面佈局</string>
+    <string name="reader_menu_split_wide">拆分寬頁</string>
+    <string name="reader_menu_split_wide_follow_default">跟隨預設</string>
+    <string name="reader_menu_split_wide_follow_default_hint">按閱讀器預設設定；不再記住本書及其系列的選擇</string>
+    <string name="reader_menu_split_wide_book_only">僅對本書生效</string>
+    <string name="reader_menu_split_wide_book_only_hint">關閉：該系列所有卷都用這個設定</string>
+    <string name="reader_menu_solo_cover">獨顯封面</string>
+    <string name="reader_menu_rotation">頁面旋轉</string>
+    <string name="reader_menu_current_page">當前頁面</string>
+    <string name="reader_share_page">分享頁面</string>
+    <string name="reader_cancel_solo">取消獨顯</string>
+    <string name="reader_show_page_solo">獨顯第 %1$d 頁</string>
+    <string name="reader_menu_page_nav">頁面導航</string>
+    <string name="reader_menu_previous_book">上一本書</string>
+    <string name="reader_menu_next_book">下一本書</string>
+    <string name="reader_jump_to_page">跳頁</string>
+    <string name="reader_go_to_page">跳頁</string>
+    <string name="reader_jump">跳轉</string>
+    <string name="reader_share_this_page">分享此頁</string>
+
+    <!-- Reader: status and errors -->
+    <string name="reader_page_load_failed">第 %1$d 頁載入失敗</string>
+    <string name="reader_pages_load_failed">頁面載入失敗</string>
+    <string name="reader_page_first_half">前半頁</string>
+    <string name="reader_page_second_half">後半頁</string>
+    <string name="reader_exit_reading">退出閱讀</string>
+    <string name="reader_back">返回</string>
+    <string name="reader_incognito">隱私閱讀</string>
+    <string name="reader_connection_required">需要連線伺服器</string>
+    <string name="reader_close_search">關閉搜尋</string>
+    <string name="reader_search_document">搜尋文件</string>
+    <string name="reader_previous_match">上一個匹配</string>
+    <string name="reader_next_match">下一個匹配</string>
+    <string name="reader_volume_pdf">第 %1$s 卷 · PDF</string>
+
+    <!-- Reader: end of book page (mirrors the original end-page content) -->
+    <string name="reader_end_previous_book">上一本</string>
+    <string name="reader_end_next_book">下一本</string>
+    <string name="reader_end_caught_up">已讀完</string>
+    <string name="reader_end_unread_left">還剩 %1$d 本未讀</string>
+    <string name="reader_end_pages">%1$d 頁</string>
+    <string name="reader_end_read_next">閱讀下一本</string>
+
+    <!-- Reader: PDF -->
+    <string name="pdf_continuous_scroll">連續滾動</string>
+    <string name="pdf_downloading">正在下載 PDF…</string>
+    <string name="pdf_downloading_progress">正在下載 PDF… %1$d%%</string>
+    <string name="pdf_preparing">正在準備 PDF…</string>
+    <string name="pdf_search_hint">在 PDF 中搜尋</string>
+    <string name="pdf_searching">正在搜尋…</string>
+    <string name="pdf_search_no_matches">未找到匹配項</string>
+    <string name="pdf_search_results">%1$d 個結果</string>
+    <string name="pdf_load_failed">PDF 載入失敗</string>
+
+    <!-- Reader: EPUB settings -->
+    <string name="epub_settings_title">EPUB 設定</string>
+    <string name="epub_section_theme">主題</string>
+    <string name="epub_theme_presets">主題預設</string>
+    <string name="epub_theme_presets_subtitle">新建 / 編輯 / 刪除排版預設</string>
+    <string name="epub_theme_system">跟隨系統</string>
+    <string name="epub_theme_quiet">安靜</string>
+    <string name="epub_theme_sepia">米黃</string>
+    <string name="epub_theme_ink_green">墨綠</string>
+    <string name="epub_section_font">字型</string>
+    <string name="epub_font_size">字號</string>
+    <string name="epub_font_weight">字重</string>
+    <string name="epub_current_font">當前字型</string>
+    <string name="fonts_manage">管理自訂字型</string>
+    <string name="epub_typeface_publisher">出版方預設</string>
+    <string name="epub_typeface_system">系統預設</string>
+    <string name="epub_section_layout">排版</string>
+    <string name="epub_page_margins">頁邊距</string>
+    <string name="epub_line_height">行距</string>
+    <string name="epub_publisher_styles">啟用出版方樣式</string>
+    <string name="epub_flow_style">翻頁方式</string>
+    <string name="epub_flow_paged">分頁</string>
+    <string name="epub_flow_scrolled">滾動</string>
+    <string name="epub_columns_auto">自動</string>
+    <string name="epub_columns_single">單欄</string>
+    <string name="epub_columns_dual">雙欄</string>
+    <string name="epub_animate_page_turns">翻頁動畫</string>
+    <string name="epub_apply">應用</string>
+    <string name="epub_rename">重新命名</string>
+    <string name="epub_rename_preset">重新命名預設</string>
+    <string name="epub_save_as_preset">儲存當前為預設</string>
+    <string name="epub_new_preset">新預設 %1$d</string>
+    <string name="epub_no_theme_presets">暫無主題預設</string>
+    <string name="epub_toc">目錄</string>
+    <string name="pdf_toc">目錄</string>
+    <string name="epub_toc_current">當前</string>
+    <string name="epub_expand">展開</string>
+    <string name="epub_collapse">收起</string>
+    <string name="epub_chapter_fallback">第 %1$d 章</string>
+    <string name="epub_volume">第 %1$s 冊 · EPUB</string>
+    <string name="epub_chapter_progress">第 %1$d/%2$d 章 · %3$d%%</string>
+    <string name="epub_error_locate_book">無法定位書籍</string>
+    <string name="epub_error_load_toc">無法載入目錄</string>
+    <string name="epub_end_finished">已讀完</string>
+    <string name="epub_end_return">返回</string>
+    <string name="epub_book_info">書籍資訊</string>
+    <string name="epub_close">關閉</string>
+    <string name="epub_quick_actions">快捷操作</string>
+    <string name="epub_section_overlay">頁邊注</string>
+    <string name="epub_section_overlay_controls">控制層顯示時</string>
+    <string name="epub_overlay_progress_bar">顯示進度條</string>
+    <string name="epub_overlay_header_leading">頁首左側</string>
+    <string name="epub_overlay_header_center">頁首中間</string>
+    <string name="epub_overlay_header_trailing">頁首右側</string>
+    <string name="epub_overlay_footer_leading">頁尾左側</string>
+    <string name="epub_overlay_footer_center">頁尾中間</string>
+    <string name="epub_overlay_footer_trailing">頁尾右側</string>
+    <string name="epub_overlay_controls_header_center">頁首中間</string>
+    <string name="epub_overlay_controls_footer_center">頁尾中間</string>
+    <string name="epub_overlay_item_none">無</string>
+    <string name="epub_overlay_item_book_title">書名</string>
+    <string name="epub_overlay_item_chapter_title">章節名</string>
+    <string name="epub_overlay_item_book_progress">全書進度</string>
+    <string name="epub_overlay_item_book_remaining">全書剩餘</string>
+    <string name="epub_overlay_item_chapter_progress">本章進度</string>
+    <string name="epub_overlay_item_chapter_remaining">本章剩餘</string>
+    <string name="epub_overlay_item_chapter_position">本章頁碼</string>
+    <string name="epub_overlay_book_progress">全書進度 %1$s</string>
+    <string name="epub_overlay_remaining">剩餘 %1$s</string>
+    <string name="epub_overlay_chapter_progress">本章進度 %1$s</string>
+    <string name="epub_overlay_chapter_position">本章 %1$d / %2$d</string>
+    <string name="epub_overlay_pages_left">還剩 %1$d 頁</string>
+    <string name="epub_overlay_last_page">最後一頁</string>
+    <string name="epub_preset_updated_now">剛剛更新</string>
+    <plurals name="epub_preset_updated_days">
+        <item quantity="other">%1$d 天前更新</item>
+    </plurals>
+    <plurals name="epub_preset_updated_weeks">
+        <item quantity="other">%1$d 周前更新</item>
+    </plurals>
+    <plurals name="epub_preset_updated_months">
+        <item quantity="other">%1$d 個月前更新</item>
+    </plurals>
+    <plurals name="epub_preset_updated_years">
+        <item quantity="other">%1$d 年前更新</item>
+    </plurals>
+
+    <!-- Custom fonts -->
+    <string name="fonts_title">自訂字型</string>
+    <string name="fonts_downloaded_summary">已下載 %1$d 款字型 · 服務端共 %2$s 款</string>
+    <string name="fonts_loading_list">正在獲取字型列表…</string>
+    <string name="fonts_downloading">下載中…</string>
+    <string name="fonts_downloaded_ready">已下載，可在 EPUB 閱讀器中選擇</string>
+    <string name="fonts_not_downloaded">未下載</string>
+    <string name="fonts_downloaded">已下載</string>
+    <string name="fonts_server">伺服器字型</string>
+    <string name="fonts_server_section">伺服器字型</string>
+    <string name="fonts_system_section">系統字型</string>
+    <string name="fonts_empty_server">伺服器上沒有可用字型。</string>
+    <string name="fonts_none_imported">尚未匯入本地字型。</string>
+    <string name="fonts_import_button">匯入字型檔案（.ttf / .otf）</string>
+    <string name="fonts_imported_installed">已安裝的自訂字型</string>
+    <string name="fonts_installed_total">已安裝 %1$d 款自訂字型</string>
+    <string name="fonts_installed_count">已安裝 %1$d 款</string>
+    <string name="pdf_settings_title">PDF 設定</string>
+    <string name="pdf_section_paging">翻頁</string>
+    <string name="pdf_continuous_scroll_hint">關閉時逐頁翻頁</string>
+    <string name="pdf_page_presentation">頁面呈現</string>
+    <string name="pdf_presentation_auto">自動</string>
+    <string name="pdf_presentation_single">單頁</string>
+    <string name="pdf_presentation_single_continuous">單頁連續</string>
+    <string name="pdf_presentation_dual_continuous">雙頁連續</string>
+    <string name="pdf_solo_cover">封面獨立成頁</string>
+    <string name="pdf_section_appearance">外觀</string>
+    <string name="pdf_reading_background">閱讀背景</string>
+    <string name="pdf_section_overlay">閱讀覆蓋層</string>
+    <string name="pdf_show_progress">閱讀時顯示進度條</string>
+    <string name="pdf_native_engine">使用原生 PDF 閱讀器</string>
+    <string name="pdf_native_engine_hint">PDF 使用 PDF 閱讀器（系統引擎）開啟，文字較多的 PDF 可選中文字與搜尋。</string>
+    <string name="pdf_comic_engine_hint">PDF 使用 DIVINA 漫畫閱讀器開啟，適合漫畫/條漫 PDF；已下載的 PDF 離線時按頁渲染。</string>
+</resources>

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Relative time labels -->
+    <string name="time_just_now">剛剛</string>
+    <string name="time_yesterday">昨天</string>
+    <string name="time_last_week">上週</string>
+    <string name="time_last_month">上個月</string>
+    <string name="time_last_year">去年</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="other">%1$d 分鐘前</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="other">%1$d 小時前</item>
+    </plurals>
+    <plurals name="time_days_ago">
+        <item quantity="other">%1$d 天前</item>
+    </plurals>
+    <plurals name="time_weeks_ago">
+        <item quantity="other">%1$d 周前</item>
+    </plurals>
+    <plurals name="time_months_ago">
+        <item quantity="other">%1$d 個月前</item>
+    </plurals>
+    <plurals name="time_years_ago">
+        <item quantity="other">%1$d 年前</item>
+    </plurals>
+
+    <!-- Main tabs -->
+    <string name="tab_dashboard">儀表盤</string>
+    <string name="tab_library">書庫</string>
+    <string name="tab_lists">列表</string>
+    <string name="tab_downloads">下載</string>
+    <string name="tab_search">搜尋</string>
+
+    <!-- Author roles -->
+    <string name="author_role_writer">原作</string>
+    <string name="author_role_penciller">作畫</string>
+    <string name="author_role_inker">勾線</string>
+    <string name="author_role_colorist">上色</string>
+    <string name="author_role_letterer">嵌字</string>
+    <string name="author_role_cover">封面</string>
+    <string name="author_role_editor">編輯</string>
+    <string name="author_role_translator">翻譯</string>
+    <string name="author_role_custom">其他</string>
+
+    <!-- Notable entities -->
+    <string name="notable_kind_character">角色</string>
+    <string name="notable_kind_team">團隊</string>
+    <string name="notable_kind_location">地點</string>
+    <string name="notable_kind_custom">自訂</string>
+    <string name="notable_custom_kind">自訂型別</string>
+    <string name="notable_empty">暫無知名實體</string>
+    <string name="notable_add">新增實體</string>
+    <string name="notable_active_filter">知名實體：%1$s</string>
+
+    <!-- Book / series cards -->
+    <string name="components_oneshot">單篇</string>
+    <string name="card_read_percent">已讀 %1$d%%</string>
+    <string name="card_unavailable">不可用</string>
+    <string name="card_book_count_total">%1$d / %2$d 冊</string>
+
+    <!-- Media status -->
+    <string name="media_status_error">錯誤</string>
+    <string name="media_status_unsupported">格式不支援</string>
+    <string name="media_status_outdated">已過時</string>
+    <string name="media_status_unknown">狀態未知</string>
+
+    <!-- Selection toolbar -->
+    <string name="selection_select_all">全選</string>
+    <string name="selection_deselect_all">取消全選</string>
+    <string name="selection_selected_count">已選 %1$d / %2$d</string>
+
+    <!-- Library scope -->
+    <string name="library_scope_pinned">已釘選</string>
+    <string name="library_scope_single">單個書庫</string>
+    <string name="library_pin_title">釘選書庫</string>
+    <string name="library_pin_description">被釘選的書庫會出現在「已釘選」範圍</string>
+
+    <!-- Context menus -->
+    <string name="menu_pin">置頂</string>
+    <string name="menu_unpin">取消置頂</string>
+    <string name="menu_mark_read">標記為已讀</string>
+    <string name="menu_mark_unread">標記為未讀</string>
+    <string name="menu_remove_download">移除下載</string>
+    <string name="download_badge_downloaded">已下載</string>
+    <string name="download_badge_partial">部分已下載</string>
+    <string name="download_badge_paused">已暫停</string>
+    <string name="download_badge_queued">等待下載</string>
+    <string name="download_badge_downloading">正在下載</string>
+    <string name="download_badge_failed">下載失敗</string>
+    <string name="menu_add_to_collection">加入收藏</string>
+    <string name="menu_add_to_read_list">加入閱讀列表</string>
+    <string name="menu_edit_metadata">編輯後設資料</string>
+    <string name="menu_analyze">分析</string>
+    <string name="menu_refresh_metadata">重新整理後設資料</string>
+    <string name="menu_read">閱讀</string>
+    <string name="menu_read_incognito">隱私閱讀</string>
+    <string name="menu_view_details">檢視詳情</string>
+    <string name="menu_open_series">訪問系列</string>
+    <string name="menu_delete_collection">刪除收藏</string>
+    <string name="menu_delete_readlist">刪除閱讀列表</string>
+    <string name="menu_delete_smartlist">刪除智慧列表</string>
+
+    <!-- Lockable field -->
+    <string name="lock_locked">已鎖定</string>
+    <string name="lock_unlocked">未鎖定</string>
+
+    <!-- Browse layouts -->
+    <string name="layout_list">列表</string>
+    <string name="layout_grid">網格</string>
+    <string name="layout_large_grid">大網格</string>
+
+    <!-- Browse filter & sort -->
+    <string name="filter_presets">預設</string>
+    <string name="filter_no_presets">暫無預設，在篩選面板中儲存</string>
+    <string name="filter_delete_preset">刪除預設</string>
+    <string name="filter_excluded">排除 %1$s</string>
+    <string name="filter_title">篩選與排序</string>
+    <string name="filter_sort">排序</string>
+    <string name="filter_sort_by">排序方式</string>
+    <string name="filter_metadata">後設資料</string>
+    <string name="filter_ascending">升序</string>
+    <string name="filter_descending">降序</string>
+    <string name="filter_read_status">閱讀狀態</string>
+    <string name="filter_flags">標記</string>
+    <string name="filter_oneshot">單篇</string>
+    <string name="filter_deleted">已刪除</string>
+    <string name="filter_series_status">系列狀態</string>
+    <string name="filter_publisher">出版社</string>
+    <string name="filter_genre">分類</string>
+    <string name="filter_age_rating">年齡分級</string>
+    <string name="filter_language">語言</string>
+    <string name="filter_release_year">釋出年份</string>
+    <string name="filter_notable_entities">知名實體</string>
+    <string name="filter_save_preset">存為預設</string>
+    <string name="filter_include">包含</string>
+    <string name="filter_exclude">排除</string>
+    <string name="filter_match_all">滿足全部 ∧</string>
+    <string name="filter_match_any">滿足任一 ∨</string>
+    <string name="filter_no_values">暫無可選值</string>
+    <string name="filter_no_matches">無匹配項</string>
+    <string name="filter_selected">已選</string>
+    <string name="filter_save_dialog_title">存為篩選預設</string>
+    <string name="filter_preset_name">預設名稱</string>
+    <string name="filter_search_hint">搜尋…</string>
+
+    <!-- Read status -->
+    <string name="read_status_unread">未讀</string>
+    <string name="read_status_in_progress">閱讀中</string>
+    <string name="read_status_read">已讀</string>
+
+    <!-- Series status -->
+    <string name="series_status_ongoing">連載中</string>
+    <string name="series_status_ended">已完結</string>
+    <string name="series_status_abandoned">已棄坑</string>
+    <string name="series_status_hiatus">休載</string>
+
+    <!-- Sort fields -->
+    <string name="sort_number">卷號</string>
+    <string name="sort_release_date">釋出日期</string>
+    <string name="sort_added_date">新增日期</string>
+    <string name="sort_updated_date">更新日期</string>
+    <string name="sort_file_size">檔案大小</string>
+    <string name="sort_page_count">頁數</string>
+    <string name="sort_read_date">閱讀日期</string>
+    <string name="sort_file_name">檔名</string>
+    <string name="sort_folder_name">資料夾名稱</string>
+    <string name="sort_books_count">書籍數量</string>
+    <string name="sort_random">隨機</string>
+    <string name="filter_complete">完結</string>
+</resources>

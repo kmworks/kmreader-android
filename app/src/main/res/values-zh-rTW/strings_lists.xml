@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lists tab, list detail screens and list edit sheets. -->
+    <string name="lists_tab_title">列表</string>
+    <string name="lists_scope_pinned">已釘選</string>
+    <string name="lists_pin">置頂</string>
+    <string name="lists_pinned">已置頂</string>
+    <string name="lists_select">多選</string>
+    <string name="lists_no_session_title">未連線伺服器</string>
+    <string name="lists_no_session_subtitle">登入後檢視列表</string>
+    <string name="lists_group_collections">收藏</string>
+    <string name="lists_group_readlists">閱讀列表</string>
+    <string name="lists_group_smartlists">智慧列表</string>
+    <string name="lists_delete_item_title">刪除%1$s？</string>
+    <string name="lists_delete_item_message">「%1$s」將被刪除，此操作無法撤銷。</string>
+    <string name="lists_created_at">建立於 %1$s</string>
+    <string name="lists_modified_at">更新於 %1$s</string>
+    <string name="lists_ordered_label">有序</string>
+    <string name="lists_ordered_toggle">按順序排列</string>
+    <string name="lists_summary">簡介</string>
+    <string name="lists_add_to_list_title">加入列表</string>
+    <string name="lists_already_in_list">已在列表中</string>
+    <string name="lists_item_count">%1$d 項</string>
+    <string name="lists_no_matches">沒有匹配項</string>
+    <string name="lists_name_exists">已存在同名列表</string>
+    <string name="lists_existing_matches">已有列表</string>
+    <string name="lists_mark_read">標記已讀</string>
+    <string name="lists_mark_unread">標記未讀</string>
+    <string name="lists_add_to_download_queue">加入下載佇列</string>
+    <string name="lists_add_to_readlist">加入閱讀列表</string>
+    <string name="lists_read">閱讀</string>
+    <string name="lists_read_label">已讀</string>
+    <string name="lists_read_incognito">隱私閱讀</string>
+    <string name="lists_view_details">檢視詳情</string>
+    <string name="lists_open_series">開啟所屬系列</string>
+    <string name="lists_download_book">下載書籍</string>
+    <string name="lists_download_selected_books">下載所選書籍</string>
+    <string name="lists_analyze_book">分析書籍</string>
+    <string name="lists_refresh_metadata">重新整理後設資料</string>
+    <string name="lists_share_book">分享書籍</string>
+    <string name="lists_save_book_metadata">儲存書籍後設資料</string>
+
+    <string name="collection_new_title">新建收藏</string>
+    <string name="collection_edit_title">編輯收藏</string>
+    <string name="collection_new_action">新建收藏…</string>
+    <string name="collection_delete">刪除收藏</string>
+    <string name="collection_save">儲存收藏</string>
+    <string name="collection_delete_message">「%1$s」將被刪除，系列本身保留在書庫中。</string>
+
+    <string name="readlist_new_title">新建閱讀列表</string>
+    <string name="readlist_edit_title">編輯閱讀列表</string>
+    <string name="readlist_new_action">新建閱讀列表…</string>
+    <string name="readlist_delete">刪除閱讀列表</string>
+    <string name="readlist_save">儲存閱讀列表</string>
+    <string name="readlist_share">分享閱讀列表</string>
+    <string name="readlist_delete_message">「%1$s」將被刪除，書籍本身保留在書庫中。</string>
+    <string name="readlist_continue_reading">繼續閱讀：第 %1$d 本</string>
+
+    <string name="smartlist_title">智慧列表</string>
+    <string name="smartlist_new_title">新建智慧列表</string>
+    <string name="smartlist_edit_title">編輯智慧列表</string>
+    <string name="smartlist_delete">刪除智慧列表</string>
+    <string name="smartlist_save">儲存智慧列表</string>
+    <string name="smartlist_delete_message">「%1$s」將被刪除，命中內容保留在書庫中。</string>
+    <string name="smartlist_target_type">目標型別</string>
+    <string name="smartlist_target_meta">目標：%1$s · %2$d 項</string>
+    <string name="smartlist_filter_row">篩選</string>
+    <string name="smartlist_filters">篩選</string>
+    <string name="smartlist_filters_search_text">搜尋文字</string>
+    <string name="smartlist_libraries">庫</string>
+    <string name="smartlist_libraries_all">全部庫</string>
+    <string name="smartlist_libraries_count">%1$d 個庫</string>
+    <string name="smartlist_libraries_empty">沒有可選的庫。</string>
+    <string name="smartlist_filters_none">無篩選條件，匹配全部</string>
+    <string name="smartlist_filters_active">%1$d 個篩選條件</string>
+    <string name="smartlist_filters_lossy">已儲存的篩選包含應用無法編輯的條件。修改任意篩選會替換整個已儲存的篩選。</string>
+
+    <plurals name="lists_series_count">
+        <item quantity="other">%1$d 部系列</item>
+    </plurals>
+
+    <!-- Smart list sharing (kmrs extension: visibility + share targets) -->
+    <string name="smartlist_share_title">共享</string>
+    <string name="smartlist_share_visibility">可見性</string>
+    <string name="smartlist_visibility_private">私有</string>
+    <string name="smartlist_visibility_public">公開</string>
+    <string name="smartlist_visibility_shared">共享給指定使用者</string>
+    <string name="smartlist_share_targets">共享給</string>
+    <string name="smartlist_share_no_targets">此伺服器沒有其他可共享的使用者。</string>
+    <string name="smartlist_share_unavailable">共享功能需要啟用了智慧列表的 kmrs 伺服器。</string>
+    <string name="smartlist_share_admin_only">只有管理員可以修改智慧列表的可見性。</string>
+    <string name="smartlist_save_failed">儲存失敗</string>
+    <!-- 加入列表選擇器：新建收藏/閱讀列表失敗（沒有可作為初始內容的條目，或伺服器拒絕了請求）。 -->
+    <string name="lists_create_failed">建立列表失敗。</string>
+</resources>
