@@ -57,6 +57,11 @@ object Waifu2xBridge {
     var isFp16: Boolean = false
         private set
 
+    /** True when preproc/postproc run as Vulkan compute shaders instead of CPU conversions. */
+    @Volatile
+    var isFused: Boolean = false
+        private set
+
     val isReady: Boolean get() = handle != 0L
 
     init {
@@ -94,11 +99,13 @@ object Waifu2xBridge {
         activePrecision = precision
         isVulkan = nativeIsVulkan(h)
         isFp16 = nativeIsFp16(h)
-        Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan, fp16=$isFp16")
+        isFused = nativeIsFused(h)
+        Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan, fp16=$isFp16, fused=$isFused")
         AppLog.i(
             EnhancementDecoder.APP_TAG,
             "engine initialized: ${model.modelSuffix}, request=${precision.name}, " +
-                "vulkan=$isVulkan, precision=${if (isFp16) "fp16" else "fp32"}",
+                "vulkan=$isVulkan, precision=${if (isFp16) "fp16" else "fp32"}, " +
+                "path=${if (isFused) "fused shaders" else "staged cpu"}",
         )
         true
     }
@@ -142,6 +149,8 @@ object Waifu2xBridge {
             activeModel = null
             activePrecision = null
             isVulkan = false
+            isFp16 = false
+            isFused = false
         }
     }
 
@@ -180,6 +189,8 @@ object Waifu2xBridge {
     private external fun nativeLastStats(): String?
 
     private external fun nativeIsFp16(handle: Long): Boolean
+
+    private external fun nativeIsFused(handle: Long): Boolean
 
     private external fun nativeInit(modelDir: String, modelSuffix: String, precisionMode: Int): Long
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean

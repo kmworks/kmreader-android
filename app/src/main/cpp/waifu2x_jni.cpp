@@ -2,9 +2,15 @@
 // Ported/trimmed from nihui/waifu2x-ncnn-vulkan (MIT) as referenced by
 // HaoweiLi97/mihon_img_upscale (Apache-2.0). See docs/waifu2x-upscaling-plan.md.
 //
-// Simplifications vs upstream: no custom preproc/postproc compute shaders — pixel
-// conversion runs on CPU while only the network inference is on Vulkan.
-// Alpha is forced to opaque (same as the iOS implementation).
+// Two paths:
+//  * fused   — the page stays in VRAM: a preproc compute shader samples the padded tile out of
+//              the source page and a postproc compute shader writes the 2x result straight back
+//              into the output page, so there is one upload and one download per page.
+//  * staged  — the fallback: CPU builds the tile / converts the output. Slower, but it only
+//              needs the network on the GPU, so it covers drivers where the shaders fail.
+// The shaders are compiled to SPIR-V at runtime with ncnn::compile_spirv_module plus glslang,
+// which is already linked into libncnn.a (no glslc build step). Alpha is forced to opaque, same
+// as the iOS implementation.
 //
 // Memory model: tiles are sampled straight out of the source bitmap and results are
 // written straight into the output bitmap, so the peak cost is one 156x156 float tile
@@ -20,14 +26,19 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "net.h"
 #include "gpu.h"
+#include "command.h"
+#include "pipeline.h"
 #include "cpu.h"
 #include "mat.h"
+
+#include "fused_shaders.h"
 
 #define TAG "Waifu2xJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -82,16 +93,58 @@ void ensure_gpu_instance() {
     });
 }
 
+/**
+ * Builds a ready-to-use compute pipeline from GLSL source. ncnn's public Pipeline::create() takes
+ * SPIR-V plus the reflected ShaderInfo, so the reflection step is done here explicitly
+ * (ncnn::resolve_shader_info) before the descriptor set layout is derived from it.
+ */
+class ShaderPipeline : public ncnn::Pipeline {
+public:
+    explicit ShaderPipeline(const ncnn::VulkanDevice* vkdev) : ncnn::Pipeline(vkdev) {}
+
+    int create_from_source(const char* name, const char* source, const ncnn::Option& opt) {
+        std::vector<uint32_t> spirv;
+        if (ncnn::compile_spirv_module(source, opt, spirv) != 0 || spirv.empty()) {
+            set_error("fused shader %s: spirv compilation failed", name);
+            return -1;
+        }
+        ncnn::ShaderInfo shader_info;
+        if (ncnn::resolve_shader_info(spirv.data(), spirv.size() * sizeof(uint32_t), shader_info) != 0) {
+            set_error("fused shader %s: spirv reflection failed", name);
+            return -1;
+        }
+        set_shader_info(shader_info);
+        const std::vector<ncnn::vk_specialization_type> specializations;
+        const int ret = create(spirv.data(), spirv.size() * sizeof(uint32_t), specializations);
+        if (ret != 0) {
+            set_error("fused shader %s: pipeline creation failed (%d)", name, ret);
+            return -1;
+        }
+        return 0;
+    }
+};
+
 struct Waifu2xContext {
     ncnn::Net net;
     bool use_vulkan = false;
     /** FP16 storage halves intermediate bandwidth; falls back to FP32 when the driver chokes. */
     bool use_fp16 = false;
     bool use_bf16 = false;
+    /** True when the fused preproc/postproc shaders are usable; otherwise the staged CPU path runs. */
+    bool fused = false;
+    std::unique_ptr<ShaderPipeline> preproc;
+    std::unique_ptr<ShaderPipeline> postproc_fp32;
+    std::unique_ptr<ShaderPipeline> postproc_fp16;
     std::string param_path;
     std::string bin_path;
 
-    ~Waifu2xContext() { net.clear(); }
+    // Pipelines must die before the net: both reference the VulkanDevice.
+    ~Waifu2xContext() {
+        preproc.reset();
+        postproc_fp32.reset();
+        postproc_fp16.reset();
+        net.clear();
+    }
 };
 
 inline unsigned char to_u8(float v) {
@@ -234,16 +287,49 @@ bool load_net(Waifu2xContext* ctx, bool fp16) {
 }
 
 /**
- * Runs a tiny tile through the engine and sanity-checks the result. Doubles as shader
- * warm-up: without it the first real tile pays pipeline compilation and looks like a stall.
+ * Compiles the fused preproc/postproc shaders. Failure is not fatal: the staged CPU path stays
+ * available, so an exotic driver loses speed instead of losing the feature.
+ */
+bool create_fused_pipelines(Waifu2xContext* ctx) {
+    if (!ctx->use_vulkan) return false;
+    ncnn::VulkanDevice* vkdev = ncnn::get_gpu_device(ncnn::get_default_gpu_index());
+    if (!vkdev) {
+        set_error("fused: vulkan device unavailable");
+        return false;
+    }
+
+    auto preproc = std::make_unique<ShaderPipeline>(vkdev);
+    auto postproc_fp32 = std::make_unique<ShaderPipeline>(vkdev);
+    auto postproc_fp16 = std::make_unique<ShaderPipeline>(vkdev);
+    const ncnn::Option& opt = ctx->net.opt;
+    if (preproc->create_from_source("preproc", kPreprocShader, opt) != 0) return false;
+    if (postproc_fp32->create_from_source("postproc_fp32", kPostprocFp32Shader, opt) != 0) return false;
+    if (postproc_fp16->create_from_source("postproc_fp16", kPostprocFp16Shader, opt) != 0) return false;
+
+    ctx->preproc = std::move(preproc);
+    ctx->postproc_fp32 = std::move(postproc_fp32);
+    ctx->postproc_fp16 = std::move(postproc_fp16);
+    LOGI("fused preproc/postproc shaders compiled");
+    return true;
+}
+
+bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
+             int w, int h, unsigned char* rgba_out, int out_stride);
+
+/**
+ * Runs a tiny page through the real entry point and sanity-checks the result, so it exercises
+ * whatever path will be used later (fused shaders included). Doubles as shader warm-up: without
+ * it the first real page pays pipeline compilation and looks like a stall.
  */
 bool run_selftest(Waifu2xContext* ctx) {
     const auto t0 = std::chrono::steady_clock::now();
     const int t = 32;
-    std::vector<unsigned char> rgba(static_cast<size_t>(t) * t * 4);
+    const int out_edge = t * kScale;
+    std::vector<unsigned char> src(static_cast<size_t>(t) * t * 4);
+    std::vector<unsigned char> dst(static_cast<size_t>(out_edge) * out_edge * 4, 0);
     for (int y = 0; y < t; y++) {
         for (int x = 0; x < t; x++) {
-            unsigned char* p = rgba.data() + (static_cast<size_t>(y) * t + x) * 4;
+            unsigned char* p = src.data() + (static_cast<size_t>(y) * t + x) * 4;
             p[0] = static_cast<unsigned char>(x * 8);
             p[1] = static_cast<unsigned char>(y * 8);
             p[2] = static_cast<unsigned char>((x + y) * 4);
@@ -251,53 +337,32 @@ bool run_selftest(Waifu2xContext* ctx) {
         }
     }
 
-    ncnn::Mat in_tile = make_tile(rgba.data(), t * 4, t, t, 0, 0, t, t);
-    if (in_tile.empty()) {
-        set_error("self-test: input tile allocation failed");
-        return false;
-    }
-    ncnn::Extractor ex = ctx->net.create_extractor();
-    if (ex.input(kInputBlob, in_tile) != 0) {
-        set_error("self-test: extractor input failed");
-        return false;
-    }
-    ncnn::Mat out;
-    if (ex.extract(kOutputBlob, out) != 0) {
-        set_error("self-test: extractor extract failed for blob %s", kOutputBlob);
-        return false;
-    }
-    if (!normalize_output(ctx, out)) {
-        set_error("self-test: output normalization failed");
-        return false;
-    }
-    if (out.w != t * kScale || out.h != t * kScale || out.c < 3) {
-        set_error("self-test: unexpected output %dx%dx%d (expected %dx%dx3)",
-                  out.w, out.h, out.c, t * kScale, t * kScale);
+    if (!process(ctx, src.data(), t * 4, t, t, dst.data(), out_edge * 4)) {
+        const std::string reason = g_last_error.empty() ? std::string("unknown") : g_last_error;
+        set_error("self-test: engine run failed: %s", reason.c_str());
         return false;
     }
 
-    const float* r = out.channel(0);
-    const int count = out.w * out.h;
-    float mn = r[0];
-    float mx = r[0];
-    for (int i = 0; i < count; i++) {
-        const float v = r[i];
-        if (!std::isfinite(v)) {
-            set_error("self-test: non-finite output");
-            return false;
-        }
+    int mn = 255;
+    int mx = 0;
+    for (size_t i = 0; i < dst.size(); i += 4) {
+        const int v = dst[i];
         mn = std::min(mn, v);
         mx = std::max(mx, v);
+        if (dst[i + 3] != 255) {
+            set_error("self-test: alpha is not opaque (%d at %zu)", dst[i + 3], i);
+            return false;
+        }
     }
-    if (mx - mn < 1e-3f) {
-        set_error("self-test: degenerate output (min=%f max=%f)", mn, mx);
+    if (mx - mn < 4) {
+        set_error("self-test: degenerate output (min=%d max=%d)", mn, mx);
         return false;
     }
 
     const auto t1 = std::chrono::steady_clock::now();
-    LOGI("self-test ok in %lld ms (fp16=%d vulkan=%d)", 
+    LOGI("self-test ok in %lld ms (fp16=%d vulkan=%d fused=%d)",
          static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()),
-         ctx->use_fp16 ? 1 : 0, ctx->use_vulkan ? 1 : 0);
+         ctx->use_fp16 ? 1 : 0, ctx->use_vulkan ? 1 : 0, ctx->fused ? 1 : 0);
     return true;
 }
 
@@ -360,6 +425,192 @@ bool process_tile(Waifu2xContext* ctx, ncnn::Extractor& ex,
     return true;
 }
 
+/**
+ * Page-in-VRAM path: upload the page once, run preproc -> network -> postproc per tile with the
+ * destination living on the GPU, download once. Removes the CPU tile building and the per-tile
+ * CPU readback that the staged path pays for.
+ */
+bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
+               int w, int h, unsigned char* rgba_out, int out_stride,
+               TileTiming& timing, int& tiles) {
+    using clock = std::chrono::steady_clock;
+    auto us = [](clock::duration d) { return std::chrono::duration_cast<std::chrono::microseconds>(d).count(); };
+
+    ncnn::VulkanDevice* vkdev = ncnn::get_gpu_device(ncnn::get_default_gpu_index());
+    if (!vkdev) {
+        set_error("fused: vulkan device unavailable");
+        return false;
+    }
+    ncnn::VkAllocator* blob_alloc = vkdev->acquire_blob_allocator();
+    ncnn::VkAllocator* staging_alloc = vkdev->acquire_staging_allocator();
+
+    ncnn::Option opt = ctx->net.opt;
+    opt.blob_vkallocator = blob_alloc;
+    opt.workspace_vkallocator = blob_alloc;
+    opt.staging_vkallocator = staging_alloc;
+
+    // The bitmaps are wrapped rather than copied: giving the Mat a width of stride/4 makes ncnn
+    // read exactly the bitmap rows, padding included.
+    const int srcw_px = in_stride / 4;
+    const int dstw_px = out_stride / 4;
+    const int out_h = h * kScale;
+
+    bool ok = true;
+    {
+        ncnn::Mat src_cpu(srcw_px, h, 1, const_cast<unsigned char*>(rgba_in), 4u);
+        ncnn::Mat dst_cpu(dstw_px, out_h, 1, rgba_out, 4u);
+        ncnn::VkMat src_vk;
+        ncnn::VkMat dst_vk(dstw_px, out_h, 1, 4u, blob_alloc);
+        if (dst_vk.empty()) {
+            set_error("fused: output page allocation failed (%dx%d)", dstw_px, out_h);
+            ok = false;
+        }
+
+        if (ok) {
+            const auto c0 = clock::now();
+            ncnn::VkCompute cmd(vkdev);
+            cmd.record_upload(src_cpu, src_vk, opt);
+            if (cmd.submit_and_wait() != 0) {
+                set_error("fused: page upload failed");
+                ok = false;
+            }
+            timing.convert_us += us(clock::now() - c0);
+        }
+
+        ncnn::Extractor ex = ctx->net.create_extractor();
+        for (int yi = 0; ok && yi < h; yi += kTileSize) {
+            const int yi1 = std::min(h, yi + kTileSize);
+            for (int xi = 0; ok && xi < w; xi += kTileSize) {
+                const int xi1 = std::min(w, xi + kTileSize);
+                const int inner_w = xi1 - xi;
+                const int inner_h = yi1 - yi;
+                const int tw = inner_w + 2 * kPrepadding;
+                const int th = inner_h + 2 * kPrepadding;
+
+                ncnn::VkMat tile_vk(tw, th, 3, 4u, blob_alloc);
+                if (tile_vk.empty()) {
+                    set_error("fused: tile allocation failed (%dx%d)", tw, th);
+                    ok = false;
+                    break;
+                }
+
+                ncnn::VkCompute cmd(vkdev);
+
+                const auto c0 = clock::now();
+                std::vector<ncnn::vk_constant_type> pre_constants(9);
+                pre_constants[0].i = srcw_px;
+                pre_constants[1].i = h;
+                pre_constants[2].i = w;
+                pre_constants[3].i = tw;
+                pre_constants[4].i = th;
+                pre_constants[5].i = static_cast<int>(tile_vk.cstep);
+                pre_constants[6].i = kPrepadding;
+                pre_constants[7].i = xi;
+                pre_constants[8].i = yi;
+                ncnn::VkMat pre_dispatcher;
+                pre_dispatcher.w = tw;
+                pre_dispatcher.h = th;
+                pre_dispatcher.c = 1;
+                cmd.record_pipeline(ctx->preproc.get(), {src_vk, tile_vk}, pre_constants, pre_dispatcher);
+                timing.convert_us += us(clock::now() - c0);
+
+                const auto i0 = clock::now();
+                if (ex.input(kInputBlob, tile_vk) != 0) {
+                    set_error("fused: extractor input failed");
+                    ok = false;
+                    break;
+                }
+                ncnn::VkMat out_packed;
+                if (ex.extract(kOutputBlob, out_packed, cmd) != 0) {
+                    set_error("fused: extractor extract failed for blob %s", kOutputBlob);
+                    ok = false;
+                    break;
+                }
+                timing.infer_us += us(clock::now() - i0);
+
+                const auto w0 = clock::now();
+                ncnn::VkMat out_tile;
+                vkdev->convert_packing(out_packed, out_tile, 1, /*cast_type_to=*/0, cmd, opt);
+                if (out_tile.empty()) {
+                    set_error("fused: output unpacking failed");
+                    ok = false;
+                    break;
+                }
+                if (out_tile.w != inner_w * kScale || out_tile.h != inner_h * kScale || out_tile.c < 3) {
+                    set_error("fused: unexpected output tile %dx%dx%d (expected %dx%dx3)",
+                              out_tile.w, out_tile.h, out_tile.c, inner_w * kScale, inner_h * kScale);
+                    ok = false;
+                    break;
+                }
+                const size_t element_size = out_tile.elemsize / out_tile.elempack;
+                if (element_size != 2 && element_size != 4) {
+                    set_error("fused: unsupported output element size %zu", element_size);
+                    ok = false;
+                    break;
+                }
+
+                std::vector<ncnn::vk_constant_type> post_constants(6);
+                post_constants[0].i = out_tile.w;
+                post_constants[1].i = out_tile.h;
+                post_constants[2].i = static_cast<int>(out_tile.cstep);
+                post_constants[3].i = dstw_px;
+                post_constants[4].i = xi * kScale;
+                post_constants[5].i = yi * kScale;
+                ncnn::VkMat post_dispatcher;
+                post_dispatcher.w = out_tile.w;
+                post_dispatcher.h = out_tile.h;
+                post_dispatcher.c = 1;
+                const ncnn::Pipeline* post =
+                    element_size == 2 ? ctx->postproc_fp16.get() : ctx->postproc_fp32.get();
+                cmd.record_pipeline(post, {out_tile, dst_vk}, post_constants, post_dispatcher);
+
+                if (cmd.submit_and_wait() != 0) {
+                    set_error("fused: tile submit failed at (%d,%d)", xi, yi);
+                    ok = false;
+                    break;
+                }
+                timing.write_us += us(clock::now() - w0);
+                tiles++;
+            }
+        }
+
+        if (ok) {
+            const auto w0 = clock::now();
+            ncnn::VkCompute cmd(vkdev);
+            cmd.record_download(dst_vk, dst_cpu, opt);
+            if (cmd.submit_and_wait() != 0) {
+                set_error("fused: result download failed");
+                ok = false;
+            }
+            timing.write_us += us(clock::now() - w0);
+        }
+    }
+
+    vkdev->reclaim_blob_allocator(blob_alloc);
+    vkdev->reclaim_staging_allocator(staging_alloc);
+    return ok;
+}
+
+/**
+ * Loads the net at the requested precision and proves the whole pipeline works on this device.
+ * The fused shaders are tried first and dropped quietly when they fail, so a driver quirk costs
+ * speed, never the feature.
+ */
+bool load_and_verify(Waifu2xContext* ctx, bool fp16) {
+    if (!load_net(ctx, fp16)) return false;
+
+    ctx->fused = ctx->use_vulkan && create_fused_pipelines(ctx);
+    if (run_selftest(ctx)) return true;
+
+    if (ctx->fused) {
+        LOGW("fused path rejected by this device (%s), keeping the staged CPU path",
+             g_last_error.c_str());
+        ctx->fused = false;
+        return run_selftest(ctx);
+    }
+    return false;
+}
+
 bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
              int w, int h, unsigned char* rgba_out, int out_stride) {
     const auto t0 = std::chrono::steady_clock::now();
@@ -377,21 +628,40 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
         return false;
     }
 
-    // One extractor for the whole page: creating one per tile churns blob allocations, and the
-    // bridge already serializes every native call. Thread count comes from net.opt.
-    ncnn::Extractor ex = ctx->net.create_extractor();
-
     TileTiming timing;
     int tiles = 0;
-    for (int yi = 0; yi < h; yi += kTileSize) {
-        const int yi1 = std::min(h, yi + kTileSize);
-        for (int xi = 0; xi < w; xi += kTileSize) {
-            const int xi1 = std::min(w, xi + kTileSize);
-            if (!process_tile(ctx, ex, rgba_in, in_stride, w, h, rgba_out, out_stride,
-                              xi, yi, xi1, yi1, timing)) {
-                return false;
+    bool used_fused = false;
+
+    if (ctx->fused) {
+        if (run_fused(ctx, rgba_in, in_stride, w, h, rgba_out, out_stride, timing, tiles)) {
+            used_fused = true;
+        } else {
+            // Sticky off: a driver that rejects the fused shaders will not start accepting them
+            // mid-page, and retrying would burn a page of work every time. The fused path only
+            // writes into a VRAM page, so the output bitmap is untouched and the staged path can
+            // take over immediately.
+            const std::string reason = g_last_error.empty() ? std::string("unknown") : g_last_error;
+            ctx->fused = false;
+            tiles = 0;
+            timing = TileTiming();
+            LOGW("fused path failed (%s); switching to the staged CPU path", reason.c_str());
+        }
+    }
+
+    if (!used_fused) {
+        // One extractor for the whole page: creating one per tile churns blob allocations, and the
+        // bridge already serializes every native call. Thread count comes from net.opt.
+        ncnn::Extractor ex = ctx->net.create_extractor();
+        for (int yi = 0; yi < h; yi += kTileSize) {
+            const int yi1 = std::min(h, yi + kTileSize);
+            for (int xi = 0; xi < w; xi += kTileSize) {
+                const int xi1 = std::min(w, xi + kTileSize);
+                if (!process_tile(ctx, ex, rgba_in, in_stride, w, h, rgba_out, out_stride,
+                                  xi, yi, xi1, yi1, timing)) {
+                    return false;
+                }
+                tiles++;
             }
-            tiles++;
         }
     }
 
@@ -402,15 +672,15 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
     const long long infer_ms = timing.infer_us / 1000;
     const long long write_ms = timing.write_us / 1000;
     const long long accounted = convert_ms + infer_ms + write_ms;
-    LOGI("process %dx%d -> %dx%d: %d tiles, %lld ms (vulkan=%d fp16=%d) convert=%lld infer=%lld write=%lld",
+    LOGI("process %dx%d -> %dx%d: %d tiles, %lld ms (vulkan=%d fp16=%d path=%s) convert=%lld infer=%lld write=%lld",
          w, h, w * kScale, h * kScale, tiles, total_ms, ctx->use_vulkan ? 1 : 0,
-         ctx->use_fp16 ? 1 : 0, convert_ms, infer_ms, write_ms);
+         ctx->use_fp16 ? 1 : 0, used_fused ? "fused" : "staged", convert_ms, infer_ms, write_ms);
 
     char stats[256];
     snprintf(stats, sizeof(stats),
-             "tiles=%d total=%lldms convert=%lldms infer=%lldms write=%lldms other=%lldms precision=%s",
+             "tiles=%d total=%lldms convert=%lldms infer=%lldms write=%lldms other=%lldms precision=%s path=%s",
              tiles, total_ms, convert_ms, infer_ms, write_ms,
-             total_ms - accounted, ctx->use_fp16 ? "fp16" : "fp32");
+             total_ms - accounted, ctx->use_fp16 ? "fp16" : "fp32", used_fused ? "fused" : "staged");
     {
         std::lock_guard<std::mutex> lock(g_error_mutex);
         g_last_stats = stats;
@@ -447,18 +717,18 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
     bool ok = false;
     if (!ctx->use_vulkan) {
         // No compute queue: ncnn runs on CPU where fp16 storage needs a hardware-capable backend.
-        ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+        ok = load_and_verify(ctx, /*fp16=*/false);
     } else if (precision_mode == 2) {
-        ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+        ok = load_and_verify(ctx, /*fp16=*/false);
         if (!ok) {
             LOGE("fp32 engine self-test failed: %s", g_last_error.c_str());
         }
     } else {
-        ok = load_net(ctx, /*fp16=*/true) && run_selftest(ctx);
+        ok = load_and_verify(ctx, /*fp16=*/true);
         if (!ok && precision_mode == 0) {
             LOGW("fp16 path rejected on this device (%s), retrying with fp32", g_last_error.c_str());
             ctx->net.clear();
-            ok = load_net(ctx, /*fp16=*/false) && run_selftest(ctx);
+            ok = load_and_verify(ctx, /*fp16=*/false);
         } else if (!ok) {
             LOGE("fp16 forced but the engine self-test failed: %s", g_last_error.c_str());
         }
@@ -470,8 +740,9 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
         return 0;
     }
 
-    LOGI("model loaded: %s (%s, %s)", ctx->bin_path.c_str(),
-         ctx->use_vulkan ? "vulkan" : "cpu", ctx->use_fp16 ? "fp16" : "fp32");
+    LOGI("model loaded: %s (%s, %s, %s)", ctx->bin_path.c_str(),
+         ctx->use_vulkan ? "vulkan" : "cpu", ctx->use_fp16 ? "fp16" : "fp32",
+         ctx->fused ? "fused" : "staged");
     return reinterpret_cast<jlong>(ctx);
 }
 
@@ -532,6 +803,14 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeIsFp16(
     JNIEnv* /* env */, jobject /* thiz */, jlong handle) {
     auto* ctx = reinterpret_cast<Waifu2xContext*>(handle);
     return (ctx && ctx->use_fp16) ? JNI_TRUE : JNI_FALSE;
+}
+
+/** True when preproc/postproc run as GPU compute shaders instead of CPU tile conversion. */
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeIsFused(
+    JNIEnv* /* env */, jobject /* thiz */, jlong handle) {
+    auto* ctx = reinterpret_cast<Waifu2xContext*>(handle);
+    return (ctx && ctx->fused) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

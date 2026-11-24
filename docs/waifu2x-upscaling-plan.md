@@ -145,6 +145,8 @@ android {
 - 静态链接 `libncnn.a` + `libvulkan`（dlopen）+ `android` / `log` / `jnigraphics` / `dl`
 - 链接时 gc-sections 裁剪未用符号，strip 后单 ABI `.so` 预期 3–6MB
 - waifu2x fused preproc/postproc 计算着色器用 `glslc` 编译为 `.spv.hex.h`（CI 需装 Vulkan SDK 的 glslc，或改用运行时 `glslang` 编译——mihon 两者都支持，首选构建期编译）
+- **实际实现（2026-11-25 修订）**：改为构建期零依赖——GLSL 源码放在 `app/src/main/cpp/fused_shaders.h`，运行时用 `ncnn::compile_spirv_module`（glslang 已静态链接在 `libncnn.a` 内）编译 SPIR-V，再用 `ncnn::resolve_shader_info` 反射后交给 `Pipeline::create`。因此无需安装 Vulkan SDK，CI 与本地构建行为一致。
+- 注意：预编译 ncnn 用 `NCNN_DISABLE_RTTI` 构建，`Pipeline` 子类需同 `-fno-rtti` 编译，否则链接报 `undefined symbol: typeinfo for ncnn::Pipeline`。
 
 ### 4.4 APK 体积控制
 

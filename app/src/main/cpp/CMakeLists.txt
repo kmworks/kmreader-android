@@ -53,7 +53,9 @@ if(NOT omp-lib)
     message(FATAL_ERROR "libomp not found in NDK for ${ANDROID_ABI}")
 endif()
 
-target_compile_options(waifu2x-jni PRIVATE -ffunction-sections -fdata-sections)
+# The prebuilt ncnn SDK is compiled with NCNN_DISABLE_RTTI (no typeinfo for ncnn::Pipeline), so
+# deriving a Pipeline subclass only links when we match that: keep RTTI off here too.
+target_compile_options(waifu2x-jni PRIVATE -ffunction-sections -fdata-sections -fno-rtti)
 target_link_options(waifu2x-jni PRIVATE -Wl,--gc-sections)
 target_link_options(waifu2x-jni PRIVATE $<$<CONFIG:Release>:-s>)
 
