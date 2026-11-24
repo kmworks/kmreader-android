@@ -1119,6 +1119,13 @@ private fun RealEpubReader(
         }
 
         if (state.loading) {
+            // The WebView JS tap bridge is not injected until the chapter page is ready,
+            // so handle taps here to let the chrome toggle while loading
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures { toggleChrome() } },
+            )
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color = pageContent,

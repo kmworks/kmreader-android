@@ -947,7 +947,10 @@ fun ReaderScreen(
     Box(modifier = Modifier.fillMaxSize().background(readerBackground)) {
         when (uiState.status) {
             ReaderPagesStatus.Loading -> Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // No page gestures exist yet, but a tap should still toggle the chrome
+                    .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } },
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(color = pageContentColor)
@@ -1370,7 +1373,7 @@ fun ReaderScreen(
 
         // Bottom bar: page capsule + capsule progress bar (mirrors iOS DivinaControlsOverlayView bottomOverlayContent)
         AnimatedVisibility(
-            visible = chromeShown && uiState.status == ReaderPagesStatus.Ready,
+            visible = chromeShown,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
