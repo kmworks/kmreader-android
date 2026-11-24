@@ -462,8 +462,10 @@ internal fun CoverDeck(
                 // A slot the user can see but must not touch (the page revealed under a forward
                 // turn, or the page sliding in over the front page): swallow its touches so an
                 // end-page button cannot fire mid-transition. The front slot stays interactive at
-                // all times (the original maps isUserInteractionEnabled from isActive the same way).
-                val active = spec.index == front
+                // all times, and hidden slots swallow nothing — the original maps this straight
+                // from isUserInteractionEnabled = isVisible && isActive (a hidden UIView is not
+                // hit-tested; an alpha=0 composable still is, which would eat the deck's drags).
+                val swallowTouches = spec.visible && spec.index != front
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -479,7 +481,7 @@ internal fun CoverDeck(
                             clip = false
                         }
                         .background(backgroundColor)
-                        .then(if (!active) ConsumeTouchesModifier else Modifier),
+                        .then(if (swallowTouches) ConsumeTouchesModifier else Modifier),
                 ) {
                     pageContent(item)
                 }
