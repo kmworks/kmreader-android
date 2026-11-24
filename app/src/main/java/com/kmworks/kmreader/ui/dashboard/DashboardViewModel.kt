@@ -418,12 +418,10 @@ class DashboardViewModel @Inject constructor(
         ensureScopeLoaded()
         feedsGeneration++
         _state.update { it.copy(hasSession = true, loading = true, error = null) }
-        // Read the library list first: the scope menu needs it anyway, and the single-library fallback above
-        // must not query the feeds with a library id the server no longer knows.
-        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
-        normalizeScope(libraries)
         // Data-cache parity (iOS DashboardSectionCacheStore): paint the cached first page immediately,
-        // then replace it with the server response below. Only seeds an empty screen, never overrides.
+        // before any network round-trip below — waiting even one request would show a blank screen for
+        // that long and then replace the cache almost instantly, which looks like no cache at all.
+        // Only seeds an empty screen, never overrides.
         if (_state.value.sections == null) {
             val cached = runCatching { catalogCache.seedDashboard() }.getOrDefault(emptyList())
             if (cached.isNotEmpty()) {
@@ -439,6 +437,10 @@ class DashboardViewModel @Inject constructor(
                 }
             }
         }
+        // Read the library list first: the scope menu needs it anyway, and the single-library fallback above
+        // must not query the feeds with a library id the server no longer knows.
+        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+        normalizeScope(libraries)
         // Read the pinned set straight from DataStore: avoids a startup race where the first load triggered by a ready
         // clients session runs before the first pinnedIds emission and mis-resolves the pinned scope to null (= all libraries).
         val pinned = appSettings.pinnedLibraryIds.first()

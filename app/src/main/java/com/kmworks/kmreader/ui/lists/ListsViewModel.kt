@@ -221,20 +221,13 @@ class ListsViewModel @Inject constructor(
                 readLists = if (sameQuery) it.readLists else null,
             )
         }
-        // The scope menu needs the real library list; read it first so a persisted single-library scope whose
-        // library disappeared can fall back to "all libraries" before the feeds are queried against a dead filter.
-        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
-        val resolvedScope = normalizeLibraryScope(scope, libraries)
-        if (resolvedScope != scope) {
-            // Persisted, so the normalized choice survives; the collector then re-runs this load.
-            appSettingsStore.setListsBrowseScope(resolvedScope)
-        }
-        val libraryIds = resolveLibraryScopeIds(resolvedScope, pinned)
-        currentLibraryIds = libraryIds
-        _state.update { it.copy(libraryScope = resolvedScope, libraries = libraries) }
-        // Data-cache parity: paint the cached Lists rows before the network answers (empty screen only).
-        // The cache is written unfiltered (also by the library tab), so it can only seed an unfiltered query.
-        if (libraryIds == null && _state.value.collections == null && _state.value.readLists == null) {
+        // Data-cache parity: paint the cached Lists rows before any network round-trip (empty screen
+        // only). The cache is written unfiltered (also by the library tab), so it can only seed an
+        // unfiltered query; the raw scope resolves to "no filter" without waiting for the library list.
+        if (resolveLibraryScopeIds(scope, pinned) == null &&
+            _state.value.collections == null &&
+            _state.value.readLists == null
+        ) {
             val cached = runCatching { catalogCache.seedLists() }.getOrNull()
             if (cached != null && gen == generation) {
                 // The cached pinned flags are from the last save; apply the current sets so a pin toggled
@@ -250,6 +243,17 @@ class ListsViewModel @Inject constructor(
                 }
             }
         }
+        // The scope menu needs the real library list; read it first so a persisted single-library scope whose
+        // library disappeared can fall back to "all libraries" before the feeds are queried against a dead filter.
+        val libraries = runCatching { libraryRepository.libraries() }.getOrDefault(emptyList())
+        val resolvedScope = normalizeLibraryScope(scope, libraries)
+        if (resolvedScope != scope) {
+            // Persisted, so the normalized choice survives; the collector then re-runs this load.
+            appSettingsStore.setListsBrowseScope(resolvedScope)
+        }
+        val libraryIds = resolveLibraryScopeIds(resolvedScope, pinned)
+        currentLibraryIds = libraryIds
+        _state.update { it.copy(libraryScope = resolvedScope, libraries = libraries) }
         try {
             val (collectionPage, readListPage, smartListPage) = coroutineScope {
                 val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
