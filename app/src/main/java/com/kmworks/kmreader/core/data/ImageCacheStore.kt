@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.core.image.upscale.EnhancementCache
 import com.kmworks.kmreader.core.image.upscale.EnhancementDecoder
 import com.kmworks.kmreader.core.image.upscale.ImageEnhancer
@@ -122,6 +123,7 @@ class ImageCacheStore @Inject constructor(
             // requests without the upscale parameters fall through to the default decoder.
             if (kind == ImageCachePaths.KIND_PAGES) {
                 add(EnhancementDecoder.Factory(context, enhancementCache, imageEnhancer))
+                AppLog.i(EnhancementDecoder.APP_TAG, "page loader rebuilt with the upscale decoder ($instanceKey)")
             }
         }
         .build()

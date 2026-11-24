@@ -297,6 +297,18 @@ fun ReaderScreen(
     val sessionLoader by entryPoint.imageCacheStore().pageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
     val imageEnhancer = remember { entryPoint.imageEnhancer() }
+    // Upscaling diagnostics go to the in-app log too, so a device without adb can be inspected
+    // from the Logs screen instead (tag "Upscale").
+    LaunchedEffect(sessionLoader != null) {
+        AppLog.i(
+            EnhancementDecoder.APP_TAG,
+            "reader image loader: " + if (sessionLoader != null) {
+                "page loader (upscale decoder registered)"
+            } else {
+                "SINGLETON fallback (no upscale decoder)"
+            },
+        )
+    }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(presentedBook, incognito, startAtEnd) {
@@ -1810,6 +1822,7 @@ private fun PageImage(
                         pageUrl = it,
                         priority = ImageEnhancer.PRIORITY_VISIBLE,
                     )
+                    AppLog.i(EnhancementDecoder.APP_TAG, "page request marked for upscaling (mode=${upscale.mode})")
                     // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
                     // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
                     memoryCachePolicy(CachePolicy.DISABLED)

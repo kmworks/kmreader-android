@@ -15,6 +15,7 @@ import coil3.fetch.SourceFetchResult
 import coil3.request.ImageRequest
 import coil3.request.Options
 import coil3.size.Dimension
+import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.ui.reader.DenoiseLevel
 import com.kmworks.kmreader.ui.reader.UpscaleMode
 
@@ -29,6 +30,9 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
  * 3. [EnhancementCache] hit → return the cached enhanced bitmap
  * 4. full-res decode → [ImageEnhancer] queue (priority from the request) → write cache
  * 5. any failure falls back to the source bitmap — enhancement must never break page display
+ *
+ * Diagnostics go to logcat and to the in-app log (tag "Upscale") so a device without adb
+ * can still be inspected through the app's own Logs screen.
  *
  * Note: the page request must NOT override `diskCacheKey` with the config hash — the source
  * entry in Coil's disk cache is keyed by plain URL so it stays shared with the disk preloader;
@@ -48,7 +52,7 @@ class EnhancementDecoder private constructor(
     override suspend fun decode(): DecodeResult? {
         val (srcWidth, srcHeight) = decodeBounds() ?: run {
             // Malformed / unsupported source: leave it to the default decoder's error reporting.
-            Log.w(TAG, "unreadable source, deferring to default decoder: $pageUrl")
+            warn("unreadable source, deferring to default decoder: $pageUrl")
             return null
         }
 
@@ -58,9 +62,8 @@ class EnhancementDecoder private constructor(
             maxTextureWidth = textureLimits.first,
             maxTextureHeight = textureLimits.second,
         )
-        Log.i(
-            TAG,
-            "decision $pageUrl: src=${srcWidth}x$srcHeight target=${targetWidth}x$targetHeight " +
+        info(
+            "decision: src=${srcWidth}x$srcHeight target=${targetWidth}x$targetHeight " +
                 "mode=${config.mode} threshold=${config.autoTriggerScale} -> upscale=$upscale",
         )
         if (!upscale) {
@@ -76,32 +79,29 @@ class EnhancementDecoder private constructor(
 
         val cacheKey = EnhancementCache.cacheKey(pageUrl, config.configHash)
         cache.read(cacheKey)?.let {
-            Log.i(TAG, "cache hit (${it.width}x${it.height}): $pageUrl")
+            info("cache hit (${it.width}x${it.height}): $pageUrl")
             return DecodeResult(it.asImage(), false)
         }
 
         // Enhancement input is the full-resolution source (plan §5.2): the 2x output IS the detail.
         val sourceBitmap = decodeSample(1) ?: run {
-            Log.w(TAG, "full-size decode failed, showing source page: $pageUrl")
+            warn("full-size decode failed, showing source page: $pageUrl")
             return null
         }
         val enhanced = enhancer.submit(cacheKey, priority) {
             if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel)) {
-                Log.w(TAG, "engine unavailable (${config.denoise.bridgeModel.modelSuffix})")
+                warn("engine unavailable (${config.denoise.bridgeModel.modelSuffix})")
                 null
             } else {
                 Waifu2xBridge.process(sourceBitmap)
             }
         }
         if (enhanced == null) {
-            Log.i(TAG, "enhancement unavailable, showing source page: $pageUrl")
+            info("enhancement unavailable, showing source page: $pageUrl")
             return DecodeResult(sourceBitmap.asImage(), false)
         }
         cache.write(cacheKey, enhanced)
-        Log.i(
-            TAG,
-            "enhanced $pageUrl: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height}",
-        )
+        info("enhanced: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height} ($pageUrl)")
         return DecodeResult(enhanced.asImage(), false)
     }
 
@@ -169,6 +169,7 @@ class EnhancementDecoder private constructor(
             decode(opts)
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "decode failed: $pageUrl (sample=$sampleSize)", e)
+            AppLog.e(APP_TAG, "decode failed: $pageUrl (sample=$sampleSize)", e)
             null
         }
     }
@@ -182,9 +183,19 @@ class EnhancementDecoder private constructor(
                 sourceBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size, opts) }
             }
         }.getOrElse { e ->
-            Log.w(TAG, "source decode failed (sample=${opts.inSampleSize}): $pageUrl", e)
+            warn("source decode failed (sample=${opts.inSampleSize}): $pageUrl (${e.message})")
             null
         }
+    }
+
+    private fun info(message: String) {
+        Log.i(TAG, message)
+        AppLog.i(APP_TAG, message)
+    }
+
+    private fun warn(message: String) {
+        Log.w(TAG, message)
+        AppLog.w(APP_TAG, message)
     }
 
     class Factory(
@@ -203,12 +214,16 @@ class EnhancementDecoder private constructor(
             )
             val priority = extras[KEY_PRIORITY] ?: ImageEnhancer.PRIORITY_VISIBLE
             Log.i(TAG, "marked for upscaling: $pageUrl (mode=${config.mode}, denoise=${config.denoise}, priority=$priority)")
+            AppLog.i(APP_TAG, "marked for upscaling (mode=${config.mode}, denoise=${config.denoise}, priority=$priority)")
             return EnhancementDecoder(result.source, pageUrl, config, priority, options, context, cache, enhancer)
         }
     }
 
     companion object {
         private const val TAG = "EnhancementDecoder"
+
+        /** In-app log tag, so the Logs screen can filter upscaling diagnostics. */
+        const val APP_TAG = "Upscale"
 
         /** Decode size for preloaded pages that do not need upscaling (result is discarded). */
         private const val PRELOAD_DECODE_TARGET = 512
