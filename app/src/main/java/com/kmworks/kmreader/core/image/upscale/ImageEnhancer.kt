@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.image.upscale
 
 import android.util.Log
+import com.kmworks.kmreader.core.logging.AppLog
 import java.util.PriorityQueue
 import java.util.concurrent.locks.ReentrantLock
 import javax.inject.Inject
@@ -159,6 +160,7 @@ class ImageEnhancer @Inject constructor(
                 throw e
             } catch (e: Throwable) {
                 Log.w(TAG, "enhancement failed: ${task.key}", e)
+                AppLog.w(EnhancementDecoder.APP_TAG, "enhancement failed: ${e::class.simpleName}: ${e.message}")
                 null
             }
             lock.withLock {
@@ -172,6 +174,10 @@ class ImageEnhancer @Inject constructor(
                         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !isDisabled) {
                             isDisabled = true
                             Log.e(TAG, "circuit breaker: $MAX_CONSECUTIVE_FAILURES consecutive failures, enhancement disabled until next generation")
+                            AppLog.e(
+                                EnhancementDecoder.APP_TAG,
+                                "circuit breaker: $MAX_CONSECUTIVE_FAILURES consecutive failures, upscaling paused until the reader is reopened",
+                            )
                         }
                     } else {
                         consecutiveFailures = 0

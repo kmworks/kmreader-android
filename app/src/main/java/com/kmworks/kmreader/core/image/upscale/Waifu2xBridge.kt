@@ -3,6 +3,7 @@ package com.kmworks.kmreader.core.image.upscale
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import com.kmworks.kmreader.core.logging.AppLog
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.sync.Mutex
@@ -65,17 +66,21 @@ object Waifu2xBridge {
             extractModels(context)
         } catch (e: IOException) {
             Log.e(TAG, "model extraction failed", e)
+            AppLog.e(EnhancementDecoder.APP_TAG, "model extraction failed: ${e.message}", e)
             return@withLock false
         }
         val h = nativeInit(dir.absolutePath, model.modelSuffix)
         if (h == 0L) {
-            Log.e(TAG, "nativeInit failed for ${model.modelSuffix}")
+            val reason = lastError()
+            Log.e(TAG, "nativeInit failed for ${model.modelSuffix}: $reason")
+            AppLog.e(EnhancementDecoder.APP_TAG, "engine init failed (${model.modelSuffix}): $reason")
             return@withLock false
         }
         handle = h
         activeModel = model
         isVulkan = nativeIsVulkan(h)
         Log.i(TAG, "initialized: ${model.modelSuffix}, vulkan=$isVulkan")
+        AppLog.i(EnhancementDecoder.APP_TAG, "engine initialized: ${model.modelSuffix}, vulkan=$isVulkan")
         true
     }
 
@@ -95,9 +100,13 @@ object Waifu2xBridge {
             Bitmap.createBitmap(argb.width * SCALE, argb.height * SCALE, Bitmap.Config.ARGB_8888)
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "output bitmap allocation failed: ${argb.width * SCALE}x${argb.height * SCALE}", e)
+            AppLog.e(EnhancementDecoder.APP_TAG, "output bitmap OOM: ${argb.width * SCALE}x${argb.height * SCALE}")
             return@withLock null
         }
         if (!nativeProcess(h, argb, output)) {
+            val reason = lastError()
+            Log.e(TAG, "nativeProcess failed: $reason")
+            AppLog.e(EnhancementDecoder.APP_TAG, "native process failed: $reason")
             output.recycle()
             return@withLock null
         }
@@ -138,6 +147,11 @@ object Waifu2xBridge {
         Log.i(TAG, "models extracted: ${names.size} files (v$MODEL_CACHE_VERSION)")
         return dir
     }
+
+    /** Last native failure text (null when the previous call succeeded). */
+    private fun lastError(): String = runCatching { nativeLastError() }.getOrNull() ?: "unknown (no native error recorded)"
+
+    private external fun nativeLastError(): String?
 
     private external fun nativeInit(modelDir: String, modelSuffix: String): Long
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean

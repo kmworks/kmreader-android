@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <mutex>
 #include <string>
 
@@ -32,6 +34,28 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 namespace {
+
+/**
+ * Last failure, readable from Kotlin via nativeLastError(). Native logs only reach logcat, so
+ * without this an "upscaling did nothing" report is undiagnosable on a device with no adb —
+ * the Kotlin side copies this text into the in-app log. Calls are serialized by the bridge's
+ * mutex, but the read happens on the JNI caller thread, hence a plain guarded string.
+ */
+std::mutex g_error_mutex;
+std::string g_last_error;
+
+void set_error(const char* fmt, ...) {
+    char buf[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    {
+        std::lock_guard<std::mutex> lock(g_error_mutex);
+        g_last_error = buf;
+    }
+    LOGE("%s", buf);
+}
 
 // waifu2x upconv7 constants (docs/waifu2x-upscaling-plan.md §9)
 constexpr int kScale = 2;
@@ -127,32 +151,39 @@ bool process_tile(ncnn::Net& net, const unsigned char* in, int in_stride, int w,
                   int xi0, int yi0, int xi1, int yi1) {
     ncnn::Mat in_tile = make_tile(in, in_stride, w, h, xi0, yi0, xi1, yi1);
     if (in_tile.empty()) {
-        LOGE("tile allocation failed");
+        set_error("tile allocation failed (tile too large)");
         return false;
     }
 
     ncnn::Extractor ex = net.create_extractor();
     if (ex.input(kInputBlob, in_tile) != 0) {
-        LOGE("extractor input failed");
+        set_error("extractor input failed");
         return false;
     }
     ncnn::Mat out_tile;
     if (ex.extract(kOutputBlob, out_tile) != 0) {
-        LOGE("extractor extract failed");
+        set_error("extractor extract failed for blob %s", kOutputBlob);
         return false;
     }
-    // With Vulkan + bf16 storage the extracted Mat may stay packed (elempack 4), which would
-    // make channel()/row() arithmetic invalid; unpack defensively and verify the geometry.
+    // With Vulkan + bf16 storage the extracted Mat can come back as bf16 (2 bytes per element)
+    // and/or packed (elempack 4). Both break the float* row arithmetic below, so normalize to a
+    // plain fp32, unpacked Mat before writing pixels.
+    if (out_tile.elempack > 0 && out_tile.elemsize / out_tile.elempack == 2) {
+        ncnn::Mat f32;
+        ncnn::cast_bfloat16_to_float32(out_tile, f32, net.opt);
+        out_tile = f32;
+    }
     if (out_tile.elempack != 1) {
         ncnn::Mat unpacked;
-        ncnn::convert_packing(out_tile, unpacked, 1);
+        ncnn::convert_packing(out_tile, unpacked, 1, net.opt);
         out_tile = unpacked;
     }
     const int expected_w = (xi1 - xi0 + 2 * kPrepadding) * kScale;
     const int expected_h = (yi1 - yi0 + 2 * kPrepadding) * kScale;
     if (out_tile.empty() || out_tile.c < 3 || out_tile.w != expected_w || out_tile.h != expected_h) {
-        LOGE("unexpected output tile %dx%dx%d (expected %dx%dx3)",
-             out_tile.w, out_tile.h, out_tile.c, expected_w, expected_h);
+        set_error("unexpected output tile %dx%dx%d elemsize=%zu elempack=%d (expected %dx%dx3)",
+                  out_tile.w, out_tile.h, out_tile.c, out_tile.elemsize, out_tile.elempack,
+                  expected_w, expected_h);
         return false;
     }
 
@@ -165,12 +196,16 @@ bool process_tile(ncnn::Net& net, const unsigned char* in, int in_stride, int w,
 bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
              int w, int h, unsigned char* rgba_out, int out_stride) {
     const auto t0 = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(g_error_mutex);
+        g_last_error.clear();
+    }
 
     // A 2x page bitmap is 4x the source pixels; beyond this the output allocation (and the
     // GPU uploads) reliably OOMs on mid-range devices, so refuse instead of crashing.
     constexpr int kMaxOutputEdge = 4096;
     if (w <= 0 || h <= 0 || w * kScale > kMaxOutputEdge || h * kScale > kMaxOutputEdge) {
-        LOGW("page too large to upscale: %dx%d -> %dx%d", w, h, w * kScale, h * kScale);
+        set_error("page too large to upscale: %dx%d -> %dx%d (limit %d)", w, h, w * kScale, h * kScale, kMaxOutputEdge);
         return false;
     }
 
@@ -213,11 +248,14 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
     ctx->use_vulkan = g_gpu_ok;
 
     // Precision/stability settings verified by mihon_img_upscale (IMAGE_ENHANCEMENT_FIXES.md):
-    // BF16 storage halves bandwidth while FP32 arithmetic avoids driver "flower screen" bugs.
+    // FP32 arithmetic avoids driver "flower screen" bugs; FP16 storage/packing is off for the same
+    // reason. BF16 storage halves bandwidth but needs 16-bit-storage support in the driver — it is
+    // off until a device matrix proves it on real hardware (the PoC must run everywhere first).
+    constexpr bool kUseBf16Storage = false;
     ctx->net.opt.use_fp16_packed = false;
     ctx->net.opt.use_fp16_storage = false;
     ctx->net.opt.use_fp16_arithmetic = false;
-    ctx->net.opt.use_bf16_storage = true;
+    ctx->net.opt.use_bf16_storage = kUseBf16Storage;
     ctx->net.opt.num_threads = ncnn::get_big_cpu_count();
     if (ctx->use_vulkan) {
         ctx->net.opt.use_vulkan_compute = true;
@@ -227,12 +265,12 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
     }
 
     if (ctx->net.load_param(param_path.c_str()) != 0) {
-        LOGE("load_param failed: %s", param_path.c_str());
+        set_error("load_param failed: %s", param_path.c_str());
         delete ctx;
         return 0;
     }
     if (ctx->net.load_model(bin_path.c_str()) != 0) {
-        LOGE("load_model failed: %s", bin_path.c_str());
+        set_error("load_model failed: %s", bin_path.c_str());
         delete ctx;
         return 0;
     }
@@ -250,17 +288,17 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeProcess(
     AndroidBitmapInfo out_info;
     if (AndroidBitmap_getInfo(env, in_bitmap, &in_info) != ANDROID_BITMAP_RESULT_SUCCESS ||
         AndroidBitmap_getInfo(env, out_bitmap, &out_info) != ANDROID_BITMAP_RESULT_SUCCESS) {
-        LOGE("AndroidBitmap_getInfo failed");
+        g_last_error = "AndroidBitmap_getInfo failed"; LOGE("%s", g_last_error.c_str());
         return JNI_FALSE;
     }
     if (in_info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
         out_info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        LOGE("bitmaps must be RGBA_8888 (in=%d out=%d)", in_info.format, out_info.format);
+        set_error("bitmaps must be RGBA_8888 (in=%d out=%d)", in_info.format, out_info.format);
         return JNI_FALSE;
     }
     if (out_info.width != in_info.width * kScale || out_info.height != in_info.height * kScale) {
-        LOGE("output size must be %dx the input (in=%ux%u out=%ux%u)", kScale,
-             in_info.width, in_info.height, out_info.width, out_info.height);
+        set_error("output size must be %dx the input (in=%ux%u out=%ux%u)", kScale,
+                  in_info.width, in_info.height, out_info.width, out_info.height);
         return JNI_FALSE;
     }
 
@@ -268,7 +306,7 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeProcess(
     void* out_pixels = nullptr;
     if (AndroidBitmap_lockPixels(env, in_bitmap, &in_pixels) != ANDROID_BITMAP_RESULT_SUCCESS ||
         AndroidBitmap_lockPixels(env, out_bitmap, &out_pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
-        LOGE("lockPixels failed");
+        set_error("lockPixels failed");
         if (in_pixels) AndroidBitmap_unlockPixels(env, in_bitmap);
         return JNI_FALSE;
     }
@@ -296,4 +334,13 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeRelease(
     JNIEnv* /* env */, jobject /* thiz */, jlong handle) {
     delete reinterpret_cast<Waifu2xContext*>(handle);
+}
+
+/** Text of the last native failure (null when nothing failed); surfaced in the in-app log. */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeLastError(
+    JNIEnv* env, jobject /* thiz */) {
+    std::lock_guard<std::mutex> lock(g_error_mutex);
+    if (g_last_error.empty()) return nullptr;
+    return env->NewStringUTF(g_last_error.c_str());
 }
