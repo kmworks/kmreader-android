@@ -121,6 +121,9 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.image.BorderCropTransformation
+import com.kmworks.kmreader.core.image.upscale.EnhancementDecoder
+import com.kmworks.kmreader.core.image.upscale.ImageEnhancer
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
@@ -293,6 +296,7 @@ fun ReaderScreen(
     }
     val sessionLoader by entryPoint.imageCacheStore().pageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
+    val imageEnhancer = remember { entryPoint.imageEnhancer() }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(presentedBook, incognito, startAtEnd) {
@@ -324,7 +328,12 @@ fun ReaderScreen(
     // the process disappears (the log file survives the crash).
     DisposableEffect(presentedBook.id) {
         AppLog.i("Reader", "open book=${presentedBook.id} incognito=$incognito ${heapFootprint()}")
-        onDispose { AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}") }
+        onDispose {
+            // Book switch or reader exit: drop every queued enhancement of this reading session
+            // (docs/waifu2x-upscaling-plan.md §7 generation cancellation).
+            imageEnhancer.nextGeneration()
+            AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}")
+        }
     }
     val readerPages = uiState.pages
     val soloPages by viewModel.soloPages.collectAsStateWithLifecycle()
@@ -546,20 +555,26 @@ fun ReaderScreen(
     }
 
     // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate).
-    // The prefetch warms the disk cache only: a prefetched full-size decode would be rejected by the
-    // sized display request (Precision.EXACT), so decoding here just burns heap on bitmaps that can
-    // never be shown.
-    LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
+    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue
+    // (docs/waifu2x-upscaling-plan.md §5.3); otherwise it warms the disk cache only: a prefetched
+    // full-size decode would be rejected by the sized display request (Precision.EXACT), so decoding
+    // here just burns heap on bitmaps that can never be shown.
+    LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload, settings.upscale) {
         snapshotFlow { turnState.settledIndex }
             .debounce(300)
             .collect { index ->
                 if (uiState.bookDtoId == null) return@collect
                 if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
                 val profile = settings.preloadProfile
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { number ->
                         viewModel.pageImageUrl(number)?.let { url ->
-                            imageLoader.enqueueDiskPreload(context, url)
+                            if (upscale != null) {
+                                imageLoader.enhancedPreload(context, url, upscale)
+                            } else {
+                                imageLoader.enqueueDiskPreload(context, url)
+                            }
                         }
                     }
                 }
@@ -586,7 +601,7 @@ fun ReaderScreen(
         }
     }
     // Webtoon: preloading + progress reporting
-    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload, progressArmed) {
+    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload, progressArmed, settings.upscale) {
         if (!isWebtoon || !progressArmed) return@LaunchedEffect
         snapshotFlow { webtoonState.firstVisibleItemIndex }
             .debounce(300)
@@ -594,11 +609,16 @@ fun ReaderScreen(
                 if (uiState.bookDtoId == null) return@collect
                 items.getOrNull(index)?.pages?.maxOrNull()?.let { viewModel.reportProgress(it) }
                 if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
                 val profile = settings.preloadProfile
                 for (i in (index - profile.before)..(index + profile.after)) {
                     items.getOrNull(i)?.pages?.forEach { n ->
                         viewModel.pageImageUrl(n)?.let { url ->
-                            imageLoader.enqueueDiskPreload(context, url)
+                            if (upscale != null) {
+                                imageLoader.enhancedPreload(context, url, upscale)
+                            } else {
+                                imageLoader.enqueueDiskPreload(context, url)
+                            }
                         }
                     }
                 }
@@ -1765,6 +1785,7 @@ private fun PageImage(
     }
     val context = LocalContext.current
     val crop = settings.borderCrop
+    val upscale = settings.upscale
     // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
     // into the page image
     val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
@@ -1772,11 +1793,26 @@ private fun PageImage(
     } else {
         null
     }
-    val request = remember(context, url, crop) {
+    val request = remember(context, url, crop, upscale) {
         url?.let {
             ImageRequest.Builder(context).data(it).apply {
                 if (crop != BorderCropMode.Disabled) {
                     transformations(BorderCropTransformation(crop))
+                }
+                if (upscale.mode != UpscaleMode.Off) {
+                    EnhancementDecoder.applyTo(
+                        builder = this,
+                        config = UpscaleConfig(
+                            mode = upscale.mode,
+                            denoise = upscale.denoise,
+                            autoTriggerScale = upscale.autoTriggerScale,
+                        ),
+                        pageUrl = it,
+                        priority = ImageEnhancer.PRIORITY_VISIBLE,
+                    )
+                    // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
+                    // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
+                    memoryCachePolicy(CachePolicy.DISABLED)
                 }
             }.build()
         }
@@ -2091,6 +2127,34 @@ private fun coil3.ImageLoader.enqueueDiskPreload(context: Context, url: String) 
             .data(url)
             .memoryCachePolicy(CachePolicy.DISABLED)
             .decoderFactory(BlackholeDecoder.Factory())
+            .build(),
+    )
+}
+
+/**
+ * Enhancement-aware page preload (docs/waifu2x-upscaling-plan.md §5.3): runs the full decode path
+ * so a page that passes the trigger is enhanced through [ImageEnhancer] at [ImageEnhancer.PRIORITY_PRELOAD]
+ * and lands in the EnhancementCache before it is displayed. Pages below the trigger are decoded
+ * tiny and discarded — their source bytes stay in Coil's disk cache, which is what the display
+ * request will read.
+ */
+private suspend fun coil3.ImageLoader.enhancedPreload(context: Context, url: String, upscale: UpscaleSettings) {
+    execute(
+        ImageRequest.Builder(context)
+            .data(url)
+            .apply {
+                EnhancementDecoder.applyTo(
+                    builder = this,
+                    config = UpscaleConfig(
+                        mode = upscale.mode,
+                        denoise = upscale.denoise,
+                        autoTriggerScale = upscale.autoTriggerScale,
+                    ),
+                    pageUrl = url,
+                    priority = ImageEnhancer.PRIORITY_PRELOAD,
+                )
+            }
+            .memoryCachePolicy(CachePolicy.DISABLED)
             .build(),
     )
 }

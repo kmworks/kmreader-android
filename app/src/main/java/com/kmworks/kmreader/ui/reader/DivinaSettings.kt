@@ -110,9 +110,39 @@ enum class BorderCropMode(@StringRes val labelRes: Int, val maxFraction: Float, 
     Aggressive(R.string.reader_crop_aggressive, 0.20f, 24)
 }
 
+/** Waifu2x upscaling trigger (mirrors the iOS upscale setting: off / auto when enlarged on screen / always). */
+enum class UpscaleMode(@StringRes val labelRes: Int) {
+    Off(R.string.reader_off),
+    Auto(R.string.upscale_mode_auto),
+    Always(R.string.upscale_mode_always),
+}
+
+/**
+ * Waifu2x denoise weights (mirrors the iOS noise level choice: 无降噪 + noise0..3).
+ * Maps 1:1 onto Waifu2xBridge.DenoiseModel.
+ */
+enum class DenoiseLevel(@StringRes val labelRes: Int) {
+    None(R.string.upscale_denoise_none),
+    Low(R.string.upscale_denoise_low),
+    Medium(R.string.upscale_denoise_medium),
+    High(R.string.upscale_denoise_high),
+    Max(R.string.upscale_denoise_max),
+    ;
+
+    val bridgeModel: com.kmworks.kmreader.core.image.upscale.Waifu2xBridge.DenoiseModel
+        get() = com.kmworks.kmreader.core.image.upscale.Waifu2xBridge.DenoiseModel.valueOf(name.uppercase())
+}
+
+/** Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model). */
+data class UpscaleSettings(
+    val mode: UpscaleMode = UpscaleMode.Auto,
+    val denoise: DenoiseLevel = DenoiseLevel.Low,
+    val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+)
+
 /**
  * DIVINA reader settings (mirrors the original ReaderSettingsSheet's @AppStorage keys and defaults).
- * Panel mode / Waifu2x upscaling / Live Text are not implemented per project constraints; recorded in the README differences list.
+ * Panel mode / Live Text are not implemented per project constraints; recorded in the README differences list.
  *
  * defaultPageLayout/defaultSplitWideMode/defaultSoloCoverPage correspond to the original DivinaPreferencesView's
  * "Default Reading Options": consumed only as initial values when opening a new session; in-reader changes are not
@@ -136,6 +166,7 @@ data class DivinaSettings(
     val longPressAction: LongPressAction = LongPressAction.ContextMenu,
     val preloadProfile: PreloadProfile = PreloadProfile.Balanced,
     val borderCrop: BorderCropMode = BorderCropMode.Disabled,
+    val upscale: UpscaleSettings = UpscaleSettings(),
     val keepScreenAwake: Boolean = false,
     val defaultPageLayout: PageLayout = PageLayout.Auto,
     val defaultSplitWideMode: SplitWidePageMode = SplitWidePageMode.Auto,

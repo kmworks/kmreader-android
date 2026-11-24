@@ -190,6 +190,23 @@ fun ReaderSettingsSheet(
                 onSelect = { value -> onUpdate { it.copy(borderCrop = value) } },
             )
             SettingsHintText(stringResource(R.string.reader_crop_hint))
+            SettingsChoiceRow(
+                label = stringResource(R.string.reader_upscale_title),
+                options = UpscaleMode.entries,
+                selected = settings.upscale.mode,
+                optionLabel = { stringResource(it.labelRes) },
+                onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(mode = value)) } },
+            )
+            if (settings.upscale.mode != UpscaleMode.Off) {
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_denoise_title),
+                    options = DenoiseLevel.entries,
+                    selected = settings.upscale.denoise,
+                    optionLabel = { stringResource(it.labelRes) },
+                    onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(denoise = value)) } },
+                )
+                SettingsHintText(stringResource(R.string.reader_upscale_hint))
+            }
         }
     }
 }

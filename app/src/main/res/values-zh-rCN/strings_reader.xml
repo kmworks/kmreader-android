@@ -33,6 +33,16 @@
     <string name="reader_group_image_processing">图像处理</string>
     <string name="reader_crop_title">裁边模式</string>
     <string name="reader_crop_hint">裁掉页面四周与底色相同的留白；关闭后按原图显示。</string>
+    <string name="reader_upscale_title">Waifu2x 超分</string>
+    <string name="reader_upscale_denoise_title">降噪强度</string>
+    <string name="reader_upscale_hint">在设备端将低分辨率页图放大 2 倍（ncnn + Vulkan）。自动模式仅对需要放大显示的页图生效。降噪越强越能抹平 JPEG 噪点，但会弱化细节。</string>
+    <string name="upscale_mode_auto">自动</string>
+    <string name="upscale_mode_always">总是</string>
+    <string name="upscale_denoise_none">无</string>
+    <string name="upscale_denoise_low">低</string>
+    <string name="upscale_denoise_medium">中</string>
+    <string name="upscale_denoise_high">高</string>
+    <string name="upscale_denoise_max">最高</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">从左到右</string>

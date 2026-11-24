@@ -9,8 +9,9 @@ import java.io.File
  * (ImageCache) and covers (ThumbnailCache):
  *
  * ```
- * cache/images/<instanceKey>/pages    reader page images
- * cache/images/<instanceKey>/covers   book / series / collection / read list covers
+ * cache/images/<instanceKey>/pages     reader page images
+ * cache/images/<instanceKey>/covers    book / series / collection / read list covers
+ * cache/images/<instanceKey>/enhanced  waifu2x-upscaled page images (docs/waifu2x-upscaling-plan.md §6)
  * ```
  *
  * Every server instance gets its own namespace (same identity the instance list dedupes on:
@@ -26,6 +27,7 @@ object ImageCachePaths {
 
     const val KIND_PAGES = "pages"
     const val KIND_COVERS = "covers"
+    const val KIND_ENHANCED = "enhanced"
 
     private const val LEGACY_SHARED_DIR = "image_cache"
     private const val ROOT_DIR = "images"
@@ -42,7 +44,7 @@ object ImageCachePaths {
     /** Stable namespace name from the raw `baseUrl#username` identity (one implementation, see [serverInstanceKey]). */
     fun sanitize(raw: String): String = serverInstanceKey(raw)
 
-    /** Directory of one cache kind for one instance (`kinds` are [KIND_PAGES] / [KIND_COVERS]). */
+    /** Directory of one cache kind for one instance (`kinds` are [KIND_PAGES] / [KIND_COVERS] / [KIND_ENHANCED]). */
     fun directory(cacheDir: File, instanceKey: String, kind: String): File =
         File(File(root(cacheDir), instanceKey), kind)
 

@@ -22,7 +22,9 @@ object Waifu2xBridge {
 
     private const val TAG = "Waifu2xBridge"
     private const val MODEL_ASSET_DIR = "upscale-models/waifu2x-upconv7"
-    private const val MODEL_CACHE_VERSION = 1
+
+    /** Public because [UpscaleConfig.configHash] embeds it so cache entries self-invalidate. */
+    const val MODEL_CACHE_VERSION = 1
 
     /** Denoise level → bundled model weight file suffix. Order matches the plan's DenoiseLevel enum. */
     enum class DenoiseModel(val modelSuffix: String) {
