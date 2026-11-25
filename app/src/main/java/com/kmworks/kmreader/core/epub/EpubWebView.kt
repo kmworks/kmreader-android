@@ -498,22 +498,45 @@ object EpubJs {
             var vh = window.innerHeight || 1;
             var m = c.marginH;
             if (S.vertical) {
-              // Vertical-rl multicol: the inline axis is vertical, so column-width is a
-              // VERTICAL extent and columns repeat downward. Pitch = column-width + gap =
-              // vh keeps every page exactly one screen tall; body width is pinned so the
-              // block (horizontal) size cannot exceed one screen either.
-              var ch = Math.max(80, vh - 2 * m);
+              // Vertical-rl multicol: the inline axis is vertical, so the columns repeat
+              // downward and one page = the container's inline extent (vh). Same two
+              // invariants as the horizontal strip, with the axes swapped:
+              //   * pitch == vh, because a column's tile is the container's inline size and
+              //     column-gap is 0 — there is no arithmetic pitch (old rule: column-width
+              //     vh-2m plus a 2m gap) that a fractional viewport could desynchronise;
+              //   * strip height == pages * vh, because the trailing inline gutter belongs to
+              //     the LAST column instead of being trailing padding that the scrollable
+              //     overflow drops. That is what lets a turn land exactly on page * vh and
+              //     stops the final page from being clamped short of the strip's end.
+              // Which padding goes where matters, and it is the mirror of the horizontal
+              // branch: the inline-axis (top/bottom) gutter and the overlay reservation are
+              // <body> padding, because a fragmented element repeats its INLINE padding in
+              // every column fragment — that keeps text clear of the header and footer on
+              // EVERY page (on the container it only pads the strip's ends, so every later
+              // page slid under the chrome, which is what the old rule did). The block-axis
+              // (left/right) gutter is container padding, because it has to shrink every
+              // column's tile; on the fragmented <body> it would pad only the first and last
+              // fragment.
+              var inset = m + (c.insetV || 0);
+              var ch = Math.max(80, vh - 2 * inset);
               // overflow-anchor:none — a paged strip that Chromium may "anchor" scrolls itself
               // off the page grid whenever late layout lands above the reader (see settlePage).
               return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
-                + 'html{overflow-x:hidden !important;overflow-y:auto !important;}'
-                + 'body{box-sizing:border-box !important;width:' + vw + 'px !important;'
-                + 'padding:' + (m + (c.insetV || 0)) + 'px 24px !important;'
-                + 'column-width:' + ch + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+                // width:100% (not `vw px`) so the block extent is resolved by the browser against
+                // the real ICB; only the inline extent is pinned, because that is the page step.
+                + 'html{width:100% !important;height:' + vh + 'px !important;'
+                + 'overflow-x:hidden !important;overflow-y:auto !important;'
+                + 'box-sizing:border-box !important;padding:0 ' + m + 'px !important;'
+                + 'column-count:1 !important;column-gap:0 !important;'
                 + 'column-fill:auto !important;}'
+                // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
+                // body padding, and this rule must win on specificity instead of on sheet order.
+                + 'html body{box-sizing:border-box !important;width:100% !important;'
+                + 'padding:' + inset + 'px 0 !important;}'
                 // break-inside: an image must not be sliced across two columns/pages (foliate
-                // setImageSize); the max-* clamps keep it inside one page box.
-                + 'img,svg,video{max-width:' + Math.max(120, vw - 48) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
+                // setImageSize); the max-* clamps keep it inside one page box, which now means
+                // the tile minus the inline reservation on both sides.
+                + 'img,svg,video{max-width:' + Math.max(120, vw - 2 * m) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
             }
             // The columns live on <html> and the page gutter lives on the fragmented <body>, so
             // the two invariants the pager relies on are structural instead of arithmetic:
