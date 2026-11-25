@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <memory>
 #include <mutex>
@@ -515,10 +516,12 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
     const int dstw_px = out_stride / 4;
     const int out_h = h * kScale;
 
+    // Neither shader touches an image; every binding is a storage buffer.
+    const std::vector<ncnn::VkImageMat> no_images;
+
     bool ok = true;
     {
         ncnn::Mat src_cpu(srcw_px, h, 1, const_cast<unsigned char*>(rgba_in), 4u);
-        ncnn::Mat dst_cpu(dstw_px, out_h, 1, rgba_out, 4u);
         ncnn::VkMat src_vk;
         ncnn::VkMat dst_vk(dstw_px, out_h, 1, 4u, blob_alloc);
         if (dst_vk.empty()) {
@@ -529,7 +532,10 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
         if (ok) {
             const auto c0 = clock::now();
             ncnn::VkCompute cmd(vkdev);
-            cmd.record_upload(src_cpu, src_vk, opt);
+            // Clone, not upload. record_upload() casts the source to fp16 on integrated GPUs
+            // (cast_type_to = 2), which reinterprets our packed ARGB uint32 words as float pixels
+            // and hands the preproc shader garbage. A clone is a raw byte copy.
+            cmd.record_clone(src_cpu, src_vk, opt);
             if (cmd.submit_and_wait() != 0) {
                 set_error("fused: page upload failed");
                 ok = false;
@@ -567,11 +573,13 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 pre_constants[6].i = kPrepadding;
                 pre_constants[7].i = xi;
                 pre_constants[8].i = yi;
-                ncnn::VkMat pre_dispatcher;
-                pre_dispatcher.w = tw;
-                pre_dispatcher.h = th;
-                pre_dispatcher.c = 1;
-                cmd.record_pipeline(ctx->preproc.get(), {src_vk, tile_vk}, pre_constants, pre_dispatcher);
+                // The dispatcher has to be a real Mat. A default-constructed VkMat with only w/h/c
+                // hand-filled keeps dims=0 and d=0, ncnn derives the group counts (z in particular)
+                // from those, and vkCmdDispatch(..., 0) legally does nothing — which is exactly how
+                // both dispatches silently became no-ops and the alpha self-test failed.
+                const ncnn::Mat pre_dispatcher(tw, th, 1);
+                cmd.record_pipeline(ctx->preproc.get(), {src_vk, tile_vk}, no_images,
+                                    pre_constants, pre_dispatcher);
                 // ncnn tracks buffer hazards through these flags; a custom dispatch does not update
                 // them, so without this the network may read the tile before the write is visible.
                 mark_shader_write(tile_vk);
@@ -626,13 +634,11 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 post_constants[3].i = dstw_px;
                 post_constants[4].i = xi * kScale;
                 post_constants[5].i = yi * kScale;
-                ncnn::VkMat post_dispatcher;
-                post_dispatcher.w = out_tile.w;
-                post_dispatcher.h = out_tile.h;
-                post_dispatcher.c = 1;
+                const ncnn::Mat post_dispatcher(out_tile.w, out_tile.h, 1);
                 const ncnn::Pipeline* post =
                     element_size == 2 ? ctx->postproc_fp16.get() : ctx->postproc_fp32.get();
-                cmd.record_pipeline(post, {out_tile, dst_vk}, post_constants, post_dispatcher);
+                cmd.record_pipeline(post, {out_tile, dst_vk}, no_images, post_constants,
+                                    post_dispatcher);
                 mark_shader_write(dst_vk);
 
                 if (tiles < 2 || tiles % 20 == 0) {
@@ -647,15 +653,46 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 if (tiles == 0) {
                     // First-tile sanity probe: tells a broken network output apart from a broken
                     // postproc dispatch, which otherwise both show up as an all-zero page.
-                    ncnn::Mat probe(out_tile.w, out_tile.h, out_tile.c);
+                    ncnn::Mat probe;
                     ncnn::VkCompute pcmd(vkdev);
                     pcmd.record_download(out_tile, probe, opt);
-                    if (pcmd.submit_and_wait() == 0) {
-                        const float* row = element_size == 4 ? probe.channel(0).row(0)
-                                                             : nullptr;
-                        nlog("fused: probe netout %dx%dx%d elemsize=%zu = %.3f %.3f %.3f",
-                             out_tile.w, out_tile.h, out_tile.c, element_size,
-                             row ? row[0] : -1.0f, row ? row[1] : -1.0f, row ? row[2] : -1.0f);
+                    if (pcmd.submit_and_wait() == 0 && !probe.empty()) {
+                        // record_download() re-creates the Mat, so read the element size off the
+                        // result: an fp16 tile comes back as fp32 here.
+                        const size_t probe_elem = probe.elemsize / probe.elempack;
+                        const void* row = probe.channel(0).row(0);
+                        float v[3] = {-1.0f, -1.0f, -1.0f};
+                        for (int i = 0; i < 3; i++) {
+                            if (probe_elem == 4) {
+                                v[i] = static_cast<const float*>(row)[i];
+                            } else if (probe_elem == 2) {
+                                v[i] = ncnn::float16_to_float32(
+                                    static_cast<const unsigned short*>(row)[i]);
+                            }
+                        }
+                        nlog("fused: probe netout %dx%dx%d elemsize=%zu = %.3f %.3f %.3f", probe.w,
+                             probe.h, probe.c, probe_elem, v[0], v[1], v[2]);
+                    }
+
+                    // Preproc probe: ~0..1 means the shader wrote the tile, garbage means the
+                    // dispatch still does nothing.
+                    ncnn::Mat tile_probe;
+                    ncnn::VkCompute tcmd(vkdev);
+                    tcmd.record_clone(tile_vk, tile_probe, opt);
+                    if (tcmd.submit_and_wait() == 0 && !tile_probe.empty()) {
+                        const void* trow = tile_probe.channel(0).row(0);
+                        const size_t telem = tile_probe.elemsize / tile_probe.elempack;
+                        float tv[3] = {-1.0f, -1.0f, -1.0f};
+                        for (int i = 0; i < 3; i++) {
+                            if (telem == 4) {
+                                tv[i] = static_cast<const float*>(trow)[i];
+                            } else if (telem == 2) {
+                                tv[i] = ncnn::float16_to_float32(
+                                    static_cast<const unsigned short*>(trow)[i]);
+                            }
+                        }
+                        nlog("fused: probe tile %dx%dx%d elemsize=%zu = %.3f %.3f %.3f", tile_probe.w,
+                             tile_probe.h, tile_probe.c, telem, tv[0], tv[1], tv[2]);
                     }
                 }
                 timing.write_us += us(clock::now() - w0);
@@ -665,12 +702,23 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
 
         if (ok) {
             const auto w0 = clock::now();
+            // Download into a fresh Mat and copy row by row: record_download()/record_clone()
+            // rebuild the destination with create_like(), so a Mat wrapped around rgba_out is
+            // replaced and would never receive the pixels.
+            ncnn::Mat page;
             ncnn::VkCompute cmd(vkdev);
-            cmd.record_download(dst_vk, dst_cpu, opt);
+            cmd.record_clone(dst_vk, page, opt);
             if (cmd.submit_and_wait() != 0) {
                 set_error("fused: result download failed");
                 ok = false;
+            } else if (page.empty() || page.w != dstw_px || page.h != out_h) {
+                set_error("fused: unexpected download page %dx%dx%d", page.w, page.h, page.c);
+                ok = false;
             } else {
+                for (int y = 0; y < out_h; y++) {
+                    std::memcpy(rgba_out + static_cast<size_t>(y) * out_stride, page.row(y),
+                                static_cast<size_t>(dstw_px) * 4);
+                }
                 nlog("fused: probe page pixel0 = %u %u %u %u", rgba_out[0], rgba_out[1], rgba_out[2],
                      rgba_out[3]);
             }

@@ -147,6 +147,10 @@ android {
 - waifu2x fused preproc/postproc 计算着色器用 `glslc` 编译为 `.spv.hex.h`（CI 需装 Vulkan SDK 的 glslc，或改用运行时 `glslang` 编译——mihon 两者都支持，首选构建期编译）
 - **实际实现（2026-11-25 修订）**：改为构建期零依赖——GLSL 源码放在 `app/src/main/cpp/fused_shaders.h`，运行时用 `ncnn::compile_spirv_module`（glslang 已静态链接在 `libncnn.a` 内）编译 SPIR-V，再用 `ncnn::resolve_shader_info` 反射后交给 `Pipeline::create`。因此无需安装 Vulkan SDK，CI 与本地构建行为一致。
 - 注意：预编译 ncnn 用 `NCNN_DISABLE_RTTI` 构建，`Pipeline` 子类需同 `-fno-rtti` 编译，否则链接报 `undefined symbol: typeinfo for ncnn::Pipeline`。
+- **fused 路径的三条 ncnn 约束（2026-11-25 定位，`fused: probe …` 系列日志可直接看出）**：
+  1. `record_pipeline()` 的 dispatcher 必须是**真实 `ncnn::Mat`**（`Mat(tw, th, 1)`，dims=3、d=1）。手填 `ncnn::VkMat` 的 w/h/c 时 `dims=0、d=0`，ncnn 由此推导 group 数，z 方向变成 0，`vkCmdDispatch(x, y, 0)` 合法但**一个 invocation 都不执行**，且 `submit_and_wait()` 仍返回 0 —— 表现为 tile 内容保持未初始化显存（netout 打出 1e25–1e37 的随机 fp32）、目标页 alpha=0，自检报 `alpha is not opaque (0 at 0)`。
+  2. 上传必须用 `record_clone(Mat, VkMat, opt)`，不能用 `record_upload()`：后者在集成 GPU 上 `cast_type_to=2`（fp16），会把打包成 uint32 的 ARGB 像素当 fp32 转半精度，shader 的 `uint` 读取全是垃圾。`record_clone` 是 staging memcpy + `vkCmdCopyBuffer` 的原样字节拷贝。
+  3. 下载（`record_download` / `record_clone(VkMat, Mat)`）内部 `create_like()` **重建并替换调用方的 `Mat`**，所以包着 `rgba_out` 的 `Mat` 永远收不到像素；必须下到临时 `Mat` 再按行 `memcpy`。
 
 ### 4.4 APK 体积控制
 
