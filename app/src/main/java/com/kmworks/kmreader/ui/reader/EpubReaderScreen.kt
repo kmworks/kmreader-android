@@ -787,18 +787,33 @@ private fun RealEpubReader(
     val viewportWidthDp = LocalConfiguration.current.screenWidthDp
     // Reserve vertical room for the header/footer info overlay in the page layout itself, so
     // text never slides under the overlay (mirrors the iOS containerInsets top/bottom +24pt,
-    // applied only when at least one reading slot shows content)
+    // applied only when at least one slot can show content). The chrome-visible slots count too:
+    // with every reading slot set to "none" the page would otherwise reserve nothing at all, and
+    // the progress note that appears above the chrome landed straight on the first line.
     val overlayHasContent = epubOverlay.readerHeaderLeading != EpubOverlayItem.NONE ||
         epubOverlay.readerHeaderCenter != EpubOverlayItem.NONE ||
         epubOverlay.readerHeaderTrailing != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterLeading != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterCenter != EpubOverlayItem.NONE ||
-        epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE
+        epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE ||
+        epubOverlay.controlsHeaderCenter != EpubOverlayItem.NONE ||
+        epubOverlay.controlsFooterCenter != EpubOverlayItem.NONE
     // CSS px, NOT physical px: the injected page CSS consumes this as padding-top/bottom in
     // CSS px (the EpubThemeConfig.insetVPx contract). roundToPx() here handed the page a
     // density-scaled value — 24dp became 77 "CSS px" at density 3.2, which ate four lines per
     // page and pushed the text block into the middle of the screen.
-    val overlayInsetVPx = if (overlayHasContent) 24 else 0
+    // The reservation is the page's own 24px gutter PLUS the band the notes occupy, and the band
+    // starts below the system bar insets (the rows use statusBarsPadding /
+    // navigationBarsPadding): reserving 24 alone left the header note on top of the first line.
+    // Both edges take the larger bar, so the footer note clears a three-button navigation bar
+    // too. *IgnoringVisibility keeps the page layout from reflowing while the chrome toggles the
+    // immersive bars on and off, so a page turn never shifts the text block.
+    val systemBarBandVPx = with(LocalDensity.current) {
+        val top = WindowInsets.statusBarsIgnoringVisibility.getTop(this)
+        val bottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(this)
+        maxOf(top, bottom).toDp().value.roundToInt()
+    }
+    val overlayInsetVPx = if (overlayHasContent) maxOf(24, systemBarBandVPx) else 0
     val themeConfig = remember(
         epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
     ) {
@@ -1925,26 +1940,6 @@ private fun EpubChapterSheet(
     val rows = remember(toc, expanded) {
         mutableListOf<TocRow>().also { flattenToc(toc, expanded, "", 0, it) }
     }
-    // Chapters the navigation document never references. A toc routinely covers only part of the
-    // spine (194 of the 266 reflowable books in the test library have such chapters; one lists 11
-    // entries for 219 files), and without a row here they are unreachable by name — page turns
-    // still reach them, but the sheet looks like it lost most of the book. Append them instead of
-    // hiding them; the empty-toc case already falls back to the flat reading-order list below.
-    val unlistedChapters = remember(chapters, toc) {
-        if (toc.isEmpty()) {
-            emptyList()
-        } else {
-            val listed = mutableSetOf<String>()
-            fun collect(links: List<EpubLinkDto>) {
-                links.forEach { link ->
-                    link.href?.let { listed += EpubHref.normalize(it) }
-                    collect(link.children.orEmpty())
-                }
-            }
-            collect(toc)
-            chapters.filterNot { EpubHref.normalize(it.href) in listed }
-        }
-    }
     // Open scrolled to the current entry, roughly centred (mirrors the iOS ScrollViewReader
     // scrollTo(currentLink, anchor: .center) and readest's scrollToIndex align:center)
     val listState = rememberLazyListState()
@@ -2050,28 +2045,6 @@ private fun EpubChapterSheet(
                             },
                         )
                     }
-                    if (unlistedChapters.isNotEmpty()) {
-                        item(key = "km-toc-unlisted-header") {
-                            TocSectionHeader(
-                                stringResource(
-                                    R.string.epub_toc_unlisted,
-                                    unlistedChapters.size,
-                                ),
-                            )
-                        }
-                        items(unlistedChapters.size) { position ->
-                            val chapter = unlistedChapters[position]
-                            TocEntryRow(
-                                title = chapter.title,
-                                depth = 0,
-                                hasChildren = false,
-                                expanded = false,
-                                isCurrent = chapter.index == currentIndex,
-                                onClick = { onJump(chapter.index, null) },
-                                onToggle = {},
-                            )
-                        }
-                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -2126,19 +2099,6 @@ private fun BookmarkEntryRow(
             )
         }
     }
-}
-
-/** Group label inside the contents sheet, e.g. the chapters the toc never references. */
-@Composable
-private fun TocSectionHeader(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 4.dp),
-    )
 }
 
 /** Single toc row: indent by depth, container shows expand toggle, current shows bookmark. */

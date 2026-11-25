@@ -183,7 +183,6 @@
     <string name="epub_toc">目录</string>
     <string name="pdf_toc">目录</string>
     <string name="epub_toc_current">当前</string>
-    <string name="epub_toc_unlisted">未列入目录的章节（%1$d）</string>
     <string name="epub_expand">展开</string>
     <string name="epub_collapse">收起</string>
     <string name="epub_chapter_fallback">第 %1$d 章</string>
