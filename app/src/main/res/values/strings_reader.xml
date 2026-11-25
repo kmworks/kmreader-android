@@ -193,6 +193,9 @@
     <string name="epub_error_load_toc">Cannot load the table of contents</string>
     <string name="epub_end_finished">Book finished</string>
     <string name="epub_end_return">Return</string>
+    <!-- Footnote bubble: the note body was cut short (a huge endnote table); the pill jumps to
+         the full note in the text instead. -->
+    <string name="epub_footnote_full_note">Show full note</string>
     <string name="epub_book_info">Book Info</string>
     <string name="epub_close">Close</string>
     <string name="epub_quick_actions">Quick actions</string>

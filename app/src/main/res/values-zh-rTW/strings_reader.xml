@@ -192,6 +192,8 @@
     <string name="epub_error_load_toc">無法載入目錄</string>
     <string name="epub_end_finished">已讀完</string>
     <string name="epub_end_return">返回</string>
+    <!-- 腳註氣泡：註釋正文過長被截斷，點此跳轉到正文中的完整註釋 -->
+    <string name="epub_footnote_full_note">查看完整註釋</string>
     <string name="epub_book_info">書籍資訊</string>
     <string name="epub_close">關閉</string>
     <string name="epub_quick_actions">快捷操作</string>
