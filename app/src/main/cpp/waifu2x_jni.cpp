@@ -81,14 +81,7 @@ std::string g_last_stats;
 std::mutex g_log_mutex;
 std::string g_log_path;
 
-void nlog(const char* fmt, ...) {
-    char buf[512];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    LOGE("%s", buf);
-
+void append_log_line(const char* level, const char* msg) {
     std::lock_guard<std::mutex> lock(g_log_mutex);
     if (g_log_path.empty()) return;
     FILE* f = fopen(g_log_path.c_str(), "a");
@@ -102,8 +95,18 @@ void nlog(const char* fmt, ...) {
     localtime_r(&secs, &tm_buf);
     char stamp[32];
     strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm_buf);
-    fprintf(f, "%s.%03lld INFO [%s-native] %s\n", stamp, static_cast<long long>(ms), kAppTag, buf);
+    fprintf(f, "%s.%03lld %s [%s-native] %s\n", stamp, static_cast<long long>(ms), level, kAppTag, msg);
     fclose(f);
+}
+
+void nlog(const char* fmt, ...) {
+    char buf[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    LOGE("%s", buf);
+    append_log_line("INFO", buf);
 }
 
 void set_error(const char* fmt, ...) {
@@ -117,6 +120,9 @@ void set_error(const char* fmt, ...) {
         g_last_error = buf;
     }
     LOGE("%s", buf);
+    // Failures are only ever visible on the device's log page, so mirror them into the file the
+    // app log renders; g_last_error alone dies with the process.
+    append_log_line("ERROR", buf);
 }
 
 std::once_flag g_gpu_once;
@@ -423,7 +429,7 @@ struct TileTiming {
 };
 
 // Run one padded tile through the network and write the scaled tile into `out`.
-bool process_tile(Waifu2xContext* ctx, ncnn::Extractor& ex,
+bool process_tile(Waifu2xContext* ctx,
                   const unsigned char* in, int in_stride, int w, int h,
                   unsigned char* out, int out_stride,
                   int xi0, int yi0, int xi1, int yi1, TileTiming& timing) {
@@ -438,6 +444,10 @@ bool process_tile(Waifu2xContext* ctx, ncnn::Extractor& ex,
     timing.convert_us += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - c0).count();
 
     const auto i0 = clock::now();
+    // A fresh extractor per tile: a reused one serves the previous tile's cached blobs when the
+    // tile shape changes (edge tiles are narrower than kTileSize), which silently yields a full
+    // 2*kTileSize output for a small tile.
+    ncnn::Extractor ex = ctx->net.create_extractor();
     if (ex.input(kInputBlob, in_tile) != 0) {
         set_error("extractor input failed");
         return false;
@@ -528,13 +538,6 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
             nlog("fused: page %dx%d uploaded (stride %d)", w, h, in_stride);
         }
 
-        ncnn::Extractor ex = ctx->net.create_extractor();
-        // Upstream binds the same allocators the fused shaders write into (waifu2x.cpp:474-482):
-        // otherwise the network allocates its blobs from the default pool while our bindings come
-        // from the page allocator.
-        ex.set_blob_vkallocator(blob_alloc);
-        ex.set_workspace_vkallocator(blob_alloc);
-        ex.set_staging_vkallocator(staging_alloc);
         for (int yi = 0; ok && yi < h; yi += kTileSize) {
             const int yi1 = std::min(h, yi + kTileSize);
             for (int xi = 0; ok && xi < w; xi += kTileSize) {
@@ -575,6 +578,13 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 timing.convert_us += us(clock::now() - c0);
 
                 const auto i0 = clock::now();
+                // Fresh extractor per tile, same reason as in process_tile(). It also binds the
+                // allocators the shaders wrote into (upstream waifu2x.cpp:474-482 does the same),
+                // otherwise the network would allocate blobs from the default pool.
+                ncnn::Extractor ex = ctx->net.create_extractor();
+                ex.set_blob_vkallocator(blob_alloc);
+                ex.set_workspace_vkallocator(blob_alloc);
+                ex.set_staging_vkallocator(staging_alloc);
                 if (ex.input(kInputBlob, tile_vk) != 0) {
                     set_error("fused: extractor input failed");
                     ok = false;
@@ -669,7 +679,7 @@ bool load_and_verify(Waifu2xContext* ctx, bool fp16) {
     if (run_selftest(ctx)) return true;
 
     if (ctx->fused) {
-        LOGW("fused path rejected by this device (%s), keeping the staged CPU path",
+        nlog("init: fused path rejected by this device (%s); keeping the staged CPU path",
              g_last_error.c_str());
         ctx->fused = false;
         return run_selftest(ctx);
@@ -715,14 +725,11 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
     }
 
     if (!used_fused) {
-        // One extractor for the whole page: creating one per tile churns blob allocations, and the
-        // bridge already serializes every native call. Thread count comes from net.opt.
-        ncnn::Extractor ex = ctx->net.create_extractor();
         for (int yi = 0; yi < h; yi += kTileSize) {
             const int yi1 = std::min(h, yi + kTileSize);
             for (int xi = 0; xi < w; xi += kTileSize) {
                 const int xi1 = std::min(w, xi + kTileSize);
-                if (!process_tile(ctx, ex, rgba_in, in_stride, w, h, rgba_out, out_stride,
+                if (!process_tile(ctx, rgba_in, in_stride, w, h, rgba_out, out_stride,
                                   xi, yi, xi1, yi1, timing)) {
                     return false;
                 }
