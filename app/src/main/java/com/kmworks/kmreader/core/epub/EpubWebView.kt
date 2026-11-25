@@ -333,8 +333,28 @@ object EpubJs {
             window.scrollTo(x, 0);
           };
 
+          // The page step has to equal the width the columns were actually laid out against.
+          // window.innerWidth is rounded to an integer (411 on a 411.43 px viewport) while the
+          // layout viewport keeps the fraction, so stepping by innerWidth walks the strip by a
+          // fraction of that error on every page: after ~55 pages of a long chapter the text has
+          // left the right gutter and the previous column's tail shows in the left one (the
+          // "cut glyphs on the outer edges" symptom). visualViewport.width keeps the fraction;
+          // the document's own width is the fallback. The < 8 px guard keeps a pinch-zoomed
+          // viewport or a publisher-widened <html> from poisoning the step.
+          function viewportWidth() {
+            var w = window.innerWidth || 1;
+            var vv = window.visualViewport;
+            if (vv && isFinite(vv.width) && vv.width > 0 && Math.abs(vv.width - w) < 8) return vv.width;
+            var el = document.documentElement;
+            if (el) {
+              var r = el.getBoundingClientRect().width;
+              if (isFinite(r) && r > 0 && Math.abs(r - w) < 8) return r;
+            }
+            return w;
+          }
+
           function measure() {
-            S.vw = window.innerWidth || 1;
+            S.vw = viewportWidth();
             S.vh = window.innerHeight || 1;
             // Re-detect vertical writing: at theme-apply time the publisher stylesheet may not
             // be parsed yet, so the first detection can miss a content-declared vertical book.
