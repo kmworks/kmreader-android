@@ -1692,6 +1692,26 @@ private fun EpubChapterSheet(
     val rows = remember(toc, expanded) {
         mutableListOf<TocRow>().also { flattenToc(toc, expanded, "", 0, it) }
     }
+    // Chapters the navigation document never references. A toc routinely covers only part of the
+    // spine (194 of the 266 reflowable books in the test library have such chapters; one lists 11
+    // entries for 219 files), and without a row here they are unreachable by name — page turns
+    // still reach them, but the sheet looks like it lost most of the book. Append them instead of
+    // hiding them; the empty-toc case already falls back to the flat reading-order list below.
+    val unlistedChapters = remember(chapters, toc) {
+        if (toc.isEmpty()) {
+            emptyList()
+        } else {
+            val listed = mutableSetOf<String>()
+            fun collect(links: List<EpubLinkDto>) {
+                links.forEach { link ->
+                    link.href?.let { listed += EpubHref.normalize(it) }
+                    collect(link.children.orEmpty())
+                }
+            }
+            collect(toc)
+            chapters.filterNot { EpubHref.normalize(it.href) in listed }
+        }
+    }
     // Open scrolled to the current entry, roughly centred (mirrors the iOS ScrollViewReader
     // scrollTo(currentLink, anchor: .center) and readest's scrollToIndex align:center)
     val listState = rememberLazyListState()
@@ -1757,10 +1777,45 @@ private fun EpubChapterSheet(
                         },
                     )
                 }
+                if (unlistedChapters.isNotEmpty()) {
+                    item(key = "km-toc-unlisted-header") {
+                        TocSectionHeader(
+                            stringResource(
+                                R.string.epub_toc_unlisted,
+                                unlistedChapters.size,
+                            ),
+                        )
+                    }
+                    items(unlistedChapters.size) { position ->
+                        val chapter = unlistedChapters[position]
+                        TocEntryRow(
+                            title = chapter.title,
+                            depth = 0,
+                            hasChildren = false,
+                            expanded = false,
+                            isCurrent = chapter.index == currentIndex,
+                            onClick = { onJump(chapter.index, null) },
+                            onToggle = {},
+                        )
+                    }
+                }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
     }
+}
+
+/** Group label inside the contents sheet, e.g. the chapters the toc never references. */
+@Composable
+private fun TocSectionHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 4.dp),
+    )
 }
 
 /** Single toc row: indent by depth, container shows expand toggle, current shows bookmark. */

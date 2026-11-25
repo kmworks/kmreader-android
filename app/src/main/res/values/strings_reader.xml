@@ -181,6 +181,7 @@
     <string name="epub_toc">Contents</string>
     <string name="pdf_toc">Contents</string>
     <string name="epub_toc_current">Current chapter</string>
+    <string name="epub_toc_unlisted">Chapters not in the contents (%1$d)</string>
     <string name="epub_expand">Expand</string>
     <string name="epub_collapse">Collapse</string>
     <string name="epub_chapter_fallback">Chapter %1$d</string>
