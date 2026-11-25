@@ -101,6 +101,8 @@ import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.epub.EpubChapter
+import com.kmworks.kmreader.core.epub.EpubFootnote
+import com.kmworks.kmreader.core.epub.EpubFootnoteNote
 import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
@@ -788,6 +790,10 @@ private fun RealEpubReader(
     // chapter the reader lands on next.
     var pendingAnchor by remember { mutableStateOf<String?>(null) }
     var pendingAnchorChapter by remember { mutableStateOf<Int?>(null) }
+    // Note bubble shown after tapping a footnote reference. Kept out of the ViewModel on purpose:
+    // it is pure presentation of the page's own DOM, and it must die with the chapter load (a
+    // bubble floating over the next chapter would be showing text that is no longer on screen).
+    var footnoteNote by remember { mutableStateOf<EpubFootnoteNote?>(null) }
     // Link-jump back stack (mirrors readest's History.back): following an in-book link pushes
     // (chapterIndex, in-chapter fraction); the floating return chip pops it and jumps back.
     var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
@@ -945,13 +951,32 @@ private fun RealEpubReader(
                     }
                 }
             }
-            // Notes and footnote references navigate like every other in-book link: jump to the
-            // anchor, push the return chip (linkBackStack). The popup layer was removed by design.
+            // Notes and footnote references that could not be extracted in place (cross-file
+            // targets, empty bodies) navigate like every other in-book link: jump to the anchor,
+            // push the return chip (linkBackStack). The extractable ones never reach here — the
+            // page JS intercepts the tap and reports through footnoteHandler instead.
             navigateFallback()
             // Unknown in-book targets are still swallowed: loading them raw would leave the book
             true
         },
     )
+
+    // A note reference tap: the page JS already extracted and flattened the note body, so this
+    // only has to show the bubble — no navigation, no chapter change. A payload that cannot be
+    // used (token from the previous chapter, an empty body) falls back to the plain jump so the
+    // tap is never silently swallowed.
+    val footnoteHandler = rememberUpdatedState<(String) -> Unit> { json ->
+        val note = EpubFootnote.parse(json, loadToken)
+        when {
+            note == null -> Unit
+            !note.isRenderable -> navigateHandler.value(EpubWeb.hrefFromUrl(note.href) ?: note.href, note.fragment)
+            else -> {
+                // The floating chrome would sit under the bubble and fight it for taps
+                chromeVisible = false
+                footnoteNote = note
+            }
+        }
+    }
 
     // Metrics carry the page's load token (like the pagination callback): a throttled report
     // still in flight from the previous chapter in the loadUrl window must not be attributed
@@ -979,6 +1004,7 @@ private fun RealEpubReader(
                     if (href != null) navigateHandler.value(href, uri.fragment)
                 }
             },
+            footnoteCallback = { json -> footnoteHandler.value(json) },
         )
     }
 
@@ -1022,6 +1048,7 @@ private fun RealEpubReader(
         // of itself first (Koharia's PixelCopy approach adapted to a single WebView — the iOS
         // three-slot deck keeps the old page alive, we cannot), so the user sees the old page
         // until the new one is ready, then an instant swap.
+        footnoteNote = null
         if (webViewEverRevealed) chapterSnapshot = webView?.takeSnapshot()
         restorePositioned = false
         loadToken += 1
@@ -1427,6 +1454,25 @@ private fun RealEpubReader(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
+        }
+
+        // Note bubble (replaces the old "jump to the note, return chip back" behaviour for
+        // references whose body is in the same file; the chip above still serves the cross-file
+        // ones, which the page JS cannot extract). Dismissal is the Popup's own: back press and a
+        // tap outside both route to onDismiss, so it folds before the chrome or the reader does.
+        footnoteNote?.let { note ->
+            EpubFootnotePopup(
+                note = note,
+                themeConfig = themeConfig,
+                pageBackground = pageBackground,
+                contentColor = pageContent,
+                fetchResource = viewModel::fetchResource,
+                onDismiss = { footnoteNote = null },
+                onFollowLink = { href, fragment ->
+                    footnoteNote = null
+                    navigateHandler.value(EpubWeb.hrefFromUrl(href) ?: href, fragment)
+                },
+            )
         }
 
         // System back dismisses a transition page before leaving the reader (the old end page's

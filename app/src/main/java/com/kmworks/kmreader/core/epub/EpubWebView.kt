@@ -981,6 +981,219 @@ object EpubJs {
             }
           };
 
+          // ---------- footnotes ----------
+          // A tapped note reference pops its body over the page instead of jumping to it. The page
+          // already holds the styled DOM, so the body is extracted here rather than in Kotlin: the
+          // bubble renders through HtmlCompat, which has no CSS engine, so the computed style is
+          // folded back into semantic tags (<b>/<i>/<u>/<sup>) before it leaves the WebView.
+          // Anything unusable returns null and the click falls through to the normal link path.
+          var NOTE_NS = 'http://www.idpf.org/2007/ops';
+          var NOTE_REF_CLASSES = /(^|\s)(noteref|footnote-ref|endnote-ref|duokan-footnote)(\s|$)/;
+          var NOTE_TAGS = {
+            P: 1, DIV: 1, BLOCKQUOTE: 1, UL: 1, OL: 1, LI: 1,
+            H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, BR: 1,
+            B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, DEL: 1, STRIKE: 1,
+            SUB: 1, SUP: 1, SMALL: 1, MARK: 1, Q: 1, CITE: 1, ABBR: 1, CODE: 1,
+            SPAN: 1
+          };
+          var NOTE_MAX_HTML = 16000;
+          var NOTE_MAX_TEXT = 2000;
+          var NOTE_MAX_IMAGES = 8;
+
+          function noteEpubTypeOf(el) {
+            if (!el || !el.getAttribute) return '';
+            var plain = el.getAttribute('epub:type') || '';
+            // Served as application/xhtml+xml the WebView parses the chapter as XML, where
+            // epub:type is a namespaced attribute and getAttribute('epub:type') returns null.
+            var namespaced = el.getAttributeNS ? (el.getAttributeNS(NOTE_NS, 'type') || '') : '';
+            return plain + ' ' + namespaced;
+          }
+
+          function isNoteref(link) {
+            if (!link || !link.getAttribute) return false;
+            if (/(^|\s)noteref(\s|$)/.test(noteEpubTypeOf(link))) return true;
+            if ((link.getAttribute('role') || '') === 'doc-noteref') return true;
+            return NOTE_REF_CLASSES.test(link.getAttribute('class') || '');
+          }
+
+          function noteFragmentOf(link) {
+            var stamped = link.getAttribute('data-km-noteref');
+            if (stamped) return stamped;
+            var raw = link.getAttribute('href') || '';
+            var hash = raw.indexOf('#');
+            if (hash < 0 || hash === raw.length - 1) return '';
+            return raw.slice(hash + 1);
+          }
+
+          // Publishers (Duokan et al.) run a script that strips the href off every noteref after
+          // load. The stamp is taken while the href is still there, so the reference survives it.
+          function stampNoteref(link) {
+            if (link.getAttribute('data-km-noteref')) return;
+            var frag = noteFragmentOf(link);
+            if (frag) link.setAttribute('data-km-noteref', frag);
+          }
+
+          function stampNoterefs() {
+            var links = document.querySelectorAll ? document.querySelectorAll('a') : [];
+            for (var i = 0; i < links.length; i++) {
+              if (isNoteref(links[i])) stampNoteref(links[i]);
+            }
+          }
+
+          function noteEscape(s) {
+            return String(s)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+          }
+
+          function noteAbsoluteUrl(el, attr) {
+            var raw = el.getAttribute ? el.getAttribute(attr) : null;
+            if (!raw) return '';
+            try { return new URL(raw, location.href).href; } catch (e) { return ''; }
+          }
+
+          // Computed style -> semantic tag. This is what recovers the emphasis a publisher wrote as
+          // a class (".fn-em { font-style: italic }") instead of <i>: the chapter stylesheet is
+          // already applied in the page, the bubble has no stylesheet of its own.
+          function noteStyleTags(el) {
+            var tags = [];
+            var cs = null;
+            try { cs = window.getComputedStyle(el); } catch (e) { cs = null; }
+            if (!cs) return tags;
+            var weight = parseInt(cs.fontWeight, 10);
+            if (weight >= 600) tags.push('b');
+            if (cs.fontStyle === 'italic' || cs.fontStyle === 'oblique') tags.push('i');
+            var deco = cs.textDecorationLine || cs.textDecoration || '';
+            if (deco.indexOf('underline') >= 0) tags.push('u');
+            if (cs.verticalAlign === 'super') tags.push('sup');
+            if (cs.verticalAlign === 'sub') tags.push('sub');
+            return tags;
+          }
+
+          // Tables have no representation in a TextView: flatten each row to "cell · cell".
+          function noteTableHtml(table, state) {
+            var rows = table.querySelectorAll ? table.querySelectorAll('tr') : [];
+            if (!rows.length) return noteChildrenHtml(table, state);
+            var html = '';
+            for (var i = 0; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll ? rows[i].querySelectorAll('td,th') : [];
+              var line = '';
+              for (var c = 0; c < cells.length; c++) {
+                var cell = noteChildrenHtml(cells[c], state);
+                if (cell) line += (line ? ' · ' : '') + cell;
+              }
+              if (line) html += '<p>' + line + '</p>';
+            }
+            return html;
+          }
+
+          function noteChildrenHtml(node, state) {
+            var out = '';
+            var kids = node.childNodes || [];
+            for (var i = 0; i < kids.length; i++) {
+              out += noteNodeHtml(kids[i], state);
+            }
+            return out;
+          }
+
+          function noteNodeHtml(n, state) {
+            if (!n) return '';
+            if (n.nodeType === 3) {
+              var text = String(n.nodeValue || '').replace(/\s+/g, ' ');
+              return text ? noteEscape(text) : '';
+            }
+            if (n.nodeType !== 1) return '';
+            var tag = n.nodeName ? n.nodeName.toUpperCase() : '';
+            if (tag === 'IMG') {
+              if (state.images.length >= NOTE_MAX_IMAGES) return '';
+              var src = noteAbsoluteUrl(n, 'src');
+              if (!src) return '';
+              var alt = n.getAttribute('alt') || '';
+              state.images.push({ src: src, alt: alt });
+              return '<img src="' + noteEscape(src) + '" alt="' + noteEscape(alt) + '">';
+            }
+            if (tag === 'RT') {
+              // Ruby annotation: keep it readable instead of gluing it into the base text.
+              var rt = noteChildrenHtml(n, state);
+              return rt ? '（' + rt + '）' : '';
+            }
+            if (tag === 'TABLE') return noteTableHtml(n, state);
+            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TITLE' || tag === 'NOSCRIPT' ||
+                tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED' || tag === 'SVG' ||
+                tag === 'AUDIO' || tag === 'VIDEO' || tag === 'HEAD') {
+              return '';
+            }
+            if (tag === 'BR') return '<br>';
+            if (tag === 'A') {
+              var inner = noteChildrenHtml(n, state);
+              if (!inner) return '';
+              var href = noteAbsoluteUrl(n, 'href');
+              var inBook = false;
+              try { inBook = !!href && new URL(href).origin === location.origin; } catch (e) { inBook = false; }
+              return inBook ? '<a href="' + noteEscape(href) + '">' + inner + '</a>' : inner;
+            }
+            var body = noteChildrenHtml(n, state);
+            if (!body) return '';
+            var lower = tag.toLowerCase();
+            if (!NOTE_TAGS[tag]) return body;  // unknown wrapper: keep what it contains
+            var html = (lower === 'span' || lower === 'div') ? body : '<' + lower + '>' + body + '</' + lower + '>';
+            var wraps = noteStyleTags(n);
+            for (var w = 0; w < wraps.length; w++) {
+              var wt = wraps[w];
+              if (wt === lower) continue;
+              html = '<' + wt + '>' + html + '</' + wt + '>';
+            }
+            return html;
+          }
+
+          function notePayload(link, ev) {
+            var frag = noteFragmentOf(link);
+            if (!frag) return null;
+            var target = document.getElementById(frag);
+            if (!target) {
+              try { target = document.querySelector('[name="' + frag.replace(/"/g, '') + '"]'); } catch (e) { target = null; }
+            }
+            if (!target) return null;  // cross-file note: the caller falls back to the link jump
+            var state = { images: [] };
+            var html = noteChildrenHtml(target, state);
+            var text = String(target.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!html || (!text && !state.images.length)) return null;
+            var truncated = false;
+            if (text.length > NOTE_MAX_TEXT) {
+              text = text.slice(0, NOTE_MAX_TEXT);
+              truncated = true;
+            }
+            if (html.length > NOTE_MAX_HTML) {
+              html = html.slice(0, NOTE_MAX_HTML);
+              var cut = html.lastIndexOf('>');
+              if (cut > 0) html = html.slice(0, cut + 1);
+              truncated = true;
+            }
+            var vw = S.vw || window.innerWidth || 1;
+            var vh = S.vh || window.innerHeight || 1;
+            var href = noteAbsoluteUrl(link, 'href');
+            if (!href) href = (location.href.split('#')[0] || '') + '#' + frag;
+            return {
+              v: 1,
+              href: href,
+              frag: frag,
+              html: html,
+              text: text,
+              truncated: truncated,
+              images: state.images,
+              anchor: {
+                x: Math.min(1, Math.max(0, ev.clientX / vw)),
+                y: Math.min(1, Math.max(0, ev.clientY / vh))
+              },
+              token: window.__kmLoadToken || 0
+            };
+          }
+
+          stampNoterefs();
+          window.addEventListener('load', function() { stampNoterefs(); });
+
           // ---------- listeners ----------
           window.addEventListener('scroll', report, { passive: true });
           window.addEventListener('resize', function() {
@@ -1037,9 +1250,24 @@ object EpubJs {
             // same-document hash hop never reaches shouldOverrideUrlLoading — the WebView
             // just scrolls natively — so without this interception a jump link desyncs the
             // chapter index, skips the progress pipeline and never pushes the return chip.
-            // Footnote/note references navigate the same way (jump to the note, return chip
-            // brings you back) — there is deliberately no popup layer.
-            var link = t && t.closest ? t.closest('a[href]') : null;
+            // Footnote/note references are tried first, before the link path below: a reference
+            // whose body sits in this file pops a bubble (no navigation at all), and only the
+            // ones that cannot be extracted fall through to the normal in-book jump.
+            var anchorEl = t && t.closest ? t.closest('a') : null;
+            // A note reference pops its body over the page instead: no chapter jump, no return
+            // chip, and no onTap (the preventDefault below keeps the tap-zone handler out of it).
+            // When the note cannot be extracted (cross-file target, empty body) the click falls
+            // through to the plain link path and the reader jumps exactly like before.
+            if (anchorEl && isNoteref(anchorEl)) {
+              var note = notePayload(anchorEl, e);
+              if (note) {
+                e.preventDefault();
+                e.stopPropagation();
+                $BRIDGE.onFootnote(JSON.stringify(note));
+                return;
+              }
+            }
+            var link = anchorEl && anchorEl.getAttribute('href') ? anchorEl : null;
             if (link) {
               var u = null;
               try { u = new URL(link.getAttribute('href') || '', location.href); } catch (err) { u = null; }
@@ -1048,8 +1276,8 @@ object EpubJs {
                 // illustration link: this reader has no image viewer, and swallowing the tap
                 // makes the whole page a dead zone — treat it as a page-turn tap instead.
                 if (!/\.(jpe?g|png|gif|webp|avif|svg|bmp|heic|m4a|mp[34]|webm|ogg)$/.test(u.pathname.toLowerCase())) {
-                  // Notes and footnote references navigate like every other in-book link (no
-                  // popup): the reader jumps to the note and the return chip takes you back.
+                  // In-book link: the reader navigates itself so the chapter index and the
+                  // anchor stay in sync (the return chip comes from that path).
                   e.preventDefault();
                   e.stopPropagation();
                   $BRIDGE.onLink(u.href);
@@ -1085,6 +1313,9 @@ class EpubJsBridge(
     /** In-book link tap routed from the page JS (same-document hash hops never reach
      *  shouldOverrideUrlLoading, so the click handler preventDefaults and reports here). */
     private val linkCallback: (url: String) -> Unit = {},
+    /** A note reference was tapped and its body could be extracted from the page; the argument is
+     *  the JSON record consumed by [EpubFootnote.parse]. */
+    private val footnoteCallback: (json: String) -> Unit = {},
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -1092,6 +1323,11 @@ class EpubJsBridge(
     @JavascriptInterface
     fun onLink(url: String) {
         mainHandler.post { linkCallback(url) }
+    }
+
+    @JavascriptInterface
+    fun onFootnote(json: String) {
+        mainHandler.post { footnoteCallback(json) }
     }
 
     @JavascriptInterface
