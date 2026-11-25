@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1348,21 +1349,12 @@ private fun RealEpubReader(
                         tint = pageContent,
                     )
                 }
-                // Incognito indicator (mirrors the eye.slash in the original chrome)
-                if (incognito) {
-                    Icon(
-                        Icons.Filled.VisibilityOff,
-                        contentDescription = stringResource(R.string.reader_incognito),
-                        tint = pageContent.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(start = 10.dp),
-                    )
-                }
             }
         }
 
         // Bookmark toggle, on the trailing edge the close button used to own. Incognito reading
-        // keeps no bookmarks, so the capsule greys out and stops taking taps rather than writing
-        // one the session is supposed not to leave behind.
+        // keeps no bookmarks, so the same slot shows the incognito capsule instead of a bookmark
+        // button that could not do anything.
         AnimatedVisibility(
             visible = chromeShown,
             modifier = Modifier.align(Alignment.TopEnd),
@@ -1374,27 +1366,41 @@ private fun RealEpubReader(
                     .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                     .padding(top = 8.dp, end = 12.dp),
             ) {
-                FloatingChromeButton(
-                    onClick = viewModel::toggleBookmark,
-                    background = chromeBackground,
-                    border = chromeBorder,
-                    enabled = !incognito,
-                ) {
-                    Icon(
-                        imageVector = if (bookmarkedHere) {
-                            Icons.Filled.Bookmark
-                        } else {
-                            Icons.Outlined.BookmarkBorder
-                        },
-                        contentDescription = stringResource(
-                            if (bookmarkedHere) {
-                                R.string.epub_bookmark_remove
+                if (incognito) {
+                    // An indicator, not an action: no click target, dimmed like the old bare icon.
+                    FloatingChromeButton(
+                        onClick = null,
+                        background = chromeBackground,
+                        border = chromeBorder,
+                    ) {
+                        Icon(
+                            Icons.Filled.VisibilityOff,
+                            contentDescription = stringResource(R.string.reader_incognito),
+                            tint = pageContent.copy(alpha = 0.6f),
+                        )
+                    }
+                } else {
+                    FloatingChromeButton(
+                        onClick = viewModel::toggleBookmark,
+                        background = chromeBackground,
+                        border = chromeBorder,
+                    ) {
+                        Icon(
+                            imageVector = if (bookmarkedHere) {
+                                Icons.Filled.Bookmark
                             } else {
-                                R.string.epub_bookmark_add
+                                Icons.Outlined.BookmarkBorder
                             },
-                        ),
-                        tint = if (incognito) pageContent.copy(alpha = 0.35f) else pageContent,
-                    )
+                            contentDescription = stringResource(
+                                if (bookmarkedHere) {
+                                    R.string.epub_bookmark_remove
+                                } else {
+                                    R.string.epub_bookmark_add
+                                },
+                            ),
+                            tint = pageContent,
+                        )
+                    }
                 }
             }
         }
@@ -1725,13 +1731,17 @@ private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
     }.getOrNull()
 }
 
-/** Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle). */
+/**
+ * Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle).
+ *
+ * A null [onClick] renders the same disc as a status indicator instead of a button: the chrome
+ * carries one non-interactive capsule (the incognito marker) that must not look like a control.
+ */
 @Composable
 private fun FloatingChromeButton(
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     background: Color,
     border: Color,
-    enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Box(
@@ -1741,7 +1751,19 @@ private fun FloatingChromeButton(
             .clip(CircleShape)
             .background(background)
             .border(1.dp, border, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    // Inert, but still swallows the tap: this disc sits inside the top-trailing
+                    // page-turn zone, so letting it fall through would turn the page.
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
+                },
+            ),
     ) {
         content()
     }
