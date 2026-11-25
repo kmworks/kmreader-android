@@ -69,6 +69,7 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.DEFAULT_SPLIT_WIDE_MODE] = next.defaultSplitWideMode.name
             prefs[Keys.DEFAULT_SOLO_COVER] = next.defaultSoloCoverPage
             prefs[Keys.FORCE_DEFAULT_DIRECTION] = next.forceDefaultDirection
+            prefs[Keys.VOLUME_BUTTON_PAGE_TURN] = next.volumeButtonPageTurnEnabled
         }
     }
 
@@ -270,6 +271,7 @@ class DivinaSettingsStore @Inject constructor(
             defaultSplitWideMode = enumOrNull<SplitWidePageMode>(this[Keys.DEFAULT_SPLIT_WIDE_MODE]) ?: defaults.defaultSplitWideMode,
             defaultSoloCoverPage = this[Keys.DEFAULT_SOLO_COVER] ?: defaults.defaultSoloCoverPage,
             forceDefaultDirection = this[Keys.FORCE_DEFAULT_DIRECTION] ?: defaults.forceDefaultDirection,
+            volumeButtonPageTurnEnabled = this[Keys.VOLUME_BUTTON_PAGE_TURN] ?: defaults.volumeButtonPageTurnEnabled,
         )
     }
 
@@ -299,6 +301,8 @@ class DivinaSettingsStore @Inject constructor(
         val DEFAULT_SPLIT_WIDE_MODE = stringPreferencesKey("splitWidePageMode")
         val DEFAULT_SOLO_COVER = booleanPreferencesKey("soloCoverPage")
         val FORCE_DEFAULT_DIRECTION = booleanPreferencesKey("forceDefaultReadingDirection")
+        /** Mirrors the original volumeButtonPageTurnEnabled (shared by DIVINA, EPUB and PDF readers). */
+        val VOLUME_BUTTON_PAGE_TURN = booleanPreferencesKey("volumeButtonPageTurnEnabled")
         val EPUB_THEME = stringPreferencesKey("epubTheme")
         val EPUB_FONT_SIZE = floatPreferencesKey("epubFontSizeSp")
         val EPUB_TYPEFACE = stringPreferencesKey("epubTypeface")

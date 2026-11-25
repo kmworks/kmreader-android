@@ -944,7 +944,17 @@ fun ReaderScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(readerBackground)) {
+    // Volume keys turn pages instead of changing the volume (mirrors the original
+    // volumeButtonPageTurnEnabled): the root takes the focus while no sheet is up, and the preview
+    // pass consumes the press before the window — and the system — can act on it.
+    val volumeKeyModifier = rememberVolumeKeyPagingModifier(
+        enabled = settings.volumeButtonPageTurnEnabled && !sheetOpen,
+        rtl = directionNow == ReadingDirection.Rtl,
+    ) { page ->
+        if (page == VolumeKeyPage.Next) tapNext() else tapPrevious()
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(readerBackground).then(volumeKeyModifier)) {
         when (uiState.status) {
             ReaderPagesStatus.Loading -> Box(
                 modifier = Modifier

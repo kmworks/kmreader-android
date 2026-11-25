@@ -142,6 +142,12 @@ data class DivinaSettings(
     val defaultSoloCoverPage: Boolean = true,
     /** Mirrors the original forceDefaultReadingDirection: when true, ignores the series direction and always uses the global default direction. */
     val forceDefaultDirection: Boolean = false,
+    /**
+     * Mirrors the original volumeButtonPageTurnEnabled: while reading, the hardware volume keys turn
+     * pages instead of changing the volume (volume up = next page, volume down = previous page,
+     * mirrored in right-to-left reading order). Shared by all three readers.
+     */
+    val volumeButtonPageTurnEnabled: Boolean = false,
 )
 
 /** Tap result (mirrors the original TapZoneAction). */
