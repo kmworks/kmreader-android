@@ -644,6 +644,20 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                     ok = false;
                     break;
                 }
+                if (tiles == 0) {
+                    // First-tile sanity probe: tells a broken network output apart from a broken
+                    // postproc dispatch, which otherwise both show up as an all-zero page.
+                    ncnn::Mat probe(out_tile.w, out_tile.h, out_tile.c);
+                    ncnn::VkCompute pcmd(vkdev);
+                    pcmd.record_download(out_tile, probe, opt);
+                    if (pcmd.submit_and_wait() == 0) {
+                        const float* row = element_size == 4 ? probe.channel(0).row(0)
+                                                             : nullptr;
+                        nlog("fused: probe netout %dx%dx%d elemsize=%zu = %.3f %.3f %.3f",
+                             out_tile.w, out_tile.h, out_tile.c, element_size,
+                             row ? row[0] : -1.0f, row ? row[1] : -1.0f, row ? row[2] : -1.0f);
+                    }
+                }
                 timing.write_us += us(clock::now() - w0);
                 tiles++;
             }
@@ -656,6 +670,9 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
             if (cmd.submit_and_wait() != 0) {
                 set_error("fused: result download failed");
                 ok = false;
+            } else {
+                nlog("fused: probe page pixel0 = %u %u %u %u", rgba_out[0], rgba_out[1], rgba_out[2],
+                     rgba_out[3]);
             }
             timing.write_us += us(clock::now() - w0);
         }
