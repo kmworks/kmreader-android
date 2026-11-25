@@ -105,6 +105,17 @@ fun ReaderSettingsSheet(
             SettingsToggleRow(stringResource(R.string.reader_animate_tap_turns), settings.animateTapTurns) { value ->
                 onUpdate { it.copy(animateTapTurns = value) }
             }
+            // Volume keys turn pages instead of changing the volume; shared with the EPUB and PDF
+            // readers (one persisted switch, mirroring the original volumeButtonPageTurnEnabled).
+            SettingsToggleRow(
+                stringResource(R.string.reader_volume_button_page_turn),
+                settings.volumeButtonPageTurnEnabled,
+            ) { value ->
+                onUpdate { it.copy(volumeButtonPageTurnEnabled = value) }
+            }
+            if (settings.volumeButtonPageTurnEnabled) {
+                SettingsHintText(stringResource(R.string.reader_volume_button_page_turn_hint))
+            }
             SettingsChoiceRow(
                 label = stringResource(R.string.reader_tap_zone_layout),
                 options = TapZoneMode.entries,

@@ -215,6 +215,17 @@ fun PdfReaderScreen(
         pdfViewRef?.scrollToPage(pageOrder.physicalToPosition(target - 1))
     }
 
+    // Volume keys turn pages instead of changing the volume. The PdfView takes the window focus on
+    // touch, so the press is offered at the Activity level (MainActivity.dispatchKeyEvent) and
+    // consumed there; continuous scrolling has no discrete page to turn, so paging stays off.
+    VolumeKeyPagingEffect(
+        enabled = readerSettings.volumeButtonPageTurnEnabled && !sheetOpen && discretePages,
+        rtl = rtl,
+    ) { page ->
+        val step = if (page == VolumeKeyPage.Next) pagesPerRow else -pagesPerRow
+        jumpTo(currentPage + step)
+    }
+
     // Coil loader that renders jump-sheet thumbnails straight from the physical document (the
     // decorated wrapper has virtual slots that are not real pages); rebuilt when the book changes.
     val context = LocalContext.current

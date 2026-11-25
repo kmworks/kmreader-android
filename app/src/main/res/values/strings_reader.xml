@@ -20,6 +20,8 @@
     <string name="reader_transition_scroll">Scroll</string>
     <string name="reader_transition_cover">Cover</string>
     <string name="reader_animate_tap_turns">Animate tap turns</string>
+    <string name="reader_volume_button_page_turn">Turn pages with volume buttons</string>
+    <string name="reader_volume_button_page_turn_hint">Volume up turns to the next page and volume down to the previous one. Your system volume stays unchanged while reading.</string>
     <string name="reader_tap_zone_layout">Tap zone layout</string>
     <string name="reader_tap_zone_inversion">Mirror tap zones</string>
     <string name="reader_show_tap_zone_hints">Show tap zone hints</string>

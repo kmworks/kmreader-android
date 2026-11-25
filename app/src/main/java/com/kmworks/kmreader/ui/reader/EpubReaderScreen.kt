@@ -682,6 +682,9 @@ private fun RealEpubReader(
     // EPUB preferences are persisted globally (mirrors the original @AppStorage epubPreferences), so
     // the reader and the defaults page share the same copy
     val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
+    // Volume-key page turning is the shared DIVINA setting (the original AppStorage key lives on the
+    // reader settings sheet, not on the EPUB preferences), so read the global copy here.
+    val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
     // Margin-note ("info overlay") preferences, persisted globally like the theme settings
     val epubOverlay by settingsViewModel.epubOverlay.collectAsStateWithLifecycle()
     // The reader theme follows the APP theme setting, not the raw system dark flag (the user
@@ -1076,6 +1079,18 @@ private fun RealEpubReader(
     }
     val onTopOverscroll = rememberUpdatedState {
         if (!themeConfig.paged) seamPrevious()
+    }
+
+    // Volume keys turn pages instead of changing the volume. The WebView takes the window focus on
+    // touch, so a Compose preview-key handler would never see the press: the reader registers a
+    // window-level handler that MainActivity offers before the view hierarchy (see
+    // MainActivity.dispatchKeyEvent) and consumes, leaving the system volume untouched.
+    VolumeKeyPagingEffect(
+        enabled = readerSettings.volumeButtonPageTurnEnabled &&
+            !sheetOpen && !showingEndPage && !showingPreviousPage,
+        rtl = rtl,
+    ) { page ->
+        turnPage(page == VolumeKeyPage.Next)
     }
 
     Box(

@@ -113,6 +113,17 @@ fun ReaderDefaultsScreen(
                         },
                     )
                     SettingsRowDivider()
+                    // Shared by all three readers (DIVINA, EPUB, PDF) and off by default, mirroring
+                    // the original volumeButtonPageTurnEnabled AppStorage key.
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_volume_button_page_turn),
+                        subtitle = stringResource(R.string.reader_volume_button_page_turn_hint),
+                        checked = divinaSettings.volumeButtonPageTurnEnabled,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(volumeButtonPageTurnEnabled = value) }
+                        },
+                    )
+                    SettingsRowDivider()
                     SettingsPickerRow(
                         title = stringResource(R.string.reader_defaults_page_layout),
                         selectedLabel = stringResource(divinaSettings.defaultPageLayout.labelRes),

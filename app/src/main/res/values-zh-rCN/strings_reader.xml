@@ -20,6 +20,8 @@
     <string name="reader_transition_scroll">滚动</string>
     <string name="reader_transition_cover">覆盖</string>
     <string name="reader_animate_tap_turns">点按翻页动画</string>
+    <string name="reader_volume_button_page_turn">音量键翻页</string>
+    <string name="reader_volume_button_page_turn_hint">音量上键翻到下一页，音量下键翻到上一页；阅读时系统音量保持不变。</string>
     <string name="reader_tap_zone_layout">点按区域布局</string>
     <string name="reader_tap_zone_inversion">点按区域镜像</string>
     <string name="reader_show_tap_zone_hints">显示点按区域提示</string>
