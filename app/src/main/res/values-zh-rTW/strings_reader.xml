@@ -196,6 +196,11 @@
     <string name="epub_footnote_full_note">查看完整註釋</string>
     <string name="epub_book_info">書籍資訊</string>
     <string name="epub_close">關閉</string>
+    <string name="epub_bookmarks">書籤</string>
+    <string name="epub_bookmark_add">新增書籤</string>
+    <string name="epub_bookmark_remove">移除書籤</string>
+    <string name="epub_bookmark_delete">刪除書籤</string>
+    <string name="epub_bookmarks_empty">還沒有書籤。閱讀時點書籤按鈕即可新增。</string>
     <string name="epub_quick_actions">快捷操作</string>
     <string name="epub_section_overlay">頁邊注</string>
     <string name="epub_section_overlay_controls">控制層顯示時</string>

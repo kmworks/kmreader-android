@@ -198,6 +198,13 @@
     <string name="epub_footnote_full_note">Show full note</string>
     <string name="epub_book_info">Book Info</string>
     <string name="epub_close">Close</string>
+    <!-- Reader bookmarks: the top-trailing capsule toggles one at the current position, the
+         contents sheet lists them (second tab). -->
+    <string name="epub_bookmarks">Bookmarks</string>
+    <string name="epub_bookmark_add">Add bookmark</string>
+    <string name="epub_bookmark_remove">Remove bookmark</string>
+    <string name="epub_bookmark_delete">Delete bookmark</string>
+    <string name="epub_bookmarks_empty">No bookmarks yet. Tap the bookmark button while reading to add one.</string>
     <string name="epub_quick_actions">Quick actions</string>
     <string name="epub_section_overlay">Margin Notes</string>
     <string name="epub_section_overlay_controls">While Controls Visible</string>
