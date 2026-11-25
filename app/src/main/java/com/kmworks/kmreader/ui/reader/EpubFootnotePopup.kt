@@ -108,6 +108,8 @@ internal fun EpubFootnotePopup(
     val edgeMarginPx = with(density) { 12.dp.roundToPx() }
     val anchorGapPx = with(density) { 10.dp.roundToPx() }
     val tailPx = with(density) { 8.dp.roundToPx() }.toFloat()
+    // CSS line-height counts font size; TextView's multiplier counts its font metrics (~1.2 em).
+    val noteLineSpacing = (themeConfig.lineHeight / 1.2f).coerceIn(1f, 1.25f)
 
     // The placement provider only learns the bubble height during layout (the note body decides
     // it), so the tail direction is published back into the composition from there.
@@ -189,7 +191,9 @@ internal fun EpubFootnotePopup(
                         isClickable = true
                         // No text selection: a selectable TextView swallows the tap that should
                         // follow a link, and selection handles in a floating bubble look broken.
-                        setLineSpacing(0f, themeConfig.lineHeight)
+                        // Line height is a CSS multiplier (1.4 em); TextView multiplies the font's
+                        // own line metrics, so fold the ~1.2 em default in before applying it.
+                        setLineSpacing(0f, noteLineSpacing)
                         setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, with(density) { (themeConfig.fontSizePx * 0.94f).sp.toPx() })
                         setTextColor(textColor.toArgb())
                         highlightColor = Color.Transparent.toArgb()
@@ -197,7 +201,7 @@ internal fun EpubFootnotePopup(
                 },
                 update = { view ->
                     view.setTextColor(textColor.toArgb())
-                    view.setLineSpacing(0f, themeConfig.lineHeight)
+                    view.setLineSpacing(0f, noteLineSpacing)
                     // Identity check: the spanned text is only rebuilt when the body or the
                     // loaded images change, so this avoids a re-layout on every recomposition.
                     if (view.tag !== spanned) {

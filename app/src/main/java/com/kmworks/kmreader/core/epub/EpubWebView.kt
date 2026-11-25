@@ -989,6 +989,13 @@ object EpubJs {
           // Anything unusable returns null and the click falls through to the normal link path.
           var NOTE_NS = 'http://www.idpf.org/2007/ops';
           var NOTE_REF_CLASSES = /(^|\s)(noteref|footnote-ref|endnote-ref|duokan-footnote)(\s|$)/;
+          // Bodies a publisher itself marked as notes. Ken / Kindle toolchains use fnote2, some
+          // houses use footnote-text; matched as whole tokens so "footnote" does not leak into
+          // an unrelated "footnote-list" TOC class.
+          var NOTE_BODY_CLASSES = /(^|\s)(fnote\d*|footnote\d*|endnote\d*|note|note-text|aside-note)(\s|$)/;
+          // A reference without epub:type can only be recognised by its target. The target must
+          // still look like a note body: small enough to be one, and linked back to the marker.
+          var NOTE_HEURISTIC_MAX_TEXT = 4000;
           var NOTE_TAGS = {
             P: 1, DIV: 1, BLOCKQUOTE: 1, UL: 1, OL: 1, LI: 1,
             H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, BR: 1,
@@ -1009,13 +1016,6 @@ object EpubJs {
             return plain + ' ' + namespaced;
           }
 
-          function isNoteref(link) {
-            if (!link || !link.getAttribute) return false;
-            if (/(^|\s)noteref(\s|$)/.test(noteEpubTypeOf(link))) return true;
-            if ((link.getAttribute('role') || '') === 'doc-noteref') return true;
-            return NOTE_REF_CLASSES.test(link.getAttribute('class') || '');
-          }
-
           function noteFragmentOf(link) {
             var stamped = link.getAttribute('data-km-noteref');
             if (stamped) return stamped;
@@ -1023,6 +1023,83 @@ object EpubJs {
             var hash = raw.indexOf('#');
             if (hash < 0 || hash === raw.length - 1) return '';
             return raw.slice(hash + 1);
+          }
+
+          function noteTargetOf(link) {
+            var frag = noteFragmentOf(link);
+            if (!frag) return null;
+            var target = document.getElementById(frag);
+            if (!target) {
+              try { target = document.querySelector('[name="' + frag.replace(/"/g, '') + '"]'); } catch (e) { target = null; }
+            }
+            return target;
+          }
+
+          // The fragment very often points at an empty marker anchor that starts the note block
+          // (`<p class="note"><a id="m1"></a>[1] …</p>`), so the body is the nearest block that
+          // holds it — not the anchor itself. Only a couple of levels are walked: a note body is a
+          // paragraph, never a whole section.
+          function noteContainerOf(target) {
+            if (!target) return null;
+            var node = target;
+            for (var depth = 0; depth < 3 && node; depth++) {
+              if (node !== target) {
+                var cls = node.getAttribute ? (node.getAttribute('class') || '') : '';
+                if (NOTE_BODY_CLASSES.test(cls)) return node;
+                if (/^(P|DIV|LI|ASIDE|BLOCKQUOTE|SECTION|TD)$/.test(node.tagName || '')) {
+                  if (String(node.textContent || '').trim()) return node;
+                }
+              }
+              node = node.parentElement;
+            }
+            return target;
+          }
+
+          // References and their bodies point at each other (… #m1 in the text, #w1 at the
+          // note), which is the only signal many Kindle-derived Chinese epubs leave behind. That
+          // mutual link, not the marker's look, is what tells a note apart from a chapter link.
+          function noteLinksBack(body, link) {
+            var holder = link.parentElement;
+            var id = link.id || '';
+            var anchors = body.querySelectorAll ? body.querySelectorAll('a[href]') : [];
+            for (var i = 0; i < anchors.length; i++) {
+              var raw = anchors[i].getAttribute('href') || '';
+              var hash = raw.indexOf('#');
+              if (hash < 0) continue;
+              var frag = raw.slice(hash + 1);
+              if (!frag) continue;
+              if (id && frag === id) return true;
+              // The reference often carries no id; the matching id sits next to it (#w1 before
+              // the marker), so the surrounding block is searched for the back-link's target.
+              try {
+                if (holder && holder.querySelector('[id="' + frag.replace(/"/g, '') + '"]')) return true;
+              } catch (e) { /* malformed fragment: ignore */ }
+            }
+            // Kindle style: the marker is #ch1-back and the body is #ch1.
+            if (id.length > 5 && id.slice(-5) === '-back' && noteFragmentOf(link) === id.slice(0, -5)) return true;
+            return false;
+          }
+
+          function isNoteref(link) {
+            if (!link || !link.getAttribute) return false;
+            if (/(^|\s)noteref(\s|$)/.test(noteEpubTypeOf(link))) return true;
+            if ((link.getAttribute('role') || '') === 'doc-noteref') return true;
+            if (NOTE_REF_CLASSES.test(link.getAttribute('class') || '')) return true;
+            var target = noteTargetOf(link);
+            if (!target) return false;
+            var body = noteContainerOf(target);
+            // Back-links ("[1]" at the start of a note, or "(1)" in the note list) resolve to the
+            // marker in the reading text. A real reference always sits BEFORE its note body in
+            // document order, so a body that precedes the link is the reading text, not a note.
+            if (body) {
+              if (body.contains && body.contains(link)) return false;
+              var order = link.compareDocumentPosition ? link.compareDocumentPosition(body) : 0;
+              if (order & 2) return false;  // DOCUMENT_POSITION_PRECEDING: body comes first
+            }
+            var size = String((body || target).textContent || '').length;
+            if (!size || size > NOTE_HEURISTIC_MAX_TEXT) return false;
+            if (noteLinksBack(body || target, link)) return true;
+            return NOTE_BODY_CLASSES.test((body || target).getAttribute('class') || '');
           }
 
           // Publishers (Duokan et al.) run a script that strips the href off every noteref after
@@ -1151,14 +1228,12 @@ object EpubJs {
           function notePayload(link, ev) {
             var frag = noteFragmentOf(link);
             if (!frag) return null;
-            var target = document.getElementById(frag);
-            if (!target) {
-              try { target = document.querySelector('[name="' + frag.replace(/"/g, '') + '"]'); } catch (e) { target = null; }
-            }
+            var target = noteTargetOf(link);
             if (!target) return null;  // cross-file note: the caller falls back to the link jump
+            var body = noteContainerOf(target) || target;
             var state = { images: [] };
-            var html = noteChildrenHtml(target, state);
-            var text = String(target.textContent || '').replace(/\s+/g, ' ').trim();
+            var html = noteChildrenHtml(body, state);
+            var text = String(body.textContent || '').replace(/\s+/g, ' ').trim();
             if (!html || (!text && !state.images.length)) return null;
             var truncated = false;
             if (text.length > NOTE_MAX_TEXT) {
