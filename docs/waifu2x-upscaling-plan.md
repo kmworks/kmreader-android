@@ -65,7 +65,7 @@ app/
 │       └── noise3_scale2.0x_model.param / .bin # 最强
 └── src/main/java/com/kmworks/kmreader/core/image/upscale/   # 新增：Kotlin 层
     ├── Waifu2xBridge.kt                 # JNI 封装：模型解压、初始化、单实例互斥 process
-    ├── UpscaleConfig.kt                 # 配置 data class + configHash
+    ├── UpscaleConfig.kt                 # 配置 data class + MODEL_SIGNATURE（缓存键的模型部分）
     ├── UpscaleDecision.kt               # 触发决策（对齐 iOS autoTriggerScale 语义）
     ├── EnhancementCache.kt              # 增强结果磁盘缓存（独立 Coil DiskCache 实例）
     ├── EnhancementDecoder.kt            # Coil3 Decoder：解码 → 查缓存 → 超分 → 写缓存
@@ -181,7 +181,8 @@ EnhancementDecoder.Factory（仅当 data 是页图 URL 且开关开启时接手�
    │
    ├─ 1. 从 pageLoader 磁盘缓存/网络取源图，sampled decode（复用现有解码路径）
    ├─ 2. UpscaleDecision.shouldUpscale() ── false → 直接返回源图（零开销透传）
-   ├─ 3. 查 EnhancementCache（key 含 configHash）── hit → 解码返回
+   ├─ 3. 查 EnhancementCache（key = pageKey#Denoise）── hit → 解码返回
+   │      └─ 目标档位 miss 但同页有其它档位 → 先返回该档位，后台重算目标档位
    └─ 4. miss → ImageEnhancer.submit(当前页优先级) 同步等待
                     │
                     ▼
@@ -191,7 +192,7 @@ EnhancementDecoder.Factory（仅当 data 是页图 URL 且开关开启时接手�
 - `EnhancementDecoder` 实现 `coil3.decode.Decoder`，包一层现有的源图解码逻辑
 - 注册到 `pageLoader` 的 `components { add(EnhancementDecoder.Factory(...)) }`，**coverLoader 不注册**（封面不需要超分）
 - 页图请求的 `memoryCachePolicy` 设为 `DISABLED`（仅当超分开启时）：33MB 大图不进 Coil 内存缓存；重复显示靠 EnhancementCache 磁盘命中（解码 100–300ms 可接受）。若实测翻页回退有感知，再补一个独立的 2 条目 LRU
-- `memoryCacheKey` / `diskCacheKey` 拼入 `configHash`，切换降噪等级/开关后不会读到旧结果
+- 源图的 `diskCacheKey` **保持纯 URL**（与磁盘预载共享同一条目），配置信息只进 EnhancementCache 键 —— 否则同一页源图会按降噪档位重复落盘
 
 ### 5.3 与现有预载的衔接
 
@@ -199,7 +200,7 @@ EnhancementDecoder.Factory（仅当 data 是页图 URL 且开关开启时接手�
 
 ### 5.4 ReaderScreen 改动点（实现阶段）
 
-- 页图 `ImageRequest.Builder`（ReaderScreen.kt:1772 附近）：追加 `memoryCacheKey`/`diskCacheKey`（含 configHash）、条件 `memoryCachePolicy(DISABLED)`、保留 `BorderCropTransformation`（切边在超分**之后**由 Coil 按序执行，裁的是增强后的图，cacheKey 链正确）
+- 页图 `ImageRequest.Builder`（ReaderScreen.kt:1772 附近）：条件 `memoryCachePolicy(DISABLED)`、保留 `BorderCropTransformation`（切边在超分**之后**由 Coil 按序执行，裁的是增强后的图，cacheKey 链正确）；`diskCacheKey` 保持纯 URL
 - `enqueueDiskPreload` 之后追加 `imageEnhancer.preload(pages, targetIndex)`
 - 章节切换/退出阅读器时 `imageEnhancer.nextGeneration()` / `cancelAll()`
 
@@ -215,9 +216,14 @@ const val KIND_ENHANCED = "enhanced"
 ```
 
 - 独立 Coil `DiskCache` 实例，目录 `image_cache/<namespace>/enhanced/`，`maxSizeBytes` 默认 512MB（设置项可调）
-- **缓存键** = `sha256(pageUrl + configHash)`；`configHash` 覆盖：模型 ID、降噪等级、倍率、ncnn/模型缓存版本号——任何配置变化自动失效旧条目，无需手动清空
+- **缓存键 = `pageKey#DenoiseName`**，其中 `pageKey = sha256(pageUrl + MODEL_SIGNATURE)`：
+  - `MODEL_SIGNATURE` = 模型架构 + 倍率 + 模型解包版本（`upconv7-s2-mv1`）——这部分变化才让整页键失效（`Waifu2xBridge.MODEL_CACHE_VERSION` 自增即可全量作废）
+  - 降噪档位是**变体维度**，不是页身份：切档只 miss 目标变体，仍能读到同页其它档位的结果
+  - 键布局变更时用 `SharedPreferences` 里的 layout 标记在启动时清一次缓存，避免不可达旧条目长期占着 512MB 预算
+- **stale-while-revalidate**（切降噪档不再整本重算）：目标变体 miss 时先返回同页最近的已缓存变体（按档位距离取最近），同时后台重算目标变体，完成后经 `ImageEnhancer.readyKeys` 换图。代价是切档瞬间看到的是旧档位的画面，收益是首屏不再等 10s/页
+- **变体上限**：每页最多保留 `MAX_VARIANTS_PER_PAGE = 2` 个档位（刚写入的 + 刚被回退使用的），写入后立即裁剪其余档位；A→B→A 来回切仍是命中，同时磁盘占用相对单档位最多翻倍而不是 5 倍
 - 存储格式：首期 **PNG**（无损，实现最简单）；实测体积后可选切 WebP 无损。不用有损格式（有损压缩会抵消超分收益）
-- `clearBookPages(bookId)` 扩展：逐条 evict 对应 enhanced 条目（与 pages 缓存同生命周期）
+- `clearBookPages(bookId)` 扩展：逐条 evict 对应 enhanced 条目（全部降噪档位，与 pages 缓存同生命周期）
 - 写入策略：先写临时文件再 rename，崩溃不留半截文件（Coil DiskCache 的 `FileSystem` 写入已具备此语义）
 
 ---
@@ -251,7 +257,7 @@ data class UpscaleSettings(
 
 enum class UpscaleMode(@param:StringRes val labelRes: Int) { Off(...), Auto(...), Always(...) }
 
-// 降噪强度 → 模型权重映射；档位名进 configHash，切换自动失效旧缓存
+// 降噪强度 → 模型权重映射；档位名是 EnhancementCache 的变体维度，切换只 miss 该档位
 enum class DenoiseLevel(@param:StringRes val labelRes: Int, val modelSuffix: String) {
     None(R.string.upscale_denoise_none,   "scale2.0x"),        // 无降噪，纯 2x 放大
     Low(R.string.upscale_denoise_low,     "noise0_scale2.0x"), // 轻度，默认，对齐 iOS
@@ -264,7 +270,7 @@ enum class DenoiseLevel(@param:StringRes val labelRes: Int, val modelSuffix: Str
 - 设置 UI 挂在阅读器设置 Sheet，沿用现有 `@StringRes labelRes` 枚举模式，中英双语资源
 - 默认值：**Auto**（对齐 iOS 默认行为）；降噪 **Low / noise0**（对齐 iOS 的 noise0 模型）
 - 降噪强度在选择器中用分段控件或下拉展示 5 档；首版不暴露模型架构选择、tile 尺寸等高级项
-- 修改设置 → `configHash` 变化 → 新请求自动走新键，旧缓存条目由 LRU 容量自然淘汰
+- 修改设置 → 目标档位变体键变化 → 先复用同页旧档位结果并后台重算；超出每页变体上限的条目由裁剪 + LRU 容量淘汰
 
 同时更新：
 - `DivinaSettings.kt` 顶部注释中 "Waifu2x upscaling not implemented on Android" 的说明
@@ -305,7 +311,7 @@ prepadding = 18;    // 防黑网格线与边缘模糊
 - [ ] native 崩溃保护：JNI 层捕获 C++ 异常，返回错误码而非闪退
 
 ### Phase 2 — 管线集成（约 3–4 天）
-- [ ] `EnhancementCache`（KIND_ENHANCED、configHash 键、clearBookPages 扩展）+ 单测
+- [ ] `EnhancementCache`（KIND_ENHANCED、`pageKey#Denoise` 双层键、切档 stale-while-revalidate、每页变体上限、clearBookPages 扩展）+ 单测
 - [ ] `EnhancementDecoder` + `pageLoader` 注册
 - [ ] `ImageEnhancer` 队列移植（优先级/抢占/代际/首帧保护/连续失败熔断）
 - [ ] ReaderScreen 接线：请求键、内存策略、预载联动、生命周期取消

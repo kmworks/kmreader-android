@@ -29,8 +29,10 @@ import com.kmworks.kmreader.ui.reader.UpscalePrecision
  * 1. decode bounds only
  * 2. [UpscaleDecision]: not worth it → plain sampled decode of the source
  * 3. [EnhancementCache] hit → return the cached enhanced bitmap
- * 4. full-res decode → [ImageEnhancer] queue (priority from the request) → write cache
- * 5. any failure falls back to the source bitmap — enhancement must never break page display
+ * 4. miss, but another denoise variant of the page is cached → return that one immediately and
+ *    regenerate the requested variant in the background (a denoise switch must not re-run the book)
+ * 5. full-res decode → [ImageEnhancer] queue (priority from the request) → write cache
+ * 6. any failure falls back to the source bitmap — enhancement must never break page display
  *
  * Diagnostics go to logcat and to the in-app log (tag "Upscale") so a device without adb
  * can still be inspected through the app's own Logs screen.
@@ -78,10 +80,31 @@ class EnhancementDecoder private constructor(
             }
         }
 
-        val cacheKey = EnhancementCache.cacheKey(pageUrl, config.configHash)
+        val cacheKey = EnhancementCache.cacheKey(pageUrl, config.denoise)
         cache.read(cacheKey)?.let {
             info("cache hit (${it.width}x${it.height}): $pageUrl")
             return DecodeResult(it.asImage(), false)
+        }
+
+        // Stale-while-revalidate: the exact denoise variant is missing (the level was just changed, or
+        // the bundled model was bumped), but another level of the same page is usually still on disk.
+        // Serve it instead of paying a full native re-run for the whole book on the critical path, and
+        // regenerate the requested variant in the background; ImageEnhancer.readyKeys swaps it in.
+        val stale = cache.readNearest(pageUrl, config.denoise)
+        if (stale != null) {
+            info(
+                "cache hit, stale denoise=${stale.denoise} for ${config.denoise} " +
+                    "(${stale.bitmap.width}x${stale.bitmap.height}): $pageUrl",
+            )
+            if (!enhancer.isDisabled) {
+                // The native input is the full-resolution source; decoding it here costs a few tens of
+                // milliseconds against a ~10 s re-run, and it cannot be deferred past this frame anyway
+                // because ImageSource is single-shot.
+                decodeSample(1)?.let { sourceBitmap ->
+                    requestEnhancement(cacheKey, sourceBitmap, config, priority, keepAlso = stale.denoise)
+                }
+            }
+            return DecodeResult(stale.bitmap.asImage(), false)
         }
 
         // Enhancement input is the full-resolution source (plan §5.2): the 2x output IS the detail.
@@ -92,6 +115,22 @@ class EnhancementDecoder private constructor(
         // Do not hold the first frame hostage to a ~1 s native run: hand the source bitmap back
         // immediately and let the enhancer fill the cache. ReaderScreen watches
         // ImageEnhancer.readyKeys and re-requests this page, which then hits the cache.
+        requestEnhancement(cacheKey, sourceBitmap, config, priority, keepAlso = null)
+        return DecodeResult(sourceBitmap.asImage(), false)
+    }
+
+    /**
+     * Queues the native enhancement of [sourceBitmap] under [cacheKey] and writes the result to the
+     * cache. [keepAlso] is the variant that was served instead of the requested one: it stays on disk
+     * so toggling the denoise level back and forth remains a hit.
+     */
+    private fun requestEnhancement(
+        cacheKey: String,
+        sourceBitmap: Bitmap,
+        config: UpscaleConfig,
+        priority: Int,
+        keepAlso: DenoiseLevel?,
+    ) {
         enhancer.prefetch(cacheKey, priority) {
             if (!Waifu2xBridge.ensureInitialized(context, config.denoise.bridgeModel, config.precision)) {
                 warn("engine unavailable (${config.denoise.bridgeModel.modelSuffix})")
@@ -99,10 +138,17 @@ class EnhancementDecoder private constructor(
             }
             val enhanced = Waifu2xBridge.process(sourceBitmap) ?: return@prefetch null
             cache.write(cacheKey, enhanced)
+            // Bounded per-page footprint: the requested variant plus the one that was just served.
+            cache.pruneVariants(
+                pageUrl,
+                buildSet {
+                    add(config.denoise)
+                    if (keepAlso != null) add(keepAlso)
+                },
+            )
             info("enhanced: ${sourceBitmap.width}x${sourceBitmap.height} -> ${enhanced.width}x${enhanced.height} ($pageUrl)")
             enhanced
         }
-        return DecodeResult(sourceBitmap.asImage(), false)
     }
 
     /** Device texture limits (0,0 = unknown), read once from a scratch software canvas. */
