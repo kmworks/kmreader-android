@@ -177,9 +177,11 @@ fun PdfReaderScreen(
         isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
     )
     val pagesPerRow = if (resolvedPresentation == PDF_PRESENTATION_DUAL_CONTINUOUS) 2 else 1
-    // Discrete page-turn matrix (P2): singlePaged is always discrete; the other layouts
-    // become discrete when continuous scroll is off.
-    val discretePages = resolvedPresentation == PDF_PRESENTATION_SINGLE || !pdfSettings.continuousScroll
+    // Discrete page-turn matrix (P2): the scroll layout decides between paged swipes and a
+    // continuous scroll. continuousScroll is the single source of truth — the presentation
+    // chips write it alongside pagePresentation (PdfPreferencesSheet), so a chip and the
+    // switch can no longer disagree about the same layout.
+    val discretePages = !pdfSettings.continuousScroll
 
     val backgroundColor =
         when (normalizePdfBackground(pdfSettings.background)) {
@@ -379,16 +381,27 @@ fun PdfReaderScreen(
                                 DiscretePdfContainer.Axis.Horizontal
                             }
                         container.rtl = rtl
-                        container.onNextPage = { jumpTo(currentPage + pagesPerRow) }
-                        container.onPrevPage = { jumpTo(currentPage - pagesPerRow) }
+                        // latestPage, not currentPage: the callback runs outside composition,
+                        // so a plain `currentPage` read here would freeze the value captured
+                        // by the last update pass (always page 1) and every swipe would turn
+                        // to the same page again.
+                        container.onNextPage = { jumpTo(latestPage + pagesPerRow) }
+                        container.onPrevPage = { jumpTo(latestPage - pagesPerRow) }
                         view.setBackgroundColor(backgroundColor.toArgb())
-                        // The view speaks display positions; page numbers stay physical
-                        view.setOnScrollChangeListener { _, _, _, _, _ ->
-                            if (state.document != null) {
-                                val physical =
-                                    pageOrder.positionToPhysical(view.firstVisiblePage)
-                                        .coerceAtLeast(0)
-                                currentPage = (physical + 1).coerceIn(1, pageCount)
+                        // androidx.pdf never reports its position the way a scrolled view does:
+                        // scrollX/scrollY stay put, and firstVisiblePage (plus the viewport
+                        // callback's own argument) reads 0 for every viewport laid out here.
+                        // The page indicator the view paints is accurate, so continuous mode
+                        // reads progress back from it. Paged mode does not read anything back:
+                        // there a turn is already authoritative, and a partially visible row
+                        // would otherwise resolve back to the row the turn just left.
+                        container.onViewportPageChanged = {
+                            if (!discretePages && state.document != null) {
+                                view.firstVisibleDisplayPage()?.let { display ->
+                                    val physical =
+                                        pageOrder.positionToPhysical(display - 1).coerceAtLeast(0)
+                                    currentPage = (physical + 1).coerceIn(1, pageCount)
+                                }
                             }
                         }
                         if (documentChanged && displayDocument != null) {
@@ -406,9 +419,6 @@ fun PdfReaderScreen(
                                     currentPage
                                 }
                             view.scrollToPage(pageOrder.physicalToPosition(target - 1))
-                            // The document swap re-fits the zoom; re-baseline the discrete
-                            // container's pinch detection against the new resting zoom.
-                            container.syncReferenceZoom()
                         }
                     },
                     modifier =
@@ -894,6 +904,18 @@ fun PdfReaderScreen(
 private class InitialApply {
     var appliedFor: PdfDocument? = null
 }
+
+/**
+ * First page (1-based display position) the view's own page indicator names: "3-6 / 189" -> 3,
+ * "12 / 188" -> 12.
+ *
+ * `PdfView.firstVisiblePage` and the `OnViewportChangedListener` argument both report 0 for
+ * every viewport this reader lays out, while the indicator the view paints follows the real
+ * scroll position, so this is the only source of position left. Returns null when the view has
+ * no usable indicator yet (before the first layout).
+ */
+private fun PdfView.firstVisibleDisplayPage(): Int? =
+    currentPageIndicatorLabel.substringBefore('-').substringBefore(' ').trim().toIntOrNull()
 
 /** Detects short taps without consuming events (PdfView keeps selection/gestures). */
 private fun Modifier.unconsumedTap(onTap: () -> Unit): Modifier =

@@ -128,7 +128,22 @@ fun PdfSettingsContent(
             onSelect = { label ->
                 val index = presentationLabels.indexOf(label)
                 if (index >= 0) {
-                    onSettingsChange(settings.copy(pagePresentation = PdfPagePresentationOptions[index]))
+                    // The chip and the switch above write two different keys that the reader
+                    // combines (PdfReaderScreen's discretePages), so a chip that only wrote
+                    // pagePresentation silently lost to a switch left off: picking
+                    // "single continuous" still turned pages, and picking "single" ignored a
+                    // switch turned on. Keep continuousScroll in step with the chip; "auto"
+                    // keeps whatever the switch says because the orientation picks the layout.
+                    val next = PdfPagePresentationOptions[index]
+                    val continuous =
+                        when (next) {
+                            PDF_PRESENTATION_SINGLE_CONTINUOUS, PDF_PRESENTATION_DUAL_CONTINUOUS -> true
+                            PDF_PRESENTATION_SINGLE -> false
+                            else -> settings.continuousScroll
+                        }
+                    onSettingsChange(
+                        settings.copy(pagePresentation = next, continuousScroll = continuous),
+                    )
                 }
             },
         )
