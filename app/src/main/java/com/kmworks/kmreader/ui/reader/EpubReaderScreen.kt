@@ -105,13 +105,17 @@ import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
+import com.kmworks.kmreader.core.epub.EpubPositionIndex
+import com.kmworks.kmreader.core.epub.EpubPositionIndexStore
 import com.kmworks.kmreader.core.epub.EpubRepository
 import com.kmworks.kmreader.core.epub.EpubResource
 import com.kmworks.kmreader.core.epub.EpubScrollWebView
 import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
+import com.kmworks.kmreader.core.epub.buildEpubPositionIndex
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.epub.epubPositionIndexKey
 import com.kmworks.kmreader.core.reader.EpubOverlayItem
 import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.fonts.FontRepository
@@ -162,12 +166,14 @@ data class EpubUiState(
 
 /**
  * EPUB reader state (mirrors the WebPub manifest route of EpubReaderView):
- * manifest → chapters, positions → chapter weights, progression GET restores / PUT reports throttled.
+ * manifest → chapters; positions → chapter weights (cached, fetched off the first-render path);
+ * progression GET restores / PUT reports throttled.
  */
 @HiltViewModel
 class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
+    private val positionIndexStore: EpubPositionIndexStore,
     private val offlineLibrary: OfflineLibrary,
     private val fontRepository: FontRepository,
     private val appSettings: AppSettingsStore,
@@ -198,10 +204,12 @@ class EpubReaderViewModel @Inject constructor(
 
     /** Read list the current book was opened from; kept so the end page can retry the sibling lookup. */
     private var sessionReadListStableId: Int? = null
-    private var weightsByHref: Map<String, Float> = emptyMap()
-
-    /** Sorted position progressions per chapter href (Komga positions); used to snap reported fractions to exact positions. */
-    private var progressionsByHref: Map<String, List<Float>> = emptyMap()
+    /**
+     * Positions of the open book, compacted to per-chapter weights + sorted progressions. Fetched off
+     * the first-render path and cached: a long novel's list is megabytes (2.5 MB / 15,865 entries for
+     * an 8,431-page book), so it must neither block the first chapter nor be re-downloaded per open.
+     */
+    private var positionIndex: EpubPositionIndex? = null
     private var equalWeight: Float = 1f
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
@@ -277,24 +285,12 @@ class EpubReaderViewModel @Inject constructor(
                 )
             }
             equalWeight = 1f / chapters.size
-            val positions = epubRepository.positions(dtoId)
-            val positionsTotal = positions?.total ?: 0
-            weightsByHref = positions
-                ?.takeIf { it.total > 0 }
-                ?.positions
-                ?.groupingBy { EpubHref.normalize(it.href) }
-                ?.eachCount()
-                ?.mapValues { it.value.toFloat() / positionsTotal }
-                .orEmpty()
-            progressionsByHref = positions
-                ?.takeIf { it.total > 0 }
-                ?.positions
-                ?.groupBy { EpubHref.normalize(it.href) }
-                ?.mapValues { entry ->
-                    entry.value.mapNotNull { it.locations?.progression }.sorted()
-                }
-                .orEmpty()
-            estimatedTotalPages = positionsTotal
+            // Positions only refine the whole-book percentage and the reported locator — they never
+            // affect the layout, so the first chapter must not wait for them. A cache hit answers
+            // off the main thread in microseconds; a miss is fetched below, after the page is up.
+            val positionKey = epubPositionIndexKey(chapters, book.pageCount)
+            positionIndex = positionIndexStore.cached(dtoId, positionKey)
+            estimatedTotalPages = positionIndex?.total ?: 0
 
             // Restore saved progression (mirrors decodeRemoteWebPubProgression fallback to start)
             val saved = epubRepository.savedProgression(dtoId)
@@ -328,6 +324,33 @@ class EpubReaderViewModel @Inject constructor(
             )
 
             resolveAdjacent(dtoId, readListStableId)
+            if (positionIndex == null) {
+                loadPositionIndex(dtoId, positionKey)
+            }
+        }
+    }
+
+    /**
+     * Fetches the positions list after the first page is already on screen, then applies it: weights
+     * for the whole-book percentage, progressions for snapping the reported locator. A failure is
+     * silent — the reader keeps the equal-weight approximation and an unsnapped report.
+     */
+    private fun loadPositionIndex(dtoId: String, key: String) {
+        viewModelScope.launch {
+            val positions = epubRepository.positions(dtoId) ?: return@launch
+            if (_uiState.value.bookDtoId != dtoId || _uiState.value.chapters.isEmpty()) return@launch
+            val index = buildEpubPositionIndex(positions)
+            if (index.total <= 0) return@launch
+            positionIndexStore.remember(dtoId, key, index)
+            positionIndex = index
+            estimatedTotalPages = index.total
+            // Weights change the whole-book percentage without the reader moving, so the recording
+            // gate's baseline has to move with them: otherwise refitting from equal weights to the
+            // real ones looks like a large jump and records a book that was only just opened.
+            val state = _uiState.value
+            val rebased = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction)
+            if (sessionStartTotalProgression != null) sessionStartTotalProgression = rebased
+            _uiState.value = state.copy(totalProgression = rebased)
         }
     }
 
@@ -508,7 +531,11 @@ class EpubReaderViewModel @Inject constructor(
         val dtoId = bookDtoId ?: return
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
         val fraction = currentChapterFraction
-        val total = state.totalProgression
+        // Report the snapped position and the percentage OF THAT position: the server stores both halves
+        // in one locator, so deriving the percentage from the unsnapped fraction left a locator whose
+        // progression and totalProgression disagreed with each other.
+        val snapped = snapToPosition(chapter.href, fraction)
+        val total = totalFor(state.chapters, state.currentChapterIndex, snapped)
         // Completed = last chapter scrolled to its end (approximates the original reachedLastPage:
         // Android only knows the in-chapter fraction)
         val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
@@ -518,7 +545,7 @@ class EpubReaderViewModel @Inject constructor(
             val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
                 href = chapter.href,
-                chapterFraction = snapToPosition(chapter.href, fraction),
+                chapterFraction = snapped,
                 totalProgression = total,
                 deviceId = deviceId,
                 deviceName = deviceName,
@@ -549,18 +576,24 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     private fun weightOf(chapter: EpubChapter): Float =
-        weightsByHref[chapter.href] ?: equalWeight
+        positionIndex?.weightOf(chapter.href) ?: equalWeight
 
     /**
-     * Snaps the in-chapter fraction to the nearest Komga position of that chapter. The server (Komga/kmrs)
-     * requires the reported progression to exactly match a position or sit strictly between two positions of
-     * the same href — a raw fraction past the chapter's last position is rejected with 400 "Invalid
-     * progression". Sending back the exact f32 the server advertised round-trips to an exact match.
+     * Snaps the in-chapter fraction to a Komga position of that chapter. The server (Komga/kmrs)
+     * requires the reported progression to exactly match a position or sit strictly between two
+     * positions of the same href — a raw fraction past the chapter's last position is rejected with
+     * 400 "Invalid progression". Sending back the exact f32 the server advertised round-trips to an
+     * exact match.
+     *
+     * The FIRST position at or after [fraction] wins: positions are spaced by the server's own
+     * pagination, so the nearest one can sit slightly before what the reader has read and makes a
+     * forward read walk its saved position backwards. Past the chapter's last position the last one
+     * is the only valid answer.
      */
     private fun snapToPosition(href: String, fraction: Float): Float {
-        val progressions = progressionsByHref[href].orEmpty()
+        val progressions = positionIndex?.progressionsByHref?.get(href).orEmpty()
         if (progressions.isEmpty()) return fraction
-        return progressions.minBy { abs(it - fraction) }
+        return progressions.firstOrNull { it >= fraction } ?: progressions.last()
     }
 
     private fun totalFor(chapters: List<EpubChapter>, index: Int, fraction: Float): Float {
