@@ -88,8 +88,8 @@ android {
         applicationId = "com.kmworks.kmreader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 12
-        versionName = "2.2.0"
+        versionCode = 14
+        versionName = "2.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // Real devices only; x86 emulators have no reliable Vulkan (see docs/waifu2x-upscaling-plan.md §4.2)
