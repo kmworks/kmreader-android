@@ -125,6 +125,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CustomFont
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.net.URLDecoder
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -779,8 +780,11 @@ private fun RealEpubReader(
     var jsDirection by remember { mutableStateOf(0) }
     // Last reported in-chapter fraction: the scrolled-mode edge test for page stepping
     var lastFraction by remember { mutableStateOf(0f) }
-    // Anchor of an in-book link, applied once the target chapter's measure pass reports
+    // Anchor of a jump (in-book link or toc entry), applied once the target chapter's measure
+    // pass reports. Chapter-scoped: a failed load must not let a stale anchor fire on whatever
+    // chapter the reader lands on next.
     var pendingAnchor by remember { mutableStateOf<String?>(null) }
+    var pendingAnchorChapter by remember { mutableStateOf<Int?>(null) }
     // Link-jump back stack (mirrors readest's History.back): following an in-book link pushes
     // (chapterIndex, in-chapter fraction); the floating return chip pops it and jumps back.
     var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
@@ -885,9 +889,15 @@ private fun RealEpubReader(
         // reveal the WebView (covers both flow styles; later passes are idempotent)
         restorePositioned = true
         webViewEverRevealed = true
-        pendingAnchor?.let { anchor ->
-            pendingAnchor = null
-            webView?.evaluateJavascript("window.__kmGoToAnchor(${JSONObject.quote(anchor)})", null)
+        // Only the measure pass of the chapter the anchor belongs to consumes it: a toc entry or
+        // in-book link can target a file that fails to load, and the anchor would otherwise be
+        // applied to the following chapter (mirrors the pendingAnchor guard in readest).
+        if (pendingAnchorChapter == state.currentChapterIndex) {
+            pendingAnchorChapter = null
+            pendingAnchor?.let { anchor ->
+                pendingAnchor = null
+                webView?.evaluateJavascript("window.__kmGoToAnchor(${JSONObject.quote(anchor)})", null)
+            }
         }
     }
     val swipeHandler = rememberUpdatedState<(Float, Float) -> Unit> { dx, vx ->
@@ -921,6 +931,7 @@ private fun RealEpubReader(
                         // reader back (readest pushes every goTo onto its history stack)
                         linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
                         pendingAnchor = anchor
+                        pendingAnchorChapter = index
                         viewModel.goToChapter(index)
                     } else if (anchor != null) {
                         linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
@@ -1506,9 +1517,24 @@ private fun RealEpubReader(
             chapters = state.chapters,
             toc = state.toc,
             currentIndex = state.currentChapterIndex,
-            onJump = {
-                viewModel.goToChapter(it)
+            onJump = { index, anchor ->
                 showToc = false
+                if (index == state.currentChapterIndex && anchor != null) {
+                    // The toc entry lives in the file already on screen: "jumping" to that
+                    // chapter would be a silent no-op (selectChapter with an unchanged index
+                    // never reloads), so move inside the current page box instead. The anchor
+                    // is an element id, which __kmGoToAnchor resolves to the column it starts in.
+                    webView?.evaluateJavascript(
+                        "window.__kmGoToAnchor(${JSONObject.quote(anchor)})",
+                        null,
+                    )
+                } else {
+                    // Different file: hand the anchor to the measure pass of the newly loaded
+                    // chapter (the same slot in-book links use), then switch chapters.
+                    pendingAnchor = anchor
+                    pendingAnchorChapter = index
+                    viewModel.goToChapter(index)
+                }
             },
             onDismiss = { showToc = false },
         )
@@ -1636,6 +1662,21 @@ private fun initialTocExpanded(
 private fun firstDescendantHref(link: EpubLinkDto): String? =
     link.href ?: link.children.orEmpty().firstNotNullOfOrNull(::firstDescendantHref)
 
+/**
+ * `#fragment` of a manifest/toc href, URL-decoded (null when the href carries none).
+ *
+ * A toc entry usually points at a section *inside* a spine file (`text00005.html#CHP5-1-3`), and
+ * many books pack dozens of entries into one file — 卡拉马佐夫兄弟 puts 28 of its 119 entries in a
+ * single 372-page file. Dropping the fragment collapses every one of them onto the file's first
+ * page, which is what "章节跳转不对" looks like.
+ */
+private fun hrefAnchorFragment(href: String): String? {
+    val raw = href.substringAfter('#', "")
+    if (raw.isEmpty()) return null
+    val decoded = runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+    return decoded.ifEmpty { null }
+}
+
 /** Manifest toc sheet (mirrors EpubTocSheetView: hierarchical indentation, expandable containers, bookmark highlight on the current entry). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1643,7 +1684,7 @@ private fun EpubChapterSheet(
     chapters: List<EpubChapter>,
     toc: List<EpubLinkDto>,
     currentIndex: Int,
-    onJump: (Int) -> Unit,
+    onJump: (Int, String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val currentHref = chapters.getOrNull(currentIndex)?.href
@@ -1667,7 +1708,9 @@ private fun EpubChapterSheet(
     fun jumpTo(link: EpubLinkDto) {
         val href = firstDescendantHref(link) ?: return
         val index = chapters.indexOfFirst { EpubHref.matches(it.href, href) }
-        if (index >= 0) onJump(index)
+        // Carry the fragment: the entry names a section inside the file, and files are routinely
+        // shared by several entries (see hrefAnchorFragment). Null keeps the plain chapter jump.
+        if (index >= 0) onJump(index, hrefAnchorFragment(href))
     }
 
     AppModalDialog(onDismissRequest = onDismiss) {
@@ -1690,7 +1733,7 @@ private fun EpubChapterSheet(
                         hasChildren = false,
                         expanded = false,
                         isCurrent = current,
-                        onClick = { onJump(index) },
+                        onClick = { onJump(index, null) },
                         onToggle = {},
                     )
                 }
