@@ -101,7 +101,11 @@ class SearchRepository @Inject constructor(
             size = size,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
-        return Paged(items.map { it.toListEntry() }, hasMore = moreAfter(result.last, items.size))
+        return Paged(
+            items.map { it.toListEntry() },
+            hasMore = moreAfter(result.last, items.size),
+            totalElements = result.totalElements,
+        )
     }
 
     /** Collections search page (GET api/v1/collections, native search + library_id). */
@@ -120,7 +124,11 @@ class SearchRepository @Inject constructor(
             size = size,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
-        return Paged(items.map { it.toListEntry() }, hasMore = moreAfter(result.last, items.size))
+        return Paged(
+            items.map { it.toListEntry() },
+            hasMore = moreAfter(result.last, items.size),
+            totalElements = result.totalElements,
+        )
     }
 
     // ---- Dashboard section "More" pages: pagination over the same data source (original DashboardSectionDetailView pageSize 50) ----
