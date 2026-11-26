@@ -38,8 +38,8 @@ android {
         applicationId = "com.kmworks.kmreader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
-        versionName = "2.4.0"
+        versionCode = 15
+        versionName = "2.5.0"
     }
     signingConfigs {
         if (hasReleaseSigning) {
