@@ -642,6 +642,7 @@ private fun GroupedSearchResults(
                         item(key = "section-series") {
                             SearchGroup(
                                 title = stringResource(R.string.common_series),
+                                count = state.seriesTotal,
                                 showMore = state.seriesHasMore,
                                 onShowMore = { onShowMore(SearchScope.Series) },
                                 hasMore = state.seriesHasMore,
@@ -663,6 +664,7 @@ private fun GroupedSearchResults(
                         item(key = "section-books") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_books),
+                                count = state.booksTotal,
                                 showMore = state.booksHasMore,
                                 onShowMore = { onShowMore(SearchScope.Books) },
                                 hasMore = state.booksHasMore,
@@ -686,6 +688,7 @@ private fun GroupedSearchResults(
                         item(key = "section-collections") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_collections),
+                                count = state.collectionsTotal,
                                 showMore = state.collectionsHasMore,
                                 onShowMore = { onShowMore(SearchScope.Collections) },
                                 hasMore = state.collectionsHasMore,
@@ -706,6 +709,7 @@ private fun GroupedSearchResults(
                         item(key = "section-readlists") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_readlists),
+                                count = state.readListsTotal,
                                 showMore = state.readListsHasMore,
                                 onShowMore = { onShowMore(SearchScope.ReadLists) },
                                 hasMore = state.readListsHasMore,
@@ -728,12 +732,13 @@ private fun GroupedSearchResults(
     }
 }
 
-/** Group container: section header (title + "More ›") + horizontal LazyRow (content slot).
+/** Group container: section header (title · total + "More ›") + horizontal LazyRow (content slot).
  *  "More" is hidden when there are no further results; the strip itself pages when scrolled to
  *  its end, so reaching the dedicated page is no longer the only way to see further results. */
 @Composable
 private fun SearchGroup(
     title: String,
+    count: Long? = null,
     showMore: Boolean,
     onShowMore: () -> Unit,
     hasMore: Boolean = false,
@@ -762,6 +767,14 @@ private fun SearchGroup(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = title, style = MaterialTheme.typography.titleMedium)
+            if (count != null) {
+                // Server-side total ("系列 · 65"), the muted number of the reference search UI.
+                Text(
+                    text = " · $count",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.weight(1f))
             if (showMore) {
                 TextButton(onClick = onShowMore) {
