@@ -1059,8 +1059,8 @@ internal fun BookActionCard(
             // Mirrors iOS optimizedControlSize(.mini): mini capsule (height 28, 13pt text,
             // small icons)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Filled like the rest of the detail actions; an outlined capsule next to the white
-                // "继续阅读" read as a different control family rather than the quieter sibling.
+                // Filled like the rest of the detail actions; an outlined capsule under the white
+                // primary button read as a different control family rather than the quieter sibling.
                 FilledTonalButton(
                     onClick = onReadIncognito,
                     modifier = Modifier
