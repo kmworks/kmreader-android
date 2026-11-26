@@ -74,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -772,6 +773,7 @@ private fun SearchField(
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+            textAlign = TextAlign.Center,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
@@ -794,7 +796,9 @@ private fun SearchField(
                         Text(
                             text = stringResource(R.string.browse_search_placeholder),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textAlign = TextAlign.Center,
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -806,9 +810,9 @@ private fun SearchField(
                     // standard Close glyph keeps the control consistent with the rest of the app.
                     FilledIconButton(
                         onClick = { onQueryChange("") },
-                        // 26dp on the 44dp pill: the reference's clear chip is a light disc with a dark
-                        // cross, so the pair is inverted here too (onSurface disc, surface glyph).
-                        modifier = Modifier.size(26.dp),
+                        // 18dp disc = the leading glyph's size, so the two ends balance; the reference
+                        // disc is only 15dp, and 26dp read as a second, heavier icon.
+                        modifier = Modifier.size(18.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
@@ -818,7 +822,7 @@ private fun SearchField(
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = stringResource(R.string.browse_search_clear),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(9.dp),
                         )
                     }
                 }
