@@ -33,6 +33,9 @@ import androidx.compose.material.icons.filled.Checklist
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.browseAssistChipColors
+import com.kmworks.kmreader.ui.components.browseChipShape
+import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.BrowseSortChip
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.CollectionsBookmark
@@ -167,6 +170,9 @@ fun BrowseScreen(
                     leadingIcon = {
                         Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
                     },
+                    shape = browseChipShape(),
+                    colors = browseAssistChipColors(),
+                    border = null,
                 )
                 // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
                 // search tab filters). It carries the selected state, so an applied filter is visible in the
@@ -189,6 +195,9 @@ fun BrowseScreen(
                     leadingIcon = {
                         Icon(Icons.Filled.FilterList, contentDescription = null)
                     },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
                 )
                 // Current sort only: the panel keeps the conditions, the chip row shows how the results
                 // are ordered. Only the series/books scopes have a filter panel at all.
@@ -207,6 +216,9 @@ fun BrowseScreen(
                             viewModel.onScopeChange(s)
                         },
                         label = { Text(stringResource(s.labelRes)) },
+                        shape = browseChipShape(),
+                        colors = browseFilterChipColors(),
+                        border = null,
                     )
                 }
             }

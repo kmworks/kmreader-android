@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -180,6 +182,39 @@ fun BrowseFilterButton(
  * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
  * the full panel. [contentType] decides which presets and which sort vocabulary apply.
  */
+/**
+ * Pill geometry and fills shared by the browse-level chip rows (the search tab and the library).
+ * M3's stock chip is an 8dp rounded rect drawn with a hairline outline; these rows use a filled
+ * pill instead, and the selected state is the theme accent, so an active scope or filter separates
+ * from its neighbours by fill rather than by a border.
+ */
+@Composable
+internal fun browseChipShape() = RoundedCornerShape(16.dp)
+
+@Composable
+internal fun browseAssistChipColors() = AssistChipDefaults.assistChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+)
+
+@Composable
+internal fun browseFilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    selectedContainerColor = MaterialTheme.colorScheme.primary,
+    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+    disabledSelectedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    disabledSelectedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+)
+
 @Composable
 fun BrowseFilterChipFlow(
     options: BrowseOptions,
@@ -204,6 +239,9 @@ fun BrowseFilterChipFlow(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Filter presets (the original savedFilter, persisted in FilterPresetStore, reused across pages)
         val browsePresets = rememberBrowseFilterPresets()
@@ -213,6 +251,9 @@ fun BrowseFilterChipFlow(
                 onClick = { presetsOpen = true },
                 label = { Text(stringResource(R.string.filter_presets)) },
                 leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
+                shape = browseChipShape(),
+                colors = browseAssistChipColors(),
+                border = null,
             )
             DropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
                 if (presetsForType.isEmpty()) {
@@ -263,7 +304,14 @@ fun BrowseFilterChipFlow(
             if (filter.negative) {
                 NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
             } else {
-                FilterChip(selected = true, onClick = onOpenOptions, label = { Text(filter.label) })
+                FilterChip(
+                    selected = true,
+                    onClick = onOpenOptions,
+                    label = { Text(filter.label) },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
+                )
             }
         }
     }
@@ -294,6 +342,9 @@ fun BrowseSortChip(
                 }
             }
         },
+        shape = browseChipShape(),
+        colors = browseAssistChipColors(),
+        border = null,
     )
 }
 
@@ -378,6 +429,8 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
         selected = true,
         onClick = onClick,
         label = { Text(stringResource(R.string.filter_excluded, label)) },
+        shape = browseChipShape(),
+        border = null,
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.error,
             selectedLabelColor = MaterialTheme.colorScheme.onError,
