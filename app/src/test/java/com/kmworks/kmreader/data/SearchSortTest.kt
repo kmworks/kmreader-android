@@ -67,4 +67,25 @@ class SearchSortTest {
         assertTrue(reset.sortAscending)
         assertTrue(reset.authors.isEmpty())
     }
+
+    @Test
+    fun presetSortFollowsThePanelItIsAppliedIn() {
+        // Saved in the search panel with relevance, applied there again: still relevance
+        val searchPreset = SavedFilter("s", BrowseContentType.Series, defaultSearchOptions(BrowseContentType.Series))
+        assertEquals(
+            SortRelevance,
+            searchPreset.appliedTo(BrowseContentType.Series, searchSortFieldsFor(BrowseContentType.Series)).sortField,
+        )
+        // The same preset dropped into a catalogue panel: relevance is not on the menu, so its default field
+        assertEquals(
+            "metadata.titleSort",
+            searchPreset.appliedTo(BrowseContentType.Series, sortFieldsFor(BrowseContentType.Series)).sortField,
+        )
+        // A preset carrying a real field keeps it
+        val bookPreset = SavedFilter("b", BrowseContentType.Books, defaultBrowseOptions(BrowseContentType.Books))
+        assertEquals(
+            "series",
+            bookPreset.appliedTo(BrowseContentType.Books, sortFieldsFor(BrowseContentType.Books)).sortField,
+        )
+    }
 }
