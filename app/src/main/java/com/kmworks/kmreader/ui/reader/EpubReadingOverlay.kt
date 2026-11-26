@@ -4,23 +4,30 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.reader.EpubOverlayContent
@@ -45,7 +52,13 @@ private fun epubOverlayStrings() = EpubOverlayStrings(
  * (header/footer × leading/center/trailing) plus an optional thin progress bar along the bottom
  * edge. While the reader chrome is visible, only the two "controls" slots show (top/bottom
  * center). Pure text — never intercepts touches, so taps pass through to the WebView below.
+ *
+ * With "draw under cutout" off the notes keep the cutout band the page CSS already reserves
+ * (see [com.kmworks.kmreader.core.epub.computeEpubPageInsets]): the system bars are hidden while
+ * reading, so their padding is 0 there and the notes would sit at the physical edge — the header
+ * line printed inside the notch. [readerOverlayInsets] resolves that band for the text.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun EpubReadingOverlay(
     prefs: EpubOverlayPreferences,
@@ -59,6 +72,7 @@ internal fun EpubReadingOverlay(
     chapterProgressFraction: Float?,
     isRtl: Boolean,
     textColor: Color,
+    drawUnderCutout: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val content = resolveEpubOverlay(
@@ -74,6 +88,23 @@ internal fun EpubReadingOverlay(
         isRtl = isRtl,
         strings = epubOverlayStrings(),
     )
+    // The reader is immersive while the chrome is down, so the bars contribute 0 and the notes
+    // would sit on the physical edge. readerOverlayInsets applies the cutout policy shared with
+    // the page CSS: off keeps the header line below the notch, on leaves the full screen.
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    fun inset(px: Int): Dp = with(density) { px.toDp() }
+    val cutout = WindowInsets.displayCutout
+    val notes = readerOverlayInsets(
+        drawUnderCutout = drawUnderCutout,
+        statusBarTop = inset(WindowInsets.statusBars.getTop(density)),
+        navigationBarBottom = inset(WindowInsets.navigationBars.getBottom(density)),
+        cutoutTop = inset(cutout.getTop(density)),
+        cutoutBottom = inset(cutout.getBottom(density)),
+        cutoutLeft = inset(cutout.getLeft(density, layoutDirection)),
+        cutoutRight = inset(cutout.getRight(density, layoutDirection)),
+        rtl = layoutDirection == LayoutDirection.Rtl,
+    )
     Box(modifier = modifier.fillMaxSize()) {
         OverlayRow(
             leading = content.topLeading,
@@ -82,7 +113,7 @@ internal fun EpubReadingOverlay(
             textColor = textColor,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .statusBarsPadding()
+                .padding(top = notes.top, start = notes.start, end = notes.end)
                 .padding(horizontal = 14.dp, vertical = 6.dp),
         )
         OverlayRow(
@@ -92,7 +123,7 @@ internal fun EpubReadingOverlay(
             textColor = textColor,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
+                .padding(bottom = notes.bottom, start = notes.start, end = notes.end)
                 .padding(horizontal = 14.dp, vertical = 6.dp),
         )
         content.bottomProgress?.let { progress ->
