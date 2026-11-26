@@ -194,7 +194,9 @@ fun PdfPreferencesSheet(
     onSettingsChange: (PdfReaderSettings) -> Unit,
     /** Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA and EPUB. */
     common: DivinaSettings,
-    onCommonChange: (DivinaSettings) -> Unit,
+    /** Transform on the SHARED reader settings: applied to the latest persisted value, not to the
+     *  snapshot this sheet was composed with, so two quick toggles cannot clobber each other. */
+    onCommonUpdate: ((DivinaSettings) -> DivinaSettings) -> Unit,
     onDismiss: () -> Unit,
     /** Resolved reading direction (series metadata / forced default); shown read-only. */
     readingDirection: ReadingDirection? = null,
@@ -227,7 +229,7 @@ fun PdfPreferencesSheet(
             PdfSwitchRow(
                 label = stringResource(R.string.reader_keep_screen_awake),
                 checked = common.keepScreenAwake,
-                onCheckedChange = { value -> onCommonChange(common.copy(keepScreenAwake = value)) },
+                onCheckedChange = { value -> onCommonUpdate { it.copy(keepScreenAwake = value) } },
             )
             PdfSwitchRow(
                 label = stringResource(R.string.reader_draw_under_cutout),
@@ -240,7 +242,7 @@ fun PdfPreferencesSheet(
                 ),
                 checked = common.drawUnderCutout,
                 enabled = hasDisplayCutout,
-                onCheckedChange = { value -> onCommonChange(common.copy(drawUnderCutout = value)) },
+                onCheckedChange = { value -> onCommonUpdate { it.copy(drawUnderCutout = value) } },
             )
         }
     }

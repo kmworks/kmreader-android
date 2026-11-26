@@ -123,6 +123,11 @@ data class EpubThemeConfig(
     /** Extra left/right insets (CSS px) added to the margin gutter, for a landscape cutout. */
     val insetLeftVPx: Int = 0,
     val insetRightVPx: Int = 0,
+    /** Cutout band (CSS px) still to be clipped at the scroll viewport in scrolled mode; 0 when
+     *  content may draw under the cutout. Page padding can only reserve it once, at the top of the
+     *  scrolling document, so without this a scrolled page slides its text under the notch. */
+    val cutoutTopVPx: Int = 0,
+    val cutoutBottomVPx: Int = 0,
     /** True when the resolved background/foreground pair is a dark theme: enables the dark-mode
      *  text/link rewrites and the monochrome/inline image inversion in the page JS
      *  (iOS makeDarkTextColorOverrideCSS / readest imageClassifier parity). */
@@ -137,7 +142,8 @@ data class EpubThemeConfig(
             "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl,vertical:$vertical," +
             "paged:$paged,colCount:$colCount,fontWeight:$fontWeight,animate:$animatePageTurns," +
             "insetV:$insetVPx,insetB:${insetBottomVPx ?: insetVPx}," +
-            "insetL:$insetLeftVPx,insetR:$insetRightVPx,darkTheme:$darkTheme}"
+            "insetL:$insetLeftVPx,insetR:$insetRightVPx,cutoutT:$cutoutTopVPx,cutoutB:$cutoutBottomVPx," +
+            "darkTheme:$darkTheme}"
     }
 }
 
@@ -554,7 +560,9 @@ object EpubJs {
                 // break-inside: an image must not be sliced across two columns/pages (foliate
                 // setImageSize); the max-* clamps keep it inside one page box, which now means
                 // the tile minus the inline reservation on both sides.
-                + 'img,svg,video{max-width:' + Math.max(120, vw - 2 * m) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
+                // The block-axis gutter now also carries the landscape cutout, so the clamp has to
+                // match the column box (vw - left - right) or a wide plate still reaches the notch.
+                + 'img,svg,video{max-width:' + Math.max(120, vw - 2 * m - insetL - insetR) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
             }
             // The columns live on <html> and the page gutter lives on the fragmented <body>, so
             // the two invariants the pager relies on are structural instead of arithmetic:
@@ -929,6 +937,16 @@ object EpubJs {
               // Manifest-forced vertical (readingProgression ttb/btt): pinned on the root so
               // publisher styles cannot talk it back into horizontal.
               + (c.vertical ? 'html{writing-mode:vertical-rl !important;-webkit-writing-mode:vertical-rl !important;}' : '')
+              // Scrolled mode has no layout rules to hang the reservation on: the body padding
+              // above scrolls off with the first line, and later text would run under the notch.
+              // Two fixed, click-through strips painted in the page colour keep the band empty at
+              // every scroll position (empty in paged mode, where the padding already reserves it).
+              + ((c.cutoutT || 0) > 0
+                ? 'html::before{content:"";position:fixed;left:0;right:0;top:0;height:' + c.cutoutT + 'px;background:' + c.bg + ';pointer-events:none;z-index:1;}'
+                : '')
+              + ((c.cutoutB || 0) > 0
+                ? 'html::after{content:"";position:fixed;left:0;right:0;bottom:0;height:' + c.cutoutB + 'px;background:' + c.bg + ';pointer-events:none;z-index:1;}'
+                : '')
               + (c.darkTheme ? darkModeCss(c) : '');
             style.textContent = css;
             S.vertical = !!c.vertical || contentIsVertical();
