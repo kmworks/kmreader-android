@@ -310,16 +310,6 @@ fun BrowseFilterChipFlow(
                             contentDescription = null,
                         )
                     }
-                    if (filtersActive) {
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                // A colour-only cue carries nothing for a screen reader
-                                .semantics { contentDescription = filtersActiveLabel },
-                        )
-                    }
                 }
             },
             shape = browseChipShape(),
@@ -374,6 +364,16 @@ fun BrowseSortChip(
                             if (options.sortAscending) Icons.Filled.KeyboardArrowUp
                             else Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
+                        )
+                    }
+                    if (filtersActive) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                // A colour-only cue carries nothing for a screen reader
+                                .semantics { contentDescription = filtersActiveLabel },
                         )
                     }
                 }
