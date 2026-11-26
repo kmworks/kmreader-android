@@ -72,6 +72,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -191,11 +192,6 @@ fun BrowseFilterButton(
 }
 
 /**
- * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView /
- * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
- * the full panel. [contentType] decides which presets and which sort vocabulary apply.
- */
-/**
  * Pill geometry and fills shared by the browse-level chip rows (the search tab and the library).
  * M3's stock chip is an 8dp rounded rect drawn with a hairline outline; these rows use a filled
  * pill instead, and the selected state is the theme accent, so an active scope or filter separates
@@ -218,16 +214,16 @@ internal fun browseFilterChipColors() = FilterChipDefaults.filterChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
     labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-    disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
     selectedContainerColor = MaterialTheme.colorScheme.primary,
     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
     selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-    disabledSelectedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    disabledSelectedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
 )
 
+/**
+ * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView /
+ * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
+ * the full panel. [contentType] decides which presets and which sort vocabulary apply.
+ */
 @Composable
 fun BrowseFilterChipFlow(
     options: BrowseOptions,
