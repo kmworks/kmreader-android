@@ -51,10 +51,11 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            // The panel's sort applies here too; the search-specific default keeps the old behaviour.
-            sort = options?.let { seriesSort(it) } ?: listOf("metadata.titleSort,asc"),
+            // Searching sends no sort so Komga ranks hits by relevance (SeriesService.getSeries does the same);
+            // with a sort key the first page was simply the alphabetically earliest matches.
+            sort = if (term.isNotBlank()) null else options?.let { seriesSort(it) },
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
-        return result.toSeriesPage(size)
+        return result.toSeriesPage()
     }
 
     /** Books full-text search page (POST api/v1/books/list; same library condition). */
@@ -77,10 +78,11 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            // Book sorting has its own vocabulary (series/number/title/...); no series-only tokens here.
-            sort = options?.let { bookSort(it) } ?: listOf("metadata.numberSort,asc"),
+            // Same as the series call: relevance ranking while a term is present, the panel's sort only
+            // for a plain listing.
+            sort = if (term.isNotBlank()) null else options?.let { bookSort(it) },
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Read lists search page (GET api/v1/readlists, native search + library_id). */
@@ -99,7 +101,7 @@ class SearchRepository @Inject constructor(
             size = size,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
-        return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
+        return Paged(items.map { it.toListEntry() }, hasMore = moreAfter(result.last, items.size))
     }
 
     /** Collections search page (GET api/v1/collections, native search + library_id). */
@@ -118,7 +120,7 @@ class SearchRepository @Inject constructor(
             size = size,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         val items = result.content.orEmpty()
-        return Paged(items.map { it.toListEntry() }, hasMore = items.size >= size && result.last != true)
+        return Paged(items.map { it.toListEntry() }, hasMore = moreAfter(result.last, items.size))
     }
 
     // ---- Dashboard section "More" pages: pagination over the same data source (original DashboardSectionDetailView pageSize 50) ----
@@ -144,7 +146,7 @@ class SearchRepository @Inject constructor(
             size = size,
             sort = listOf("readProgress.readDate,desc"),
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Recently read books paged (readStatus READ, sort readProgress.readDate,desc; mirrors iOS recentlyReadBooks). */
@@ -166,7 +168,7 @@ class SearchRepository @Inject constructor(
             size = size,
             sort = listOf("readProgress.readDate,desc"),
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Recently released books paged (releaseDate after(now-1month), sort metadata.releaseDate,desc; mirrors iOS recentlyReleasedBooks). */
@@ -192,7 +194,7 @@ class SearchRepository @Inject constructor(
             size = size,
             sort = listOf("metadata.releaseDate,desc"),
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** On-deck (to read) paged. */
@@ -207,7 +209,7 @@ class SearchRepository @Inject constructor(
             page = page,
             size = size,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Recently added books paged (with a library scope it switches to POST books/list + createdDate desc, same as iOS). */
@@ -220,7 +222,7 @@ class SearchRepository @Inject constructor(
             val api = sessionManager.clients.value?.books ?: return Paged(emptyList(), false)
             val result = api.getBooksLatest(page = page, size = size).awaitBodyOrThrow()
                 ?: return Paged(emptyList(), false)
-            return result.toBookPage(size)
+            return result.toBookPage()
         }
         val api = listSearchApi() ?: return Paged(emptyList(), false)
         val result = api.books(
@@ -229,7 +231,7 @@ class SearchRepository @Inject constructor(
             size = size,
             sort = listOf("createdDate,desc"),
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Recently added series paged (GET /series/new; mirrors iOS recentlyAddedSeries — not latest). */
@@ -246,7 +248,7 @@ class SearchRepository @Inject constructor(
             // Mirrors iOS: exclude oneshot one-shots
             oneshot = false,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toSeriesPage(size)
+        return result.toSeriesPage()
     }
 
     /** Recently updated series paged (GET /series/updated). */
@@ -263,7 +265,7 @@ class SearchRepository @Inject constructor(
             // Mirrors iOS: exclude oneshot one-shots
             oneshot = false,
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), false)
-        return result.toSeriesPage(size)
+        return result.toSeriesPage()
     }
 
     // ---- Library browse filters (BrowseOptionsSheet → POST handwritten conditions, mirrors iOS buildCondition) ----
@@ -281,7 +283,7 @@ class SearchRepository @Inject constructor(
         )
         val result = api.series(body, page = page, size = size, sort = seriesSort(options))
             .awaitBodyOrThrow() ?: return null
-        return result.toSeriesPage(size)
+        return result.toSeriesPage()
     }
 
     /** Book browse: library scope + filters + sort applied to POST books/list; null on failure. */
@@ -297,7 +299,7 @@ class SearchRepository @Inject constructor(
         )
         val result = api.books(body, page = page, size = size, sort = bookSort(options))
             .awaitBodyOrThrow() ?: return null
-        return result.toBookPage(size)
+        return result.toBookPage()
     }
 
     /** Book filter conditions (condition keys and operators mirror iOS BookSearch.buildCondition). */
@@ -484,20 +486,24 @@ class SearchRepository @Inject constructor(
         return if (field == "random") listOf("random") else listOf("$field,$direction")
     }
 
-    private fun PageSeriesDto.toSeriesPage(size: Int): Paged<Series> {
+    /** Another page exists when the server says so: mirror iOS (`moreAvailable = !last`) instead of
+     *  inferring from a full page, so a short page (filtered hits, index/page-size caps) never ends a list. */
+    private fun moreAfter(last: Boolean?, itemCount: Int): Boolean = last != true && itemCount > 0
+
+    private fun PageSeriesDto.toSeriesPage(): Paged<Series> {
         val items = content.orEmpty()
         return Paged(
             items.map { it.toUiSeries() },
-            hasMore = items.size >= size && last != true,
+            hasMore = moreAfter(last, items.size),
             totalElements = totalElements,
         )
     }
 
-    private fun PageBookDto.toBookPage(size: Int): Paged<Book> {
+    private fun PageBookDto.toBookPage(): Paged<Book> {
         val items = content.orEmpty()
         return Paged(
             items.map { it.toUiBook() },
-            hasMore = items.size >= size && last != true,
+            hasMore = moreAfter(last, items.size),
             totalElements = totalElements,
         )
     }

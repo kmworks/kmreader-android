@@ -64,8 +64,9 @@ data class BrowseOptions(
     val sortAscending: Boolean = true,
     val readStatuses: Map<ReadStatus, TriState> = emptyMap(),
     val oneshot: TriState = TriState.Off,
-    // Deleted is excluded by default (mirrors the original deletedStatusRaw default "no")
-    val deleted: TriState = TriState.Exclude,
+    // No deleted filter unless picked (mirrors SeriesBrowseOptions.deletedFilter, whose default TriStateFilter
+    // yields no condition; the previous Exclude default narrowed search hits by every series Komga flagged deleted)
+    val deleted: TriState = TriState.Off,
     // Series only: the "completed" publication flag (mirrors completeFilter of SeriesBrowseOptions)
     val complete: TriState = TriState.Off,
     val authors: List<String> = emptyList(),
