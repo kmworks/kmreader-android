@@ -779,7 +779,7 @@ private fun SearchField(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 16.dp, end = 12.dp),
+                    .padding(start = 24.dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -788,7 +788,7 @@ private fun SearchField(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
                     modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(12.dp))
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart,
