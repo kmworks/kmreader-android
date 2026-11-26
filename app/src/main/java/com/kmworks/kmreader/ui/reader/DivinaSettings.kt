@@ -136,7 +136,21 @@ data class DivinaSettings(
     val longPressAction: LongPressAction = LongPressAction.ContextMenu,
     val preloadProfile: PreloadProfile = PreloadProfile.Balanced,
     val borderCrop: BorderCropMode = BorderCropMode.Disabled,
+    /**
+     * Keep the display awake while a book is open. Shared by all three readers (DIVINA, EPUB and
+     * PDF): one switch under Reader Defaults, mirrored in each reader's settings panel, so it is
+     * never "on in the comic reader but off in the EPUB reader" by accident.
+     */
     val keepScreenAwake: Boolean = false,
+    /**
+     * Let reader content run into the display cutout (notch / punch-hole) band. Shared by all
+     * three readers, mirrors Koharia's `drawUnderCutout` with the opposite default: on (default)
+     * gives the page the whole screen, which is what DIVINA and PDF already looked like before
+     * this switch existed; off keeps text and pages clear of the cutout with a band of the
+     * reader's own background. Implemented with insets rather than `layoutInDisplayCutoutMode`,
+     * because edge-to-edge on Android 15+ forces the window into the cutout anyway.
+     */
+    val drawUnderCutout: Boolean = true,
     val defaultPageLayout: PageLayout = PageLayout.Auto,
     val defaultSplitWideMode: SplitWidePageMode = SplitWidePageMode.Auto,
     val defaultSoloCoverPage: Boolean = true,

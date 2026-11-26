@@ -14,6 +14,12 @@
     <string name="reader_controls_gradient">控制元件漸變背景</string>
     <string name="reader_show_progress_bar">閱讀時顯示進度條</string>
     <string name="reader_keep_screen_awake">閱讀時保持螢幕常亮</string>
+    <!-- 共享閱讀行為：一個開關同時作用於 DIVINA、EPUB、PDF 三個閱讀器 -->
+    <string name="reader_behavior_section">閱讀行為</string>
+    <string name="reader_behavior_section_hint">同時作用於 DIVINA、EPUB 與 PDF 閱讀器。</string>
+    <string name="reader_draw_under_cutout">瀏海區域顯示內容</string>
+    <string name="reader_draw_under_cutout_hint">關閉時正文與頁面避開瀏海或挖孔區域。</string>
+    <string name="reader_no_display_cutout">本機沒有瀏海或挖孔。</string>
     <string name="reader_webtoon_page_width">條漫頁面寬度</string>
     <string name="reader_group_page_turn">翻頁</string>
     <string name="reader_transition_title">翻頁動畫樣式</string>

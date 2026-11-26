@@ -14,6 +14,13 @@
     <string name="reader_controls_gradient">Control bar gradient</string>
     <string name="reader_show_progress_bar">Show progress bar while reading</string>
     <string name="reader_keep_screen_awake">Keep screen awake while reading</string>
+    <!-- Shared reading behavior: one switch pair for DIVINA, EPUB and PDF (Reader Defaults +
+         each reader's panel mirror the same persisted values). -->
+    <string name="reader_behavior_section">Reading behavior</string>
+    <string name="reader_behavior_section_hint">Applies to the DIVINA, EPUB and PDF readers.</string>
+    <string name="reader_draw_under_cutout">Show content in cutout area</string>
+    <string name="reader_draw_under_cutout_hint">Off keeps text and pages clear of the notch or punch-hole.</string>
+    <string name="reader_no_display_cutout">This device has no notch or punch-hole.</string>
     <string name="reader_webtoon_page_width">Webtoon page width</string>
     <string name="reader_group_page_turn">Page turn</string>
     <string name="reader_transition_title">Page turn animation</string>

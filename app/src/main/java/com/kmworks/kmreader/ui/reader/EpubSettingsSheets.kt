@@ -437,6 +437,13 @@ fun EpubSettingsContent(
 fun EpubSettingsSheet(
     settings: EpubReaderSettings,
     onSettingsChange: (EpubReaderSettings) -> Unit,
+    /**
+     * Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA and PDF.
+     * Passed as the DIVINA settings object because that is where they are persisted, mirroring
+     * volumeButtonPageTurnEnabled.
+     */
+    common: DivinaSettings,
+    onCommonChange: (DivinaSettings) -> Unit,
     customFonts: List<CustomFont>,
     onOpenCustomFonts: () -> Unit,
     overlay: EpubOverlayPreferences,
@@ -444,6 +451,7 @@ fun EpubSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     var showPresets by remember { mutableStateOf(false) }
+    val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -464,6 +472,27 @@ fun EpubSettingsSheet(
                 onOpenCustomFonts = onOpenCustomFonts,
                 overlay = overlay,
                 onOverlayChange = onOverlayChange,
+            )
+            // Reader-wide behavior, mirrored from (and back into) the DIVINA settings object so
+            // the same switch toggled in any reader stays in step everywhere.
+            EpubSectionTitle(stringResource(R.string.reader_behavior_section))
+            EpubSwitchRow(
+                label = stringResource(R.string.reader_keep_screen_awake),
+                checked = common.keepScreenAwake,
+                onCheckedChange = { value -> onCommonChange(common.copy(keepScreenAwake = value)) },
+            )
+            EpubSwitchRow(
+                label = stringResource(R.string.reader_draw_under_cutout),
+                subtitle = stringResource(
+                    if (hasDisplayCutout) {
+                        R.string.reader_draw_under_cutout_hint
+                    } else {
+                        R.string.reader_no_display_cutout
+                    },
+                ),
+                checked = common.drawUnderCutout,
+                enabled = hasDisplayCutout,
+                onCheckedChange = { value -> onCommonChange(common.copy(drawUnderCutout = value)) },
             )
         }
     }
@@ -723,15 +752,34 @@ private fun EpubOverlayPickerRow(
 }
 
 @Composable
-private fun EpubSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun EpubSwitchRow(
+    label: String,
+    checked: Boolean,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

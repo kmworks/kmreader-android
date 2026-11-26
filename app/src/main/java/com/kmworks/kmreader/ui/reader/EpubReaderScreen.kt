@@ -114,6 +114,7 @@ import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
+import com.kmworks.kmreader.core.epub.EpubPageInsets
 import com.kmworks.kmreader.core.epub.EpubPositionIndex
 import com.kmworks.kmreader.core.epub.EpubPositionIndexStore
 import com.kmworks.kmreader.core.epub.EpubRepository
@@ -123,6 +124,7 @@ import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.buildEpubPositionIndex
+import com.kmworks.kmreader.core.epub.computeEpubPageInsets
 import com.kmworks.kmreader.core.epub.createEpubWebView
 import com.kmworks.kmreader.core.epub.epubPositionIndexKey
 import com.kmworks.kmreader.core.reader.EpubBookmark
@@ -798,27 +800,32 @@ private fun RealEpubReader(
         epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE ||
         epubOverlay.controlsHeaderCenter != EpubOverlayItem.NONE ||
         epubOverlay.controlsFooterCenter != EpubOverlayItem.NONE
-    // CSS px, NOT physical px: the injected page CSS consumes this as padding-top/bottom in
-    // CSS px (the EpubThemeConfig.insetVPx contract). roundToPx() here handed the page a
-    // density-scaled value — 24dp became 77 "CSS px" at density 3.2, which ate four lines per
-    // page and pushed the text block into the middle of the screen.
-    // The reservation is the page's own 24px gutter PLUS the band the notes occupy, and the band
-    // starts below the system bar insets (the rows use statusBarsPadding /
-    // navigationBarsPadding): reserving 24 alone left the header note on top of the first line.
-    // Both edges take the larger bar, so the footer note clears a three-button navigation bar
-    // too. *IgnoringVisibility keeps the page layout from reflowing while the chrome toggles the
-    // immersive bars on and off, so a page turn never shifts the text block.
-    val systemBarBandVPx = with(LocalDensity.current) {
-        val top = WindowInsets.statusBarsIgnoringVisibility.getTop(this)
-        val bottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(this)
-        maxOf(top, bottom).toDp().value.roundToInt()
-    }
-    val overlayInsetVPx = if (overlayHasContent) maxOf(24, systemBarBandVPx) else 0
+    // Page insets: the header/footer overlay band plus, when content must not draw under it, the
+    // display-cutout band. The two reservations are resolved together in computeEpubPageInsets
+    // (CSS px, NOT physical px — the injected page CSS consumes these as padding in CSS px, and
+    // handing it density-scaled values once ate four lines per page). The overlay keeps the old
+    // "both edges take the larger system bar" rule (the footer label sits on top of the
+    // navigation bar); the cutout, its horizontal edges and the overlay-off case are what is new.
+    // *IgnoringVisibility keeps the page layout from reflowing while the chrome toggles the
+    // immersive bars on and off.
+    val windowInsetsCss = rememberReaderWindowInsetsCss()
+    val pageInsets = computeEpubPageInsets(
+        cutoutTopVPx = windowInsetsCss.cutoutTop,
+        cutoutBottomVPx = windowInsetsCss.cutoutBottom,
+        cutoutLeftVPx = windowInsetsCss.cutoutLeft,
+        cutoutRightVPx = windowInsetsCss.cutoutRight,
+        statusBarTopVPx = windowInsetsCss.statusBarTop,
+        navigationBarBottomVPx = windowInsetsCss.navigationBarBottom,
+        overlayHasContent = overlayHasContent,
+        drawUnderCutout = readerSettings.drawUnderCutout,
+    )
+    // Shared by all three readers: one switch under Reader Defaults, mirrored in the panels.
+    KeepScreenOnEffect(readerSettings.keepScreenAwake)
     val themeConfig = remember(
-        epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+        epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
     ) {
         mapEpubThemeConfig(
-            epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+            epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
         )
     }
     var latestConfig by remember { mutableStateOf(themeConfig) }
@@ -1709,6 +1716,8 @@ private fun RealEpubReader(
         EpubSettingsSheet(
             settings = epubSettings,
             onSettingsChange = { new -> settingsViewModel.updateEpub { new } },
+            common = readerSettings,
+            onCommonChange = { new -> settingsViewModel.update { new } },
             customFonts = downloadedFamilies.sorted().map { family ->
                 CustomFont(
                     id = family.hashCode(),
@@ -2164,7 +2173,7 @@ private fun mapEpubThemeConfig(
     rtl: Boolean = false,
     viewportWidthDp: Int = 0,
     readingProgression: String? = null,
-    overlayInsetVPx: Int = 0,
+    pageInsets: EpubPageInsets = EpubPageInsets(),
 ): EpubThemeConfig {
     // Every family resolves to a light/dark pair, like the iOS ReaderTheme light*/dark* cases —
     // the old mapping had grey placeholders for sepia/green and a mixed-up quiet pair.
@@ -2204,7 +2213,10 @@ private fun mapEpubThemeConfig(
         // EpubThemePreferences font-weight mapping)
         fontWeight = (100 + (settings.fontWeight * 8f).roundToInt() * 100).coerceIn(100, 900),
         animatePageTurns = settings.animatePageTurns,
-        insetVPx = overlayInsetVPx,
+        insetVPx = pageInsets.topVPx,
+        insetBottomVPx = pageInsets.bottomVPx,
+        insetLeftVPx = pageInsets.leftVPx,
+        insetRightVPx = pageInsets.rightVPx,
         // Every family resolves to a light/dark pair, so "dark theme" is exactly the dark slot
         // being active — drives the JS dark-mode overrides (links, hard-coded colors, images).
         darkTheme = dark,

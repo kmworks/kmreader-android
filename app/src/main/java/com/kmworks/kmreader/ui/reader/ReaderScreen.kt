@@ -262,12 +262,14 @@ fun ReaderScreen(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
 
-    // Keep the screen awake while reading (mirrors the original keepScreenAwakeWhileReading, default false)
+    // Keep the screen awake while reading. Shared by all three readers (one switch under Reader
+    // Defaults, mirrored in the panels), so the flag is applied through the same effect instead of
+    // a DIVINA-local one.
     val view = LocalView.current
-    DisposableEffect(view, settings.keepScreenAwake) {
-        view.keepScreenOn = settings.keepScreenAwake
-        onDispose { view.keepScreenOn = false }
-    }
+    KeepScreenOnEffect(settings.keepScreenAwake)
+    // Content band: with "draw under cutout" off the pages are letterboxed out of the notch /
+    // punch-hole (the band shows the reader background), on they get the whole screen.
+    val contentInset = readerCutoutPadding(settings.drawUnderCutout)
 
     // Immersive mode: hide system bars while the chrome is hidden, restore them when the chrome
     // appears (mirrors iOS .statusBarHidden(!shouldShowControls))
@@ -992,7 +994,7 @@ fun ReaderScreen(
                         settings = settings,
                         rotationDegrees = rotationDegrees,
                         state = webtoonState,
-                        modifier = Modifier.fillMaxSize().then(gestureModifier).nestedScroll(continueConnection),
+                        modifier = Modifier.fillMaxSize().padding(contentInset).then(gestureModifier).nestedScroll(continueConnection),
                         pageUrl = viewModel::pageImageUrl,
                         endPage = endPage,
                         previousEndPage = previousEndPage,
@@ -1002,6 +1004,7 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier)
                             .nestedScroll(continueConnection),
@@ -1035,6 +1038,7 @@ fun ReaderScreen(
                         backgroundColor = readerBackground,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier),
                     ) { item ->
@@ -1057,6 +1061,7 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier)
                             .nestedScroll(continueConnection),

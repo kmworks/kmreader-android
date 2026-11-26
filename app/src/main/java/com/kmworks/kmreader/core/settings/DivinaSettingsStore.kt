@@ -31,8 +31,11 @@ import kotlinx.coroutines.flow.map
 private val Context.divinaSettingsStore by preferencesDataStore(name = "divina_settings")
 
 /**
- * Persistence of DIVINA reader settings (mirrors the @AppStorage key semantics of the original
- * ReaderSettingsSheet).
+ * Persistence of reader settings (mirrors the @AppStorage key semantics of the original
+ * ReaderSettingsSheet). Despite the class name this is the one store behind all three readers:
+ * [DivinaSettings] holds the DIVINA options plus the switches shared by DIVINA/EPUB/PDF
+ * (keepScreenAwake, drawUnderCutout, volumeButtonPageTurnEnabled), while [EpubReaderSettings]
+ * and [PdfReaderSettings] serve the other two readers.
  * Key names match the original (readerBackground/showPageNumber/...), easing side-by-side debugging.
  */
 @Singleton
@@ -65,6 +68,7 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.PRELOAD_PROFILE] = next.preloadProfile.name
             prefs[Keys.BORDER_CROP] = next.borderCrop.name
             prefs[Keys.KEEP_SCREEN_AWAKE] = next.keepScreenAwake
+            prefs[Keys.DRAW_UNDER_CUTOUT] = next.drawUnderCutout
             prefs[Keys.DEFAULT_PAGE_LAYOUT] = next.defaultPageLayout.name
             prefs[Keys.DEFAULT_SPLIT_WIDE_MODE] = next.defaultSplitWideMode.name
             prefs[Keys.DEFAULT_SOLO_COVER] = next.defaultSoloCoverPage
@@ -267,6 +271,7 @@ class DivinaSettingsStore @Inject constructor(
             preloadProfile = enumOrNull<PreloadProfile>(this[Keys.PRELOAD_PROFILE]) ?: defaults.preloadProfile,
             borderCrop = enumOrNull<BorderCropMode>(this[Keys.BORDER_CROP]) ?: defaults.borderCrop,
             keepScreenAwake = this[Keys.KEEP_SCREEN_AWAKE] ?: defaults.keepScreenAwake,
+            drawUnderCutout = this[Keys.DRAW_UNDER_CUTOUT] ?: defaults.drawUnderCutout,
             defaultPageLayout = enumOrNull<PageLayout>(this[Keys.DEFAULT_PAGE_LAYOUT]) ?: defaults.defaultPageLayout,
             defaultSplitWideMode = enumOrNull<SplitWidePageMode>(this[Keys.DEFAULT_SPLIT_WIDE_MODE]) ?: defaults.defaultSplitWideMode,
             defaultSoloCoverPage = this[Keys.DEFAULT_SOLO_COVER] ?: defaults.defaultSoloCoverPage,
@@ -296,7 +301,11 @@ class DivinaSettingsStore @Inject constructor(
         val LONG_PRESS_ACTION = stringPreferencesKey("readerLongPressAction")
         val PRELOAD_PROFILE = stringPreferencesKey("divinaPreloadProfile")
         val BORDER_CROP = stringPreferencesKey("divinaPageBorderCropMode")
+        /** Kept under its legacy key name (written by the DIVINA-only switch before it became
+         *  shared), so an existing user's choice carries over to EPUB and PDF unchanged. */
         val KEEP_SCREEN_AWAKE = booleanPreferencesKey("keepScreenAwakeWhileReading")
+        /** Shared by all three readers; see [com.kmworks.kmreader.ui.reader.DivinaSettings.drawUnderCutout]. */
+        val DRAW_UNDER_CUTOUT = booleanPreferencesKey("drawUnderCutout")
         val DEFAULT_PAGE_LAYOUT = stringPreferencesKey("defaultPageLayout")
         val DEFAULT_SPLIT_WIDE_MODE = stringPreferencesKey("splitWidePageMode")
         val DEFAULT_SOLO_COVER = booleanPreferencesKey("soloCoverPage")

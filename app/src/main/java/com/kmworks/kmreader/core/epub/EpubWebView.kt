@@ -111,9 +111,18 @@ data class EpubThemeConfig(
     val fontWeight: Int = 400,
     /** Smooth scroll animation on page turns (the animatePageTurns setting). */
     val animatePageTurns: Boolean = true,
-    /** Extra top/bottom content inset (CSS px) reserving room for the header/footer info
-     *  overlay, so page text never slides under it (mirrors the iOS containerInsets +24pt). */
+    /** Extra TOP content inset (CSS px) added on top of the page's own 24px gutter: room for the
+     *  header/footer info overlay and, when content must not draw under it, the display-cutout
+     *  band (mirrors the iOS containerInsets +24pt). Bottom/left/right are separate fields because
+     *  a notch can sit on any edge and a page with the overlay switched off only reserves the
+     *  cutout; with an overlay the two vertical edges still share the larger system bar, since
+     *  the footer label sits on top of the navigation bar. */
     val insetVPx: Int = 0,
+    /** Extra bottom inset (CSS px); null = mirror [insetVPx], which is what every page used to get. */
+    val insetBottomVPx: Int? = null,
+    /** Extra left/right insets (CSS px) added to the margin gutter, for a landscape cutout. */
+    val insetLeftVPx: Int = 0,
+    val insetRightVPx: Int = 0,
     /** True when the resolved background/foreground pair is a dark theme: enables the dark-mode
      *  text/link rewrites and the monochrome/inline image inversion in the page JS
      *  (iOS makeDarkTextColorOverrideCSS / readest imageClassifier parity). */
@@ -127,7 +136,8 @@ data class EpubThemeConfig(
             "fontFamily:'$safeFamily',lineHeight:$lineHeight," +
             "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl,vertical:$vertical," +
             "paged:$paged,colCount:$colCount,fontWeight:$fontWeight,animate:$animatePageTurns," +
-            "insetV:$insetVPx,darkTheme:$darkTheme}"
+            "insetV:$insetVPx,insetB:${insetBottomVPx ?: insetVPx}," +
+            "insetL:$insetLeftVPx,insetR:$insetRightVPx,darkTheme:$darkTheme}"
     }
 }
 
@@ -497,6 +507,13 @@ object EpubJs {
             var vw = window.innerWidth || 1;
             var vh = window.innerHeight || 1;
             var m = c.marginH;
+            // Inset contract: insetV is the TOP reservation, insetB the bottom one (defaults to
+            // insetV, the pre-cutout behaviour where both edges shared a band), insetL/R add to
+            // the horizontal gutter for a landscape cutout.
+            var insetV = c.insetV || 0;
+            var insetB = (c.insetB == null) ? insetV : (c.insetB || 0);
+            var insetL = c.insetL || 0;
+            var insetR = c.insetR || 0;
             if (S.vertical) {
               // Vertical-rl multicol: the inline axis is vertical, so the columns repeat
               // downward and one page = the container's inline extent (vh). Same two
@@ -517,8 +534,9 @@ object EpubJs {
               // (left/right) gutter is container padding, because it has to shrink every
               // column's tile; on the fragmented <body> it would pad only the first and last
               // fragment.
-              var inset = m + (c.insetV || 0);
-              var ch = Math.max(80, vh - 2 * inset);
+              var inlineTop = m + insetV;
+              var inlineBottom = m + insetB;
+              var ch = Math.max(80, vh - inlineTop - inlineBottom);
               // overflow-anchor:none — a paged strip that Chromium may "anchor" scrolls itself
               // off the page grid whenever late layout lands above the reader (see settlePage).
               return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
@@ -526,13 +544,13 @@ object EpubJs {
                 // the real ICB; only the inline extent is pinned, because that is the page step.
                 + 'html{width:100% !important;height:' + vh + 'px !important;'
                 + 'overflow-x:hidden !important;overflow-y:auto !important;'
-                + 'box-sizing:border-box !important;padding:0 ' + m + 'px !important;'
+                + 'box-sizing:border-box !important;padding:0 ' + (m + insetR) + 'px 0 ' + (m + insetL) + 'px !important;'
                 + 'column-count:1 !important;column-gap:0 !important;'
                 + 'column-fill:auto !important;}'
                 // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
                 // body padding, and this rule must win on specificity instead of on sheet order.
                 + 'html body{box-sizing:border-box !important;width:100% !important;'
-                + 'padding:' + inset + 'px 0 !important;}'
+                + 'padding:' + inlineTop + 'px 0 ' + inlineBottom + 'px 0 !important;}'
                 // break-inside: an image must not be sliced across two columns/pages (foliate
                 // setImageSize); the max-* clamps keep it inside one page box, which now means
                 // the tile minus the inline reservation on both sides.
@@ -563,14 +581,14 @@ object EpubJs {
             return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
               + 'html{width:100% !important;height:' + vh + 'px !important;'
               + 'overflow-y:hidden !important;box-sizing:border-box !important;'
-              + 'padding:' + (24 + (c.insetV || 0)) + 'px 0 !important;'
+              + 'padding:' + (24 + insetV) + 'px 0 ' + (24 + insetB) + 'px 0 !important;'
               + 'column-count:' + S.cols + ' !important;column-gap:0 !important;'
               + 'column-fill:auto !important;}'
               // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
               // body padding, and this rule must win on specificity instead of on sheet order.
               + 'html body{box-sizing:border-box !important;width:100% !important;'
-              + 'padding:0 ' + m + 'px !important;}'
-              + 'img,svg,video{max-height:' + Math.max(120, vh - 48) + 'px !important;break-inside:avoid !important;}';
+              + 'padding:0 ' + (m + insetR) + 'px 0 ' + (m + insetL) + 'px !important;}'
+              + 'img,svg,video{max-height:' + Math.max(120, vh - 48 - insetV - insetB) + 'px !important;break-inside:avoid !important;}';
           }
           function refreshLayout() {
             var lay = document.getElementById('km-layout');
@@ -903,7 +921,9 @@ object EpubJs {
               + '-webkit-text-size-adjust:none !important;text-size-adjust:none !important;}'
               // Unbreakable long words (URLs, CJK-less runs) must not overflow their column:
               // an overflowing run widens the strip past the computed page boundary.
-              + 'body{padding:' + (24 + (c.insetV || 0)) + 'px ' + c.marginH + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;overflow-wrap:break-word !important;' + fw + ff + '}'
+              + 'body{padding:' + (24 + (c.insetV || 0)) + 'px '
+                + (c.marginH + (c.insetR || 0)) + 'px ' + (24 + (c.insetB == null ? (c.insetV || 0) : (c.insetB || 0))) + 'px '
+                + (c.marginH + (c.insetL || 0)) + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;overflow-wrap:break-word !important;' + fw + ff + '}'
               + (c.publisherStyles ? '' : 'body,body *{font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + fw + ff + 'color:' + c.fg + ' !important;}')
               + 'img,svg,video{max-width:100% !important;height:auto !important;}'
               // Manifest-forced vertical (readingProgression ttb/btt): pinned on the root so
