@@ -83,14 +83,8 @@ import com.kmworks.kmreader.ui.dashboard.DashboardViewModel
 import com.kmworks.kmreader.ui.dashboard.SettingsDashboardScreen
 import com.kmworks.kmreader.ui.detail.BookDetailScreen
 import com.kmworks.kmreader.ui.detail.SeriesDetailScreen
-import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
-import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryContentType
-import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
-import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryFilterRequest
-import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
-import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryScreen
 import com.kmworks.kmreader.ui.lists.CollectionDetailScreen
 import com.kmworks.kmreader.ui.lists.ListsGroupKind
@@ -101,7 +95,9 @@ import com.kmworks.kmreader.ui.lists.SmartListDetailScreen
 import com.kmworks.kmreader.ui.login.LoginScreen
 import com.kmworks.kmreader.ui.offline.OfflineScreen
 import com.kmworks.kmreader.ui.reader.CustomFontsScreen
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubReaderScreen
+import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.reader.PdfReaderScreen
 import com.kmworks.kmreader.ui.reader.ReaderScreen
 import com.kmworks.kmreader.ui.settings.AboutScreen
