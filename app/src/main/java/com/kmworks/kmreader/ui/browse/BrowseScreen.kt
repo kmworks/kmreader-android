@@ -72,6 +72,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -755,12 +757,20 @@ private fun SearchField(
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(22.dp)
-    val container =
-        if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
-        else MaterialTheme.colorScheme.surfaceContainerHigh
+    // Filled-field role from M3: surfaceContainerHighest in both states.  surfaceContainerHigh
+    // (#F0F0F2) is barely distinguishable from the #F7F7F8 light background, so the pill vanished
+    // there; focus is carried by the outline instead of by a second fill level.
+    val container = MaterialTheme.colorScheme.surfaceContainerHighest
     val outline =
         if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
         else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+    // The clear disc is an inverted chip: a soft neutral under a high-contrast cross.  Its alpha
+    // follows the surface polarity — 0.62 on a dark pill yields the reference's pale grey (#9E9EA1),
+    // while the same value on the light pill would read as a near-black dot, so it drops to 0.45.
+    val clearDisc =
+        MaterialTheme.colorScheme.onSurface.copy(
+            alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.45f else 0.62f,
+        )
     BasicTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -779,7 +789,7 @@ private fun SearchField(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 16.dp, end = 12.dp),
+                    .padding(start = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -805,24 +815,32 @@ private fun SearchField(
                     innerTextField()
                 }
                 if (query.isNotEmpty()) {
-                    // Stock M3 tonal icon button: the circular container marks the hit target, and the
-                    // standard Close glyph keeps the control consistent with the rest of the app.
+                    // M3 icon button owns the 44dp touch target and the ripple, but its container is
+                    // transparent: the visible 18dp disc is painted inside. One composable therefore
+                    // gives a small, quiet glyph and a full-size hit area.
                     FilledIconButton(
                         onClick = { onQueryChange("") },
-                        // 18dp disc = the leading glyph's size, so the two ends balance; the reference
-                        // disc is only 15dp, and 26dp read as a second, heavier icon.
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(44.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-                            contentColor = MaterialTheme.colorScheme.surface,
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         ),
                     ) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.browse_search_clear),
-                            modifier = Modifier.size(9.dp),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(clearDisc, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.browse_search_clear),
+                                tint = MaterialTheme.colorScheme.background,
+                                modifier = Modifier.size(9.dp),
+                            )
+                        }
                     }
                 }
             }
