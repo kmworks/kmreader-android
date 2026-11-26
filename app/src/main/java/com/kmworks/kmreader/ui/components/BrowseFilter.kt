@@ -23,7 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bookmark
@@ -38,6 +40,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -67,6 +71,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -94,6 +99,17 @@ import kotlinx.coroutines.launch
 /** Layout mode (mirrors BrowseLayoutMode: list/grid/largeGrid), cycled. */
 enum class BrowseLayout(@param:StringRes val labelRes: Int) {
     List(R.string.layout_list), Grid(R.string.layout_grid), LargeGrid(R.string.layout_large_grid);
+
+    /**
+     * The glyph describes the layout itself. It used to be one shared Sort icon, which reads as the
+     * neighbouring 筛选 chip's filter metaphor instead of "how are these cards arranged".
+     */
+    val icon: ImageVector
+        get() = when (this) {
+            List -> Icons.AutoMirrored.Filled.ViewList
+            Grid -> Icons.Filled.GridView
+            LargeGrid -> Icons.Filled.Dashboard
+        }
 
     val next: BrowseLayout
         get() = when (this) {
@@ -175,6 +191,34 @@ fun BrowseFilterButton(
 }
 
 /**
+ * Pill geometry and fills shared by the browse-level chip rows (the search tab and the library).
+ * M3's stock chip is an 8dp rounded rect drawn with a hairline outline; these rows use a filled
+ * pill instead, and the selected state is the theme accent, so an active scope or filter separates
+ * from its neighbours by fill rather than by a border.
+ */
+@Composable
+internal fun browseChipShape() = RoundedCornerShape(16.dp)
+
+@Composable
+internal fun browseAssistChipColors() = AssistChipDefaults.assistChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+)
+
+@Composable
+internal fun browseFilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    selectedContainerColor = MaterialTheme.colorScheme.primary,
+    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+)
+
+/**
  * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView /
  * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
  * the full panel. [contentType] decides which presets and which sort vocabulary apply.
@@ -202,7 +246,10 @@ fun BrowseFilterChipFlow(
         AssistChip(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+            leadingIcon = { Icon(layout.icon, contentDescription = null) },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Filter presets (the original savedFilter, persisted in FilterPresetStore, reused across pages)
         val browsePresets = rememberBrowseFilterPresets()
@@ -212,6 +259,9 @@ fun BrowseFilterChipFlow(
                 onClick = { presetsOpen = true },
                 label = { Text(stringResource(R.string.filter_presets)) },
                 leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
+                shape = browseChipShape(),
+                colors = browseAssistChipColors(),
+                border = null,
             )
             KmDropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
                 if (presetsForType.isEmpty()) {
@@ -256,13 +306,23 @@ fun BrowseFilterChipFlow(
                     }
                 }
             },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Active-condition chips (negative = excluded, rendered in the error-tone variant)
         options.activeFilterLabels(contentType).forEach { filter ->
             if (filter.negative) {
                 NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
             } else {
-                FilterChip(selected = true, onClick = onOpenOptions, label = { Text(filter.label) })
+                FilterChip(
+                    selected = true,
+                    onClick = onOpenOptions,
+                    label = { Text(filter.label) },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
+                )
             }
         }
     }
@@ -293,6 +353,9 @@ fun BrowseSortChip(
                 }
             }
         },
+        shape = browseChipShape(),
+        colors = browseAssistChipColors(),
+        border = null,
     )
 }
 
@@ -377,6 +440,8 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
         selected = true,
         onClick = onClick,
         label = { Text(stringResource(R.string.filter_excluded, label)) },
+        shape = browseChipShape(),
+        border = null,
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.error,
             selectedLabelColor = MaterialTheme.colorScheme.onError,

@@ -85,6 +85,8 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.BrowseSortChip
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.browseChipShape
+import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
@@ -816,6 +818,9 @@ private fun LibraryHeader(
                             ),
                         )
                     },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
                 )
             }
         }

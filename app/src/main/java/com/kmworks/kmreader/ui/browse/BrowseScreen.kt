@@ -34,12 +34,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Checklist
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.browseAssistChipColors
+import com.kmworks.kmreader.ui.components.browseChipShape
+import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.BrowseSortChip
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
@@ -175,8 +177,11 @@ fun BrowseScreen(
                     onClick = { setResultsLayout(resultsLayout.next) },
                     label = { Text(stringResource(resultsLayout.labelRes)) },
                     leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
+                        Icon(resultsLayout.icon, contentDescription = null)
                     },
+                    shape = browseChipShape(),
+                    colors = browseAssistChipColors(),
+                    border = null,
                 )
                 // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
                 // search tab filters). It carries the selected state, so an applied filter is visible in the
@@ -199,6 +204,9 @@ fun BrowseScreen(
                     leadingIcon = {
                         Icon(Icons.Filled.FilterList, contentDescription = null)
                     },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
                 )
                 // Current sort only: the panel keeps the conditions, the chip row shows how the results
                 // are ordered. Only the series/books scopes have a filter panel at all.
@@ -217,6 +225,9 @@ fun BrowseScreen(
                             viewModel.onScopeChange(s)
                         },
                         label = { Text(stringResource(s.labelRes)) },
+                        shape = browseChipShape(),
+                        colors = browseFilterChipColors(),
+                        border = null,
                     )
                 }
             }
