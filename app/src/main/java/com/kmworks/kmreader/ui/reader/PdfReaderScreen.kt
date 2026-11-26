@@ -309,6 +309,12 @@ fun PdfReaderScreen(
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
+    // Shared by all three readers (one switch under Reader Defaults, mirrored in the panels).
+    KeepScreenOnEffect(readerSettings.keepScreenAwake)
+    // With "draw under cutout" off the document is letterboxed out of the notch / punch-hole band;
+    // on it fills the screen like the DIVINA pages do.
+    val contentInset = readerCutoutPadding(readerSettings.drawUnderCutout)
+
     Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
         when {
             state.loading -> {
@@ -424,6 +430,7 @@ fun PdfReaderScreen(
                     modifier =
                         Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .unconsumedTap { chromeVisible = !chromeVisible },
                 )
             }
@@ -820,6 +827,8 @@ fun PdfReaderScreen(
             settings = pdfSettings,
             readingDirection = readingDirection,
             onSettingsChange = { new -> settingsViewModel.updatePdf { new } },
+            common = readerSettings,
+            onCommonChange = { new -> settingsViewModel.update { new } },
             onDismiss = { showSettings = false },
         )
     }

@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
@@ -191,10 +192,14 @@ fun PdfSettingsContent(
 fun PdfPreferencesSheet(
     settings: PdfReaderSettings,
     onSettingsChange: (PdfReaderSettings) -> Unit,
+    /** Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA and EPUB. */
+    common: DivinaSettings,
+    onCommonChange: (DivinaSettings) -> Unit,
     onDismiss: () -> Unit,
     /** Resolved reading direction (series metadata / forced default); shown read-only. */
     readingDirection: ReadingDirection? = null,
 ) {
+    val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -217,6 +222,26 @@ fun PdfPreferencesSheet(
                 )
             }
             PdfSettingsContent(settings = settings, onSettingsChange = onSettingsChange)
+            // Reader-wide behavior, mirrored from (and back into) the DIVINA settings object.
+            PdfSectionTitle(stringResource(R.string.reader_behavior_section))
+            PdfSwitchRow(
+                label = stringResource(R.string.reader_keep_screen_awake),
+                checked = common.keepScreenAwake,
+                onCheckedChange = { value -> onCommonChange(common.copy(keepScreenAwake = value)) },
+            )
+            PdfSwitchRow(
+                label = stringResource(R.string.reader_draw_under_cutout),
+                subtitle = stringResource(
+                    if (hasDisplayCutout) {
+                        R.string.reader_draw_under_cutout_hint
+                    } else {
+                        R.string.reader_no_display_cutout
+                    },
+                ),
+                checked = common.drawUnderCutout,
+                enabled = hasDisplayCutout,
+                onCheckedChange = { value -> onCommonChange(common.copy(drawUnderCutout = value)) },
+            )
         }
     }
 }
@@ -253,8 +278,9 @@ private fun PdfSectionTitle(title: String) {
 private fun PdfSwitchRow(
     label: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
     subtitle: String? = null,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -263,7 +289,11 @@ private fun PdfSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (subtitle != null) {
                 Text(
                     subtitle,
@@ -272,7 +302,7 @@ private fun PdfSwitchRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
