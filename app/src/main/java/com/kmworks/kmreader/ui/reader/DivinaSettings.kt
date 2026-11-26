@@ -144,13 +144,15 @@ data class DivinaSettings(
     val keepScreenAwake: Boolean = false,
     /**
      * Let reader content run into the display cutout (notch / punch-hole) band. Shared by all
-     * three readers, mirrors Koharia's `drawUnderCutout` with the opposite default: on (default)
-     * gives the page the whole screen, which is what DIVINA and PDF already looked like before
-     * this switch existed; off keeps text and pages clear of the cutout with a band of the
-     * reader's own background. Implemented with insets rather than `layoutInDisplayCutoutMode`,
-     * because edge-to-edge on Android 15+ forces the window into the cutout anyway.
+     * three readers, mirrors Koharia's `drawUnderCutout` with the same default: off keeps text and
+     * pages clear of the cutout with a band of the reader's own background, on gives the page the
+     * whole screen. Off is the default so that a notch never swallows a header line or a page's
+     * first row out of the box; full-bleed is the deliberate choice, not the shipped look. The
+     * reserve only exists on a device that reports a cutout, so nothing changes elsewhere.
+     * Implemented with insets rather than `layoutInDisplayCutoutMode`, because edge-to-edge on
+     * Android 15+ forces the window into the cutout anyway.
      */
-    val drawUnderCutout: Boolean = true,
+    val drawUnderCutout: Boolean = false,
     val defaultPageLayout: PageLayout = PageLayout.Auto,
     val defaultSplitWideMode: SplitWidePageMode = SplitWidePageMode.Auto,
     val defaultSoloCoverPage: Boolean = true,
