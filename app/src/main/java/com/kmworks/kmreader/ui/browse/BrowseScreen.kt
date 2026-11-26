@@ -759,10 +759,13 @@ private fun SearchGroup(
     LaunchedEffect(shouldLoadMore, hasMore, loadingMore, stripState.layoutInfo.totalItemsCount) {
         if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
     }
-    Column(modifier = Modifier.padding(top = 8.dp)) {
+    Column(modifier = Modifier.padding(top = 12.dp)) {
+        // Fixed height: the title-to-cards gap must not depend on whether "More" is drawn (a TextButton
+        // brought its own 48dp touch height, so groups without further results sat tighter).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(44.dp)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -777,11 +780,23 @@ private fun SearchGroup(
             }
             Spacer(Modifier.weight(1f))
             if (showMore) {
-                TextButton(onClick = onShowMore) {
-                    Text(stringResource(R.string.common_more))
+                // Plain clickable row instead of a TextButton: its content padding kept "More" inset from
+                // the 16dp card edge. Bottom padding keeps a 44dp touch target inside the fixed header.
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onShowMore)
+                        .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.common_more),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
