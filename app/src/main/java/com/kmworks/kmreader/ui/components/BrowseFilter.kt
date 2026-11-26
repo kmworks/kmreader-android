@@ -71,6 +71,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -82,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.ActiveFilter
+import com.kmworks.kmreader.data.appliedTo
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.ReadStatus
@@ -203,15 +205,18 @@ fun BrowseFilterButton(
 internal fun browseChipShape() = RoundedCornerShape(16.dp)
 
 @Composable
-internal fun browseAssistChipColors(keepLookWhenDisabled: Boolean = false) = AssistChipDefaults.assistChipColors(
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+internal fun browseAssistChipColors(
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    keepLookWhenDisabled: Boolean = false,
+) = AssistChipDefaults.assistChipColors(
+    containerColor = containerColor,
     labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     // A chip that carries information but cannot be opened (the search tab's relevance chip) has to
     // keep its full-strength look: a greyed chip would read as "the results are not ordered at all".
     // The disabled slots stay the live colours, so enabled = false removes the tap and the ripple
     // without changing a single pixel.
-    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(
+    disabledContainerColor = containerColor.copy(
         alpha = if (keepLookWhenDisabled) 1f else 0.12f,
     ),
     disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
@@ -299,7 +304,13 @@ fun BrowseFilterChipFlow(
                         },
                         onClick = {
                             presetsOpen = false
-                            onApplyPreset(preset)
+                            // A catalogue row has no relevance entry, so a preset saved by the
+                            // search tab applies with its own first field instead
+                            onApplyPreset(
+                                preset.copy(
+                                    options = preset.appliedTo(contentType, sortFieldsFor(contentType)),
+                                ),
+                            )
                         },
                     )
                 }
@@ -556,6 +567,10 @@ fun BrowseOptionsSheet(
     // Currently open full multi-select metadata dimension (mirrors the original MetadataMultiSelectLoader navigation page)
     var pickerDimId by remember { mutableStateOf<String?>(null) }
     val browsePresets = rememberBrowseFilterPresets()
+    // Presets of this catalogue, offered right here: the panel is the one place every list opens,
+    // so the saved set is usable without hopping to a detail page that happens to carry a preset
+    // chip for this content type.
+    val presetsForType = browsePresets.presets.filter { it.contentType == contentType }
     val context = LocalContext.current
     // Follow the app's own locale (per-app language), not just the system default.
     val displayLocale = context.resources.configuration.locales[0]
@@ -653,6 +668,45 @@ fun BrowseOptionsSheet(
                     .fillMaxWidth(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
             ) {
+                if (presetsForType.isNotEmpty()) {
+                    item {
+                        FilterSection(stringResource(R.string.filter_presets)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                presetsForType.forEach { preset ->
+                                    AssistChip(
+                                        onClick = {
+                                            onOptionsChange(preset.appliedTo(contentType, sortFields))
+                                        },
+                                        label = { Text(preset.name) },
+                                        trailingIcon = {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = stringResource(R.string.filter_delete_preset),
+                                                // The chip applies; only this glyph deletes
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable { browsePresets.delete(preset.name, contentType) },
+                                            )
+                                        },
+                                        shape = browseChipShape(),
+                                        // The card under them is surfaceContainerHighest; the chip
+                                        // takes the dialog surface so the two do not merge
+                                        colors = browseAssistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                        ),
+                                        border = null,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (showsSort) {
                     item {
                         FilterSection(stringResource(R.string.filter_sort)) {

@@ -208,6 +208,20 @@ fun defaultSearchOptions(contentType: BrowseContentType): BrowseOptions =
     defaultBrowseOptions(contentType).copy(sortField = SortRelevance)
 
 /**
+ * A preset as it applies inside a panel of [contentType]: its stored sort token falls back to that
+ * panel's vocabulary when the panel does not offer it (a preset saved from the search tab carries
+ * relevance, which a catalogue list cannot sort by).
+ */
+fun SavedFilter.appliedTo(contentType: BrowseContentType, sortFields: List<String>): BrowseOptions =
+    options.copy(
+        sortField = normalizeSortField(
+            options.sortField,
+            contentType,
+            allowRelevance = SortRelevance in sortFields,
+        ),
+    )
+
+/**
  * Options a filter panel starts from when its reset is pressed: every condition back to default and
  * the sort back to the first entry of the panel's own vocabulary -- relevance on the search tab, the
  * type's default field in the catalogues.
