@@ -42,7 +42,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -214,7 +213,7 @@ fun BrowseFilterChipFlow(
                 label = { Text(stringResource(R.string.filter_presets)) },
                 leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
             )
-            DropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
+            KmDropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
                 if (presetsForType.isEmpty()) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.filter_no_presets)) },
@@ -858,7 +857,7 @@ private fun SortFieldRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            DropdownMenu(
+            KmDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.widthIn(min = 200.dp),

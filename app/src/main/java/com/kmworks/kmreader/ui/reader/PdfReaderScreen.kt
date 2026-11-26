@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -87,6 +86,7 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.pdf.PdfPageOrder
 import com.kmworks.kmreader.core.pdf.PdfPageOrderDocument
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -537,7 +537,7 @@ fun PdfReaderScreen(
                                 tint = chromeText,
                             )
                         }
-                        DropdownMenu(
+                        KmDropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
@@ -950,4 +950,5 @@ private fun Modifier.unconsumedTap(onTap: () -> Unit): Modifier =
             if (up != null && !moved) onTap()
         }
     }
+
 

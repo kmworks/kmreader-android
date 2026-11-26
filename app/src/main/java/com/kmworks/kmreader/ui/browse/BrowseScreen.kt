@@ -42,7 +42,6 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -84,6 +83,7 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.SeriesGridCard
@@ -261,7 +261,7 @@ fun BrowseScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(libraryScopeLabel(state.libraryScope, state.libraries))
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
@@ -903,3 +903,4 @@ private fun SearchListRow(entry: SampleData.ListEntry, icon: ImageVector, onClic
         }
     }
 }
+

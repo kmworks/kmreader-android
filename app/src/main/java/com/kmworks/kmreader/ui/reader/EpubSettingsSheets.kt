@@ -55,13 +55,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import com.kmworks.kmreader.core.reader.EpubOverlayItem
 import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.core.reader.EpubThemePreset
 import com.kmworks.kmreader.core.reader.EpubThemePresetStore
 import com.kmworks.kmreader.data.CustomFont
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -739,7 +739,7 @@ private fun EpubOverlayPickerRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        KmDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             EpubOverlayItem.entries.forEach { item ->
                 DropdownMenuItem(
                     text = { Text(stringResource(epubOverlayItemLabelRes(item))) },
@@ -831,3 +831,4 @@ private fun EpubNavRow(title: String, subtitle: String, onClick: () -> Unit) {
         )
     }
 }
+

@@ -38,7 +38,6 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -95,6 +94,7 @@ import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
@@ -461,7 +461,7 @@ fun LibraryScreen(
                             contentDescription = stringResource(R.string.library_switch_scope),
                         )
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {

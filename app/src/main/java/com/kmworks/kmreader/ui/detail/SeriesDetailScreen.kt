@@ -74,7 +74,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -152,6 +151,7 @@ import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.lists.ListSelection
@@ -408,7 +408,7 @@ fun SeriesDetailScreen(
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
-                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        KmDropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.common_share)) },
                                 leadingIcon = {

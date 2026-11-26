@@ -59,7 +59,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.TextFormat
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -137,6 +136,7 @@ import com.kmworks.kmreader.ui.components.CoverArt
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.lists.ListSelection
 
@@ -273,7 +273,7 @@ internal fun BookDetailBody(
                     contentDescription = stringResource(R.string.common_more),
                 )
             }
-            DropdownMenu(
+            KmDropdownMenu(
                 expanded = menuOpen,
                 onDismissRequest = { menuOpen = false },
             ) {
