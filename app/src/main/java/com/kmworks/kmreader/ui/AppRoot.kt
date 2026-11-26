@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -336,9 +338,21 @@ fun AppRoot(
     var filterSequence by remember { mutableStateOf(0L) }
 
     val scope = rememberCoroutineScope()
+    // Input on a page that is about to be covered has to give up its focus. The covered page stays
+    // composed (OverlayStack draws every layer), so a focused field keeps its input session alive:
+    // backgrounding hides the IME while the session survives, and returning re-attaches the keyboard
+    // to a field the user cannot see. This is the one place a page covers another, so every field
+    // is served by it -- and with nothing pushed, a field keeps its focus, keyboard and cursor
+    // through a trip to the background.
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     // Pushes a page. The page on top is never stacked twice, so tapping the same entry twice does nothing.
     val push: (Route) -> Unit = { route ->
         if (pages.lastOrNull()?.route?.key != route.key) {
+            // End the input session before dropping the IME: the keyboard would otherwise collapse
+            // over the old page while the new one is already sliding in.
+            focusManager.clearFocus()
+            keyboardController?.hide()
             pages.add(PageEntry(id = pageSequence++, route = route))
         }
     }
