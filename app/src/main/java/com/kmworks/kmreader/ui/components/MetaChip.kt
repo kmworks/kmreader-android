@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,10 +37,12 @@ fun MetaChip(
     onClickLabel: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    // Pill instead of the previous 8dp rect: detail and library chips now share the filled, borderless
+    // geometry of the browse chip rows, so metadata reads as part of the same surface family.
+    val shape = CircleShape
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = if (onClick != null) {
             Modifier
                 .clip(shape)
@@ -50,7 +52,7 @@ fun MetaChip(
         },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) {
