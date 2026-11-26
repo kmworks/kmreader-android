@@ -777,7 +777,7 @@ private fun SearchField(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 16.dp, end = 10.dp),
+                    .padding(start = 16.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -804,7 +804,9 @@ private fun SearchField(
                     // standard Close glyph keeps the control consistent with the rest of the app.
                     FilledIconButton(
                         onClick = { onQueryChange("") },
-                        modifier = Modifier.size(32.dp),
+                        // 28dp keeps the button at ~60% of the 48dp pill, like the reference: at 32dp the
+                        // circle filled the bar and crowded the query text.
+                        modifier = Modifier.size(28.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             // Tonal container from the palette: readable on both the resting (#1C1C1F) and
@@ -816,7 +818,7 @@ private fun SearchField(
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = stringResource(R.string.browse_search_clear),
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                     }
                 }
