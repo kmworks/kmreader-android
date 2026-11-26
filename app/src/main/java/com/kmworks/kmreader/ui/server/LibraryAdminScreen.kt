@@ -88,6 +88,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -196,6 +197,11 @@ class LibraryAdminViewModel @Inject constructor(
 
     init {
         load()
+        // Libraries and their metrics belong to one server: when the user switches, reload instead of
+        // keeping the libraries, sizes and "no metrics here" answer of the server just left.
+        viewModelScope.launch {
+            repository.instanceKey.drop(1).collect { load() }
+        }
     }
 
     fun load() {
