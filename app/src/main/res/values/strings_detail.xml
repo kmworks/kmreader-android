@@ -9,7 +9,6 @@
     <string name="browse_search_clear">Clear search</string>
     <string name="browse_filter">Filter</string>
     <string name="browse_filter_count">Filter · %1$d</string>
-    <string name="browse_filter_active">Filters applied</string>
     <string name="browse_hint_offline">Sign in to a server to search</string>
     <string name="browse_hint_enter_query">Enter a keyword to search</string>
     <string name="browse_hint_no_results">No results</string>

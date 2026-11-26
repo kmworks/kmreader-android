@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -79,8 +80,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
@@ -348,11 +351,11 @@ fun BrowseSortChip(
     // It keeps its normal colours (a disabled chip would read as "nothing is ordering this") and
     // only stops taking the tap, so the ripple never advertises a press that does nothing.
     clickable: Boolean = true,
-    // A dot after the label marks that conditions are narrowing the results. The filter chip used to
+    // Number of conditions narrowing the results, shown as a corner badge. The filter chip used to
     // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
-    filtersActive: Boolean = false,
+    activeFilters: Int = 0,
 ) {
-    val filtersActiveLabel = stringResource(R.string.browse_filter_active)
+    val filterCountLabel = stringResource(R.string.browse_filter_count, activeFilters)
     Box {
         AssistChip(
             onClick = onOpenOptions,
@@ -366,22 +369,35 @@ fun BrowseSortChip(
                             contentDescription = null,
                         )
                     }
-                    if (filtersActive) {
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                // A colour-only cue carries nothing for a screen reader
-                                .semantics { contentDescription = filtersActiveLabel },
-                        )
-                    }
                 }
             },
             shape = browseChipShape(),
             colors = browseAssistChipColors(),
             border = null,
         )
+        if (activeFilters > 0) {
+            // Badge on the chip's top-end corner: the same place an app-icon badge sits, so it reads
+            // as a count and not as punctuation at the end of the label. Centred on the corner point,
+            // half of it rides into the row's gap and vertical padding.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 8.dp, y = (-8).dp)
+                    .size(16.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    // A digit is unreadable in a screen reader; say what it counts
+                    .semantics { contentDescription = filterCountLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (activeFilters > 9) "9+" else activeFilters.toString(),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+        }
         if (!clickable) {
             // Sits above the chip and swallows the gestures before the chip's clickable can start a
             // press: an inert chip must not ripple as if tapping it did something.
