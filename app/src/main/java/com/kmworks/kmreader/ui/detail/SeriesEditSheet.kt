@@ -23,8 +23,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -387,10 +388,11 @@ fun SeriesEditSheet(
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDismiss,
                     enabled = !saving,
                     modifier = Modifier.weight(1f),
+                    colors = secondaryButtonColors(),
                 ) {
                     Text(stringResource(R.string.common_cancel))
                 }
