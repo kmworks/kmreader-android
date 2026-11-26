@@ -307,6 +307,9 @@ fun BrowseFilterChipFlow(
                     }
                 }
             },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Active-condition chips (negative = excluded, rendered in the error-tone variant)
         options.activeFilterLabels(contentType).forEach { filter ->
