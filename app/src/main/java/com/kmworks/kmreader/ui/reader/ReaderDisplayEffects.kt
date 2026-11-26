@@ -11,6 +11,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -106,5 +107,46 @@ internal fun readerCutoutPadding(drawUnderCutout: Boolean): PaddingValues {
         top = with(density) { cutout.getTop(density).toDp() },
         end = if (rtl) left else right,
         bottom = with(density) { cutout.getBottom(density).toDp() },
+    )
+}
+
+/** Insets for the reader's margin-note text (the EPUB header/footer info). */
+internal data class ReaderOverlayInsets(
+    val top: Dp = 0.dp,
+    val bottom: Dp = 0.dp,
+    val start: Dp = 0.dp,
+    val end: Dp = 0.dp,
+)
+
+/**
+ * Insets that keep the margin-note text clear of the display cutout, resolved with the same
+ * policy as [readerCutoutPadding] and [com.kmworks.kmreader.core.epub.computeEpubPageInsets].
+ *
+ * The readers are immersive, so the bar insets are 0 while the chrome is down: without this the
+ * header line sits at the physical top edge and prints inside the notch even with "draw under
+ * cutout" off. Off therefore takes the larger of the bar and the cutout — max(), not a sum, so a
+ * visible status bar that already clears the notch is not counted twice — and pads the horizontal
+ * edges for a landscape notch. On keeps the old placement (content may use the whole screen).
+ *
+ * The cutout is a physical edge while start/end mirror under RTL: [rtl] swaps them by hand.
+ */
+internal fun readerOverlayInsets(
+    drawUnderCutout: Boolean,
+    statusBarTop: Dp = 0.dp,
+    navigationBarBottom: Dp = 0.dp,
+    cutoutTop: Dp = 0.dp,
+    cutoutBottom: Dp = 0.dp,
+    cutoutLeft: Dp = 0.dp,
+    cutoutRight: Dp = 0.dp,
+    rtl: Boolean = false,
+): ReaderOverlayInsets {
+    if (drawUnderCutout) {
+        return ReaderOverlayInsets(top = statusBarTop, bottom = navigationBarBottom)
+    }
+    return ReaderOverlayInsets(
+        top = maxOf(statusBarTop, cutoutTop),
+        bottom = maxOf(navigationBarBottom, cutoutBottom),
+        start = if (rtl) cutoutRight else cutoutLeft,
+        end = if (rtl) cutoutLeft else cutoutRight,
     )
 }

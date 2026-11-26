@@ -1375,6 +1375,7 @@ private fun RealEpubReader(
                 chapterProgressFraction = if (themeConfig.paged) null else lastFraction,
                 isRtl = rtl || jsDirection == 2,
                 textColor = pageContent,
+                drawUnderCutout = readerSettings.drawUnderCutout,
             )
         }
 
