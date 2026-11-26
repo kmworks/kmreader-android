@@ -42,7 +42,6 @@ import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -94,6 +93,7 @@ import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.ui.RootViewModel
 import com.kmworks.kmreader.ui.update.AppUpdateViewModel
 import com.kmworks.kmreader.core.pdf.PdfRepository
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -731,7 +731,7 @@ fun LogsScreen(onBack: () -> Unit) {
                             Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
                         },
                     )
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = categoryMenuOpen,
                         onDismissRequest = { categoryMenuOpen = false },
                     ) {

@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -61,6 +60,7 @@ import com.kmworks.kmreader.ui.components.roleLabelText
 import kotlinx.serialization.json.JsonObject
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 
 private enum class OneshotEditTab(@param:StringRes val labelRes: Int) {
     General(R.string.edit_tab_general),
@@ -506,7 +506,7 @@ private fun OneshotAuthorsContent(
             onClick = { roleMenuOpen = true },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.detail_role_format, stringResource(role.labelRes))) }
-        DropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
+        KmDropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
             (AuthorRole.predefined + AuthorRole.Custom).forEach { option ->
                 DropdownMenuItem(
                     text = { Text(stringResource(option.labelRes)) },

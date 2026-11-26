@@ -35,7 +35,6 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -63,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.network.ServerInstance
 import com.kmworks.kmreader.ui.RootViewModel
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.login.LoginScreen
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -392,7 +392,7 @@ private fun ServerCard(
                 text = stringResource(R.string.server_last_used_format, relativeTime(instance.lastUsedAt)),
             )
         }
-        DropdownMenu(
+        KmDropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
         ) {

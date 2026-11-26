@@ -69,6 +69,7 @@ import androidx.annotation.StringRes
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -168,7 +169,7 @@ fun ReaderOptionsMenu(
     onDismiss: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<ReaderMenuPicker?>(null) }
-    androidx.compose.material3.DropdownMenu(
+    KmDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
         // Fixed width: value rows (label + current value + chevron) need breathing room; content-sized width would feel cramped

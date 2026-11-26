@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -59,6 +58,7 @@ import com.kmworks.kmreader.ui.components.rememberLockedField
 import com.kmworks.kmreader.ui.components.roleLabelText
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 
 /**
  * Book metadata edit draft (mirrors the field set of iOS BookMetadataUpdate + per-field lock state).
@@ -527,7 +527,7 @@ private fun AuthorsTab(
             onClick = { roleMenuOpen = true },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.detail_role_format, stringResource(role.labelRes))) }
-        DropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
+        KmDropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
             (AuthorRole.predefined + AuthorRole.Custom).forEach { option ->
                 DropdownMenuItem(
                     text = { Text(stringResource(option.labelRes)) },

@@ -39,7 +39,6 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -79,6 +78,7 @@ import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.api.model.LibraryUpdateDto
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.settings.SettingsPickerRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
 import com.kmworks.kmreader.ui.settings.SettingsSection
@@ -622,7 +622,7 @@ private fun LibraryAdminRow(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                KmDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_edit)) },
                         onClick = { menuOpen = false; onEdit() },
