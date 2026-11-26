@@ -27,7 +27,6 @@ import com.kmworks.kmreader.core.data.toListEntry
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.network.ServerReachability
 import com.kmworks.kmreader.core.network.SessionManager
-import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
 import com.kmworks.kmreader.core.server.ServerFeature
 import com.kmworks.kmreader.core.server.ServerProfileStore
@@ -83,10 +82,6 @@ data class LibraryUiState(
     val hasMore: Boolean = false,
     val libraries: List<LibraryDto> = emptyList(),
     val libraryCount: Int = 0,
-    /** Volume/count metrics keyed by library id (empty = no metric source answered). */
-    val metricsByLibrary: Map<String, LibraryMetricValues> = emptyMap(),
-    /** Server-wide metric totals, used by the all/pinned scopes. */
-    val metricsTotal: LibraryMetricValues? = null,
     /** LibraryBrowseScope rawValue: pinned / all / library:{id}. A server without a recorded choice shows all. */
     val scope: String = AppSettingsStore.SCOPE_ALL,
     val pinnedIds: Set<String> = emptySet(),
@@ -426,18 +421,6 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { appSettings.setLibraryBrowseScope(scope) }
     }
 
-    /**
-     * Per-library size/count metrics for the scope caption (mirrors iOS LibraryMetricsLoader:
-     * the kmrs stats endpoint first, then the stock-Komga actuator tags). The repository caches
-     * the snapshot, so repeated reloads do not hammer the meter endpoints.
-     */
-    private suspend fun loadLibraryMetrics() {
-        val metrics = runCatching { serverAdminRepository.libraryMetrics() }.getOrNull() ?: return
-        _state.update {
-            it.copy(metricsByLibrary = metrics.byLibrary, metricsTotal = metrics.total)
-        }
-    }
-
     /** Replace the pinned set (saved from the pin-editing sheet). */
     fun setPinnedLibraries(ids: Set<String>) {
         viewModelScope.launch { appSettings.setPinnedLibraryIds(ids) }
@@ -591,8 +574,6 @@ class LibraryViewModel @Inject constructor(
                 catalogCache.saveBooks(listKey(scope, booksOptions), bookPageResult.items)
                 catalogCache.saveLists(collections, readLists)
             }
-            // Volume/count caption for the scope (stats → actuator fallback; empty hides the line).
-            viewModelScope.launch { loadLibraryMetrics() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
