@@ -27,7 +27,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Checklist
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
@@ -168,7 +167,7 @@ fun BrowseScreen(
                     onClick = { setResultsLayout(resultsLayout.next) },
                     label = { Text(stringResource(resultsLayout.labelRes)) },
                     leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
+                        Icon(resultsLayout.icon, contentDescription = null)
                     },
                     shape = browseChipShape(),
                     colors = browseAssistChipColors(),

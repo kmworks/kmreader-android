@@ -23,7 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bookmark
@@ -97,6 +99,17 @@ import kotlinx.coroutines.launch
 /** Layout mode (mirrors BrowseLayoutMode: list/grid/largeGrid), cycled. */
 enum class BrowseLayout(@param:StringRes val labelRes: Int) {
     List(R.string.layout_list), Grid(R.string.layout_grid), LargeGrid(R.string.layout_large_grid);
+
+    /**
+     * The glyph describes the layout itself. It used to be one shared Sort icon, which reads as the
+     * neighbouring 筛选 chip's filter metaphor instead of "how are these cards arranged".
+     */
+    val icon: ImageVector
+        get() = when (this) {
+            List -> Icons.AutoMirrored.Filled.ViewList
+            Grid -> Icons.Filled.GridView
+            LargeGrid -> Icons.Filled.Dashboard
+        }
 
     val next: BrowseLayout
         get() = when (this) {
@@ -238,7 +251,7 @@ fun BrowseFilterChipFlow(
         AssistChip(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+            leadingIcon = { Icon(layout.icon, contentDescription = null) },
             shape = browseChipShape(),
             colors = browseAssistChipColors(),
             border = null,
