@@ -62,9 +62,14 @@ internal fun rememberReaderWindowInsetsCss(): ReaderWindowInsetsCss {
 /**
  * Keeps the screen awake while [enabled] (shared by DIVINA, EPUB and PDF).
  *
- * The flag is set on the view rather than on the activity window so it dies with the reader
- * screen: leaving to the library can never leave the device awake, and a WebView recreated
- * mid-chapter inherits it from the same view.
+ * Called ONCE, by the navigation host, for the page the stack draws on top -- never by the readers
+ * themselves. [com.kmworks.kmreader.ui.AppRoot] keeps departing and covered readers composed on the
+ * same view, so a per-reader effect would let an outgoing reader clear the flag the incoming reader
+ * just set, and let a reader covered by a library page keep the device awake. With one writer the
+ * flag simply follows "is the page on top a reader, and is the shared preference on".
+ *
+ * The flag is set on the view rather than on the activity window so it dies with the host: leaving
+ * the reader can never leave the device awake, and a WebView recreated mid-chapter inherits it.
  */
 @Composable
 internal fun KeepScreenOnEffect(enabled: Boolean) {

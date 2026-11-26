@@ -262,11 +262,7 @@ fun ReaderScreen(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
 
-    // Keep the screen awake while reading. Shared by all three readers (one switch under Reader
-    // Defaults, mirrored in the panels), so the flag is applied through the same effect instead of
-    // a DIVINA-local one.
     val view = LocalView.current
-    KeepScreenOnEffect(settings.keepScreenAwake)
     // Content band: with "draw under cutout" off the pages are letterboxed out of the notch /
     // punch-hole (the band shows the reader background), on they get the whole screen.
     val contentInset = readerCutoutPadding(settings.drawUnderCutout)

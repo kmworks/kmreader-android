@@ -819,8 +819,6 @@ private fun RealEpubReader(
         overlayHasContent = overlayHasContent,
         drawUnderCutout = readerSettings.drawUnderCutout,
     )
-    // Shared by all three readers: one switch under Reader Defaults, mirrored in the panels.
-    KeepScreenOnEffect(readerSettings.keepScreenAwake)
     val themeConfig = remember(
         epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
         readerSettings.drawUnderCutout, windowInsetsCss.cutoutTop, windowInsetsCss.cutoutBottom,
