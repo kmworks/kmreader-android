@@ -24,6 +24,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -338,7 +340,10 @@ fun SmartListEditSheet(
                         Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
-                OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+                FilledTonalButton(
+                    onClick = onDismiss,
+                    colors = secondaryButtonColors(),
+                ) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = {
                         // Create always submits a fresh document; edit only when the filters actually

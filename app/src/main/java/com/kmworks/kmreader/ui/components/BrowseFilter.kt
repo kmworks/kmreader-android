@@ -54,7 +54,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -62,6 +61,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -783,9 +783,10 @@ fun BrowseOptionsSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { showSaveDialog = true },
                     modifier = Modifier.weight(1f),
+                    colors = secondaryButtonColors(),
                 ) {
                     Icon(Icons.Filled.BookmarkAdd, contentDescription = null)
                     Spacer(Modifier.width(8.dp))

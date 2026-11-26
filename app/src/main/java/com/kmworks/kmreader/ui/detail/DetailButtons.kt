@@ -1,8 +1,7 @@
 package com.kmworks.kmreader.ui.detail
 
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 
 /**
  * Secondary action inside the detail action card: peek, download, download-series.
@@ -13,7 +12,4 @@ import androidx.compose.runtime.Composable
  * stock.
  */
 @Composable
-internal fun detailSecondaryButtonColors() = ButtonDefaults.filledTonalButtonColors(
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
+internal fun detailSecondaryButtonColors() = secondaryButtonColors()

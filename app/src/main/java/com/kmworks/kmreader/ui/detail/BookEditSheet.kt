@@ -27,6 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -377,10 +379,11 @@ fun BookEditSheet(
                     .padding(top = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     enabled = !saving,
+                    colors = secondaryButtonColors(),
                 ) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = {

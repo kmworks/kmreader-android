@@ -31,11 +31,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import com.kmworks.kmreader.ui.components.AppModalDialog
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -437,14 +438,15 @@ fun TrackerLinkEditSheet(
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (existing != null) {
-                    OutlinedButton(
+                    FilledTonalButton(
                         onClick = {
                             onUnlink()
                             onDismiss()
                         },
                         modifier = Modifier.weight(1f),
+                        colors = secondaryButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     ) {
-                        Text(stringResource(R.string.tracker_unlink_button), color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.tracker_unlink_button))
                     }
                 }
                 Button(
