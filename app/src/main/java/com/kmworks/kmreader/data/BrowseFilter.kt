@@ -208,6 +208,14 @@ fun defaultSearchOptions(contentType: BrowseContentType): BrowseOptions =
     defaultBrowseOptions(contentType).copy(sortField = SortRelevance)
 
 /**
+ * Options a filter panel starts from when its reset is pressed: every condition back to default and
+ * the sort back to the first entry of the panel's own vocabulary -- relevance on the search tab, the
+ * type's default field in the catalogues.
+ */
+fun resetOptionsFor(contentType: BrowseContentType, sortFields: List<String>): BrowseOptions =
+    defaultBrowseOptions(contentType).copy(sortField = sortFields.firstOrNull() ?: defaultBrowseOptions(contentType).sortField)
+
+/**
  * Whether a sort field has a direction. 随机 of the series list is an unordered shuffle, so the
  * direction picker is hidden for it (mirrors supportsDirection of SeriesSortField).
  */

@@ -89,10 +89,10 @@ import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SeriesStatus
 import com.kmworks.kmreader.data.SortRelevance
 import com.kmworks.kmreader.data.TriState
-import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.filterKey
 import com.kmworks.kmreader.data.normalizeSortField
 import com.kmworks.kmreader.data.notableEntityFromFilterKey
+import com.kmworks.kmreader.data.resetOptionsFor
 import com.kmworks.kmreader.data.sortFieldsFor
 import com.kmworks.kmreader.data.supportsSortDirection
 import dagger.hilt.android.EntryPointAccessors
@@ -631,17 +631,13 @@ fun BrowseOptionsSheet(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
-                // 重置 clears the conditions but keeps the current sort (mirrors the original Reset,
-                // which never overwrites sortField/sortDirection)
+                // Reset clears every dimension of the panel, the order included: conditions go back to
+                // their defaults and the sort returns to the first entry of this panel's own vocabulary
+                // (relevance on the search tab, the type's default field in the catalogues). Keeping the
+                // old sort left a panel that said "nothing is filtering" while still ordering by a field
+                // the user had picked earlier.
                 TextButton(
-                    onClick = {
-                        onOptionsChange(
-                            defaultBrowseOptions(contentType).copy(
-                                sortField = options.sortField,
-                                sortAscending = options.sortAscending,
-                            ),
-                        )
-                    },
+                    onClick = { onOptionsChange(resetOptionsFor(contentType, sortFields)) },
                 ) {
                     Text(stringResource(R.string.common_reset), color = MaterialTheme.colorScheme.error)
                 }
