@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.browse
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,7 +42,6 @@ import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.BrowseSortChip
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.PushPin
@@ -70,13 +70,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.R
@@ -772,10 +776,11 @@ private fun SearchField(
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
         decorationBox = { innerTextField ->
+            val clearColor = MaterialTheme.colorScheme.onSurfaceVariant
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 16.dp, end = 6.dp),
+                    .padding(start = 16.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -798,19 +803,38 @@ private fun SearchField(
                     innerTextField()
                 }
                 if (query.isNotEmpty()) {
+                    val clearLabel = stringResource(R.string.browse_search_clear)
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .clickable { onQueryChange("") },
+                            .clickable(onClickLabel = clearLabel) { onQueryChange("") },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.browse_search_clear),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        // Two hairlines with round caps instead of Icons.Filled.Close: the Material glyph is
+                        // a thick square-cut X, which read much heavier than the reference's thin cross.
+                        Canvas(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .semantics { contentDescription = clearLabel },
+                        ) {
+                            val inset = size.minDimension * 0.06f
+                            val stroke = 1.5.dp.toPx()
+                            drawLine(
+                                color = clearColor,
+                                start = Offset(inset, inset),
+                                end = Offset(size.width - inset, size.height - inset),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round,
+                            )
+                            drawLine(
+                                color = clearColor,
+                                start = Offset(size.width - inset, inset),
+                                end = Offset(inset, size.height - inset),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round,
+                            )
+                        }
                     }
                 }
             }
