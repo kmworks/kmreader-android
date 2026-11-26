@@ -72,7 +72,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -204,12 +203,23 @@ fun BrowseFilterButton(
 internal fun browseChipShape() = RoundedCornerShape(16.dp)
 
 @Composable
-internal fun browseAssistChipColors() = AssistChipDefaults.assistChipColors(
+internal fun browseAssistChipColors(keepLookWhenDisabled: Boolean = false) = AssistChipDefaults.assistChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
     labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    // A chip that carries information but cannot be opened (the search tab's relevance chip) has to
+    // keep its full-strength look: a greyed chip would read as "the results are not ordered at all".
+    // The disabled slots stay the live colours, so enabled = false removes the tap and the ripple
+    // without changing a single pixel.
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.12f,
+    ),
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
+    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
 )
 
 @Composable
@@ -344,62 +354,51 @@ fun BrowseSortChip(
     contentType: BrowseContentType,
     onOpenOptions: () -> Unit,
     // A scope whose lists are not filterable still shows the order, but is not a way into the panel.
-    // It keeps its normal colours (a disabled chip would read as "nothing is ordering this") and
-    // only stops taking the tap, so the ripple never advertises a press that does nothing.
+    // The chip keeps its normal colours (a greyed chip would read as "nothing is ordering this")
+    // through keepLookWhenDisabled, while enabled = false is what actually removes the tap, the
+    // ripple and the accessibility click action.
     clickable: Boolean = true,
     // Number of conditions narrowing the results, shown as the count badge. The filter chip used to
     // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
     activeFilters: Int = 0,
 ) {
     val filterCountLabel = stringResource(R.string.browse_filter_count, activeFilters)
-    Box {
-        // The stock M3 badge -- the same red, content colour and inset as the badge on the library's
-        // filter button, so the two read as one affordance rather than two visual languages.
-        BadgedBox(
-            badge = {
-                if (activeFilters > 0) {
-                    Badge(
-                        // A bare digit says nothing on its own; name what it counts
-                        modifier = Modifier.clearAndSetSemantics { contentDescription = filterCountLabel },
-                    ) {
-                        Text(if (activeFilters > 9) "9+" else activeFilters.toString())
+    // The stock M3 badge -- the same red, content colour and inset as the badge on the library's
+    // filter button, so the two read as one affordance rather than two visual languages.
+    BadgedBox(
+        badge = {
+            if (activeFilters > 0) {
+                Badge(
+                    // A bare digit says nothing on its own; name what it counts
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = filterCountLabel },
+                ) {
+                    Text(if (activeFilters > 9) "9+" else activeFilters.toString())
+                }
+            }
+        },
+    ) {
+        // enabled = false (rather than a gesture-swallowing overlay) keeps the chip row scrollable
+        // and leaves no click action behind for TalkBack or a keyboard to fire.
+        AssistChip(
+            onClick = onOpenOptions,
+            enabled = clickable,
+            label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(browseSortFieldLabel(options.sortField, contentType))
+                    if (supportsSortDirection(options.sortField, contentType)) {
+                        Icon(
+                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
             },
-        ) {
-            AssistChip(
-                onClick = onOpenOptions,
-                label = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(browseSortFieldLabel(options.sortField, contentType))
-                        if (supportsSortDirection(options.sortField, contentType)) {
-                            Icon(
-                                if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                                else Icons.Filled.KeyboardArrowDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                },
-                shape = browseChipShape(),
-                colors = browseAssistChipColors(),
-                border = null,
-            )
-        }
-        if (!clickable) {
-            // Sits above the chip and swallows the gestures before the chip's clickable can start a
-            // press: an inert chip must not ripple as if tapping it did something.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) awaitPointerEvent().changes.forEach { it.consume() }
-                        }
-                    },
-            )
-        }
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(keepLookWhenDisabled = !clickable),
+            border = null,
+        )
     }
 }
 
@@ -528,7 +527,7 @@ fun BrowseOptionsSheet(
     // leaves the list exactly as it was (mirrors the original BrowseFilterSheet).
     // A sort token from the other catalogue (switching Library tabs, an old preset) falls back to
     // the closest equivalent of this type, otherwise the picker would show no selection.
-    val initialOptionsForType = remember(initialOptions, contentType) {
+    val initialOptionsForType = remember(initialOptions, contentType, sortFields) {
         initialOptions.copy(
             sortField = normalizeSortField(
                 initialOptions.sortField,

@@ -180,7 +180,10 @@ fun BrowseScreen(
             Row(
                 modifier = Modifier
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    // 10dp rather than 8dp: the sort chip's count badge overhangs its corner by ~8dp,
+                    // and the scroll row clips at its own bounds -- two dp of slack keep the badge
+                    // clear of the edge.
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Layout toggle chip (mirrors the BrowseFilterChipFlow layout chip: cycles list → grid → large grid)
