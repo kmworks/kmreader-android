@@ -74,6 +74,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,6 +87,7 @@ import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SeriesStatus
+import com.kmworks.kmreader.data.SortRelevance
 import com.kmworks.kmreader.data.TriState
 import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.filterKey
@@ -200,12 +203,23 @@ fun BrowseFilterButton(
 internal fun browseChipShape() = RoundedCornerShape(16.dp)
 
 @Composable
-internal fun browseAssistChipColors() = AssistChipDefaults.assistChipColors(
+internal fun browseAssistChipColors(keepLookWhenDisabled: Boolean = false) = AssistChipDefaults.assistChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
     labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+    // A chip that carries information but cannot be opened (the search tab's relevance chip) has to
+    // keep its full-strength look: a greyed chip would read as "the results are not ordered at all".
+    // The disabled slots stay the live colours, so enabled = false removes the tap and the ripple
+    // without changing a single pixel.
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.12f,
+    ),
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
+    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
 )
 
 @Composable
@@ -246,7 +260,7 @@ fun BrowseFilterChipFlow(
         AssistChip(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
-            leadingIcon = { Icon(layout.icon, contentDescription = null) },
+            leadingIcon = { Icon(layout.icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
             shape = browseChipShape(),
             colors = browseAssistChipColors(),
             border = null,
@@ -258,7 +272,7 @@ fun BrowseFilterChipFlow(
             AssistChip(
                 onClick = { presetsOpen = true },
                 label = { Text(stringResource(R.string.filter_presets)) },
-                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 shape = browseChipShape(),
                 colors = browseAssistChipColors(),
                 border = null,
@@ -302,6 +316,7 @@ fun BrowseFilterChipFlow(
                             if (options.sortAscending) Icons.Filled.KeyboardArrowUp
                             else Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -338,25 +353,53 @@ fun BrowseSortChip(
     options: BrowseOptions,
     contentType: BrowseContentType,
     onOpenOptions: () -> Unit,
+    // A scope whose lists are not filterable still shows the order, but is not a way into the panel.
+    // The chip keeps its normal colours (a greyed chip would read as "nothing is ordering this")
+    // through keepLookWhenDisabled, while enabled = false is what actually removes the tap, the
+    // ripple and the accessibility click action.
+    clickable: Boolean = true,
+    // Number of conditions narrowing the results, shown as the count badge. The filter chip used to
+    // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
+    activeFilters: Int = 0,
 ) {
-    AssistChip(
-        onClick = onOpenOptions,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(browseSortFieldLabel(options.sortField, contentType))
-                if (supportsSortDirection(options.sortField, contentType)) {
-                    Icon(
-                        if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null,
-                    )
+    val filterCountLabel = stringResource(R.string.browse_filter_count, activeFilters)
+    // The stock M3 badge -- the same red, content colour and inset as the badge on the library's
+    // filter button, so the two read as one affordance rather than two visual languages.
+    BadgedBox(
+        badge = {
+            if (activeFilters > 0) {
+                Badge(
+                    // A bare digit says nothing on its own; name what it counts
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = filterCountLabel },
+                ) {
+                    Text(if (activeFilters > 9) "9+" else activeFilters.toString())
                 }
             }
         },
-        shape = browseChipShape(),
-        colors = browseAssistChipColors(),
-        border = null,
-    )
+    ) {
+        // enabled = false (rather than a gesture-swallowing overlay) keeps the chip row scrollable
+        // and leaves no click action behind for TalkBack or a keyboard to fire.
+        AssistChip(
+            onClick = onOpenOptions,
+            enabled = clickable,
+            label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(browseSortFieldLabel(options.sortField, contentType))
+                    if (supportsSortDirection(options.sortField, contentType)) {
+                        Icon(
+                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(keepLookWhenDisabled = !clickable),
+            border = null,
+        )
+    }
 }
 
 /**
@@ -469,6 +512,9 @@ fun BrowseOptionsSheet(
     contentType: BrowseContentType = BrowseContentType.Books,
     // Smart lists store conditions only, so the embedded panel hides the Sort card (mirrors showsSort: false)
     showsSort: Boolean = true,
+    // Sort vocabulary of this panel: the search tab passes relevance in front of the catalogue's
+    // own fields, everything else keeps its type's list.
+    sortFields: List<String> = sortFieldsFor(contentType),
     // Scope of metadata suggestion values (mirrors the original MetadataFilterItemSource; fetched per scope when the sheet opens)
     suggestionLibraryIds: List<String>? = null,
     suggestionSeriesStableId: Int? = null,
@@ -481,8 +527,14 @@ fun BrowseOptionsSheet(
     // leaves the list exactly as it was (mirrors the original BrowseFilterSheet).
     // A sort token from the other catalogue (switching Library tabs, an old preset) falls back to
     // the closest equivalent of this type, otherwise the picker would show no selection.
-    val initialOptionsForType = remember(initialOptions, contentType) {
-        initialOptions.copy(sortField = normalizeSortField(initialOptions.sortField, contentType))
+    val initialOptionsForType = remember(initialOptions, contentType, sortFields) {
+        initialOptions.copy(
+            sortField = normalizeSortField(
+                initialOptions.sortField,
+                contentType,
+                allowRelevance = SortRelevance in sortFields,
+            ),
+        )
     }
     var options by remember(initialOptionsForType) { mutableStateOf(initialOptionsForType) }
     val onOptionsChange: (BrowseOptions) -> Unit = { updated -> options = updated }
@@ -609,7 +661,7 @@ fun BrowseOptionsSheet(
                     item {
                         FilterSection(stringResource(R.string.filter_sort)) {
                             SortFieldRow(
-                                fields = sortFieldsFor(contentType),
+                                fields = sortFields,
                                 selectedField = options.sortField,
                                 labelOf = { field -> browseSortFieldLabel(field, contentType) },
                                 onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },

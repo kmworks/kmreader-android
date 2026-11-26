@@ -7,6 +7,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.SortRelevance
 import com.kmworks.kmreader.data.TriState
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -51,9 +52,10 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            // Searching sends no sort so Komga ranks hits by relevance (SeriesService.getSeries does the same);
-            // with a sort key the first page was simply the alphabetically earliest matches.
-            sort = if (term.isNotBlank()) null else options?.let { seriesSort(it) },
+            // Relevance (the search tab's default) sends no sort, so Komga ranks the hits
+            // (SeriesService.getSeries does the same); a field picked in the sort card is honoured
+            // even while a term is present.
+            sort = options?.takeIf { it.sortField != SortRelevance }?.let { seriesSort(it) },
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         return result.toSeriesPage()
     }
@@ -78,9 +80,8 @@ class SearchRepository @Inject constructor(
             ),
             page = page,
             size = size,
-            // Same as the series call: relevance ranking while a term is present, the panel's sort only
-            // for a plain listing.
-            sort = if (term.isNotBlank()) null else options?.let { bookSort(it) },
+            // Same as the series call: relevance sends no sort, a picked field always applies.
+            sort = options?.takeIf { it.sortField != SortRelevance }?.let { bookSort(it) },
         ).awaitBodyOrThrow() ?: return Paged(emptyList(), hasMore = false)
         return result.toBookPage()
     }

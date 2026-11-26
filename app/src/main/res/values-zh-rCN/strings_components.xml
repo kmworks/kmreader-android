@@ -167,5 +167,6 @@
     <string name="sort_folder_name">文件夹名称</string>
     <string name="sort_books_count">书籍数量</string>
     <string name="sort_random">随机</string>
+    <string name="sort_relevance">相关度</string>
     <string name="filter_complete">完结</string>
 </resources>

@@ -9,6 +9,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.Creator
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.SortRelevance
 
 /**
  * Localized role label for a creator. Custom roles prefer the server-provided raw role
@@ -112,7 +113,11 @@ fun seriesSortFieldLabel(field: String): String = when (field) {
 /** Sort-field label of [contentType] (the series and book vocabularies share almost no tokens). */
 @Composable
 fun browseSortFieldLabel(field: String, contentType: BrowseContentType): String =
-    when (contentType) {
-        BrowseContentType.Series -> seriesSortFieldLabel(field)
-        BrowseContentType.Books -> bookSortFieldLabel(field)
+    if (field == SortRelevance) {
+        stringResource(R.string.sort_relevance)
+    } else {
+        when (contentType) {
+            BrowseContentType.Series -> seriesSortFieldLabel(field)
+            BrowseContentType.Books -> bookSortFieldLabel(field)
+        }
     }
