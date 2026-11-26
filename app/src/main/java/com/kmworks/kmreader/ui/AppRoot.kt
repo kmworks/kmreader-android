@@ -83,8 +83,14 @@ import com.kmworks.kmreader.ui.dashboard.DashboardViewModel
 import com.kmworks.kmreader.ui.dashboard.SettingsDashboardScreen
 import com.kmworks.kmreader.ui.detail.BookDetailScreen
 import com.kmworks.kmreader.ui.detail.SeriesDetailScreen
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
+import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryContentType
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
+import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryFilterRequest
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
+import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.library.LibraryScreen
 import com.kmworks.kmreader.ui.lists.CollectionDetailScreen
 import com.kmworks.kmreader.ui.lists.ListsGroupKind
@@ -262,6 +268,9 @@ private const val PageShadowAlpha = 0.32f
 fun AppRoot(
     rootViewModel: RootViewModel = hiltViewModel(),
     updateViewModel: AppUpdateViewModel = hiltViewModel(),
+    // Only read here, for the device-wide keep-screen-on flag: the readers hold the same preference
+    // but never write the flag themselves (see KeepScreenOnEffect).
+    readerSettingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
     // Session gating: render only the login page while no instance is configured. The config is read
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
@@ -314,6 +323,15 @@ fun AppRoot(
     // Pages that were just popped and are still travelling out. They hold their own motion until they are
     // gone, and the page they uncover reads it, so a page is never left standing at a half-covered position.
     val leaving = remember { mutableStateListOf<PageEntry>() }
+
+    // Keep-screen-on has exactly ONE writer: this host, for the page the stack currently draws on top.
+    // The three readers only share the preference. AppRoot keeps departing and covered readers composed
+    // on the same view, so a per-reader effect would let an outgoing reader clear the flag the incoming
+    // reader just set, and would keep the device awake while a reader sits covered by a library page.
+    val readerSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
+    KeepScreenOnEffect(
+        enabled = readerSettings.keepScreenAwake && pages.lastOrNull()?.route is ReaderRoute,
+    )
     // Identifies this appearance of a page rather than the page itself: the same route can be opened again
     // after it was closed, and the motion that slides a page in has to belong to the appearance.
     var pageSequence by remember { mutableStateOf(0L) }
