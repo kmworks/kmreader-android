@@ -761,16 +761,19 @@ private fun SearchField(
     // (#F0F0F2) is barely distinguishable from the #F7F7F8 light background, so the pill vanished
     // there; focus is carried by the outline instead of by a second fill level.
     val container = MaterialTheme.colorScheme.surfaceContainerHighest
+    // primary is white in the dark palette and near-black in the light one, so one alpha yields two
+    // different weights: 0.55 white on #242428 is a soft halo, 0.55 black on #E8E8EB is a hard edge
+    // that turns the pill back into an outline. Dark strokes read heavier on a bright field, so the
+    // light theme gets 0.35 — same perceived weight, measured contrast ~2.3:1.
+    val lightSurface = MaterialTheme.colorScheme.background.luminance() > 0.5f
     val outline =
-        if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+        if (focused) MaterialTheme.colorScheme.primary.copy(alpha = if (lightSurface) 0.35f else 0.55f)
         else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
     // The clear disc is an inverted chip: a soft neutral under a high-contrast cross.  Its alpha
     // follows the surface polarity — 0.62 on a dark pill yields the reference's pale grey (#9E9EA1),
     // while the same value on the light pill would read as a near-black dot, so it drops to 0.45.
     val clearDisc =
-        MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.45f else 0.62f,
-        )
+        MaterialTheme.colorScheme.onSurface.copy(alpha = if (lightSurface) 0.45f else 0.62f)
     BasicTextField(
         value = query,
         onValueChange = onQueryChange,
