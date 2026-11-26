@@ -53,4 +53,18 @@ class SearchSortTest {
         assertEquals("random", normalizeSortField("random", BrowseContentType.Series))
         assertEquals("series", normalizeSortField("series", BrowseContentType.Books))
     }
+
+    @Test
+    fun resetReturnsThePanelToItsDefaultSort() {
+        // The search panel resets to relevance, a catalogue panel to its own first field
+        assertEquals(SortRelevance, resetOptionsFor(BrowseContentType.Series, searchSortFieldsFor(BrowseContentType.Series)).sortField)
+        assertEquals(SortRelevance, resetOptionsFor(BrowseContentType.Books, searchSortFieldsFor(BrowseContentType.Books)).sortField)
+        assertEquals("metadata.titleSort", resetOptionsFor(BrowseContentType.Series, sortFieldsFor(BrowseContentType.Series)).sortField)
+        assertEquals("series", resetOptionsFor(BrowseContentType.Books, sortFieldsFor(BrowseContentType.Books)).sortField)
+
+        // Reset clears the conditions and the direction together with the field
+        val reset = resetOptionsFor(BrowseContentType.Series, searchSortFieldsFor(BrowseContentType.Series))
+        assertTrue(reset.sortAscending)
+        assertTrue(reset.authors.isEmpty())
+    }
 }
