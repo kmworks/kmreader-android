@@ -761,13 +761,13 @@ private fun SearchField(
     // (#F0F0F2) is barely distinguishable from the #F7F7F8 light background, so the pill vanished
     // there; focus is carried by the outline instead of by a second fill level.
     val container = MaterialTheme.colorScheme.surfaceContainerHighest
-    // primary is white in the dark palette and near-black in the light one, so one alpha yields two
-    // different weights: 0.55 white on #242428 is a soft halo, 0.55 black on #E8E8EB is a hard edge
-    // that turns the pill back into an outline. Dark strokes read heavier on a bright field, so the
-    // light theme gets 0.35 — same perceived weight, measured contrast ~2.3:1.
+    // primary is white in the dark palette and near-black in the light one, so a single alpha yields
+    // two weights. Light strokes read thinner on black than dark strokes read on white, so the rings
+    // are tuned apart: 0.42 white on #242428 (≈#7E7E80) and 0.35 black on #E8E8EB (≈#9D9DA0) land
+    // at comparable perceived strength and neither reads as an outline.
     val lightSurface = MaterialTheme.colorScheme.background.luminance() > 0.5f
     val outline =
-        if (focused) MaterialTheme.colorScheme.primary.copy(alpha = if (lightSurface) 0.35f else 0.55f)
+        if (focused) MaterialTheme.colorScheme.primary.copy(alpha = if (lightSurface) 0.35f else 0.42f)
         else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
     // The clear disc is an inverted chip: a soft neutral under a high-contrast cross.  Its alpha
     // follows the surface polarity — 0.62 on a dark pill yields the reference's pale grey (#9E9EA1),
