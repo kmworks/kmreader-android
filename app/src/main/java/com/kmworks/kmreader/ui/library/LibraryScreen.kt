@@ -63,7 +63,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -101,7 +100,6 @@ import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
-import com.kmworks.kmreader.ui.components.libraryMetricsCaption
 import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
@@ -118,7 +116,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.launch
 
 /** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
- *  with counts), below it the scope summary (scope title + size caption); the scope
+ *  with counts) and the sort chip, directly followed by the grid; the scope
  *  (all/pinned/single library) is switched in place from the toolbar menu, is persisted per server
  *  and defaults to all libraries.
  *  Mirrors KMReader LibraryBrowseView + BrowseContentView. */
@@ -249,19 +247,6 @@ fun LibraryScreen(
         }
     }
 
-    // One compact caption row: size/series/book totals once a source answered, otherwise just the scope/library count
-    val headerCaption = libraryMetricsCaption(state.scope, state.metricsByLibrary, state.metricsTotal)
-        ?: if (state.hasSession) {
-            pluralStringResource(
-                R.plurals.library_scope_libraries,
-                state.libraryCount,
-                scopeLabel,
-                state.libraryCount,
-            )
-        } else {
-            scopeLabel
-        }
-
     // Content-first page: the bar floats over the content (it reserves no layout height) and only the header rows
     // scroll away with it, so the grid starts right below the bar instead of below four stacked caption rows.
     // The page paints its own surface: it is also pushed above another page (a metadata-chip jump), and a stack
@@ -306,7 +291,6 @@ fun LibraryScreen(
                             onContentTypeChange = { contentType = it },
                             seriesCount = state.seriesTotal ?: series.size.toLong(),
                             booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                            caption = headerCaption,
                             activeFilter = activeFilter?.route,
                             onClearFilter = {
                                 viewModel.clearMetadataRoute()
@@ -382,7 +366,6 @@ fun LibraryScreen(
                             onContentTypeChange = { contentType = it },
                             seriesCount = state.seriesTotal ?: series.size.toLong(),
                             booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                            caption = headerCaption,
                             activeFilter = activeFilter?.route,
                             onClearFilter = {
                                 viewModel.clearMetadataRoute()
@@ -776,9 +759,9 @@ private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
 }
 
 /**
- * Header rows of the library page: content-type chips carrying the server-side totals, one compact caption
- * line and the active metadata-filter chip. It lives inside the scrolling content (instead of above it like
- * the original toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
+ * Header rows of the library page: content-type chips carrying the server-side totals, the sort chip and the
+ * active metadata-filter chip. It lives inside the scrolling content (instead of above it like the original
+ * toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
  */
 @Composable
 private fun LibraryHeader(
@@ -786,7 +769,6 @@ private fun LibraryHeader(
     onContentTypeChange: (LibraryContentType) -> Unit,
     seriesCount: Long,
     booksCount: Long,
-    caption: String,
     activeFilter: String?,
     onClearFilter: () -> Unit,
     sortOptions: BrowseOptions,
@@ -824,12 +806,6 @@ private fun LibraryHeader(
                 )
             }
         }
-        Text(
-            text = caption,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
         // Target of the metadata-chip jump. It wears the very chip that was tapped on the detail page (field
         // icon + value, no close glyph): the condition is metadata, not a text filter, and tapping the chip
         // drops it again (the page itself stays, like a browse page whose filter was reset).
