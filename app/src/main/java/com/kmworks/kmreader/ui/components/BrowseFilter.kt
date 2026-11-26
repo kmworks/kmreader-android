@@ -103,7 +103,7 @@ enum class BrowseLayout(@param:StringRes val labelRes: Int) {
 
     /**
      * The glyph describes the layout itself. It used to be one shared Sort icon, which reads as the
-     * neighbouring 筛选 chip's filter metaphor instead of "how are these cards arranged".
+     * neighbouring filter chip's metaphor instead of as "how are these cards arranged".
      */
     val icon: ImageVector
         get() = when (this) {
