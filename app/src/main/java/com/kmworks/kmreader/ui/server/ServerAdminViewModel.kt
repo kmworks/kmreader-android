@@ -330,14 +330,11 @@ class ServerAdminViewModel @Inject constructor(
         val page = if (fresh) 0 else previous.page + 1
         _state.update { it.copy(sessions = previous.copy(scope = scope, loading = true)) }
         val result = repository.sessions(scope, page = page, size = SESSION_PAGE_SIZE)
-        val merged = if (fresh) {
-            result.entries
-        } else {
-            // The server pages by offset over a list that keeps changing while the user scrolls: a
-            // session that expires or a request that reorders the list puts the same id on two pages.
-            // Feeding both copies to the list crashed it, because a LazyColumn key must be unique.
-            (previous.entries + result.entries).distinctBy { it.id }
-        }
+        // The server pages by offset over a list that keeps changing while the user scrolls: a session
+        // that expires or a request that reorders the list puts the same id on two pages. Both copies
+        // used to go into the list, whose keys are the ids -- a duplicate key throws. De-duplicating
+        // every page, not only the appended ones, also covers a single page that repeats an id.
+        val merged = (if (fresh) result.entries else previous.entries + result.entries).distinctBy { it.id }
         _state.update {
             it.copy(
                 sessions = SessionsSnapshot(
@@ -390,9 +387,20 @@ class ServerAdminViewModel @Inject constructor(
 
     // region history
 
+    /** Serialises history paging requests; see [loadHistory]. */
+    private var historyInFlight = false
+
     fun loadHistory(reset: Boolean = false) {
-        if (_state.value.history.loading) return
-        viewModelScope.launch { loadHistoryInternal(reset) }
+        // Same trigger-per-row situation as the session list; one guard keeps the requests serial.
+        if (historyInFlight) return
+        historyInFlight = true
+        viewModelScope.launch {
+            try {
+                loadHistoryInternal(reset)
+            } finally {
+                historyInFlight = false
+            }
+        }
     }
 
     private suspend fun loadHistoryInternal(reset: Boolean) {
@@ -400,12 +408,17 @@ class ServerAdminViewModel @Inject constructor(
         val page = if (reset) 0 else previous.page + 1
         _state.update { it.copy(history = previous.copy(loading = true)) }
         val result = repository.history(page = page, size = HISTORY_PAGE_SIZE)
+        // Events are appended while the user reads them and the server pages by offset, so an event id
+        // can repeat across pages; the list's keys are the ids, and a duplicate key throws.
+        val merged = (if (reset) result.items else previous.events + result.items).distinctBy { it.id }
         _state.update {
             it.copy(
                 history = HistorySnapshot(
-                    events = if (reset) result.items else previous.events + result.items,
+                    events = merged,
                     loading = false,
-                    hasMore = result.hasMore,
+                    // A page that added nothing new ends the list, or the scroll trigger keeps asking
+                    // for the same window.
+                    hasMore = result.hasMore && result.items.isNotEmpty() && merged.size > if (reset) 0 else previous.events.size,
                     page = page,
                 ),
             )
