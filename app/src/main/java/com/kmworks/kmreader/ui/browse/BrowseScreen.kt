@@ -754,7 +754,7 @@ private fun SearchField(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(22.dp)
     val container =
         if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
         else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -765,12 +765,14 @@ private fun SearchField(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier
-            .height(48.dp)
+            .height(44.dp)
             .clip(shape)
             .background(container, shape)
             .border(1.dp, outline, shape),
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+        ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
         decorationBox = { innerTextField ->
@@ -783,16 +785,16 @@ private fun SearchField(
                 Icon(
                     Icons.Filled.Search,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 Box(modifier = Modifier.weight(1f)) {
                     if (query.isEmpty()) {
                         Text(
                             text = stringResource(R.string.browse_search_placeholder),
-                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -804,21 +806,19 @@ private fun SearchField(
                     // standard Close glyph keeps the control consistent with the rest of the app.
                     FilledIconButton(
                         onClick = { onQueryChange("") },
-                        // 28dp keeps the button at ~60% of the 48dp pill, like the reference: at 32dp the
-                        // circle filled the bar and crowded the query text.
-                        modifier = Modifier.size(28.dp),
+                        // 26dp on the 44dp pill: the reference's clear chip is a light disc with a dark
+                        // cross, so the pair is inverted here too (onSurface disc, surface glyph).
+                        modifier = Modifier.size(26.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            // Tonal container from the palette: readable on both the resting (#1C1C1F) and
-                            // focused (#242428) pill, where surfaceVariant would sink into the fill.
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                            contentColor = MaterialTheme.colorScheme.surface,
                         ),
                     ) {
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = stringResource(R.string.browse_search_clear),
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(13.dp),
                         )
                     }
                 }
