@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -72,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -339,25 +341,44 @@ fun BrowseSortChip(
     options: BrowseOptions,
     contentType: BrowseContentType,
     onOpenOptions: () -> Unit,
+    // A scope whose lists are not filterable still shows the order, but is not a way into the panel.
+    // It keeps its normal colours (a disabled chip would read as "nothing is ordering this") and
+    // only stops taking the tap, so the ripple never advertises a press that does nothing.
+    clickable: Boolean = true,
 ) {
-    AssistChip(
-        onClick = onOpenOptions,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(browseSortFieldLabel(options.sortField, contentType))
-                if (supportsSortDirection(options.sortField, contentType)) {
-                    Icon(
-                        if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null,
-                    )
+    Box {
+        AssistChip(
+            onClick = onOpenOptions,
+            label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(browseSortFieldLabel(options.sortField, contentType))
+                    if (supportsSortDirection(options.sortField, contentType)) {
+                        Icon(
+                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                        )
+                    }
                 }
-            }
-        },
-        shape = browseChipShape(),
-        colors = browseAssistChipColors(),
-        border = null,
-    )
+            },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
+        )
+        if (!clickable) {
+            // Sits above the chip and swallows the gestures before the chip's clickable can start a
+            // press: an inert chip must not ripple as if tapping it did something.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                        }
+                    },
+            )
+        }
+    }
 }
 
 /**

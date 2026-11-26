@@ -44,7 +44,6 @@ import com.kmworks.kmreader.ui.components.browseChipShape
 import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.BrowseSortChip
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -91,9 +90,9 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.defaultSearchOptions
 import com.kmworks.kmreader.data.searchSortFieldsFor
 import com.kmworks.kmreader.ui.components.BookGridCard
-import com.kmworks.kmreader.ui.components.activeFilterLabels
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
@@ -144,7 +143,13 @@ fun BrowseScreen(
     val filterContentType =
         if (scope == SearchScope.Books) BrowseContentType.Books else BrowseContentType.Series
     val filterOptions =
-        if (filterContentType == BrowseContentType.Books) booksBrowseOptions else seriesBrowseOptions
+        when {
+            // Outside the series/books scopes nothing is applied, so the chip reads the server's own
+            // order (relevance) instead of a field stored for a scope that is not in use.
+            !filtersEnabled -> defaultSearchOptions(filterContentType)
+            filterContentType == BrowseContentType.Books -> booksBrowseOptions
+            else -> seriesBrowseOptions
+        }
 
     // Same floating frosted bar as the other tab roots (dashboard / library / lists): a stock M3 TopAppBar
     // painted its own surface-coloured strip above the page, which read as a separate band instead of
@@ -184,40 +189,16 @@ fun BrowseScreen(
                     colors = browseAssistChipColors(),
                     border = null,
                 )
-                // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
-                // search tab filters). It carries the selected state, so an applied filter is visible in the
-                // chip row instead of only inside the panel. Disabled outside the series/books scopes.
-                val filterCount =
-                    if (filtersEnabled) filterOptions.activeFilterLabels(filterContentType).size else 0
-                FilterChip(
-                    selected = filtersEnabled && filterCount > 0,
-                    enabled = filtersEnabled,
-                    onClick = { if (filtersEnabled) showFilterSheet = true },
-                    label = {
-                        Text(
-                            if (filterCount > 0) {
-                                stringResource(R.string.browse_filter_count, filterCount)
-                            } else {
-                                stringResource(R.string.browse_filter)
-                            },
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Filled.FilterList, contentDescription = null)
-                    },
-                    shape = browseChipShape(),
-                    colors = browseFilterChipColors(),
-                    border = null,
+                // Sort chip, always drawn: it carries the conditions and the order in one panel, so
+                // the filter chip is not needed as a second door. Only the series/books scopes have
+                // that panel at all -- elsewhere the results are relevance-ranked by the server, and
+                // the chip says so without being a way in.
+                BrowseSortChip(
+                    options = filterOptions,
+                    contentType = filterContentType,
+                    onOpenOptions = { showFilterSheet = true },
+                    clickable = filtersEnabled,
                 )
-                // Current sort only: the panel keeps the conditions, the chip row shows how the results
-                // are ordered. Only the series/books scopes have a filter panel at all.
-                if (filtersEnabled) {
-                    BrowseSortChip(
-                        options = filterOptions,
-                        contentType = filterContentType,
-                        onOpenOptions = { showFilterSheet = true },
-                    )
-                }
                 SearchScope.entries.forEach { s ->
                     FilterChip(
                         selected = s == scope,
