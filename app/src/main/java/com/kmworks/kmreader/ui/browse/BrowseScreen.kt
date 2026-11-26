@@ -74,7 +74,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -773,7 +772,6 @@ private fun SearchField(
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
-            textAlign = TextAlign.Center,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
@@ -791,14 +789,15 @@ private fun SearchField(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(10.dp))
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
                     if (query.isEmpty()) {
                         Text(
                             text = stringResource(R.string.browse_search_placeholder),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                textAlign = TextAlign.Center,
-                            ),
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
