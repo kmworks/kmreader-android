@@ -779,7 +779,7 @@ private fun SearchField(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 24.dp, end = 16.dp),
+                    .padding(start = 16.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
