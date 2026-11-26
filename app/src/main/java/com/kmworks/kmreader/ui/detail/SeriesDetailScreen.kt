@@ -76,9 +76,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -1286,12 +1286,14 @@ private fun DetailActionCard(
             )
         }
         // Secondary button mirrors iOS optimizedControlSize(.mini): mini capsule (28 high, 13sp text, small icon)
-        OutlinedButton(
+        FilledTonalButton(
             onClick = onDownload,
             enabled = !downloaded,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp),
+            shape = CircleShape,
+            colors = detailSecondaryButtonColors(),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             Icon(

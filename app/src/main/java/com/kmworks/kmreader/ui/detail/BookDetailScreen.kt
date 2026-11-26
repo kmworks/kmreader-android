@@ -66,7 +66,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -1059,11 +1059,15 @@ internal fun BookActionCard(
             // Mirrors iOS optimizedControlSize(.mini): mini capsule (height 28, 13pt text,
             // small icons)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                // Filled like the rest of the detail actions; an outlined capsule under the white
+                // primary button read as a different control family rather than the quieter sibling.
+                FilledTonalButton(
                     onClick = onReadIncognito,
                     modifier = Modifier
                         .weight(1f)
                         .height(28.dp),
+                    shape = CircleShape,
+                    colors = detailSecondaryButtonColors(),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(
@@ -1074,12 +1078,14 @@ internal fun BookActionCard(
                     Spacer(Modifier.width(4.dp))
                     Text(stringResource(R.string.book_peek), fontSize = 13.sp, maxLines = 1)
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDownloadToggle,
                     enabled = !downloaded,
                     modifier = Modifier
                         .weight(1f)
                         .height(28.dp),
+                    shape = CircleShape,
+                    colors = detailSecondaryButtonColors(),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(
