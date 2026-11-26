@@ -8,6 +8,7 @@
     <string name="browse_search_placeholder">搜尋系列、書籍、作者…</string>
     <string name="browse_filter">篩選</string>
     <string name="browse_filter_count">篩選 · %1$d</string>
+    <string name="browse_filter_active">已套用篩選</string>
     <string name="browse_hint_offline">未連線伺服器，登入後搜尋</string>
     <string name="browse_hint_enter_query">輸入關鍵詞開始搜尋</string>
     <string name="browse_hint_no_results">未找到匹配結果</string>

@@ -93,6 +93,7 @@ import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.data.defaultSearchOptions
 import com.kmworks.kmreader.data.searchSortFieldsFor
 import com.kmworks.kmreader.ui.components.BookGridCard
+import com.kmworks.kmreader.ui.components.activeFilterLabels
 import com.kmworks.kmreader.ui.components.BookListRow
 import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
@@ -150,6 +151,10 @@ fun BrowseScreen(
             filterContentType == BrowseContentType.Books -> booksBrowseOptions
             else -> seriesBrowseOptions
         }
+    // Conditions narrowing the results, shown as a dot on the sort chip (the filter chip that used to
+    // carry the count is gone)
+    val filtersActive =
+        filtersEnabled && filterOptions.activeFilterLabels(filterContentType).isNotEmpty()
 
     // Same floating frosted bar as the other tab roots (dashboard / library / lists): a stock M3 TopAppBar
     // painted its own surface-coloured strip above the page, which read as a separate band instead of
@@ -198,6 +203,7 @@ fun BrowseScreen(
                     contentType = filterContentType,
                     onOpenOptions = { showFilterSheet = true },
                     clickable = filtersEnabled,
+                    filtersActive = filtersActive,
                 )
                 SearchScope.entries.forEach { s ->
                     FilterChip(

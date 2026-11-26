@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.components
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -75,6 +77,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -306,6 +310,16 @@ fun BrowseFilterChipFlow(
                             contentDescription = null,
                         )
                     }
+                    if (filtersActive) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                // A colour-only cue carries nothing for a screen reader
+                                .semantics { contentDescription = filtersActiveLabel },
+                        )
+                    }
                 }
             },
             shape = browseChipShape(),
@@ -344,7 +358,11 @@ fun BrowseSortChip(
     // It keeps its normal colours (a disabled chip would read as "nothing is ordering this") and
     // only stops taking the tap, so the ripple never advertises a press that does nothing.
     clickable: Boolean = true,
+    // A dot after the label marks that conditions are narrowing the results. The filter chip used to
+    // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
+    filtersActive: Boolean = false,
 ) {
+    val filtersActiveLabel = stringResource(R.string.browse_filter_active)
     Box {
         AssistChip(
             onClick = onOpenOptions,
