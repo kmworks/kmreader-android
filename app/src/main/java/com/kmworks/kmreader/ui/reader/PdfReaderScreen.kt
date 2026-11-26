@@ -828,7 +828,7 @@ fun PdfReaderScreen(
             readingDirection = readingDirection,
             onSettingsChange = { new -> settingsViewModel.updatePdf { new } },
             common = readerSettings,
-            onCommonChange = { new -> settingsViewModel.update { new } },
+            onCommonUpdate = { transform -> settingsViewModel.update(transform) },
             onDismiss = { showSettings = false },
         )
     }

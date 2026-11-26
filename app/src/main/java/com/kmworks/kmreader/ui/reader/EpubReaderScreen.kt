@@ -823,9 +823,14 @@ private fun RealEpubReader(
     KeepScreenOnEffect(readerSettings.keepScreenAwake)
     val themeConfig = remember(
         epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
+        readerSettings.drawUnderCutout, windowInsetsCss.cutoutTop, windowInsetsCss.cutoutBottom,
     ) {
         mapEpubThemeConfig(
             epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
+            // Only the cutout part is clipped in scrolled mode: the overlay band scrolls with the
+            // text today and must not gain a permanent strip (see EpubThemeConfig.cutoutTopVPx).
+            cutoutTopVPx = if (readerSettings.drawUnderCutout) 0 else windowInsetsCss.cutoutTop,
+            cutoutBottomVPx = if (readerSettings.drawUnderCutout) 0 else windowInsetsCss.cutoutBottom,
         )
     }
     var latestConfig by remember { mutableStateOf(themeConfig) }
@@ -1717,7 +1722,7 @@ private fun RealEpubReader(
             settings = epubSettings,
             onSettingsChange = { new -> settingsViewModel.updateEpub { new } },
             common = readerSettings,
-            onCommonChange = { new -> settingsViewModel.update { new } },
+            onCommonUpdate = { transform -> settingsViewModel.update(transform) },
             customFonts = downloadedFamilies.sorted().map { family ->
                 CustomFont(
                     id = family.hashCode(),
@@ -2174,6 +2179,9 @@ private fun mapEpubThemeConfig(
     viewportWidthDp: Int = 0,
     readingProgression: String? = null,
     pageInsets: EpubPageInsets = EpubPageInsets(),
+    /** Cutout band to clip at the scroll viewport in scrolled mode; 0 when content may draw under it. */
+    cutoutTopVPx: Int = 0,
+    cutoutBottomVPx: Int = 0,
 ): EpubThemeConfig {
     // Every family resolves to a light/dark pair, like the iOS ReaderTheme light*/dark* cases —
     // the old mapping had grey placeholders for sepia/green and a mixed-up quiet pair.
@@ -2217,6 +2225,8 @@ private fun mapEpubThemeConfig(
         insetBottomVPx = pageInsets.bottomVPx,
         insetLeftVPx = pageInsets.leftVPx,
         insetRightVPx = pageInsets.rightVPx,
+        cutoutTopVPx = cutoutTopVPx,
+        cutoutBottomVPx = cutoutBottomVPx,
         // Every family resolves to a light/dark pair, so "dark theme" is exactly the dark slot
         // being active — drives the JS dark-mode overrides (links, hard-coded colors, images).
         darkTheme = dark,

@@ -777,11 +777,14 @@ fun ReaderScreen(
         // The end page opens the next book, so the handler must see the resolved neighbour
         uiState.adjacent,
     ) {
-        val viewSize = size
         coroutineScope {
         launch {
             detectTapGestures(
                 onTap = { offset ->
+                    // Read the size HERE, not when pointerInput starts: the cutout switch resizes
+                    // the content box without restarting the gesture handler, so a captured size
+                    // would keep normalising taps against the pre-toggle bounds.
+                    val viewSize = size
                     val action = TapZoneHelper.action(
                         normalizedX = offset.x / viewSize.width,
                         normalizedY = offset.y / viewSize.height,

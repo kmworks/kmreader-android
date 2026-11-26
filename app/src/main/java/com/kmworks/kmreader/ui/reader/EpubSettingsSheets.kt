@@ -443,7 +443,9 @@ fun EpubSettingsSheet(
      * volumeButtonPageTurnEnabled.
      */
     common: DivinaSettings,
-    onCommonChange: (DivinaSettings) -> Unit,
+    /** Transform on the SHARED reader settings: applied to the latest persisted value, not to the
+     *  snapshot this sheet was composed with, so two quick toggles cannot clobber each other. */
+    onCommonUpdate: ((DivinaSettings) -> DivinaSettings) -> Unit,
     customFonts: List<CustomFont>,
     onOpenCustomFonts: () -> Unit,
     overlay: EpubOverlayPreferences,
@@ -479,7 +481,7 @@ fun EpubSettingsSheet(
             EpubSwitchRow(
                 label = stringResource(R.string.reader_keep_screen_awake),
                 checked = common.keepScreenAwake,
-                onCheckedChange = { value -> onCommonChange(common.copy(keepScreenAwake = value)) },
+                onCheckedChange = { value -> onCommonUpdate { it.copy(keepScreenAwake = value) } },
             )
             EpubSwitchRow(
                 label = stringResource(R.string.reader_draw_under_cutout),
@@ -492,7 +494,7 @@ fun EpubSettingsSheet(
                 ),
                 checked = common.drawUnderCutout,
                 enabled = hasDisplayCutout,
-                onCheckedChange = { value -> onCommonChange(common.copy(drawUnderCutout = value)) },
+                onCheckedChange = { value -> onCommonUpdate { it.copy(drawUnderCutout = value) } },
             )
         }
     }
