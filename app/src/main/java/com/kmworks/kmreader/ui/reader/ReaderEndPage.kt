@@ -57,6 +57,9 @@ import kotlin.math.max
  * When [onOpenPrevious] is non-null the finished book's card is tappable and reopens that book on its
  * own reading position; it stays inert on the current book's own end page.
  */
+/** Height this card falls back to when its host measures it with an unbounded max height. */
+private val EndPageFallbackHeight = 420.dp
+
 @Composable
 internal fun ReaderEndPage(
     book: Book,
@@ -79,6 +82,10 @@ internal fun ReaderEndPage(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isPortrait = maxHeight >= maxWidth
+        // A host can measure this card unbounded (a LazyColumn cell, a scroll column). verticalScroll
+        // refuses an infinite max height, so the body is pinned to one screen-sized box when that
+        // happens instead of taking the host's constraints as-is.
+        val bodyHeight = if (constraints.hasBoundedHeight) maxHeight else EndPageFallbackHeight
         // The series name is a header above the sections in landscape and sits between them in portrait
         val showsHeader = !isPortrait && relationTitle.isNotBlank()
         val dividerWidth = (maxWidth.value * 0.78f).coerceIn(260f, 680f).dp
@@ -86,7 +93,7 @@ internal fun ReaderEndPage(
             .coerceIn(140f, 320f)
             .dp
 
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxWidth().height(bodyHeight), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier
                     .widthIn(max = 680.dp)
