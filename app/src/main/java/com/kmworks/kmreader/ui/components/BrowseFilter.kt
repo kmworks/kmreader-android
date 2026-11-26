@@ -1,7 +1,6 @@
 package com.kmworks.kmreader.ui.components
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,7 +20,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -78,12 +75,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
@@ -351,52 +345,44 @@ fun BrowseSortChip(
     // It keeps its normal colours (a disabled chip would read as "nothing is ordering this") and
     // only stops taking the tap, so the ripple never advertises a press that does nothing.
     clickable: Boolean = true,
-    // Number of conditions narrowing the results, shown as a corner badge. The filter chip used to
+    // Number of conditions narrowing the results, shown as the count badge. The filter chip used to
     // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
     activeFilters: Int = 0,
 ) {
     val filterCountLabel = stringResource(R.string.browse_filter_count, activeFilters)
     Box {
-        AssistChip(
-            onClick = onOpenOptions,
-            label = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(browseSortFieldLabel(options.sortField, contentType))
-                    if (supportsSortDirection(options.sortField, contentType)) {
-                        Icon(
-                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                            else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = null,
-                        )
+        // The stock M3 badge -- the same red, content colour and inset as the badge on the library's
+        // filter button, so the two read as one affordance rather than two visual languages.
+        BadgedBox(
+            badge = {
+                if (activeFilters > 0) {
+                    Badge(
+                        // A bare digit says nothing on its own; name what it counts
+                        modifier = Modifier.clearAndSetSemantics { contentDescription = filterCountLabel },
+                    ) {
+                        Text(if (activeFilters > 9) "9+" else activeFilters.toString())
                     }
                 }
             },
-            shape = browseChipShape(),
-            colors = browseAssistChipColors(),
-            border = null,
-        )
-        if (activeFilters > 0) {
-            // Badge on the chip's top-end corner: the same place an app-icon badge sits, so it reads
-            // as a count and not as punctuation at the end of the label. Centred on the corner point,
-            // half of it rides into the row's gap and vertical padding.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 8.dp, y = (-8).dp)
-                    .size(16.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape)
-                    // A digit is unreadable in a screen reader; say what it counts
-                    .semantics { contentDescription = filterCountLabel },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (activeFilters > 9) "9+" else activeFilters.toString(),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
-            }
+        ) {
+            AssistChip(
+                onClick = onOpenOptions,
+                label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(browseSortFieldLabel(options.sortField, contentType))
+                        if (supportsSortDirection(options.sortField, contentType)) {
+                            Icon(
+                                if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                                else Icons.Filled.KeyboardArrowDown,
+                                contentDescription = null,
+                            )
+                        }
+                    }
+                },
+                shape = browseChipShape(),
+                colors = browseAssistChipColors(),
+                border = null,
+            )
         }
         if (!clickable) {
             // Sits above the chip and swallows the gestures before the chip's clickable can start a
