@@ -250,7 +250,7 @@ fun BrowseFilterChipFlow(
         AssistChip(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
-            leadingIcon = { Icon(layout.icon, contentDescription = null) },
+            leadingIcon = { Icon(layout.icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
             shape = browseChipShape(),
             colors = browseAssistChipColors(),
             border = null,
@@ -262,7 +262,7 @@ fun BrowseFilterChipFlow(
             AssistChip(
                 onClick = { presetsOpen = true },
                 label = { Text(stringResource(R.string.filter_presets)) },
-                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 shape = browseChipShape(),
                 colors = browseAssistChipColors(),
                 border = null,
@@ -306,6 +306,7 @@ fun BrowseFilterChipFlow(
                             if (options.sortAscending) Icons.Filled.KeyboardArrowUp
                             else Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -376,6 +377,7 @@ fun BrowseSortChip(
                                 if (options.sortAscending) Icons.Filled.KeyboardArrowUp
                                 else Icons.Filled.KeyboardArrowDown,
                                 contentDescription = null,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }

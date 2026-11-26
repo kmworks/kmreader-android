@@ -188,7 +188,7 @@ fun BrowseScreen(
                     onClick = { setResultsLayout(resultsLayout.next) },
                     label = { Text(stringResource(resultsLayout.labelRes)) },
                     leadingIcon = {
-                        Icon(resultsLayout.icon, contentDescription = null)
+                        Icon(resultsLayout.icon, contentDescription = null, modifier = Modifier.size(18.dp))
                     },
                     shape = browseChipShape(),
                     colors = browseAssistChipColors(),
