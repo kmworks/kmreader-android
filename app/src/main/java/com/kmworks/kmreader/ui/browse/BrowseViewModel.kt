@@ -14,7 +14,7 @@ import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
-import com.kmworks.kmreader.data.defaultBrowseOptions
+import com.kmworks.kmreader.data.defaultSearchOptions
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
@@ -87,8 +87,8 @@ private data class SearchRequest(
      * publisher/genre/series-status dimensions a book query cannot express, and each group sorts by
      * its own vocabulary.
      */
-    val seriesOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
-    val booksOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Books),
+    val seriesOptions: BrowseOptions = defaultSearchOptions(BrowseContentType.Series),
+    val booksOptions: BrowseOptions = defaultSearchOptions(BrowseContentType.Books),
 ) {
     /**
      * Filters only apply in the dedicated scopes: the mixed All scope, and the collections/read lists
@@ -113,8 +113,8 @@ class BrowseViewModel @Inject constructor(
 
     private val query = MutableStateFlow("")
     private val scope = MutableStateFlow(SearchScope.All)
-    private val seriesBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
-    private val booksBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Books))
+    private val seriesBrowseOptions = MutableStateFlow(defaultSearchOptions(BrowseContentType.Series))
+    private val booksBrowseOptions = MutableStateFlow(defaultSearchOptions(BrowseContentType.Books))
 
     private val _state = MutableStateFlow(BrowseUiState())
     val state = _state.asStateFlow()
@@ -186,8 +186,8 @@ class BrowseViewModel @Inject constructor(
                 .map { it?.cacheNamespace }
                 .distinctUntilChanged()
                 .collect {
-                    seriesBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Series)
-                    booksBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Books)
+                    seriesBrowseOptions.value = defaultSearchOptions(BrowseContentType.Series)
+                    booksBrowseOptions.value = defaultSearchOptions(BrowseContentType.Books)
                 }
         }
         // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
@@ -364,13 +364,13 @@ class BrowseViewModel @Inject constructor(
     private fun seriesKey(request: SearchRequest): String = listOf(
         request.query,
         request.libraryIds?.joinToString(","),
-        request.seriesFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Series) },
+        request.seriesFilters?.takeIf { it != defaultSearchOptions(BrowseContentType.Series) },
     ).joinToString("|")
 
     private fun booksKey(request: SearchRequest): String = listOf(
         request.query,
         request.libraryIds?.joinToString(","),
-        request.bookFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Books) },
+        request.bookFilters?.takeIf { it != defaultSearchOptions(BrowseContentType.Books) },
     ).joinToString("|")
 
     private fun listsKey(request: SearchRequest): String =

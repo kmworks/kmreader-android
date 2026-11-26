@@ -91,6 +91,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.searchSortFieldsFor
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.activeFilterLabels
 import com.kmworks.kmreader.ui.components.BookListRow
@@ -258,6 +259,9 @@ fun BrowseScreen(
                     // Each dedicated scope edits its own set: Series edits the series filters, Books the
                     // book filters. Both stay stored while the chip is disabled in the other scopes.
                     contentType = filterContentType,
+                    // Sort card: relevance first, then the scope's own fields (a picked field applies
+                    // even while a term is present).
+                    sortFields = searchSortFieldsFor(filterContentType),
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
             }

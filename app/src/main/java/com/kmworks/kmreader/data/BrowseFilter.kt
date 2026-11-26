@@ -125,11 +125,23 @@ val SeriesSortFields = listOf(
     "random",
 )
 
+/**
+ * Sort token of the search tab only: with no sort parameter Komga ranks hits by relevance
+ * (SeriesService.getSeries does the same). It is the search tab's default, and the entry that
+ * takes the user back to relevance after a field was picked; the catalogue vocabularies never
+ * offer it, so a library list always sorts by a real field.
+ */
+const val SortRelevance = "relevance"
+
 /** Sort tokens of [contentType], in sheet order; the first entry is that type's default. */
 fun sortFieldsFor(contentType: BrowseContentType): List<String> = when (contentType) {
     BrowseContentType.Series -> SeriesSortFields
     BrowseContentType.Books -> BookSortFields
 }
+
+/** [sortFieldsFor] with relevance in front: the list the search tab's sort card shows. */
+fun searchSortFieldsFor(contentType: BrowseContentType): List<String> =
+    listOf(SortRelevance) + sortFieldsFor(contentType)
 
 /**
  * Sort tokens persisted by older builds (before the iOS token vocabulary) mapped onto the book
@@ -165,8 +177,15 @@ private val LegacySeriesSortFields = mapOf(
  * Canonical sort token for [contentType]: an already-valid token is kept, a legacy token is mapped,
  * and anything else falls back to the type default (never a token the server cannot sort by).
  */
-fun normalizeSortField(field: String, contentType: BrowseContentType): String {
+fun normalizeSortField(
+    field: String,
+    contentType: BrowseContentType,
+    allowRelevance: Boolean = false,
+): String {
     val fields = sortFieldsFor(contentType)
+    // Relevance is not part of the catalogue vocabulary: only the search tab's panel, which lists it,
+    // keeps it; a catalogue panel falls back to its own default field
+    if (field == SortRelevance) return if (allowRelevance) field else fields.first()
     if (field in fields) return field
     val legacy = when (contentType) {
         BrowseContentType.Series -> LegacySeriesSortFields
@@ -182,11 +201,18 @@ fun defaultBrowseOptions(contentType: BrowseContentType = BrowseContentType.Book
     BrowseOptions(sortField = sortFieldsFor(contentType).first())
 
 /**
+ * Fresh options for the search tab of [contentType]: relevance until the user picks a field in the
+ * sort card, which then takes over (the request sends that field even while a term is present).
+ */
+fun defaultSearchOptions(contentType: BrowseContentType): BrowseOptions =
+    defaultBrowseOptions(contentType).copy(sortField = SortRelevance)
+
+/**
  * Whether a sort field has a direction. 随机 of the series list is an unordered shuffle, so the
  * direction picker is hidden for it (mirrors supportsDirection of SeriesSortField).
  */
 fun supportsSortDirection(field: String, contentType: BrowseContentType): Boolean =
-    !(contentType == BrowseContentType.Series && field == "random")
+    field != SortRelevance && !(contentType == BrowseContentType.Series && field == "random")
 
 /**
  * Filter preset shared across pages (the original stores a savedFilter table; persisted locally in

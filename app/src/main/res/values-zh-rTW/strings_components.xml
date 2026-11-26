@@ -167,5 +167,6 @@
     <string name="sort_folder_name">資料夾名稱</string>
     <string name="sort_books_count">書籍數量</string>
     <string name="sort_random">隨機</string>
+    <string name="sort_relevance">相關度</string>
     <string name="filter_complete">完結</string>
 </resources>

@@ -85,6 +85,7 @@ import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SeriesStatus
+import com.kmworks.kmreader.data.SortRelevance
 import com.kmworks.kmreader.data.TriState
 import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.filterKey
@@ -469,6 +470,9 @@ fun BrowseOptionsSheet(
     contentType: BrowseContentType = BrowseContentType.Books,
     // Smart lists store conditions only, so the embedded panel hides the Sort card (mirrors showsSort: false)
     showsSort: Boolean = true,
+    // Sort vocabulary of this panel: the search tab passes relevance in front of the catalogue's
+    // own fields, everything else keeps its type's list.
+    sortFields: List<String> = sortFieldsFor(contentType),
     // Scope of metadata suggestion values (mirrors the original MetadataFilterItemSource; fetched per scope when the sheet opens)
     suggestionLibraryIds: List<String>? = null,
     suggestionSeriesStableId: Int? = null,
@@ -482,7 +486,13 @@ fun BrowseOptionsSheet(
     // A sort token from the other catalogue (switching Library tabs, an old preset) falls back to
     // the closest equivalent of this type, otherwise the picker would show no selection.
     val initialOptionsForType = remember(initialOptions, contentType) {
-        initialOptions.copy(sortField = normalizeSortField(initialOptions.sortField, contentType))
+        initialOptions.copy(
+            sortField = normalizeSortField(
+                initialOptions.sortField,
+                contentType,
+                allowRelevance = SortRelevance in sortFields,
+            ),
+        )
     }
     var options by remember(initialOptionsForType) { mutableStateOf(initialOptionsForType) }
     val onOptionsChange: (BrowseOptions) -> Unit = { updated -> options = updated }
@@ -609,7 +619,7 @@ fun BrowseOptionsSheet(
                     item {
                         FilterSection(stringResource(R.string.filter_sort)) {
                             SortFieldRow(
-                                fields = sortFieldsFor(contentType),
+                                fields = sortFields,
                                 selectedField = options.sortField,
                                 labelOf = { field -> browseSortFieldLabel(field, contentType) },
                                 onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
