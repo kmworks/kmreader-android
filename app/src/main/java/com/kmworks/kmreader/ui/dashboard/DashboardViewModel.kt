@@ -55,6 +55,7 @@ import com.kmworks.kmreader.ui.detail.toEditValues
 import com.kmworks.kmreader.ui.detail.toUpdateDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -162,6 +163,20 @@ class DashboardViewModel @Inject constructor(
     private var listsGeneration = 0
     /** One lock per section feed: a load-more and a targeted re-read must not advance the same feed at once. */
     private val sectionLocks = mutableMapOf<String, Mutex>()
+
+    /**
+     * Sections whose load-more found the section busy (a targeted re-read holding its lock, or a full reload
+     * in flight). Queueing behind the network read is the long wait at the end of a strip, so the append is
+     * retried when the busy writer publishes instead (see [drainPendingLoadMore]).
+     */
+    private val pendingLoadMoreSections = ConcurrentHashMap.newKeySet<String>()
+
+    /** Retry the section load-mores a reload/revalidate turned away (see [pendingLoadMoreSections]). */
+    private fun drainPendingLoadMore() {
+        val ids = pendingLoadMoreSections.toList()
+        pendingLoadMoreSections.clear()
+        ids.forEach { loadMoreSection(it) }
+    }
 
     /**
      * One generation per section feed. A targeted re-read only invalidates the sections it re-read: using the
@@ -338,6 +353,8 @@ class DashboardViewModel @Inject constructor(
             } catch (e: Exception) {
                 // A correction that failed keeps the rows on screen exactly as they are, silently: the iOS
                 // revalidateWindow returns early on a failed fetch, and the next event or reload tries again.
+            } finally {
+                drainPendingLoadMore()
             }
         }
     }
@@ -666,7 +683,12 @@ class DashboardViewModel @Inject constructor(
      */
     fun loadMoreSection(sectionId: String) {
         val paging = _state.value.sectionPaging[sectionId] ?: return
-        if (paging.loadingMore || !paging.hasMore || _state.value.loading) return
+        if (paging.loadingMore || !paging.hasMore) return
+        if (_state.value.loading) {
+            // A full reload is fetching every section: retry when it publishes instead of waiting on it.
+            pendingLoadMoreSections += sectionId
+            return
+        }
         val gen = sectionGeneration(sectionId)
         viewModelScope.launch {
             updateSectionPaging(sectionId) { it.copy(loadingMore = true) }
@@ -676,8 +698,18 @@ class DashboardViewModel @Inject constructor(
                     appSettings.pinnedLibraryIds.first(),
                 )
                 // Same lock the targeted re-read takes: the append and a reload must not interleave on one feed.
-                val items = lockFor(sectionId).withLock {
+                // A re-read already holding it fetches the whole window; queueing behind that is the long wait
+                // at the end of a strip, so this append retries when the re-read publishes instead.
+                val lock = lockFor(sectionId)
+                if (!lock.tryLock()) {
+                    pendingLoadMoreSections += sectionId
+                    updateSectionPaging(sectionId) { it.copy(loadingMore = false) }
+                    return@launch
+                }
+                val items = try {
                     feedFor(sectionId, libraryIds).append(sectionItems(sectionId))
+                } finally {
+                    lock.unlock()
                 }
                 if (gen != sectionGeneration(sectionId)) {
                     // This section was re-read (or reloaded) meanwhile and owns the rows. A targeted re-read of
@@ -880,7 +912,11 @@ class DashboardViewModel @Inject constructor(
     }
 
     private suspend fun load() {
-        loadMutex.withLock { loadLocked() }
+        try {
+            loadMutex.withLock { loadLocked() }
+        } finally {
+            drainPendingLoadMore()
+        }
     }
 
     /** One-time read of the persisted scope before the first feed query (otherwise the "all libraries" default wins). */

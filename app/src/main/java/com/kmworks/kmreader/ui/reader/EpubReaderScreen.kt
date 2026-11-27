@@ -105,6 +105,7 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.AdjacentBooksResolver
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.epub.EpubChapter
@@ -196,6 +197,8 @@ class EpubReaderViewModel @Inject constructor(
     private val actionRepository: ActionRepository,
     private val adjacentBooksResolver: AdjacentBooksResolver,
     private val readListReadingService: ReadListReadingService,
+    /** Holds list refreshes while the reader is open, then posts one reload on close (mirrors iOS). */
+    private val contentChangeBus: ContentChangeBus,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -247,6 +250,10 @@ class EpubReaderViewModel @Inject constructor(
     private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
 
     init {
+        // An EPUB reader is a reading session too: hold list refreshes while it is open and release them on
+        // close, the same deferral the comic and PDF readers apply (see ContentChangeBus.readerOpened).
+        contentChangeBus.readerOpened()
+        viewModelScope.coroutineContext[Job]?.invokeOnCompletion { contentChangeBus.readerClosed() }
         viewModelScope.launch {
             appSettings.progressRecordingThreshold.collect { progressThreshold = it }
         }

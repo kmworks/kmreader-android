@@ -193,7 +193,8 @@ class ContentChangeBus @Inject constructor() {
      * Changes that arrived while a reader was open. They are replayed when the last reader closes instead of
      * collapsing into one reload, so a screen that can re-read a subset (the dashboard's sections) only touches
      * what the session changed, the way the iOS coordinator flushes its deferred section set. Progress reports
-     * are folded to their latest value: a reader posts one per page.
+     * are folded to their latest value: a reader posts one per page. A re-read request folds the same way, so a
+     * session that mixes page turns with server echoes stays one entry per row set instead of one per page.
      */
     private class Held(val change: ContentChange, val fromSse: Boolean)
 
@@ -252,12 +253,19 @@ class ContentChangeBus @Inject constructor() {
     }
 
     private fun holdLocked(change: ContentChange, fromSse: Boolean) {
-        if (change.kind == ContentChangeKind.ProgressChanged) {
+        // Progress reports and re-read requests for the same rows fold into one held entry, whichever kind they
+        // arrived as: a reading session reports one page at a time, and without the fold a session longer than
+        // MAX_HELD_CHANGES pages overflowed the replay into a full reload.
+        if (change.kind == ContentChangeKind.ProgressChanged || change.kind == ContentChangeKind.Touched) {
             val index = heldChanges.indexOfFirst { held ->
-                held.change.kind == ContentChangeKind.ProgressChanged && sameRows(held.change, change)
+                (held.change.kind == ContentChangeKind.ProgressChanged ||
+                    held.change.kind == ContentChangeKind.Touched) && sameRows(held.change, change)
             }
             if (index >= 0) {
-                heldChanges[index] = Held(change, fromSse)
+                // Removed and re-appended instead of replaced in place: the replay must follow the order the
+                // changes arrived in, so a progress report that came after a mark-unread replays after it.
+                heldChanges.removeAt(index)
+                heldChanges += Held(change, fromSse)
                 return
             }
         }
