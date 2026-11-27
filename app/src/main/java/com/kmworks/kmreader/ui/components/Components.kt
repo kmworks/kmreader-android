@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -111,10 +110,6 @@ fun CoverArt(
     followThumbnailPreference: Boolean = false,
     /** Cover is an unread download: with the "blur unread covers" preference on, the blur lands on the cover itself. */
     unread: Boolean = false,
-    /** Painted over the cover itself, not over the slot — iOS `framedImageCard.overlay { overlay() }`, so a
-     *  letterboxed wide cover carries its corner badge on its own top-right corner instead of floating at the
-     *  slot's. Callers align into this box. */
-    overlay: (@Composable BoxScope.() -> Unit)? = null,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
@@ -128,8 +123,11 @@ fun CoverArt(
     val effectiveAlignment = if (letterboxAllowed) Alignment.BottomCenter else Alignment.Center
     // Intrinsic ratio of the loaded cover; null until something is on screen, which is what shows the placeholder.
     var loadedAspect by remember(stableId, imageUrl, coverVersion) { mutableStateOf<Float?>(null) }
+    // No slot-level clip: the cover is clipped at its own display size below, and clipping the slot shears
+    // the cover's shadow flat at the slot edge — a letterboxed cover fills the slot's height but not its
+    // width, so the cut shadow shows as a faint right angle beside the cover's bottom corners.
     BoxWithConstraints(
-        modifier = modifier.clip(CoverShape),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         // iOS keeps the slot transparent (`Color.clear`) and only shows the grey placeholder while the cover is
@@ -296,7 +294,7 @@ fun CoverArt(
                     null
                 }
             // iOS shadows the image card, not the slot: a letterboxed cover carries its shadow on its own edges.
-            val coverFrame = Modifier
+            val coverModifier = Modifier
                 .then(
                     if (letterboxedSize != null) {
                         Modifier.size(letterboxedSize.width, letterboxedSize.height)
@@ -305,9 +303,6 @@ fun CoverArt(
                     },
                 )
                 .then(if (followThumbnailPreference && display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
-            // The overlay sits outside the clip, so a corner badge keeps its slab flush with the cover corner.
-            val coverImage = Modifier
-                .matchParentSize()
                 .clip(CoverShape)
                 .then(
                     if (followThumbnailPreference && display.blurUnreadCovers && unread) {
@@ -317,37 +312,34 @@ fun CoverArt(
                     },
                 )
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                Box(modifier = coverFrame) {
-                    AsyncImage(
-                        model = model,
-                        contentDescription = null,
-                        imageLoader = loader,
-                        contentScale = effectiveScale,
-                        alignment = effectiveAlignment,
-                        // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
-                        // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
-                        filterQuality = FilterQuality.High,
-                        modifier = coverImage,
-                        onSuccess = { state ->
-                            val image = state.result.image
-                            if (image.height > 0) loadedAspect = image.width.toFloat() / image.height.toFloat()
-                            onCoverBitmap?.invoke(image.toBitmap())
-                        },
-                        onError = { state ->
-                            if (!usingFallback && fallbackResolvedUrl != null) {
-                                // The server cover is unreachable (offline, or a book from another server):
-                                // swap in the cover saved with the download.
-                                primaryFailed = true
-                            } else {
-                                AppLog.w(
-                                    "CoverArt",
-                                    "cover load failed: $modelUrl (${state.result.throwable.message})",
-                                )
-                            }
-                        },
-                    )
-                    overlay?.invoke(this)
-                }
+                AsyncImage(
+                    model = model,
+                    contentDescription = null,
+                    imageLoader = loader,
+                    contentScale = effectiveScale,
+                    alignment = effectiveAlignment,
+                    // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
+                    // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
+                    filterQuality = FilterQuality.High,
+                    modifier = coverModifier,
+                    onSuccess = { state ->
+                        val image = state.result.image
+                        if (image.height > 0) loadedAspect = image.width.toFloat() / image.height.toFloat()
+                        onCoverBitmap?.invoke(image.toBitmap())
+                    },
+                    onError = { state ->
+                        if (!usingFallback && fallbackResolvedUrl != null) {
+                            // The server cover is unreachable (offline, or a book from another server):
+                            // swap in the cover saved with the download.
+                            primaryFailed = true
+                        } else {
+                            AppLog.w(
+                                "CoverArt",
+                                "cover load failed: $modelUrl (${state.result.throwable.message})",
+                            )
+                        }
+                    },
+                )
             }
         }
     }
@@ -438,15 +430,13 @@ fun SeriesGridCard(
                 stableId = series.id,
                 followThumbnailPreference = true,
                 unread = series.unreadCount > 0,
-                overlay = {
-                    if (display.showUnreadIndicator && series.unreadCount > 0) {
-                        UnreadCountBadge(
-                            count = series.unreadCount,
-                            modifier = Modifier.align(Alignment.TopEnd),
-                        )
-                    }
-                },
             )
+            if (display.showUnreadIndicator && series.unreadCount > 0) {
+                UnreadCountBadge(
+                    count = series.unreadCount,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+            }
             if (!display.coverOnly && display.textOverlay) {
                 CardTextOverlay(
                     title = series.title,
@@ -544,12 +534,10 @@ fun BookGridCard(
                 stableId = book.id,
                 followThumbnailPreference = true,
                 unread = book.progress == null,
-                overlay = {
-                    if (book.progress == 1f) {
-                        CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
-                    }
-                },
             )
+            if (book.progress == 1f) {
+                CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
+            }
             if (!display.coverOnly && display.textOverlay) {
                 // Mirrors iOS BookCardView: the oneshot subtitle is the author line (with a small book icon);
                 // otherwise the series title is shown per settings. The status line mirrors overlayDetail's
