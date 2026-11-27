@@ -50,62 +50,61 @@ class SseChangeParser @Inject constructor() {
         return when (name) {
             // Books ------------------------------------------------------------------------------------------
             "BookAdded", "BookImported" -> decodable<BookPayload>(event.data) { payload ->
-                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Created)) }
+                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Created, libraryId = payload.libraryId)) }
             }
 
             "BookDeleted" -> decodable<BookPayload>(event.data) { payload ->
-                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Deleted)) }
+                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Deleted, libraryId = payload.libraryId)) }
             }
 
             "BookChanged" -> decodable<BookPayload>(event.data) { payload ->
-                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Touched)) }
+                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Touched, libraryId = payload.libraryId)) }
             }
 
             "ThumbnailBookAdded", "ThumbnailBookDeleted" -> decodable<BookPayload>(event.data) { payload ->
                 payload.bookId?.let {
-                    ParsedSseChange(
-                        change = booksChanged(listOf(it), ContentChangeKind.Touched),
-                        coverDtoIds = setOf(it),
-                    )
+                    // Cover-only: the row itself did not change, so no screen needs to re-read it.
+                    ParsedSseChange(change = null, coverDtoIds = setOf(it))
                 }
             }
 
             // Series -----------------------------------------------------------------------------------------
             "SeriesAdded" -> decodable<SeriesPayload>(event.data) { payload ->
-                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Created)) }
+                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Created, libraryId = payload.libraryId)) }
             }
 
             "SeriesDeleted" -> decodable<SeriesPayload>(event.data) { payload ->
-                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Deleted)) }
+                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Deleted, libraryId = payload.libraryId)) }
             }
 
             "SeriesChanged" -> decodable<SeriesPayload>(event.data) { payload ->
-                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Touched)) }
+                payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Touched, libraryId = payload.libraryId)) }
             }
 
             "ThumbnailSeriesAdded", "ThumbnailSeriesDeleted" -> decodable<SeriesPayload>(event.data) { payload ->
                 payload.seriesId?.let {
-                    ParsedSseChange(
-                        change = seriesChanged(listOf(it), ContentChangeKind.Touched),
-                        coverDtoIds = setOf(it),
-                    )
+                    ParsedSseChange(change = null, coverDtoIds = setOf(it))
                 }
             }
 
             // Reading progress -------------------------------------------------------------------------------
             "ReadProgressChanged" -> decodable<BookPayload>(event.data) { payload ->
-                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Touched)) }
+                payload.bookId?.let { ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.Touched, libraryId = payload.libraryId)) }
             }
 
             "ReadProgressDeleted" -> decodable<BookPayload>(event.data) { payload ->
                 payload.bookId?.let {
-                    ParsedSseChange(booksChanged(listOf(it), ContentChangeKind.ReadStateChanged, read = false))
+                    ParsedSseChange(
+                        booksChanged(
+                            listOf(it), ContentChangeKind.ReadStateChanged, read = false, libraryId = payload.libraryId,
+                        ),
+                    )
                 }
             }
 
             "ReadProgressSeriesChanged", "ReadProgressSeriesDeleted" ->
                 decodable<SeriesPayload>(event.data) { payload ->
-                    payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Touched)) }
+                    payload.seriesId?.let { ParsedSseChange(seriesChanged(listOf(it), ContentChangeKind.Touched, libraryId = payload.libraryId)) }
                 }
 
             // Collections ------------------------------------------------------------------------------------
@@ -130,10 +129,7 @@ class SseChangeParser @Inject constructor() {
             "ThumbnailSeriesCollectionAdded", "ThumbnailSeriesCollectionDeleted" ->
                 decodable<CollectionPayload>(event.data) { payload ->
                     payload.collectionId?.let {
-                        ParsedSseChange(
-                            change = collectionsChanged(listOf(it), ContentChangeKind.Touched),
-                            coverDtoIds = setOf(it),
-                        )
+                        ParsedSseChange(change = null, coverDtoIds = setOf(it))
                     }
                 }
 
@@ -152,10 +148,7 @@ class SseChangeParser @Inject constructor() {
 
             "ThumbnailReadListAdded", "ThumbnailReadListDeleted" -> decodable<ReadListPayload>(event.data) { payload ->
                 payload.readListId?.let {
-                    ParsedSseChange(
-                        change = readListsChanged(listOf(it), ContentChangeKind.Touched),
-                        coverDtoIds = setOf(it),
-                    )
+                    ParsedSseChange(change = null, coverDtoIds = setOf(it))
                 }
             }
 
@@ -172,10 +165,14 @@ class SseChangeParser @Inject constructor() {
                 }
             }
 
-            "SmartListChanged", "SmartListThumbnailChanged" -> decodable<SmartListPayload>(event.data) { payload ->
+            "SmartListChanged" -> decodable<SmartListPayload>(event.data) { payload ->
                 payload.smartListId?.let {
                     ParsedSseChange(smartListsChanged(listOf(it), ContentChangeKind.Touched))
                 }
+            }
+
+            "SmartListThumbnailChanged" -> decodable<SmartListPayload>(event.data) { payload ->
+                payload.smartListId?.let { ParsedSseChange(change = null, coverDtoIds = setOf(it)) }
             }
 
             else -> ParsedSseChange(ContentChange.Unknown)

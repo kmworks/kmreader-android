@@ -6,7 +6,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
@@ -71,6 +74,8 @@ sealed interface ContentChange {
         override val kind: ContentChangeKind,
         override val read: Boolean? = null,
         override val progress: Float? = null,
+        /** Library the rows belong to when the source says so (SSE payloads carry it); null = unknown. */
+        val libraryId: String? = null,
     ) : ContentChange
 
     data class Series(
@@ -78,6 +83,8 @@ sealed interface ContentChange {
         override val kind: ContentChangeKind,
         override val read: Boolean? = null,
         override val progress: Float? = null,
+        /** Library the rows belong to when the source says so (SSE payloads carry it); null = unknown. */
+        val libraryId: String? = null,
     ) : ContentChange
 
     data class Collections(
@@ -122,14 +129,16 @@ internal fun booksChanged(
     kind: ContentChangeKind,
     read: Boolean? = null,
     progress: Float? = null,
-): ContentChange = ContentChange.Books(dtoIds.toSet(), kind, read, progress)
+    libraryId: String? = null,
+): ContentChange = ContentChange.Books(dtoIds.toSet(), kind, read, progress, libraryId)
 
 internal fun seriesChanged(
     dtoIds: Collection<String>,
     kind: ContentChangeKind,
     read: Boolean? = null,
     progress: Float? = null,
-): ContentChange = ContentChange.Series(dtoIds.toSet(), kind, read, progress)
+    libraryId: String? = null,
+): ContentChange = ContentChange.Series(dtoIds.toSet(), kind, read, progress, libraryId)
 
 internal fun collectionsChanged(dtoIds: Collection<String>, kind: ContentChangeKind): ContentChange =
     ContentChange.Collections(dtoIds.toSet(), kind)
@@ -160,11 +169,130 @@ internal fun librariesChanged(dtoIds: Collection<String>, kind: ContentChangeKin
 class ContentChangeBus @Inject constructor() {
 
     private val _changes = MutableSharedFlow<ContentChange>(extraBufferCapacity = 64)
+
+    /** Every change, local and SSE-forwarded: screens that refresh on anything collect this. */
     val changes: SharedFlow<ContentChange> = _changes.asSharedFlow()
 
-    fun notify(change: ContentChange) {
-        _changes.tryEmit(change)
+    /**
+     * Writes issued by this app only. SSE-forwarded changes reach screens that refresh on any change through
+     * [changes] too, but a screen that also has its own SSE path (the dashboard) must not refresh twice, and
+     * must not refresh from SSE at all when its auto-refresh switch is off. Library scope cannot tell the two
+     * apart: collection/read-list events carry no library id and multi-library batches deliberately clear it.
+     */
+    private val _localChanges = MutableSharedFlow<ContentChange>(extraBufferCapacity = 64)
+    val localChanges: SharedFlow<ContentChange> = _localChanges.asSharedFlow()
+
+    /** True while a reader session is open, so screens can hold their refresh (mirrors the iOS deferral). */
+    private val _readerActive = MutableStateFlow(false)
+    val readerActive: StateFlow<Boolean> = _readerActive.asStateFlow()
+
+    private val lock = Any()
+    private var readerSessions = 0
+
+    /**
+     * Changes that arrived while a reader was open. They are replayed when the last reader closes instead of
+     * collapsing into one reload, so a screen that can re-read a subset (the dashboard's sections) only touches
+     * what the session changed, the way the iOS coordinator flushes its deferred section set. Progress reports
+     * are folded to their latest value: a reader posts one per page.
+     */
+    private class Held(val change: ContentChange, val fromSse: Boolean)
+
+    private val heldChanges = ArrayList<Held>()
+    private var heldOverflow = false
+
+    fun readerOpened() {
+        synchronized(lock) {
+            readerSessions++
+            if (readerSessions == 1) _readerActive.value = true
+        }
     }
+
+    /**
+     * Mirrors the iOS deferral: changes that arrive while a reader is open are not delivered immediately, and
+     * the ones still held are replayed when the last reader closes, progress reports folded to their latest
+     * value. A screen that can re-read a subset then touches only that subset; a replay longer than
+     * [MAX_HELD_CHANGES] degrades to one reload signal. Nested readers only release the gate when the last
+     * one closes.
+     */
+    fun readerClosed() {
+        val pending = synchronized(lock) {
+            if (readerSessions == 0) return
+            readerSessions--
+            if (readerSessions > 0) return
+            _readerActive.value = false
+            val list = heldChanges.toList()
+            val overflow = heldOverflow
+            heldChanges.clear()
+            heldOverflow = false
+            list to overflow
+        }
+        if (pending.second) {
+            // More changes than a replay is worth: one reload covers them all, on both channels (the batch can
+            // mix local writes with SSE events).
+            _changes.tryEmit(ContentChange.Unknown)
+            _localChanges.tryEmit(ContentChange.Unknown)
+            return
+        }
+        pending.first.forEach { held ->
+            _changes.tryEmit(held.change)
+            if (!held.fromSse) _localChanges.tryEmit(held.change)
+        }
+    }
+
+    /** [fromSse] changes are forwarded from an SSE event and are not republished on [localChanges]. */
+    fun notify(change: ContentChange, fromSse: Boolean = false) {
+        synchronized(lock) {
+            if (readerSessions > 0) {
+                holdLocked(change, fromSse)
+                return
+            }
+        }
+        _changes.tryEmit(change)
+        if (!fromSse) _localChanges.tryEmit(change)
+    }
+
+    private fun holdLocked(change: ContentChange, fromSse: Boolean) {
+        if (change.kind == ContentChangeKind.ProgressChanged) {
+            val index = heldChanges.indexOfFirst { held ->
+                held.change.kind == ContentChangeKind.ProgressChanged && sameRows(held.change, change)
+            }
+            if (index >= 0) {
+                heldChanges[index] = Held(change, fromSse)
+                return
+            }
+        }
+        if (heldChanges.size >= MAX_HELD_CHANGES) {
+            heldOverflow = true
+            return
+        }
+        heldChanges += Held(change, fromSse)
+    }
+
+    private fun sameRows(a: ContentChange, b: ContentChange): Boolean = when {
+        a is ContentChange.Books && b is ContentChange.Books -> a.dtoIds == b.dtoIds
+        a is ContentChange.Series && b is ContentChange.Series -> a.dtoIds == b.dtoIds
+        else -> false
+    }
+
+    private companion object {
+        /** Past this a replay costs more than one reload, so the close degrades to a full reload signal. */
+        const val MAX_HELD_CHANGES = 24
+    }
+}
+
+/**
+ * True when the change names a library outside [scope], so a list scoped to other libraries cannot be affected
+ * by it and neither patches nor re-reads. The library id is only known when the source carried it (SSE payloads
+ * do, local writes do not), and a null or empty scope means "all libraries": both always pass.
+ */
+fun ContentChange.isOutsideLibraryScope(scope: Collection<String>?): Boolean {
+    val libraryId = when (this) {
+        is ContentChange.Books -> libraryId
+        is ContentChange.Series -> libraryId
+        else -> null
+    } ?: return false
+    if (scope == null || scope.isEmpty()) return false
+    return libraryId !in scope
 }
 
 /**
@@ -216,7 +344,7 @@ enum class PatchOutcome {
  * [ContentChangeKind.Touched]); the reload path is where that fetch happens.
  */
 suspend fun ContentChangeBus.observeChanges(
-    patch: (ContentChange) -> PatchOutcome,
+    patch: suspend (ContentChange) -> PatchOutcome,
     reload: suspend (ContentChange) -> Unit,
     settle: suspend (ContentChange) -> Unit = {},
     reloadDebounceMillis: Long = RELOAD_DEBOUNCE_MILLIS,

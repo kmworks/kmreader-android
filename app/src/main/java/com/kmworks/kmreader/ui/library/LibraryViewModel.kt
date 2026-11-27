@@ -14,6 +14,7 @@ import com.kmworks.kmreader.core.data.BookRepository
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
+import com.kmworks.kmreader.core.data.PagedFeed
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.DetailRepository
@@ -34,8 +35,10 @@ import com.kmworks.kmreader.core.data.ThumbnailCache
 import com.kmworks.kmreader.core.download.DownloadRepository
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
+import com.kmworks.kmreader.core.data.isOutsideLibraryScope
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
+import com.kmworks.kmreader.data.isSensitiveToReadingProgress
 import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.BookDetailMeta
 import com.kmworks.kmreader.data.SampleData.ListEntry
@@ -61,6 +64,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -142,8 +147,38 @@ class LibraryViewModel @Inject constructor(
 
     private var query: Query? = null
     private var generation = 0
-    private var seriesPage = 0
-    private var booksPage = 0
+    /**
+     * List feeds. They read [query] at call time, so a reload of the same scope/sort re-reads the pages the user
+     * already scrolled through instead of shrinking the list back to page one (see [PagedFeed]).
+     */
+    private val seriesFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { series: Series -> series.id },
+        fetch = { page, size ->
+            query?.let { current ->
+                searchRepository.browseSeriesPage(
+                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
+                    options = current.seriesOptions,
+                    page = page,
+                    size = size,
+                ) ?: throw IllegalStateException(context.getString(R.string.library_series_load_failed))
+            }
+        },
+    )
+    private val booksFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { book: Book -> book.id },
+        fetch = { page, size ->
+            query?.let { current ->
+                searchRepository.browseBooksPage(
+                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
+                    options = current.booksOptions,
+                    page = page,
+                    size = size,
+                ) ?: throw IllegalStateException(context.getString(R.string.library_books_load_failed))
+            }
+        },
+    )
     private var loadingMoreSeries = false
     private var loadingMoreBooks = false
 
@@ -248,7 +283,7 @@ class LibraryViewModel @Inject constructor(
         // book still leaves its series card's aggregate stale, so those changes schedule one quiet re-read later.
         viewModelScope.launch {
             contentChangeBus.observeChanges(
-                patch = { patchContentChange(it) },
+                patch = { rowsMutex.withLock { patchContentChange(it) } },
                 reload = { applyReload(it) },
                 settle = { settleRefresh() },
             )
@@ -282,22 +317,42 @@ class LibraryViewModel @Inject constructor(
     private fun settleRefresh() {
         if (SystemClock.elapsedRealtime() - lastLoadAtMs < SETTLE_SUPPRESS_MILLIS) return
         val current = query ?: return
-        if (!_state.value.hasSession || _state.value.series == null) return
+        val currentGeneration = generation
         viewModelScope.launch {
-            val fresh = runCatching {
-                searchRepository.browseSeriesPage(
-                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.seriesOptions,
-                    page = 0,
-                    size = PAGE_SIZE,
-                )
-            }.getOrNull() ?: return@launch
-            val byId = fresh.items.associateBy { it.id }
+            rowsMutex.withLock {
+            // The same window a normal reload reads: every page already on screen comes back in one request and
+            // is swapped in place, so the settle pass corrects the aggregates without shrinking the list or
+            // dropping the user back to the top. The rows are read under this lock, so a patch that landed a
+            // moment ago is part of the snapshot instead of being overwritten by it.
+            val snapshot = _state.value
+            if (!snapshot.hasSession || snapshot.series == null) return@withLock
+            val rows = runCatching { seriesFeed.reload(snapshot.series, seriesFeed.page) }.getOrNull()
+                ?: return@withLock
+            if (currentGeneration != generation) return@withLock
             lastLoadAtMs = SystemClock.elapsedRealtime()
-            _state.update { st ->
-                st.copy(series = st.series?.map { row -> byId[row.id] ?: row })
+            _state.update {
+                it.copy(series = rows, seriesHasMore = seriesFeed.hasMore, seriesTotal = seriesFeed.total)
             }
-            runCatching { catalogCache.saveSeries(listKey(current.scope, current.seriesOptions), fresh.items) }
+            // Books reorder on read state only when the list is sensitive to it; otherwise their rows are
+            // already patched and a re-read would be a request for nothing (iOS gates the same way).
+            if (snapshot.books != null &&
+                current.booksOptions.isSensitiveToReadingProgress(BrowseContentType.Books)
+            ) {
+                val bookRows = runCatching { booksFeed.reload(snapshot.books, booksFeed.page) }.getOrNull()
+                if (bookRows != null && currentGeneration == generation) {
+                    _state.update {
+                        it.copy(
+                            books = bookRows,
+                            booksHasMore = booksFeed.hasMore,
+                            booksTotal = booksFeed.total,
+                        )
+                    }
+                }
+            }
+            runCatching {
+                catalogCache.saveSeries(listKey(current.scope, current.seriesOptions), rows.take(PAGE_SIZE))
+            }
+            }
         }
     }
 
@@ -314,13 +369,13 @@ class LibraryViewModel @Inject constructor(
     }
 
     /** Fetch the touched rows and swap them in; ids this screen does not show cost nothing. */
-    private suspend fun applyTouched(change: ContentChange) {
+    private suspend fun applyTouched(change: ContentChange) = rowsMutex.withLock {
         val ids = detailRepository.stableIdsOf(change)
-        if (ids.isEmpty() || !showsAny(ids)) return
+        if (ids.isEmpty() || !showsAny(ids)) return@withLock
         when (change) {
             is ContentChange.Series -> {
                 val rows = contentRowRefresher.series(change.dtoIds)
-                if (rows.isEmpty()) return
+                if (rows.isEmpty()) return@withLock
                 _state.update { st ->
                     st.copy(series = st.series?.map { row -> rows[row.id] ?: row })
                 }
@@ -329,7 +384,7 @@ class LibraryViewModel @Inject constructor(
 
             is ContentChange.Books -> {
                 val rows = contentRowRefresher.books(change.dtoIds)
-                if (rows.isEmpty()) return
+                if (rows.isEmpty()) return@withLock
                 _state.update { st ->
                     st.copy(books = st.books?.map { row -> rows[row.id] ?: row })
                 }
@@ -350,27 +405,61 @@ class LibraryViewModel @Inject constructor(
      * A book's own row is patchable, but a series card's progress and unread count are aggregates over all its
      * books: those changes report [PatchOutcome.PendingSettle] so the screen re-reads them once the write settled.
      */
-    private fun patchContentChange(change: ContentChange): PatchOutcome = when (change.kind) {
-        // Ids without values: the reload path fetches these rows and patches them.
-        ContentChangeKind.Touched -> PatchOutcome.Declined
-        ContentChangeKind.ReadStateChanged -> {
-            val read = change.read ?: return PatchOutcome.Patched
-            val ids = detailRepository.stableIdsOf(change)
-            if (ids.isEmpty()) return PatchOutcome.Patched
-            when (change) {
-                is ContentChange.Series -> patchSeriesRead(ids, read)
-                is ContentChange.Books -> patchBooksRead(ids, read)
-                else -> PatchOutcome.Patched
+    private fun patchContentChange(change: ContentChange): PatchOutcome {
+        // A change the source pinned to another library cannot touch what this scope shows; a change without
+        // a library id (local writes) always passes.
+        val current = query ?: return PatchOutcome.Patched
+        if (change.isOutsideLibraryScope(resolveLibraryIds(current.scope, current.pinned))) {
+            return PatchOutcome.Patched
+        }
+        return when (change.kind) {
+            // Ids without values: the reload path fetches these rows and patches them.
+            ContentChangeKind.Touched -> PatchOutcome.Declined
+            ContentChangeKind.ReadStateChanged -> {
+                val read = change.read ?: return PatchOutcome.Patched
+                val ids = detailRepository.stableIdsOf(change)
+                if (ids.isEmpty()) return PatchOutcome.Patched
+                val outcome = when (change) {
+                    is ContentChange.Series -> patchSeriesRead(ids, read)
+                    is ContentChange.Books -> patchBooksRead(ids, read)
+                    else -> PatchOutcome.Patched
+                }
+                // Under a read-status filter the new state can move the row out of the list (or into it).
+                if (outcome == PatchOutcome.Patched && readStatusFiltered(change)) settleOrPatched() else outcome
             }
+            // The series cards aggregate their books, so a single book's page cannot be patched into them.
+            ContentChangeKind.ProgressChanged -> {
+                val progress = change.progress ?: return PatchOutcome.Patched
+                val ids = detailRepository.stableIdsOf(change)
+                if (change is ContentChange.Books && ids.isNotEmpty()) patchBooksProgress(ids, progress)
+                // A progress change reorders rows only when the list sorts on it, but it always makes a series
+                // card on screen stale: its progress and unread count are aggregates this screen cannot compute
+                // (iOS can leave them to its local rows, so there the sort alone decides).
+                val seriesOnScreen = _state.value.series != null
+                if (progressSensitive(change) || seriesOnScreen) settleOrPatched() else PatchOutcome.Patched
+            }
+            else -> PatchOutcome.Declined
         }
-        // The series cards aggregate their books, so a single book's page cannot be patched into them.
-        ContentChangeKind.ProgressChanged -> {
-            val progress = change.progress ?: return PatchOutcome.Patched
-            val ids = detailRepository.stableIdsOf(change)
-            if (change is ContentChange.Books && ids.isNotEmpty()) patchBooksProgress(ids, progress)
-            settleOrPatched()
+    }
+
+    /** Whether this list's sort or filters make it sensitive to a pure reading-progress change. */
+    private fun progressSensitive(change: ContentChange): Boolean {
+        val current = query ?: return true
+        return when (change) {
+            is ContentChange.Books -> current.booksOptions.isSensitiveToReadingProgress(BrowseContentType.Books)
+            is ContentChange.Series -> current.seriesOptions.isSensitiveToReadingProgress(BrowseContentType.Series)
+            else -> true
         }
-        else -> PatchOutcome.Declined
+    }
+
+    /** Read-state changes move rows across a read-status filter; without one they stay patched in place. */
+    private fun readStatusFiltered(change: ContentChange): Boolean {
+        val current = query ?: return false
+        return when (change) {
+            is ContentChange.Books -> current.booksOptions.readStatuses.isNotEmpty()
+            is ContentChange.Series -> current.seriesOptions.readStatuses.isNotEmpty()
+            else -> false
+        }
     }
 
     /** A patched book row is only half the screen while the series cards above it are stale. */
@@ -501,10 +590,12 @@ class LibraryViewModel @Inject constructor(
         booksOptions: BrowseOptions,
     ) {
         val nextQuery = Query(scope, pinned, seriesOptions, booksOptions)
+        // Same scope/pins/filters: keep the pages already on screen. Anything else is a new query and starts over.
+        val sameQuery = query == nextQuery
+        val keepSeriesPages = if (sameQuery) seriesFeed.page else 0
+        val keepBooksPages = if (sameQuery) booksFeed.page else 0
         val currentGeneration = ++generation
         query = nextQuery
-        seriesPage = 0
-        booksPage = 0
         loadingMoreSeries = false
         loadingMoreBooks = false
         lastLoadAtMs = SystemClock.elapsedRealtime()
@@ -528,17 +619,13 @@ class LibraryViewModel @Inject constructor(
             }
         }
         try {
-            val libraryIds = resolveLibraryIds(scope, pinned)
+            rowsMutex.withLock {
+            val previousSeries = if (sameQuery) _state.value.series.orEmpty() else emptyList()
+            val previousBooks = if (sameQuery) _state.value.books.orEmpty() else emptyList()
             val libraries = libraryRepository.libraries()
-            val (seriesPageResult, bookPageResult) = coroutineScope {
-                val series = async {
-                    searchRepository.browseSeriesPage(libraryIds, seriesOptions, page = 0, size = PAGE_SIZE)
-                        ?: throw IllegalStateException(context.getString(R.string.library_series_load_failed))
-                }
-                val books = async {
-                    searchRepository.browseBooksPage(libraryIds, booksOptions, page = 0, size = PAGE_SIZE)
-                        ?: throw IllegalStateException(context.getString(R.string.library_books_load_failed))
-                }
+            val (seriesItems, bookItems) = coroutineScope {
+                val series = async { seriesFeed.reload(previousSeries, keepSeriesPages, newQuery = !sameQuery) }
+                val books = async { booksFeed.reload(previousBooks, keepBooksPages, newQuery = !sameQuery) }
                 series.await() to books.await()
             }
             if (currentGeneration != generation) return
@@ -555,13 +642,13 @@ class LibraryViewModel @Inject constructor(
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    series = seriesPageResult.items,
-                    books = bookPageResult.items,
-                    seriesHasMore = seriesPageResult.hasMore,
-                    booksHasMore = bookPageResult.hasMore,
-                    seriesTotal = seriesPageResult.totalElements,
-                    booksTotal = bookPageResult.totalElements,
-                    hasMore = seriesPageResult.hasMore,
+                    series = seriesItems,
+                    books = bookItems,
+                    seriesHasMore = seriesFeed.hasMore,
+                    booksHasMore = booksFeed.hasMore,
+                    seriesTotal = seriesFeed.total,
+                    booksTotal = booksFeed.total,
+                    hasMore = seriesFeed.hasMore,
                     libraries = libraries,
                     libraryCount = libraries.size,
                     collections = collections,
@@ -570,9 +657,11 @@ class LibraryViewModel @Inject constructor(
             }
             // Persist the first page for the same query (ids + card rows), plus the Lists rows.
             runCatching {
-                catalogCache.saveSeries(listKey(scope, seriesOptions), seriesPageResult.items)
-                catalogCache.saveBooks(listKey(scope, booksOptions), bookPageResult.items)
+                // The cache holds the first page only, whatever this reload kept on screen.
+                catalogCache.saveSeries(listKey(scope, seriesOptions), seriesItems.take(PAGE_SIZE))
+                catalogCache.saveBooks(listKey(scope, booksOptions), bookItems.take(PAGE_SIZE))
                 catalogCache.saveLists(collections, readLists)
+            }
             }
         } catch (e: CancellationException) {
             throw e
@@ -595,90 +684,78 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Serialises every writer of the two row lists: a load, a load-more, a settle re-read and a row patch.
+     * A load-more appends to the rows it read when it started, so without the lock a patch or a settle pass that
+     * finished in between would be overwritten by its older snapshot (the generation checks do not see those
+     * writers: they do not change the query).
+     */
+    private val rowsMutex = Mutex()
+
     /** Load the next series page at the bottom (ignored while loading, concurrently, or when no more). */
     fun loadMoreSeries() {
-        val current = query ?: return
-        val snapshot = _state.value
-        if (loadingMoreSeries || snapshot.loading || !snapshot.seriesHasMore) return
-        loadingMoreSeries = true
-        val currentGeneration = generation
+        if (query == null) return
         viewModelScope.launch {
-            _state.update { it.copy(loadingMore = true) }
-            try {
-                val nextPage = seriesPage + 1
-                val result = searchRepository.browseSeriesPage(
-                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.seriesOptions,
-                    page = nextPage,
-                    size = PAGE_SIZE,
-                )
-                if (currentGeneration != generation) return@launch
-                if (result == null) {
-                    _state.update { it.copy(loadingMore = false, seriesHasMore = false) }
-                    return@launch
+            rowsMutex.withLock {
+                val snapshot = _state.value
+                if (loadingMoreSeries || snapshot.loading || !snapshot.seriesHasMore) return@withLock
+                loadingMoreSeries = true
+                val currentGeneration = generation
+                _state.update { it.copy(loadingMore = true) }
+                try {
+                    // Read and append under the same lock a load / settle / patch takes: the rows handed to the
+                    // feed are the rows of this moment, and nothing can patch them while the request runs.
+                    val items = seriesFeed.append(snapshot.series.orEmpty())
+                    if (currentGeneration != generation) return@withLock
+                    _state.update {
+                        it.copy(
+                            series = items,
+                            seriesHasMore = seriesFeed.hasMore,
+                            seriesTotal = seriesFeed.total,
+                            loadingMore = false,
+                        )
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (currentGeneration != generation) return@withLock
+                    _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
+                } finally {
+                    loadingMoreSeries = false
                 }
-                seriesPage = nextPage
-                _state.update { st ->
-                    val known = st.series?.mapTo(HashSet()) { item -> item.id } ?: HashSet()
-                    val appended = result.items.filter { known.add(it.id) }
-                    st.copy(
-                        series = st.series.orEmpty() + appended,
-                        seriesHasMore = result.hasMore,
-                        seriesTotal = result.totalElements ?: st.seriesTotal,
-                        loadingMore = false,
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (currentGeneration != generation) return@launch
-                _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
-            } finally {
-                loadingMoreSeries = false
             }
         }
     }
 
     /** Load the next book page at the bottom. */
     fun loadMoreBooks() {
-        val current = query ?: return
-        val snapshot = _state.value
-        if (loadingMoreBooks || snapshot.loading || !snapshot.booksHasMore) return
-        loadingMoreBooks = true
-        val currentGeneration = generation
+        if (query == null) return
         viewModelScope.launch {
-            _state.update { it.copy(loadingMore = true) }
-            try {
-                val nextPage = booksPage + 1
-                val result = searchRepository.browseBooksPage(
-                    libraryIds = resolveLibraryIds(current.scope, current.pinned),
-                    options = current.booksOptions,
-                    page = nextPage,
-                    size = PAGE_SIZE,
-                )
-                if (currentGeneration != generation) return@launch
-                if (result == null) {
-                    _state.update { it.copy(loadingMore = false, booksHasMore = false) }
-                    return@launch
+            rowsMutex.withLock {
+                val snapshot = _state.value
+                if (loadingMoreBooks || snapshot.loading || !snapshot.booksHasMore) return@withLock
+                loadingMoreBooks = true
+                val currentGeneration = generation
+                _state.update { it.copy(loadingMore = true) }
+                try {
+                    val items = booksFeed.append(snapshot.books.orEmpty())
+                    if (currentGeneration != generation) return@withLock
+                    _state.update {
+                        it.copy(
+                            books = items,
+                            booksHasMore = booksFeed.hasMore,
+                            booksTotal = booksFeed.total,
+                            loadingMore = false,
+                        )
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (currentGeneration != generation) return@withLock
+                    _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
+                } finally {
+                    loadingMoreBooks = false
                 }
-                booksPage = nextPage
-                _state.update { st ->
-                    val known = st.books?.mapTo(HashSet()) { item -> item.id } ?: HashSet()
-                    val appended = result.items.filter { known.add(it.id) }
-                    st.copy(
-                        books = st.books.orEmpty() + appended,
-                        booksHasMore = result.hasMore,
-                        booksTotal = result.totalElements ?: st.booksTotal,
-                        loadingMore = false,
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (currentGeneration != generation) return@launch
-                _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
-            } finally {
-                loadingMoreBooks = false
             }
         }
     }

@@ -133,6 +133,19 @@ val SeriesSortFields = listOf(
  */
 const val SortRelevance = "relevance"
 
+/**
+ * Whether a pure reading-progress change can alter membership or ordering, mirroring
+ * `isSensitiveToReadingProgress` of the iOS browse options: a read-date sort reorders on progress, and
+ * read-status filters change membership. False means a screen patches its rows and issues no request.
+ */
+fun BrowseOptions.isSensitiveToReadingProgress(contentType: BrowseContentType): Boolean {
+    val readDateSort = when (contentType) {
+        BrowseContentType.Series -> "readDate"
+        BrowseContentType.Books -> "readProgress.readDate"
+    }
+    return sortField == readDateSort || readStatuses.isNotEmpty()
+}
+
 /** Sort tokens of [contentType], in sheet order; the first entry is that type's default. */
 fun sortFieldsFor(contentType: BrowseContentType): List<String> = when (contentType) {
     BrowseContentType.Series -> SeriesSortFields
