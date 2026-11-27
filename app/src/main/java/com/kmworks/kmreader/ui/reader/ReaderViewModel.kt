@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.ui.reader
 
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,6 +26,7 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,7 +79,16 @@ class ReaderViewModel @Inject constructor(
     private val adjacentBooksResolver: AdjacentBooksResolver,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
+    /** Holds list refreshes while a reader is open, then posts one reload on close (mirrors iOS). */
+    private val contentChangeBus: ContentChangeBus,
 ) : ViewModel() {
+
+    init {
+        contentChangeBus.readerOpened()
+        // Release the gate on the scope's completion rather than in onCleared: the ViewModel closes its scope as
+        // part of its own teardown, so this fires even on a path where onCleared would be skipped.
+        viewModelScope.coroutineContext[Job]?.invokeOnCompletion { contentChangeBus.readerClosed() }
+    }
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()

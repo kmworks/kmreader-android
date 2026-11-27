@@ -71,7 +71,7 @@ class SseContentSync @Inject constructor(
     private suspend fun collectEvents() {
         sseService.events.collect { event ->
             val parsed = runCatching { parser.parse(event) }.getOrNull() ?: return@collect
-            if (parsed.coverDtoIds.isNotEmpty()) refreshCovers(parsed)
+            if (parsed.coverDtoIds.isNotEmpty()) refreshCovers(event, parsed)
             val change = parsed.change ?: return@collect
             mutex.withLock { accumulate(change) }
             flushSignal.trySend(Unit)
@@ -86,6 +86,11 @@ class SseContentSync @Inject constructor(
         }
         val entry = pending.getOrPut(carrier) { Pending() }
         entry.ids += change.dtoIds
+        when (change) {
+            is ContentChange.Books -> entry.libraryIds += change.libraryId
+            is ContentChange.Series -> entry.libraryIds += change.libraryId
+            else -> Unit
+        }
         entry.kinds += change.kind
         if (change.kind == ContentChangeKind.ReadStateChanged && change.read == false) entry.unread = true
     }
@@ -114,14 +119,18 @@ class SseContentSync @Inject constructor(
             contentChangeBus.notify(ContentChange.Unknown)
             return
         }
+        // One library id means every row in the union belongs to it; several mean the union is unscoped.
+        val libraryId = entry.libraryIds.singleOrNull()
         val change = when (carrier) {
-            Carrier.Books -> booksChanged(ids, kind, read = entry.unread.takeIf { it })
-            Carrier.Series -> seriesChanged(ids, kind, read = entry.unread.takeIf { it })
+            Carrier.Books -> booksChanged(ids, kind, read = entry.unread.takeIf { it }, libraryId = libraryId)
+            Carrier.Series -> seriesChanged(ids, kind, read = entry.unread.takeIf { it }, libraryId = libraryId)
             Carrier.Collections -> collectionsChanged(ids, kind)
             Carrier.ReadLists -> readListsChanged(ids, kind)
             Carrier.SmartLists -> smartListsChanged(ids, kind)
         }
-        contentChangeBus.notify(change)
+        // Marked as SSE-originated: the dashboard owns this event through its direct collector (and its
+        // auto-refresh switch), so the bus copy must not refresh it a second time or with the switch off.
+        contentChangeBus.notify(change, fromSse = true)
     }
 
     /** Deletion dominates; a create mixed with other changes cannot be expressed as a patch, so it becomes unknown. */
@@ -133,15 +142,12 @@ class SseContentSync @Inject constructor(
         else -> ContentChangeKind.Touched
     }
 
-    private fun refreshCovers(parsed: ParsedSseChange) {
-        val carrier = when (parsed.change) {
-            is ContentChange.Books -> Carrier.Books
-            is ContentChange.Series -> Carrier.Series
-            is ContentChange.Collections -> Carrier.Collections
-            is ContentChange.ReadLists -> Carrier.ReadLists
-            is ContentChange.SmartLists -> Carrier.SmartLists
-            else -> null
-        } ?: return
+    /**
+     * Drops the cached image of every cover an event touched. A cover-only event carries no [ContentChange] (the
+     * rows themselves did not change), so the entity kind falls back to the event name.
+     */
+    private fun refreshCovers(event: SseEvent, parsed: ParsedSseChange) {
+        val carrier = parsed.change?.let { carrierOf(it) } ?: carrierOfName(event.name) ?: return
         parsed.coverDtoIds.forEach { dtoId ->
             val stableId = when (carrier) {
                 Carrier.Books -> DetailIdRegistry.bookStableId(dtoId)
@@ -153,6 +159,16 @@ class SseContentSync @Inject constructor(
             // Not registered yet (no screen showed it) means no cached cover to drop.
             stableId?.let { thumbnailCache.refresh(it) }
         }
+    }
+
+    /** Entity kind of a cover-only event, for the events that carry no [ContentChange] of their own. */
+    private fun carrierOfName(name: String): Carrier? = when {
+        name.startsWith("SmartListThumbnail") -> Carrier.SmartLists
+        name.startsWith("ThumbnailSeriesCollection") -> Carrier.Collections
+        name.startsWith("ThumbnailReadList") -> Carrier.ReadLists
+        name.startsWith("ThumbnailBook") -> Carrier.Books
+        name.startsWith("ThumbnailSeries") -> Carrier.Series
+        else -> null
     }
 
     private fun carrierOf(change: ContentChange): Carrier? = when (change) {
@@ -169,6 +185,8 @@ class SseContentSync @Inject constructor(
     private class Pending {
         val ids: MutableSet<String> = mutableSetOf()
         val kinds: MutableSet<ContentChangeKind> = mutableSetOf()
+        /** Null is kept: an event without a library id makes the whole batch unscoped. */
+        val libraryIds: MutableSet<String?> = mutableSetOf()
         var unread: Boolean = false
     }
 

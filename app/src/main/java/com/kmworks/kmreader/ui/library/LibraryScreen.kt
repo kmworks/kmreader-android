@@ -194,6 +194,9 @@ fun LibraryScreen(
     // real content only; empty state when there is no session or nothing loaded
     val series = state.series ?: emptyList()
     val allBooks = state.books ?: emptyList()
+    // Nothing to show for the active tab yet: the loading row only belongs above an empty list, never above
+    // rows that are already on screen (inserting it shifted the whole list by one row on every re-read).
+    val activeListEmpty = if (contentType == LibraryContentType.Series) series.isEmpty() else allBooks.isEmpty()
     // Display name of the current scope (mirrors iOS LibraryScopeMenu)
     val scopeLabel = libraryScopeLabel(state.scope, state.libraries)
 
@@ -277,7 +280,7 @@ fun LibraryScreen(
                         bottom = 8.dp + LocalNavOverlaySpace.current,
                     ),
                 ) {
-                    if (state.loading && !pulling) {
+                    if (state.loading && !pulling && activeListEmpty) {
                         item(key = "loading") {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
@@ -350,7 +353,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (state.loading && !pulling) {
+                    if (state.loading && !pulling && activeListEmpty) {
                         item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }

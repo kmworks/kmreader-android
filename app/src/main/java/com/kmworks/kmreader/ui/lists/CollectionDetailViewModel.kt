@@ -11,6 +11,8 @@ import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.Paged
+import com.kmworks.kmreader.core.data.PagedFeed
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toListEntry
@@ -68,7 +70,23 @@ class CollectionDetailViewModel @Inject constructor(
      *  a forced refresh of the same entry keeps it). */
     private var contentId: Int? = null
     private var currentDtoId: String? = null
-    private var nextPage = 0
+    /**
+     * Member feed. The DTO is resolved on every call, so the fetch reads [currentDtoId] instead of capturing it:
+     * a reload of the same collection then keeps the pages already on screen (see [PagedFeed]).
+     */
+    private val seriesFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { series: Series -> series.id },
+        fetch = { page, size ->
+            currentDtoId?.let { dtoId ->
+                detailRepository.collectionSeries(dtoId, page = page, size = size)?.let { result ->
+                    Paged(result.items.map { dto -> dto.toUiSeries() }, result.hasMore, result.totalElements)
+                }
+            }
+        },
+    )
+    /** Bumped on every whole-list load: a load-more that lands on top of one must not overwrite it. */
+    private var generation = 0
     private var loadJob: kotlinx.coroutines.Job? = null
     private var contentJob: kotlinx.coroutines.Job? = null
 
@@ -183,6 +201,7 @@ class CollectionDetailViewModel @Inject constructor(
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
+        val gen = ++generation
         val clients = sessionManager.clients.value
         val dtoId = detailRepository.collectionDtoId(stableId)
         loadJob?.cancel()
@@ -195,8 +214,12 @@ class CollectionDetailViewModel @Inject constructor(
             return
         }
         currentDtoId = dtoId
-        nextPage = 0
-        _uiState.update { it.copy(hasSession = true, loading = true, error = null, series = null, hasMore = false) }
+        // A reload of the same collection keeps the rows and the pages it already loaded; the loading flag alone
+        // must not blank the grid (that flashed the whole list on every server-side change).
+        val sameContent = contentId == stableId
+        val keepPages = if (sameContent) seriesFeed.page else 0
+        val current = if (sameContent) _uiState.value.series.orEmpty() else emptyList()
+        _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         loadJob = viewModelScope.launch {
             try {
                 val collection = detailRepository.collectionDetail(dtoId)
@@ -204,15 +227,15 @@ class CollectionDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(loading = false) }
                     return@launch
                 }
-                val page = detailRepository.collectionSeries(dtoId, page = 0, size = PAGE_SIZE)
-                nextPage = 1
+                val series = seriesFeed.reload(current, keepPages, newQuery = !sameContent)
+                if (gen != generation) return@launch
                 _uiState.update {
                     it.copy(
                         loading = false,
                         name = collection.name,
                         ordered = collection.ordered,
-                        series = page.items.map { dto -> dto.toUiSeries() },
-                        hasMore = page.hasMore,
+                        series = series,
+                        hasMore = seriesFeed.hasMore,
                         heroThumbnail = detailRepository.collectionThumbnailUrl(dtoId),
                         createdDate = collection.createdDate,
                         lastModifiedDate = collection.lastModifiedDate,
@@ -230,22 +253,26 @@ class CollectionDetailViewModel @Inject constructor(
     }
 
     fun loadMore() {
+        val gen = generation
         val state = _uiState.value
-        val dtoId = currentDtoId ?: return
+        if (currentDtoId == null) return
         if (state.loading || state.loadingMore || !state.hasMore) return
         _uiState.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             try {
-                val page = detailRepository.collectionSeries(dtoId, page = nextPage, size = PAGE_SIZE)
-                nextPage += 1
-                _uiState.update { state ->
-                    val seen = state.series.orEmpty().map { it.id }.toMutableSet()
-                    val appended = page.items.map { dto -> dto.toUiSeries() }.filter { seen.add(it.id) }
-                    state.copy(
-                        loadingMore = false,
-                        series = state.series.orEmpty() + appended,
-                        hasMore = page.hasMore && appended.isNotEmpty(),
-                    )
+                val series = seriesFeed.append(state.series.orEmpty())
+                if (gen != generation) { // a newer load owns the window; only clear this page's spinner
+                    _uiState.update { it.copy(loadingMore = false) }
+                    return@launch
+                }
+                _uiState.update { st ->
+                    // A whole-list reload started meanwhile and owns the window: this page must not overwrite it
+                    // (the reload's deeper page count already covers it), so only the spinner is cleared.
+                    if (st.loading) {
+                        st.copy(loadingMore = false)
+                    } else {
+                        st.copy(loadingMore = false, series = series, hasMore = seriesFeed.hasMore)
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {

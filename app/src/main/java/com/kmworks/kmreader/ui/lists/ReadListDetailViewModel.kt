@@ -11,6 +11,8 @@ import com.kmworks.kmreader.core.data.ContentRowRefresher
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ListRepository
+import com.kmworks.kmreader.core.data.Paged
+import com.kmworks.kmreader.core.data.PagedFeed
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.StableIds
 import com.kmworks.kmreader.core.download.DownloadRepository
@@ -79,7 +81,23 @@ class ReadListDetailViewModel @Inject constructor(
      *  a forced refresh of the same entry keeps it). */
     private var contentId: Int? = null
     private var currentDtoId: String? = null
-    private var nextPage = 0
+    /**
+     * Book feed. The DTO is resolved on every call, so the fetch reads [currentDtoId] instead of capturing it:
+     * a reload of the same read list then keeps the pages already on screen (see [PagedFeed]).
+     */
+    private val booksFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { book: Book -> book.id },
+        fetch = { page, size ->
+            currentDtoId?.let { dtoId ->
+                detailRepository.readListBooks(dtoId, page = page, size = size)?.let { result ->
+                    Paged(result.items.map { dto -> dto.toUiBook() }, result.hasMore, result.totalElements)
+                }
+            }
+        },
+    )
+    /** Bumped on every whole-list load: a load-more that lands on top of one must not overwrite it. */
+    private var generation = 0
     private var loadJob: kotlinx.coroutines.Job? = null
     private var contentJob: kotlinx.coroutines.Job? = null
 
@@ -203,6 +221,7 @@ class ReadListDetailViewModel @Inject constructor(
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
+        val gen = ++generation
         val clients = sessionManager.clients.value
         val dtoId = detailRepository.readListDtoId(stableId)
         loadJob?.cancel()
@@ -215,8 +234,12 @@ class ReadListDetailViewModel @Inject constructor(
             return
         }
         currentDtoId = dtoId
-        nextPage = 0
-        _uiState.update { it.copy(hasSession = true, loading = true, error = null, books = null, hasMore = false) }
+        // A reload of the same read list keeps the rows and pages it already loaded; the loading flag alone must
+        // not blank the list (that flashed the whole list on every server-side change).
+        val sameContent = contentId == stableId
+        val keepPages = if (sameContent) booksFeed.page else 0
+        val current = if (sameContent) _uiState.value.books.orEmpty() else emptyList()
+        _uiState.update { it.copy(hasSession = true, loading = true, error = null) }
         loadJob = viewModelScope.launch {
             try {
                 val readList = detailRepository.readListDetail(dtoId)
@@ -224,8 +247,8 @@ class ReadListDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(loading = false) }
                     return@launch
                 }
-                val page = detailRepository.readListBooks(dtoId, page = 0, size = PAGE_SIZE)
-                nextPage = 1
+                val books = booksFeed.reload(current, keepPages, newQuery = !sameContent)
+                if (gen != generation) return@launch
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -234,8 +257,8 @@ class ReadListDetailViewModel @Inject constructor(
                         ordered = readList.ordered,
                         createdDate = readList.createdDate,
                         lastModifiedDate = readList.lastModifiedDate,
-                        books = page.items.map { dto -> dto.toUiBook() },
-                        hasMore = page.hasMore,
+                        books = books,
+                        hasMore = booksFeed.hasMore,
                         heroThumbnail = detailRepository.readListThumbnailUrl(dtoId),
                     )
                 }
@@ -251,22 +274,26 @@ class ReadListDetailViewModel @Inject constructor(
     }
 
     fun loadMore() {
+        val gen = generation
         val state = _uiState.value
-        val dtoId = currentDtoId ?: return
+        if (currentDtoId == null) return
         if (state.loading || state.loadingMore || !state.hasMore) return
         _uiState.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             try {
-                val page = detailRepository.readListBooks(dtoId, page = nextPage, size = PAGE_SIZE)
-                nextPage += 1
-                _uiState.update { state ->
-                    val seen = state.books.orEmpty().map { it.id }.toMutableSet()
-                    val appended = page.items.map { dto -> dto.toUiBook() }.filter { seen.add(it.id) }
-                    state.copy(
-                        loadingMore = false,
-                        books = state.books.orEmpty() + appended,
-                        hasMore = page.hasMore && appended.isNotEmpty(),
-                    )
+                val books = booksFeed.append(state.books.orEmpty())
+                if (gen != generation) { // a newer load owns the window; only clear this page's spinner
+                    _uiState.update { it.copy(loadingMore = false) }
+                    return@launch
+                }
+                _uiState.update { st ->
+                    // A whole-list reload started meanwhile and owns the window: this page must not overwrite it
+                    // (the reload's deeper page count already covers it), so only the spinner is cleared.
+                    if (st.loading) {
+                        st.copy(loadingMore = false)
+                    } else {
+                        st.copy(loadingMore = false, books = books, hasMore = booksFeed.hasMore)
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {
