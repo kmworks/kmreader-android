@@ -25,7 +25,7 @@ class ThumbnailCache @Inject constructor(
         val loader = imageCacheStore.coverLoader.value ?: return false
         val url = CoverUrlRegistry.url(stableId, clients) ?: return false
         val absolute = if (url.startsWith("http")) url else "${clients.baseUrl}/${url.trimStart('/')}"
-        val stamp = imageCacheStore.coverStamps.stamps.value["${clients.baseUrl}#cover:$stableId"]
+        val stamp = imageCacheStore.coverStamps.stamps.value?.get("${clients.baseUrl}#cover:$stableId")
         val keys = buildList {
             add(absolute)
             if (stamp != null) add(withParameter(absolute, "cv=$stamp"))
