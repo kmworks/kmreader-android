@@ -75,9 +75,28 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.EntryPointAccessors
 import java.net.URI
-import kotlin.math.min
 
 private val CoverShape = RoundedCornerShape(8.dp)
+/** Cover aspect ratios seen in this process, so a cover re-entering composition knows its ratio at once. */
+private object CoverAspectCache {
+    private const val MAX_ENTRIES = 400
+    private val entries = object : LinkedHashMap<String, Float>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean =
+            size > MAX_ENTRIES
+    }
+
+    @Synchronized
+    fun get(key: String): Float? = entries[key]
+
+    @Synchronized
+    fun put(key: String, aspect: Float) {
+        entries[key] = aspect
+    }
+}
+
+/** iOS `Color.gray.opacity(0.2)` for the loading skeleton fill. */
+private const val PlaceholderFillAlpha = 0.2f
+
 
 /**
  * Cover art: gray placeholder with the reading icon until the image loads.
@@ -115,6 +134,8 @@ fun CoverArt(
      *  letterboxed wide cover carries its corner badge on its own top-right corner instead of floating at the
      *  slot's. Callers align into this box. */
     overlay: (@Composable BoxScope.() -> Unit)? = null,
+    /** iOS `ShadowStyle`: `.platform` on cards, `.basic` on detail heroes (ThumbnailImage's default there). */
+    shadowStyle: CoverShadowStyle = CoverShadowStyle.Platform,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
@@ -126,27 +147,31 @@ fun CoverArt(
     val letterboxAllowed = followThumbnailPreference && display.preserveAspectRatio && !drawsOverlay
     val effectiveScale = if (letterboxAllowed) ContentScale.Fit else contentScale
     val effectiveAlignment = if (letterboxAllowed) Alignment.BottomCenter else Alignment.Center
+    // Identity of the cover for the aspect cache: a cover is re-composed every time its tab is entered, and
+    // re-learning the ratio one frame late makes the corner badge jump from the slot to the cover.
+    val aspectKey = remember(stableId, imageUrl, coverVersion) {
+        if (stableId != null) "id:$stableId#$coverVersion" else imageUrl?.let { "url:$it" }
+    }
     // Intrinsic ratio of the loaded cover; null until something is on screen, which is what shows the placeholder.
-    var loadedAspect by remember(stableId, imageUrl, coverVersion) { mutableStateOf<Float?>(null) }
+    var loadedAspect by remember(aspectKey) { mutableStateOf(aspectKey?.let(CoverAspectCache::get)) }
+    // No slot-level clip: the cover is clipped at its own display size below, and clipping the slot shears the
+    // cover's shadow flat at the slot edge — a letterboxed cover fills the slot's height but not its width, so
+    // the cut shadow shows as a faint right angle beside the cover's bottom corners.
     BoxWithConstraints(
-        modifier = modifier.clip(CoverShape),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         // iOS keeps the slot transparent (`Color.clear`) and only shows the grey placeholder while the cover is
         // still loading. Once it lands, the slack above a wide cover is page background, never a slab.
-        // Same icon as the read buttons, scaled to the cover size.
-        val placeholderIconSize = with(LocalDensity.current) {
-            if (constraints.hasBoundedWidth && constraints.hasBoundedHeight && constraints.maxWidth > 0) {
-                (min(constraints.maxWidth, constraints.maxHeight).toDp() * 0.35f).coerceIn(16.dp, 48.dp)
-            } else {
-                28.dp
-            }
-        }
+        // Fixed 28dp glyph: scaling it to 35% of the slot turned a loading grid into a wall of giant book icons.
+        val placeholderIconSize = 28.dp
         if (loadedAspect == null) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    // iOS `placeholderCard` fills with `Color.gray.opacity(0.2)`; surfaceVariant is far darker.
+                    // The slot no longer clips, so the fill has to carry the cover corner itself.
+                    .background(Color.Gray.copy(alpha = PlaceholderFillAlpha), CoverShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -304,7 +329,13 @@ fun CoverArt(
                         Modifier.fillMaxSize()
                     },
                 )
-                .then(if (followThumbnailPreference && display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
+                .coverShadow(
+                    if (followThumbnailPreference && display.showShadow && loadedAspect != null) {
+                        shadowStyle
+                    } else {
+                        CoverShadowStyle.None
+                    },
+                )
             // The overlay sits outside the clip, so a corner badge keeps its slab flush with the cover corner.
             val coverImage = Modifier
                 .matchParentSize()
@@ -330,7 +361,11 @@ fun CoverArt(
                         modifier = coverImage,
                         onSuccess = { state ->
                             val image = state.result.image
-                            if (image.height > 0) loadedAspect = image.width.toFloat() / image.height.toFloat()
+                            if (image.height > 0) {
+                                val aspect = image.width.toFloat() / image.height.toFloat()
+                                loadedAspect = aspect
+                                aspectKey?.let { CoverAspectCache.put(it, aspect) }
+                            }
                             onCoverBitmap?.invoke(image.toBitmap())
                         },
                         onError = { state ->
@@ -339,6 +374,9 @@ fun CoverArt(
                                 // swap in the cover saved with the download.
                                 primaryFailed = true
                             } else {
+                                // Nothing will paint, so drop the remembered ratio: a cached one would keep
+                                // the placeholder hidden and leave an empty slot (offline book, no local cover).
+                                loadedAspect = null
                                 AppLog.w(
                                     "CoverArt",
                                     "cover load failed: $modelUrl (${state.result.throwable.message})",
@@ -346,7 +384,9 @@ fun CoverArt(
                             }
                         },
                     )
-                    overlay?.invoke(this)
+                    // iOS attaches the overlay to `framedImageCard`, which exists only once the image does; drawing
+                    // the badge on the empty slot first is what makes it visibly jump onto the cover.
+                    if (loadedAspect != null) overlay?.invoke(this)
                 }
             }
         }

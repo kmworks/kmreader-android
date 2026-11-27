@@ -55,6 +55,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.CoverShadowStyle
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
@@ -517,6 +518,7 @@ private fun CollectionHero(
                 .width(HeroCoverWidth)
                 .aspectRatio(CoverAspectRatio),
             followThumbnailPreference = true,
+            shadowStyle = CoverShadowStyle.Basic,
         )
         Spacer(Modifier.height(16.dp))
         Text(
