@@ -572,12 +572,19 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
         urlPort == serverPort
 }.getOrDefault(false)
 
-/** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop. */
-private fun seriesAspect(display: CardDisplayOptions): Float =
-    if (display.preserveAspectRatio) 2f / 3f else 1f
+/** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop.
+ *  Text-overlay mode overrides both: mirrors iOS, which passes `preserveAspectRatioOverride: false` there and
+ *  center-crops the thumbnail regardless of the preference, so the slot is the tall √2 one the overlay text needs.
+ *  Without it a square slot left the cover letterboxed and the first overlay line in the still-transparent half
+ *  of the gradient, which read badly against the bright letterbox. */
+private fun seriesAspect(display: CardDisplayOptions): Float = when {
+    display.textOverlay -> Sqrt2CoverAspect
+    display.preserveAspectRatio -> 2f / 3f
+    else -> 1f
+}
 
 private fun coverScale(display: CardDisplayOptions): ContentScale =
-    if (display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
+    if (display.textOverlay || display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
 
 /** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
 private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
