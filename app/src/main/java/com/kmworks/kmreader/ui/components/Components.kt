@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.SingletonImageLoader
@@ -106,35 +108,50 @@ fun CoverArt(
      *  bottom, leaving the slack above; otherwise it fills the slot. Mirrors iOS ThumbnailImage, whose slot is always
      *  the √2 one and whose `.alignment: .bottom` puts a wide cover on the same baseline as the text below it. */
     followThumbnailPreference: Boolean = false,
+    /** Cover is an unread download: with the "blur unread covers" preference on, the blur lands on the cover itself. */
+    unread: Boolean = false,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
     val display = LocalCardDisplay.current
-    val effectiveScale =
-        if (followThumbnailPreference && display.preserveAspectRatio) ContentScale.Fit else contentScale
-    val effectiveAlignment =
-        if (followThumbnailPreference && display.preserveAspectRatio) Alignment.BottomCenter else Alignment.Center
+    // iOS semantics (ThumbnailImage + GridCardView): the slot never moves, and a card that draws the text overlay
+    // passes `preserveAspectRatioOverride: false`, i.e. it always crops to the slot whatever the "preserve cover
+    // ratio" switch says. Outside overlay mode the switch decides: fit inside the slot + hug the bottom, or fill.
+    val drawsOverlay = display.textOverlay && !display.coverOnly
+    val letterboxAllowed = followThumbnailPreference && display.preserveAspectRatio && !drawsOverlay
+    val effectiveScale = if (letterboxAllowed) ContentScale.Fit else contentScale
+    val effectiveAlignment = if (letterboxAllowed) Alignment.BottomCenter else Alignment.Center
+    // Intrinsic ratio of the loaded cover; null until something is on screen, which is what shows the placeholder.
+    var loadedAspect by remember(stableId, imageUrl, coverVersion) { mutableStateOf<Float?>(null) }
     BoxWithConstraints(
-        modifier = modifier
-            .clip(CoverShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.clip(CoverShape),
         contentAlignment = Alignment.Center,
     ) {
+        // iOS keeps the slot transparent (`Color.clear`) and only shows the grey placeholder while the cover is
+        // still loading. Once it lands, the slack above a wide cover is page background, never a slab.
         // Same icon as the read buttons, scaled to the cover size.
-        val iconSize = with(LocalDensity.current) {
+        val placeholderIconSize = with(LocalDensity.current) {
             if (constraints.hasBoundedWidth && constraints.hasBoundedHeight && constraints.maxWidth > 0) {
-                (min(constraints.maxWidth, constraints.maxHeight).toDp() * 0.35f)
-                    .coerceIn(16.dp, 48.dp)
+                (min(constraints.maxWidth, constraints.maxHeight).toDp() * 0.35f).coerceIn(16.dp, 48.dp)
             } else {
                 28.dp
             }
         }
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.MenuBook,
-            contentDescription = null,
-            modifier = Modifier.size(iconSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (loadedAspect == null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = null,
+                    modifier = Modifier.size(placeholderIconSize),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         val context = LocalContext.current
         val entryPoint = remember(context) {
             EntryPointAccessors.fromApplication(
@@ -247,30 +264,80 @@ fun CoverArt(
                         .build()
                 }
             }
-            AsyncImage(
-                model = model,
-                contentDescription = null,
-                imageLoader = loader,
-                contentScale = effectiveScale,
-                alignment = effectiveAlignment,
-                // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
-                // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
-                filterQuality = FilterQuality.High,
-                modifier = Modifier.matchParentSize(),
-                onSuccess = { state -> onCoverBitmap?.invoke(state.result.image.toBitmap()) },
-                onError = { state ->
-                    if (!usingFallback && fallbackResolvedUrl != null) {
-                        // The server cover is unreachable (offline, or a book from another server):
-                        // swap in the cover saved with the download.
-                        primaryFailed = true
+            // iOS `displayedContentSize`: fit the cover's own ratio inside the slot and hug the bottom, so a
+            // wide cover ends on the same baseline as the text below it while the slack stays see-through.
+            val aspect = loadedAspect?.takeIf { it > 0f }
+            val letterboxedSize: DpSize? =
+                if (letterboxAllowed && aspect != null &&
+                    constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
+                    constraints.maxWidth > 0 && constraints.maxHeight > 0
+                ) {
+                    val density = LocalDensity.current
+                    val slotWidth = constraints.maxWidth
+                    val slotHeight = constraints.maxHeight
+                    val slotAspect = slotWidth.toFloat() / slotHeight
+                    if (aspect > slotAspect) {
+                        DpSize(
+                            with(density) { slotWidth.toDp() },
+                            with(density) { (slotWidth / aspect).toDp() },
+                        )
                     } else {
-                        AppLog.w(
-                            "CoverArt",
-                            "cover load failed: $modelUrl (${state.result.throwable.message})",
+                        DpSize(
+                            with(density) { (slotHeight * aspect).toDp() },
+                            with(density) { slotHeight.toDp() },
                         )
                     }
-                },
-            )
+                } else {
+                    null
+                }
+            // iOS shadows the image card, not the slot: a letterboxed cover carries its shadow on its own edges.
+            val coverModifier = Modifier
+                .then(
+                    if (letterboxedSize != null) {
+                        Modifier.size(letterboxedSize.width, letterboxedSize.height)
+                    } else {
+                        Modifier.fillMaxSize()
+                    },
+                )
+                .then(if (followThumbnailPreference && display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
+                .clip(CoverShape)
+                .then(
+                    if (followThumbnailPreference && display.blurUnreadCovers && unread) {
+                        Modifier.blur(6.dp)
+                    } else {
+                        Modifier
+                    },
+                )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                AsyncImage(
+                    model = model,
+                    contentDescription = null,
+                    imageLoader = loader,
+                    contentScale = effectiveScale,
+                    alignment = effectiveAlignment,
+                    // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
+                    // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
+                    filterQuality = FilterQuality.High,
+                    modifier = coverModifier,
+                    onSuccess = { state ->
+                        val image = state.result.image
+                        if (image.height > 0) loadedAspect = image.width.toFloat() / image.height.toFloat()
+                        onCoverBitmap?.invoke(image.toBitmap())
+                    },
+                    onError = { state ->
+                        if (!usingFallback && fallbackResolvedUrl != null) {
+                            // The server cover is unreachable (offline, or a book from another server):
+                            // swap in the cover saved with the download.
+                            primaryFailed = true
+                        } else {
+                            AppLog.w(
+                                "CoverArt",
+                                "cover load failed: $modelUrl (${state.result.throwable.message})",
+                            )
+                        }
+                    },
+                )
+            }
         }
     }
 }
@@ -356,10 +423,10 @@ fun SeriesGridCard(
                 hue = series.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(CoverAspectRatio)
-                    .coverDecoration(display, unread = series.unreadCount > 0),
+                    .aspectRatio(CoverAspectRatio),
                 stableId = series.id,
                 followThumbnailPreference = true,
+                unread = series.unreadCount > 0,
             )
             if (display.showUnreadIndicator && series.unreadCount > 0) {
                 UnreadCountBadge(
@@ -460,10 +527,10 @@ fun BookGridCard(
                 hue = book.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(CoverAspectRatio)
-                    .coverDecoration(display, unread = book.progress == null),
+                    .aspectRatio(CoverAspectRatio),
                 stableId = book.id,
                 followThumbnailPreference = true,
+                unread = book.progress == null,
             )
             if (book.progress == 1f) {
                 CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
@@ -591,12 +658,6 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
  * slot holding a 2:3 cover letterboxed it.
  */
 internal const val CoverAspectRatio: Float = 0.7071f
-
-/** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
-private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
-    this
-        .then(if (display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
-        .then(if (display.blurUnreadCovers && unread) Modifier.blur(6.dp) else Modifier)
 
 /** Badge slab: mirrors iOS CornerBadgeSlab — a dark translucent slab shaped to hug the cover's top-right corner
  *  (topTrailing radius = cover radius 8, bottomLeading radius ≈ 8, all other corners square). */
@@ -1096,10 +1157,10 @@ fun BookListRow(
             hue = book.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(CoverAspectRatio)
-                .coverDecoration(display, unread = book.progress == null),
+                .aspectRatio(CoverAspectRatio),
             stableId = book.id,
             followThumbnailPreference = true,
+            unread = book.progress == null,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1171,10 +1232,10 @@ fun SeriesListRow(
             hue = series.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(CoverAspectRatio)
-                .coverDecoration(display, unread = series.progress == null),
+                .aspectRatio(CoverAspectRatio),
             stableId = series.id,
             followThumbnailPreference = true,
+            unread = series.progress == null,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
