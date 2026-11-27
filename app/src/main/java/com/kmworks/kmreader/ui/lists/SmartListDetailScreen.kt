@@ -75,6 +75,7 @@ import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
@@ -472,7 +473,8 @@ private fun SmartListHero(
             coverVersion = coverVersion,
             modifier = Modifier
                 .width(168.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         Text(

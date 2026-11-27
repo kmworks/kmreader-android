@@ -133,6 +133,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
@@ -713,7 +714,8 @@ internal fun BookHero(
             fallbackImageUrl = localCoverUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         if (seriesTitle != null) {

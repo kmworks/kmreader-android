@@ -74,6 +74,7 @@ import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.SeriesGridCard
@@ -506,15 +507,16 @@ private fun CollectionHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // The collection thumbnail (a 2:3 collage) must keep the cover shape: a square frame
-        // would crop the portrait collage top and bottom.
+        // The collection thumbnail is a portrait collage: it keeps its own shape inside the √2 slot
+        // instead of being cropped to it.
         CoverArt(
             title = collection.name,
             hue = coverHue,
             stableId = stableId,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -697,7 +699,8 @@ private fun SeriesListRow(
             stableId = series.id,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

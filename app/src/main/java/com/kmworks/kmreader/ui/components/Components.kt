@@ -102,9 +102,18 @@ fun CoverArt(
     fallbackImageUrl: String? = null,
     coverVersion: Int = 0,
     contentScale: ContentScale = ContentScale.Crop,
+    /** Honour the "preserve cover ratio" preference: the cover keeps its own aspect inside the slot and hugs the
+     *  bottom, leaving the slack above; otherwise it fills the slot. Mirrors iOS ThumbnailImage, whose slot is always
+     *  the √2 one and whose `.alignment: .bottom` puts a wide cover on the same baseline as the text below it. */
+    followThumbnailPreference: Boolean = false,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
+    val display = LocalCardDisplay.current
+    val effectiveScale =
+        if (followThumbnailPreference && display.preserveAspectRatio) ContentScale.Fit else contentScale
+    val effectiveAlignment =
+        if (followThumbnailPreference && display.preserveAspectRatio) Alignment.BottomCenter else Alignment.Center
     BoxWithConstraints(
         modifier = modifier
             .clip(CoverShape)
@@ -211,7 +220,7 @@ fun CoverArt(
             // and back recreates its painter. An explicit size puts the box size into the request
             // identity (the model equality delegate compares ImageRequest.sizeResolver), so a resize
             // re-decodes at the new size instead of reusing the small bitmap.
-            val decodeBounds = if (contentScale != ContentScale.None &&
+            val decodeBounds = if (effectiveScale != ContentScale.None &&
                 constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
                 constraints.maxWidth > 0 && constraints.maxHeight > 0
             ) {
@@ -220,7 +229,7 @@ fun CoverArt(
                 null
             }
             // ImageRequest models bypass Coil's requestOf() wrapping untouched, so this size is kept.
-            val model: Any? = remember(modelUrl, decodeBounds, contentScale) {
+            val model: Any? = remember(modelUrl, decodeBounds, effectiveScale) {
                 val bounds = decodeBounds
                 if (bounds == null) {
                     modelUrl
@@ -229,7 +238,7 @@ fun CoverArt(
                         .data(modelUrl)
                         .size(bounds.first, bounds.second)
                         .scale(
-                            if (contentScale == ContentScale.Fit || contentScale == ContentScale.Inside) {
+                            if (effectiveScale == ContentScale.Fit || effectiveScale == ContentScale.Inside) {
                                 Scale.FIT
                             } else {
                                 Scale.FILL
@@ -242,7 +251,8 @@ fun CoverArt(
                 model = model,
                 contentDescription = null,
                 imageLoader = loader,
-                contentScale = contentScale,
+                contentScale = effectiveScale,
+                alignment = effectiveAlignment,
                 // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
                 // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
                 filterQuality = FilterQuality.High,
@@ -346,10 +356,10 @@ fun SeriesGridCard(
                 hue = series.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display, overlaySlot = display.drawsOverlay()))
+                    .aspectRatio(CoverAspectRatio)
                     .coverDecoration(display, unread = series.unreadCount > 0),
                 stableId = series.id,
-                contentScale = coverScale(display, overlaySlot = display.drawsOverlay()),
+                followThumbnailPreference = true,
             )
             if (display.showUnreadIndicator && series.unreadCount > 0) {
                 UnreadCountBadge(
@@ -450,10 +460,10 @@ fun BookGridCard(
                 hue = book.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display, overlaySlot = display.drawsOverlay()))
+                    .aspectRatio(CoverAspectRatio)
                     .coverDecoration(display, unread = book.progress == null),
                 stableId = book.id,
-                contentScale = coverScale(display, overlaySlot = display.drawsOverlay()),
+                followThumbnailPreference = true,
             )
             if (book.progress == 1f) {
                 CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
@@ -572,23 +582,15 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
         urlPort == serverPort
 }.getOrDefault(false)
 
-/** Whether this card draws the text overlay: `coverOnly` wins, as on iOS. */
-private fun CardDisplayOptions.drawsOverlay(): Boolean = textOverlay && !coverOnly
-
-/** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop.
- *  With [overlaySlot] — only the grid cards that draw the overlay — it is the tall √2 slot instead, mirroring iOS,
- *  which passes `preserveAspectRatioOverride: false` there and center-crops the thumbnail regardless of the
- *  preference. Without it a square slot left the cover letterboxed and the first overlay line in the still-transparent
- *  half of the gradient, which read badly against the bright letterbox.
- *  Rows keep their own ratio: they never draw the overlay, so the mode must not resize them. */
-private fun seriesAspect(display: CardDisplayOptions, overlaySlot: Boolean = false): Float = when {
-    overlaySlot -> Sqrt2CoverAspect
-    display.preserveAspectRatio -> 2f / 3f
-    else -> 1f
-}
-
-private fun coverScale(display: CardDisplayOptions, overlaySlot: Boolean = false): ContentScale =
-    if (overlaySlot || display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
+/**
+ * The one cover slot ratio, mirroring iOS `CoverAspectRatio.widthToHeight` = 1/√2.
+ *
+ * iOS never moves the slot: it is always √2, and the "preserve cover ratio" preference only decides whether the
+ * cover scales to fit inside it (`displayedContentSize` + `alignment: .bottom`) or fills it. Android used to move the
+ * slot instead — 2:3 with the preference on, 1:1 when off — so the same library rendered at three heights, and a 1:1
+ * slot holding a 2:3 cover letterboxed it.
+ */
+internal const val CoverAspectRatio: Float = 0.7071f
 
 /** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
 private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
@@ -850,9 +852,6 @@ internal class HorizontalCardPalette(
     val meta: Color,
 )
 
-/** iOS CoverAspectRatio.widthToHeight = 1/√2. */
-private const val Sqrt2CoverAspect: Float = 0.7071f
-
 /** The iOS cover width the √2 slot is derived from. The cover itself fills [HorizontalCardTextHeight] while keeping
  *  its √2 aspect, so the extra card height widens it to ≈47.2dp instead of stretching it. */
 private val HorizontalCardCoverWidth = 43.dp
@@ -864,7 +863,7 @@ private val HorizontalCardCoverWidth = 43.dp
  *  parenthesis) can paint a few dp below its box. The 6dp of slack is that room: without it the series line ends flush
  *  with the block edge and any glyph ink below the baseline is cut off (see [HorizontalCardContainer]).
  *  Cards in a row must not differ in height, so this cannot be derived from the text. */
-private val HorizontalCardTextHeight = HorizontalCardCoverWidth / Sqrt2CoverAspect + 6.dp
+private val HorizontalCardTextHeight = HorizontalCardCoverWidth / CoverAspectRatio + 6.dp
 
 /** Tight text style with font padding disabled: in fixed-height text columns (horizontal cards / overlays)
  *  the default includeFontPadding of the first and last lines pushes content out of the visible area, so it must be off. */
@@ -931,7 +930,7 @@ internal fun HorizontalCardContainer(
             hue = hue,
             modifier = Modifier
                 .height(HorizontalCardTextHeight)
-                .aspectRatio(Sqrt2CoverAspect)
+                .aspectRatio(CoverAspectRatio)
                 .then(if (blurUnread) Modifier.blur(6.dp) else Modifier),
             stableId = coverStableId,
             contentScale = ContentScale.Crop,
@@ -1097,10 +1096,10 @@ fun BookListRow(
             hue = book.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(seriesAspect(display))
+                .aspectRatio(CoverAspectRatio)
                 .coverDecoration(display, unread = book.progress == null),
             stableId = book.id,
-            contentScale = coverScale(display),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1172,10 +1171,10 @@ fun SeriesListRow(
             hue = series.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(seriesAspect(display))
+                .aspectRatio(CoverAspectRatio)
                 .coverDecoration(display, unread = series.progress == null),
             stableId = series.id,
-            contentScale = coverScale(display),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

@@ -82,6 +82,7 @@ import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
@@ -652,15 +653,16 @@ private fun ReadListHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // The read list's own 2:3 collage thumbnail, same as the strip card — not the first book's
-        // cover, which misrepresents a multi-series list.
+        // The read list's own collage thumbnail, same as the strip card — not the first book's cover,
+        // which misrepresents a multi-series list.
         CoverArt(
             title = readList.name,
             hue = coverHue,
             stableId = stableId,
             modifier = Modifier
                 .width(112.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -868,7 +870,8 @@ private fun ReadListBookRow(
             stableId = book.id,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

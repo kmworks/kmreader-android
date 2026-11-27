@@ -148,6 +148,7 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
@@ -1130,7 +1131,8 @@ private fun DetailHero(
             stableId = series.id,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         Row(
