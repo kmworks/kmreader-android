@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -154,6 +155,10 @@ fun CoverArt(
     }
     // Intrinsic ratio of the loaded cover; null until something is on screen, which is what shows the placeholder.
     var loadedAspect by remember(aspectKey) { mutableStateOf(aspectKey?.let(CoverAspectCache::get)) }
+    // The last successfully displayed cover, kept across cache-key changes (refresh-interval stamp,
+    // manual "Refresh cover" bump) and handed to Coil as the next request's placeholder, so a refetch
+    // keeps the old cover on screen instead of flashing an empty slot.
+    var displayedPainter by remember(stableId, imageUrl) { mutableStateOf<Painter?>(null) }
     // No slot-level clip: the cover is clipped at its own display size below, and clipping the slot shears the
     // cover's shadow flat at the slot edge — a letterboxed cover fills the slot's height but not its width, so
     // the cut shadow shows as a faint right angle beside the cover's bottom corners.
@@ -219,10 +224,19 @@ fun CoverArt(
         }
         val stamps by imageCaches.coverStamps.stamps.collectAsState()
         val expirationDays by imageCaches.coverExpirationDays.collectAsState()
-        val coverStamp = coverIdentity?.let { stamps[it] } ?: 0L
+        // Null while the stamp table is still loading from disk. The stamp is part of Coil's cache key,
+        // so composing with a guessed key (0) and correcting it once the table lands throws away the
+        // cover already on screen and refetches it — that was the visible flash-then-reload.
+        val stampTable = stamps
+        val coverStamp: Long? = when {
+            coverIdentity == null -> 0L
+            stampTable == null -> null
+            else -> stampTable[coverIdentity] ?: 0L
+        }
         LaunchedEffect(coverIdentity, coverStamp, expirationDays) {
             val identity = coverIdentity ?: return@LaunchedEffect
-            if (coverStamp == 0L) {
+            val knownStamp = coverStamp ?: return@LaunchedEffect
+            if (knownStamp == 0L) {
                 // First sighting: stamp it, which also gives the cover a stable cache key from now on.
                 imageCaches.coverStamps.stamp(identity)
                 return@LaunchedEffect
@@ -233,7 +247,12 @@ fun CoverArt(
             imageCaches.evictCover(coverUrlWithVersion(primaryResolvedUrl, refresh.previous, 0))
         }
         val modelUrl = remember(resolvedUrl, coverStamp, coverVersion, usingFallback) {
-            if (usingFallback) resolvedUrl else coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
+            when {
+                usingFallback -> resolvedUrl
+                // Stamp table not ready: no stable cache key exists yet, so don't fetch at all.
+                coverStamp == null -> null
+                else -> coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
+            }
         }
         val serverOwnedImage = resolvedUrl != null && serverBaseUrl != null &&
             sameOrigin(resolvedUrl, serverBaseUrl)
@@ -355,11 +374,14 @@ fun CoverArt(
                         imageLoader = loader,
                         contentScale = effectiveScale,
                         alignment = effectiveAlignment,
+                        // While a refreshed key loads, keep showing the previous cover instead of a blank slot.
+                        placeholder = displayedPainter,
                         // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
                         // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
                         filterQuality = FilterQuality.High,
                         modifier = coverImage,
                         onSuccess = { state ->
+                            displayedPainter = state.painter
                             val image = state.result.image
                             if (image.height > 0) {
                                 val aspect = image.width.toFloat() / image.height.toFloat()
