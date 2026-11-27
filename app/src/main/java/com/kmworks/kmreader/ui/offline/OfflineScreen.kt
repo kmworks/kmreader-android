@@ -72,6 +72,7 @@ import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
@@ -546,7 +547,8 @@ private fun DownloadTaskRow(
             stableId = StableIds.book(task.bookDtoId),
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -721,7 +723,8 @@ private fun DownloadedRow(
             imageUrl = localCover,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

@@ -73,6 +73,7 @@ import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
@@ -622,13 +623,14 @@ private fun ListEntryCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
         ) {
             CoverArt(
                 title = entry.title,
                 hue = entry.hue,
                 stableId = entry.id,
                 modifier = Modifier.matchParentSize(),
+                followThumbnailPreference = true,
             )
             if (entry.pinned) {
                 Icon(
