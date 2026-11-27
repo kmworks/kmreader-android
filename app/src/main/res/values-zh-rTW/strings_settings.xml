@@ -76,7 +76,7 @@
     <string name="browse_settings_show_series_title">書籍卡顯示系列名</string>
     <string name="browse_settings_show_series_subtitle">書籍卡第二行顯示所屬系列</string>
     <string name="browse_settings_preserve_aspect_title">保持封面比例</string>
-    <string name="browse_settings_preserve_aspect_subtitle">關閉後封面按方形裁切</string>
+    <string name="browse_settings_preserve_aspect_subtitle">開啟時保留封面原始比例，關閉後裁切填滿槽位</string>
     <string name="browse_settings_shadow_title">封面投影</string>
     <string name="browse_settings_shadow_subtitle">為封面加輕微陰影</string>
     <string name="browse_settings_unread_indicator_title">未讀角標</string>
