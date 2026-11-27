@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -469,6 +470,11 @@ fun AppRoot(
             // The pages no longer own a Scaffold: the root paints the app background behind their edge-to-edge
             // content (status bar strip included), so the frosted top bars have something to sit on.
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                // Keep each tab's remembered state (scroll positions, drafts) alive across tab switches:
+                // without a per-tab SaveableStateProvider the leaving page drops out of composition and its
+                // rememberSaveable state (the lazy list/grid scroll offsets included) is discarded.
+                val tabStateHolder = rememberSaveableStateHolder()
+                tabStateHolder.SaveableStateProvider(tab) {
                 when (tab) {
                     AppTab.Home -> DashboardScreen(
                         onOpenSeries = openSeries,
@@ -508,6 +514,7 @@ fun AppRoot(
                         onOpenCollection = { push(CollectionDetailRoute(it)) },
                         onReadBook = openReader,
                     )
+                }
                 }
 
                 // Floating capsule navigation: drawn after the tab pages (so it stays above their content) and

@@ -68,6 +68,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,7 +123,8 @@ fun BrowseScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
-    var scope by remember { mutableStateOf(SearchScope.All) }
+    // rememberSaveable so the scope chip survives leaving the tab (see LibraryScreen's contentType).
+    var scope by rememberSaveable { mutableStateOf(SearchScope.All) }
     // Library scope switch (pinned/all/single library + pin editing), mirroring iOS LibraryScopeMenu;
     // the search tab scope is persisted per server and defaults to all libraries
     var scopeMenuOpen by remember { mutableStateOf(false) }

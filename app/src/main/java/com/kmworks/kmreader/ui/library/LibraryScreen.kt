@@ -58,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,7 +137,9 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     komfViewModel: KomfSeriesViewModel = hiltViewModel(),
 ) {
-    var contentType by remember { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
+    // rememberSaveable so the chip choice survives leaving the tab (the tab content is wrapped in a
+    // SaveableStateProvider in AppRoot; a plain remember would reset to Series on every tab switch).
+    var contentType by rememberSaveable { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
     // The panel type of the current tab: series and books each keep their own filter options.
     val browseContentType = contentType.toBrowseContentType()
     // The route restricting this page (null = none). The applied condition lives in the view model, so it

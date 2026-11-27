@@ -77,8 +77,12 @@ class ApiClients(
             val response = try {
                 chain.proceed(request)
             } catch (e: IOException) {
-                AppLog.e("HTTP", "${request.method} ${request.url} network error", e)
-                reachability?.recordFailure()
+                // A cancelled call (an image whose row scrolled away, a superseded request) proves nothing
+                // about the server: counting those let fast scrolling flip the offline indicator on its own.
+                if (!chain.call().isCanceled()) {
+                    AppLog.e("HTTP", "${request.method} ${request.url} network error", e)
+                    reachability?.recordFailure()
+                }
                 throw e
             }
             if (!response.isSuccessful) {

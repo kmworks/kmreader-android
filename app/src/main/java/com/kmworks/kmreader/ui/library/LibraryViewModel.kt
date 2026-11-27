@@ -283,7 +283,13 @@ class LibraryViewModel @Inject constructor(
         // book still leaves its series card's aggregate stale, so those changes schedule one quiet re-read later.
         viewModelScope.launch {
             contentChangeBus.observeChanges(
-                patch = { rowsMutex.withLock { patchContentChange(it) } },
+                patch = {
+                    try {
+                        rowsMutex.withLock { patchContentChange(it) }
+                    } finally {
+                        drainPendingLoadMore()
+                    }
+                },
                 reload = { applyReload(it) },
                 settle = { settleRefresh() },
             )
@@ -319,7 +325,8 @@ class LibraryViewModel @Inject constructor(
         val current = query ?: return
         val currentGeneration = generation
         viewModelScope.launch {
-            rowsMutex.withLock {
+            try {
+                rowsMutex.withLock {
             // The same window a normal reload reads: every page already on screen comes back in one request and
             // is swapped in place, so the settle pass corrects the aggregates without shrinking the list or
             // dropping the user back to the top. The rows are read under this lock, so a patch that landed a
@@ -353,6 +360,9 @@ class LibraryViewModel @Inject constructor(
                 catalogCache.saveSeries(listKey(current.scope, current.seriesOptions), rows.take(PAGE_SIZE))
             }
             }
+            } finally {
+                drainPendingLoadMore()
+            }
         }
     }
 
@@ -369,7 +379,9 @@ class LibraryViewModel @Inject constructor(
     }
 
     /** Fetch the touched rows and swap them in; ids this screen does not show cost nothing. */
-    private suspend fun applyTouched(change: ContentChange) = rowsMutex.withLock {
+    private suspend fun applyTouched(change: ContentChange) {
+        try {
+            rowsMutex.withLock {
         val ids = detailRepository.stableIdsOf(change)
         if (ids.isEmpty() || !showsAny(ids)) return@withLock
         when (change) {
@@ -391,6 +403,10 @@ class LibraryViewModel @Inject constructor(
             }
 
             else -> Unit
+        }
+            }
+        } finally {
+            drainPendingLoadMore()
         }
     }
 
@@ -681,6 +697,8 @@ class LibraryViewModel @Inject constructor(
                     },
                 )
             }
+        } finally {
+            drainPendingLoadMore()
         }
     }
 
@@ -692,13 +710,40 @@ class LibraryViewModel @Inject constructor(
      */
     private val rowsMutex = Mutex()
 
+    /**
+     * A load-more that found the rows busy (a load/settle reading the network under [rowsMutex]) sets its
+     * flag instead of queueing on the lock — that queueing was the long wait at the bottom of the list.
+     * Every rows writer drains the flags right after it releases the lock, so the skipped append runs as
+     * soon as the rows are free again.
+     */
+    @Volatile private var pendingLoadMoreSeries = false
+    @Volatile private var pendingLoadMoreBooks = false
+
+    /** Retry the load-mores a busy rows lock turned away (see [pendingLoadMoreSeries]). */
+    private fun drainPendingLoadMore() {
+        if (pendingLoadMoreSeries) {
+            pendingLoadMoreSeries = false
+            loadMoreSeries()
+        }
+        if (pendingLoadMoreBooks) {
+            pendingLoadMoreBooks = false
+            loadMoreBooks()
+        }
+    }
+
     /** Load the next series page at the bottom (ignored while loading, concurrently, or when no more). */
     fun loadMoreSeries() {
         if (query == null) return
+        if (!rowsMutex.tryLock()) {
+            // A load or settle holds the rows across its network read: do not queue behind it (that wait is
+            // what made the bottom of the list feel stuck) — it re-triggers this append when it publishes.
+            pendingLoadMoreSeries = true
+            return
+        }
         viewModelScope.launch {
-            rowsMutex.withLock {
+            try {
                 val snapshot = _state.value
-                if (loadingMoreSeries || snapshot.loading || !snapshot.seriesHasMore) return@withLock
+                if (loadingMoreSeries || snapshot.loading || !snapshot.seriesHasMore) return@launch
                 loadingMoreSeries = true
                 val currentGeneration = generation
                 _state.update { it.copy(loadingMore = true) }
@@ -706,7 +751,7 @@ class LibraryViewModel @Inject constructor(
                     // Read and append under the same lock a load / settle / patch takes: the rows handed to the
                     // feed are the rows of this moment, and nothing can patch them while the request runs.
                     val items = seriesFeed.append(snapshot.series.orEmpty())
-                    if (currentGeneration != generation) return@withLock
+                    if (currentGeneration != generation) return@launch
                     _state.update {
                         it.copy(
                             series = items,
@@ -718,11 +763,13 @@ class LibraryViewModel @Inject constructor(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    if (currentGeneration != generation) return@withLock
+                    if (currentGeneration != generation) return@launch
                     _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
                 } finally {
                     loadingMoreSeries = false
                 }
+            } finally {
+                rowsMutex.unlock()
             }
         }
     }
@@ -730,16 +777,20 @@ class LibraryViewModel @Inject constructor(
     /** Load the next book page at the bottom. */
     fun loadMoreBooks() {
         if (query == null) return
+        if (!rowsMutex.tryLock()) {
+            pendingLoadMoreBooks = true
+            return
+        }
         viewModelScope.launch {
-            rowsMutex.withLock {
+            try {
                 val snapshot = _state.value
-                if (loadingMoreBooks || snapshot.loading || !snapshot.booksHasMore) return@withLock
+                if (loadingMoreBooks || snapshot.loading || !snapshot.booksHasMore) return@launch
                 loadingMoreBooks = true
                 val currentGeneration = generation
                 _state.update { it.copy(loadingMore = true) }
                 try {
                     val items = booksFeed.append(snapshot.books.orEmpty())
-                    if (currentGeneration != generation) return@withLock
+                    if (currentGeneration != generation) return@launch
                     _state.update {
                         it.copy(
                             books = items,
@@ -751,11 +802,13 @@ class LibraryViewModel @Inject constructor(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    if (currentGeneration != generation) return@withLock
+                    if (currentGeneration != generation) return@launch
                     _state.update { it.copy(loadingMore = false, error = e.message ?: context.getString(R.string.common_load_more_failed)) }
                 } finally {
                     loadingMoreBooks = false
                 }
+            } finally {
+                rowsMutex.unlock()
             }
         }
     }
