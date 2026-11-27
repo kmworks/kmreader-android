@@ -94,6 +94,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.CoverShadowStyle
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
@@ -716,6 +717,7 @@ internal fun BookHero(
                 .width(HeroCoverWidth)
                 .aspectRatio(CoverAspectRatio),
             followThumbnailPreference = true,
+            shadowStyle = CoverShadowStyle.Basic,
         )
         Spacer(Modifier.height(16.dp))
         if (seriesTitle != null) {
