@@ -346,10 +346,10 @@ fun SeriesGridCard(
                 hue = series.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display))
+                    .aspectRatio(seriesAspect(display, overlaySlot = display.drawsOverlay()))
                     .coverDecoration(display, unread = series.unreadCount > 0),
                 stableId = series.id,
-                contentScale = coverScale(display),
+                contentScale = coverScale(display, overlaySlot = display.drawsOverlay()),
             )
             if (display.showUnreadIndicator && series.unreadCount > 0) {
                 UnreadCountBadge(
@@ -450,10 +450,10 @@ fun BookGridCard(
                 hue = book.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display))
+                    .aspectRatio(seriesAspect(display, overlaySlot = display.drawsOverlay()))
                     .coverDecoration(display, unread = book.progress == null),
                 stableId = book.id,
-                contentScale = coverScale(display),
+                contentScale = coverScale(display, overlaySlot = display.drawsOverlay()),
             )
             if (book.progress == 1f) {
                 CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
@@ -572,19 +572,23 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
         urlPort == serverPort
 }.getOrDefault(false)
 
+/** Whether this card draws the text overlay: `coverOnly` wins, as on iOS. */
+private fun CardDisplayOptions.drawsOverlay(): Boolean = textOverlay && !coverOnly
+
 /** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop.
- *  Text-overlay mode overrides both: mirrors iOS, which passes `preserveAspectRatioOverride: false` there and
- *  center-crops the thumbnail regardless of the preference, so the slot is the tall √2 one the overlay text needs.
- *  Without it a square slot left the cover letterboxed and the first overlay line in the still-transparent half
- *  of the gradient, which read badly against the bright letterbox. */
-private fun seriesAspect(display: CardDisplayOptions): Float = when {
-    display.textOverlay -> Sqrt2CoverAspect
+ *  With [overlaySlot] — only the grid cards that draw the overlay — it is the tall √2 slot instead, mirroring iOS,
+ *  which passes `preserveAspectRatioOverride: false` there and center-crops the thumbnail regardless of the
+ *  preference. Without it a square slot left the cover letterboxed and the first overlay line in the still-transparent
+ *  half of the gradient, which read badly against the bright letterbox.
+ *  Rows keep their own ratio: they never draw the overlay, so the mode must not resize them. */
+private fun seriesAspect(display: CardDisplayOptions, overlaySlot: Boolean = false): Float = when {
+    overlaySlot -> Sqrt2CoverAspect
     display.preserveAspectRatio -> 2f / 3f
     else -> 1f
 }
 
-private fun coverScale(display: CardDisplayOptions): ContentScale =
-    if (display.textOverlay || display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
+private fun coverScale(display: CardDisplayOptions, overlaySlot: Boolean = false): ContentScale =
+    if (overlaySlot || display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
 
 /** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
 private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
