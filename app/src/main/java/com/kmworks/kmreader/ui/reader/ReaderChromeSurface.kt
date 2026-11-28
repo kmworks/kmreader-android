@@ -2,8 +2,6 @@ package com.kmworks.kmreader.ui.reader
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 
 /**
  * Tones for a surface drawn *on the page* — the floating reader chrome, the quick-action capsules
@@ -11,33 +9,31 @@ import androidx.compose.ui.unit.dp
  *
  * These cannot use the app theme's surface roles: the page carries its own palette (white, sepia,
  * ink green, and their dark counterparts) while the app is grey, and the reader can be dark-themed
- * while the app is not. Painting the chrome in the page colour itself — the previous rule — is what
- * made it disappear in dark mode: a pill filled with exactly the colour of the black page behind it
- * is a pill no one can see, leaving only a 10% hairline that the page's own text out-shouts.
+ * while the app is not. Painting them in the page colour — the original rule — works on a light
+ * page, where white on white is still carried by a hairline, but it fails completely on the dark
+ * themes: the default dark page is #000000, so a disc filled with exactly that colour is a disc no
+ * one can see, and the chrome reads as bare glyphs over the text.
  *
- * So the surface is the page colour stepped toward the page's own foreground: white on a dark page,
- * black on a light one. That is the "raised material" rule iOS applies with its secondary and
- * quaternary fills, expressed on the reader's palette — which also keeps a sepia page's pill warm
- * instead of tinting it grey.
+ * So the fill steps toward the page's own foreground, and only on a dark page: white on black is
+ * the raised material iOS shows with its secondary fills, while a light page keeps the page colour
+ * (a grey disc on white paper is a heavier look than this reader wants). The step is expressed on
+ * the reader's palette rather than the app theme's, so a dark sepia page keeps a warm bubble.
  *
- * @property background the fill: the page colour stepped toward the page's foreground by `lift`.
- * @property border hairline in the foreground colour. It is nearly invisible on its own (that was
- *   the old 0.10 alpha); it only works because the fill underneath now steps away from the page.
- * @property shadowElevation raised-material shadow. Silently absent on a dark page — black on black
- *   — which is why the fill step, not the shadow, carries dark mode. On a light page the shadow is
- *   what separates an almost-white pill from an almost-white page.
+ * @property background the fill: the page colour on a light page, stepped toward the page's
+ *   foreground on a dark one.
+ * @property border hairline in the foreground colour — the separation on a light page, and the edge
+ *   that defines the shape on a dark one.
  */
 internal data class ReaderChromeSurface(
     val background: Color,
     val border: Color,
-    val shadowElevation: Dp,
 )
 
-/** Step the chrome's fill away from the page; a touch more for the return pill (see [_RETURN_LIFT]). */
+/** Step the chrome's fill away from a dark page. */
 private const val CHROME_LIFT = 0.10f
 
 /** The one affordance that has to win the eye: the return pill offered after an explicit jump. */
-internal const val RETURN_LIFT = 0.18f
+private const val RETURN_LIFT = 0.18f
 
 /** Nothing on the page should ever be filled with more than this much foreground — that reads as a dialog. */
 private const val MAX_LIFT = 0.4f
@@ -45,22 +41,23 @@ private const val MAX_LIFT = 0.4f
 /**
  * Builds the floating surface for [pageBackground].
  *
- * The step is a plain per-channel sRGB mix on purpose: interpolating in Oklab (Compose's `lerp`)
- * makes 10% toward white land near #090909 on a black page — a step you cannot see, which is the
- * bug this replaces. A channel mix of 0.10 is 10% of the channel range, i.e. #1A1A1A on black.
+ * On a dark page the fill is a plain per-channel sRGB mix on purpose: interpolating in Oklab
+ * (Compose's `lerp`) makes 10% toward white land near #090909 on black — a step you cannot see,
+ * which is the bug this replaces. A channel mix of 0.10 is 10% of the channel range, i.e. #1A1A1A.
  *
- * @param contentColor the page's foreground colour: the direction the fill steps in.
- * @param lift how far to step (clamped to [MAX_LIFT]).
- * @param shadowElevation elevation for `Modifier.shadow`; the caller owns the shape.
+ * @param contentColor the page's foreground colour: the direction the fill steps in, and the
+ *   hairline's colour.
+ * @param prominent the return pill: on a dark page it steps twice as far and gets a heavier
+ *   hairline; on a light page, where the fill stays the page colour, only the hairline is heavier —
+ *   the pill earns its weight from that edge and from its type, not from a fill.
  */
 internal fun readerChromeSurface(
     pageBackground: Color,
     contentColor: Color,
-    lift: Float = CHROME_LIFT,
-    shadowElevation: Dp = 6.dp,
+    prominent: Boolean = false,
 ): ReaderChromeSurface {
     val dark = pageBackground.luminance() < 0.5f
-    val fraction = lift.coerceIn(0f, MAX_LIFT)
+    val fraction = if (dark) (if (prominent) RETURN_LIFT else CHROME_LIFT).coerceIn(0f, MAX_LIFT) else 0f
     return ReaderChromeSurface(
         background = Color(
             red = pageBackground.red + (contentColor.red - pageBackground.red) * fraction,
@@ -68,9 +65,16 @@ internal fun readerChromeSurface(
             blue = pageBackground.blue + (contentColor.blue - pageBackground.blue) * fraction,
             alpha = pageBackground.alpha,
         ),
-        // A dark page can afford a stronger hairline: its fill step is subtle against black, and
-        // the eye needs the edge more than it does on a light page where the shadow already reads.
-        border = contentColor.copy(alpha = if (dark) 0.20f else 0.12f),
-        shadowElevation = shadowElevation,
+        border = contentColor.copy(
+            alpha = when {
+                // A dark page can afford a stronger hairline: its fill step is subtle against black.
+                dark && prominent -> 0.30f
+                dark -> 0.20f
+                // Light pages keep the original 0.10 chrome hairline; the pill gets a visible edge
+                // because on that palette the edge is all it has.
+                prominent -> 0.20f
+                else -> 0.10f
+            },
+        ),
     )
 }

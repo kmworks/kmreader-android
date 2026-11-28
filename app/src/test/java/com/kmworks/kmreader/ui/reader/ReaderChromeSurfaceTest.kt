@@ -7,8 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Floating surfaces sit ON the page, so the only thing that can separate them from it is a step in
- * the page colour — these pin the direction and the size of that step for every reader theme.
+ * Floating surfaces sit ON the page, so the separation has to come from the surface itself: a fill
+ * step on a dark page, a hairline everywhere. These pin both, per reader theme.
  */
 class ReaderChromeSurfaceTest {
 
@@ -16,6 +16,18 @@ class ReaderChromeSurfaceTest {
     private val darkInk = Color.White
     private val lightPage = Color(0xFFFFFFFF)
     private val lightInk = Color.Black
+
+    @Test
+    fun `light page keeps the page colour as the fill`() {
+        val surface = readerChromeSurface(lightPage, lightInk)
+        // The chrome on a light page is the page colour with a hairline, exactly as before the dark
+        // theme fix: a grey disc on white paper is not what this reader wants.
+        assertEquals(lightPage.red, surface.background.red, 0.001f)
+        assertEquals(lightPage.green, surface.background.green, 0.001f)
+        assertEquals(lightPage.blue, surface.background.blue, 0.001f)
+        // (alpha lands on an 8-bit channel: 0.10 -> 26/255, hence the tolerance)
+        assertEquals(0.10f, surface.border.alpha, 0.005f)
+    }
 
     @Test
     fun `dark page steps the fill toward the foreground`() {
@@ -30,38 +42,29 @@ class ReaderChromeSurfaceTest {
     }
 
     @Test
-    fun `light page steps the fill away from white without turning it dark`() {
-        val surface = readerChromeSurface(lightPage, lightInk)
-        assertTrue(surface.background.luminance() < lightPage.luminance())
-        assertTrue("a white page's chrome stays a light surface", surface.background.luminance() > 0.5f)
-    }
-
-    @Test
-    fun `a sepia page keeps its hue`() {
-        val surface = readerChromeSurface(Color(0xFFF4ECD8), Color.Black)
-        assertTrue(surface.background.red > surface.background.green)
-        assertTrue(surface.background.green > surface.background.blue)
-    }
-
-    @Test
-    fun `a dark sepia page keeps its hue too`() {
-        val surface = readerChromeSurface(Color(0xFF382E25), Color(0xFFE3D5C1))
+    fun `a dark sepia page keeps its hue`() {
+        val page = Color(0xFF382E25)
+        val surface = readerChromeSurface(page, Color(0xFFE3D5C1))
+        assertTrue(surface.background.luminance() > page.luminance())
         assertTrue(surface.background.red > surface.background.blue)
-        assertTrue(surface.background.luminance() > Color(0xFF382E25).luminance())
     }
 
     @Test
-    fun `the return pill steps further than the chrome`() {
+    fun `the return pill steps further than the chrome on a dark page`() {
         val chrome = readerChromeSurface(darkPage, darkInk)
-        val pill = readerChromeSurface(darkPage, darkInk, lift = RETURN_LIFT)
+        val pill = readerChromeSurface(darkPage, darkInk, prominent = true)
         assertTrue(pill.background.luminance() > chrome.background.luminance())
-        assertTrue(pill.background.luminance() < darkInk.luminance())
+        // Still a dark surface: the pill is a control on the page, not a dialog over it.
+        assertTrue(pill.background.luminance() < 0.5f)
     }
 
     @Test
-    fun `lift is clamped so no surface turns into a dialog`() {
-        val surface = readerChromeSurface(darkPage, darkInk, lift = 5f)
-        assertTrue(surface.background.luminance() < 0.5f)
+    fun `the return pill earns a heavier hairline on a light page`() {
+        val chrome = readerChromeSurface(lightPage, lightInk)
+        val pill = readerChromeSurface(lightPage, lightInk, prominent = true)
+        // No fill difference there — the edge is all the pill has, so it is the stronger one.
+        assertEquals(lightPage.red, pill.background.red, 0.001f)
+        assertTrue(pill.border.alpha > chrome.border.alpha)
     }
 
     @Test

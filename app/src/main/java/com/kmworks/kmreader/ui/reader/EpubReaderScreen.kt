@@ -84,7 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1473,10 +1473,10 @@ private fun RealEpubReader(
     // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
     val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
     // Chrome follows the page theme (mirrors the iOS material-adaptive bars): its text and icons
-    // are the page's foreground, but its fill is NOT the page background — that is what made the
-    // pills vanish on a dark page, where a black disc over black text reads as bare glyphs. The
-    // fill steps toward the page's foreground instead (see [readerChromeSurface]); a hairline and
-    // a shadow finish the raised look. The return pill takes a bigger step: see its own surface.
+    // are the page's foreground, and on a light page its fill stays the page background (a grey
+    // disc on white paper reads heavier than this reader wants). Dark pages cannot keep that fill
+    // — a black disc over black text is bare glyphs — so there the fill steps toward the page's
+    // foreground and the hairline goes with it. See [readerChromeSurface].
     val chromeSurface = remember(pageBackground, pageContent) {
         readerChromeSurface(pageBackground, pageContent)
     }
@@ -1767,7 +1767,7 @@ private fun RealEpubReader(
                             ),
                             modifier = Modifier
                                 .width(240.dp)
-                                .shadow(chromeSurface.shadowElevation, RoundedCornerShape(22.dp))
+                                .clip(RoundedCornerShape(22.dp))
                                 .background(chromeSurface.background)
                                 .padding(horizontal = 12.dp),
                         )
@@ -1852,18 +1852,13 @@ private fun RealEpubReader(
         // contents, a bookmark, the progress slider or an in-book link, a floating pill offers the
         // trip back to where the jump started.
         //
-        // It is the only affordance on screen after a jump, so it takes the deepest step of the
-        // floating surfaces (RETURN_LIFT) plus the strongest shadow. At the chrome's 10% step the
-        // pill was the page colour with a hairline on it — on a dark page that reads as loose text,
-        // not as a capsule you are meant to press.
+        // It is the only affordance on screen after a jump, so it takes the prominent surface (a
+        // deeper fill and a heavier hairline on a dark page, the heavier hairline alone on a light
+        // one) plus a larger label and icon. At the chrome's 10% step the pill was the page colour
+        // with a hairline on it — on a dark page that reads as loose text, not as a capsule.
         if (positionStack.isNotEmpty() && !showingEndPage && !showingPreviousPage) {
             val returnSurface = remember(pageBackground, pageContent) {
-                readerChromeSurface(
-                    pageBackground = pageBackground,
-                    contentColor = pageContent,
-                    lift = RETURN_LIFT,
-                    shadowElevation = 8.dp,
-                )
+                readerChromeSurface(pageBackground, pageContent, prominent = true)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1871,8 +1866,7 @@ private fun RealEpubReader(
                     .align(Alignment.BottomStart)
                     .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .padding(start = 16.dp, bottom = 16.dp)
-                    // shadow() also clips to the shape, so the capsule needs no separate clip()
-                    .shadow(returnSurface.shadowElevation, CircleShape)
+                    .clip(CircleShape)
                     .background(returnSurface.background)
                     .border(1.dp, returnSurface.border, CircleShape)
                     .clickable {
@@ -2083,10 +2077,10 @@ private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
 }
 
 /**
- * Round chrome button on a raised disc (mirrors the iOS ReaderControlButtonStyle circle).
+ * Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle).
  *
- * The disc's fill is [surface], not the page colour: a disc painted in the page colour is invisible
- * on that page (see [readerChromeSurface]).
+ * The disc's fill is [surface]: the page colour on a light page, a step off it on a dark one —
+ * a disc painted in the page colour is invisible there (see [readerChromeSurface]).
  *
  * A null [onClick] renders the same disc as a status indicator instead of a button: the chrome
  * carries one non-interactive capsule (the incognito marker) that must not look like a control.
@@ -2101,8 +2095,7 @@ private fun FloatingChromeButton(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(44.dp)
-            // shadow() clips to its shape, so the disc is already a circle here
-            .shadow(surface.shadowElevation, CircleShape)
+            .clip(CircleShape)
             .background(surface.background)
             .border(1.dp, surface.border, CircleShape)
             .then(
@@ -2135,7 +2128,7 @@ private fun QuickActionCapsule(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .shadow(surface.shadowElevation, CircleShape)
+            .clip(CircleShape)
             .background(surface.background)
             .border(1.dp, surface.border, CircleShape)
             .clickable(onClick = onClick)

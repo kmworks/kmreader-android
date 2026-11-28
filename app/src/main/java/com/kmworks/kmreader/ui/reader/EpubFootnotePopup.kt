@@ -127,11 +127,10 @@ internal fun EpubFootnotePopup(
 
     val textColor = contentColor
     val linkColor = if (pageBackground.luminance() > 0.5f) Color(0xFF1A5FB4) else Color(0xFF8AB4F8)
-    // The bubble floats over the page, so it needs the raised fill the chrome uses: painted in the
-    // page colour it had no edge at all on a dark page — black bubble, black page, one hairline at
-    // 0.12 alpha — which read as the note text having been pasted onto the paragraph.
-    // No shadow: the Popup window is only as large as the bubble, so anything drawn outside its
-    // bounds is clipped away. The fill step and the hairline carry the separation here.
+    // The bubble floats over the page, so on a dark theme it needs the same step off the page the
+    // chrome takes: painted in the page colour it had no edge at all there — black bubble, black
+    // page, one hairline at 0.12 alpha — which read as the note text having been pasted onto the
+    // paragraph. A light page keeps the page-coloured fill and its hairline, as before.
     val surface = remember(pageBackground, contentColor) {
         readerChromeSurface(pageBackground, contentColor)
     }
