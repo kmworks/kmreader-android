@@ -47,6 +47,11 @@ jobs:
       - name: Run API decoding tests
         run: ./gradlew :core:api:test --console=plain
 
+      # The lint gate: app/lint-baseline.xml freezes the findings that predate it, so this
+      # fails on NEW issues only. Fix the issue or deliberately regenerate the baseline.
+      - name: Lint
+        run: ./gradlew :app:lintDebug --console=plain
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --console=plain
 
