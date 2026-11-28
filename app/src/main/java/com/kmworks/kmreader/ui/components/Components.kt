@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.scale
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -958,7 +959,7 @@ private fun computeCoverTint(bitmap: Bitmap): Color? {
     } else {
         bitmap
     }
-    val scaled = Bitmap.createScaledBitmap(software, 8, 8, true)
+    val scaled = software.scale(8, 8, true)
     var r = 0L
     var g = 0L
     var b = 0L

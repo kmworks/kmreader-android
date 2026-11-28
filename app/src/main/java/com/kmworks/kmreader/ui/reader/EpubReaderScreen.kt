@@ -3,6 +3,9 @@ package com.kmworks.kmreader.ui.reader
 import android.app.Activity
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -70,7 +73,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -858,13 +863,13 @@ private fun RealEpubReader(
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
     // Bumped for every chapter load and stamped into the page's JS after injection: measure
     // passes carry it back, so stale callbacks from the previous chapter can be dropped
-    var loadToken by remember { mutableStateOf(0) }
+    var loadToken by remember { mutableIntStateOf(0) }
     // onPageReady fires on BOTH onPageCommitVisible and onPageFinished for the same load (the
     // finished callback is only the fallback for loads where commit never fires). Injecting the
     // script twice re-runs __kmApplyTheme mid-load, which re-measures and re-imposes whatever
     // fraction the half-laid-out strip happens to sit at — destroying a queued end-of-chapter
     // restore (the "back-seam lands at the chapter start" bug).
-    var injectedForToken by remember { mutableStateOf(-1) }
+    var injectedForToken by remember { mutableIntStateOf(-1) }
     var webView by remember { mutableStateOf<EpubScrollWebView?>(null) }
     // The WebView stays invisible until the restored progression has been applied: the chapter is
     // loaded from its top, so without this the first paint shows the chapter start and the injected
@@ -883,13 +888,13 @@ private fun RealEpubReader(
     // book's card (mirrors the DIVINA PreviousEnd pager cell)
     var showingPreviousPage by remember { mutableStateOf(false) }
     // Paged-mode measure results (scrolled mode always reports 1/0)
-    var pageCount by remember { mutableStateOf(1) }
-    var currentPage by remember { mutableStateOf(0) }
+    var pageCount by remember { mutableIntStateOf(1) }
+    var currentPage by remember { mutableIntStateOf(0) }
     // Actual reading direction reported by the page JS: 0 = ltr, 1 = rtl, 2 = vertical.
     // Vertical books paginate downward but pages stack right-to-left, so the tap zones mirror.
-    var jsDirection by remember { mutableStateOf(0) }
+    var jsDirection by remember { mutableIntStateOf(0) }
     // Last reported in-chapter fraction: the scrolled-mode edge test for page stepping
-    var lastFraction by remember { mutableStateOf(0f) }
+    var lastFraction by remember { mutableFloatStateOf(0f) }
     // Bookmarks of the open book (the store is keyed by the book DTO id) and whether the position
     // on screen is one of them — the capsule is a toggle, so the icon reflects that state
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
@@ -911,7 +916,7 @@ private fun RealEpubReader(
     var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
     // Cooldown so one overscroll drag cannot skip several chapters (the seam callback repeats
     // while the finger holds past the edge)
-    var lastSeamAt by remember { mutableStateOf(0L) }
+    var lastSeamAt by remember { mutableLongStateOf(0L) }
 
     // Chapter seams (mirrors the iOS goToNextPage/goToPreviousPage): past the last page of the
     // book the end page opens, otherwise the neighbouring chapter loads. The paged WebView drives
@@ -1132,7 +1137,7 @@ private fun RealEpubReader(
             linkCallback = { url ->
                 // In-book link click reported by the page JS (it preventDefaults because a
                 // same-document hash hop never reaches shouldOverrideUrlLoading)
-                val uri = android.net.Uri.parse(url)
+                val uri = url.toUri()
                 if (uri.host == EpubWeb.FAKE_HOST) {
                     val href = EpubWeb.hrefFromUrl(url)
                     if (href != null) navigateHandler.value(href, uri.fragment)
@@ -1218,7 +1223,7 @@ private fun RealEpubReader(
     }
 
     val pageBackground = remember(themeConfig) {
-        Color(android.graphics.Color.parseColor(themeConfig.background))
+        Color(themeConfig.background.toColorInt())
     }
     // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
     val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
@@ -1307,7 +1312,7 @@ private fun RealEpubReader(
                 }
                 // The WebView's own background paints before the chapter CSS does: without this
                 // it flashes white in dark mode on every chapter load
-                view.setBackgroundColor(android.graphics.Color.parseColor(themeConfig.background))
+                view.setBackgroundColor(themeConfig.background.toColorInt())
             },
             modifier =
                 Modifier
@@ -1804,9 +1809,7 @@ private fun RealEpubReader(
 private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
     if (width <= 0 || height <= 0) return null
     return runCatching {
-        val bitmap = android.graphics.Bitmap.createBitmap(
-            width, height, android.graphics.Bitmap.Config.ARGB_8888,
-        )
+        val bitmap = createBitmap(width, height)
         draw(android.graphics.Canvas(bitmap))
         bitmap.asImageBitmap()
     }.getOrNull()

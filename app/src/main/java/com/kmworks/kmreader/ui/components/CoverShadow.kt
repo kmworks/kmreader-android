@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -102,7 +103,7 @@ private fun renderPatch(
     val marginPx = (marginDp(layers) * density).roundToInt()
     val coreSide = (2 * radiusPx).roundToInt() + ShadowStretchMiddlePx
     val side = 2 * marginPx + coreSide
-    val bitmap = Bitmap.createBitmap(max(side, 1), max(side, 1), Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(max(side, 1), max(side, 1))
     val canvas = Canvas(bitmap)
     val core = RectF(
         marginPx.toFloat(),

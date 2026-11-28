@@ -1,5 +1,6 @@
 package com.kmworks.kmreader
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.compose.setContent
@@ -52,6 +53,10 @@ class MainActivity : FragmentActivity() {
      * a handled volume key is consumed here, before the view hierarchy — and the system — can act
      * on it, so the volume stays untouched instead of being raised and lowered again.
      */
+    // RestrictedApi: ComponentActivity.dispatchKeyEvent is library-group restricted, but the
+    // interception must happen before the view hierarchy sees the key, which is what this
+    // override is the only hook for.
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (ReaderVolumeKeyDispatcher.dispatch(event)) return true
         return super.dispatchKeyEvent(event)

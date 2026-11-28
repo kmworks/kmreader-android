@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.content.Context
+import androidx.core.util.size
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.pdf.PdfDocument
@@ -231,7 +232,7 @@ constructor(
         return runCatching {
                 val matches = doc.searchDocument(query, 0 until doc.pageCount)
                 val results = ArrayList<PdfSearchResult>()
-                for (i in 0 until matches.size()) {
+                for (i in 0 until matches.size) {
                     val page = matches.keyAt(i)
                     val text =
                         doc.getPageContent(page)

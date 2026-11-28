@@ -7,15 +7,4 @@
     <string name="download_status_queued">Queued</string>
     <string name="download_status_paused">Paused</string>
     <string name="download_status_failed">Failed</string>
-    <string name="core_volume_number">Vol. %1$s</string>
-    <string name="core_status_ongoing">Ongoing</string>
-    <string name="core_status_ended">Ended</string>
-    <string name="core_status_abandoned">Abandoned</string>
-    <string name="core_status_hiatus">Hiatus</string>
-    <string name="core_sort_number">Number</string>
-    <string name="core_sort_release_date">Release Date</string>
-    <string name="core_sort_added_date">Date Added</string>
-    <string name="core_sort_updated_date">Date Updated</string>
-    <string name="core_sort_file_size">File Size</string>
-    <string name="core_sort_page_count">Page Count</string>
 </resources>

@@ -186,6 +186,8 @@ fun LibraryScreen(
     // so the list-wide loading bar below would only duplicate it.
     var pulling by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    // Shown from the save-result callback; stringResource is composable, so resolve it here.
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
 
     val state by viewModel.state.collectAsState()
     val komfState by komfViewModel.uiState.collectAsState()
@@ -640,7 +642,7 @@ fun LibraryScreen(
                         editSeries = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }
@@ -659,7 +661,7 @@ fun LibraryScreen(
                         editBook = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }

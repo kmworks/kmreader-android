@@ -123,7 +123,18 @@ fun CollectionDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // Labels handed to deferred callbacks: stringResource is composable, so they are resolved here
+    // and the callbacks only consume the strings.
+    val markReadLabel = stringResource(R.string.lists_mark_read)
+    val markUnreadLabel = stringResource(R.string.lists_mark_unread)
+    val addToDownloadQueueLabel = stringResource(R.string.lists_add_to_download_queue)
+    val addToReadListLabel = stringResource(R.string.lists_add_to_readlist)
+    val collectionSaveLabel = stringResource(R.string.collection_save)
+    val collectionDeleteLabel = stringResource(R.string.collection_delete)
+    // The action name only arrives with the event, so the template is formatted at event time;
+    // reading it via context is deliberate (stringResource cannot run in this deferred lambda).
     val notifyFailure: suspend (String) -> Unit = { action ->
+        @Suppress("LocalContextGetResourceValueCall")
         snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     val onSelectedMarkRead: (Boolean) -> Unit = { read ->
@@ -133,7 +144,7 @@ fun CollectionDetailScreen(
                 selecting = false
             } else {
                 scope.launch {
-                    notifyFailure(context.getString(if (read) R.string.lists_mark_read else R.string.lists_mark_unread))
+                    notifyFailure(if (read) markReadLabel else markUnreadLabel)
                 }
             }
         }
@@ -144,7 +155,7 @@ fun CollectionDetailScreen(
                 selected = emptySet()
                 selecting = false
             } else {
-                scope.launch { notifyFailure(context.getString(R.string.lists_add_to_download_queue)) }
+                scope.launch { notifyFailure(addToDownloadQueueLabel) }
             }
         }
     }
@@ -420,7 +431,7 @@ fun CollectionDetailScreen(
                         selected = emptySet()
                         selecting = false
                     } else {
-                        scope.launch { notifyFailure(context.getString(R.string.lists_add_to_readlist)) }
+                        scope.launch { notifyFailure(addToReadListLabel) }
                     }
                 }
                 addToReadListOpen = false
@@ -440,7 +451,7 @@ fun CollectionDetailScreen(
                         editOpen = false
                     } else {
                         // Keep the sheet open so the typed name is not lost
-                        scope.launch { notifyFailure(context.getString(R.string.collection_save)) }
+                        scope.launch { notifyFailure(collectionSaveLabel) }
                     }
                 }
             },
@@ -464,7 +475,7 @@ fun CollectionDetailScreen(
                     if (ok) {
                         onBack()
                     } else {
-                        scope.launch { notifyFailure(context.getString(R.string.collection_delete)) }
+                        scope.launch { notifyFailure(collectionDeleteLabel) }
                     }
                 }
             },

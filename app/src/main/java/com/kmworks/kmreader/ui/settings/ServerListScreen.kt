@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -66,7 +67,6 @@ import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.login.LoginScreen
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Server account list screen (mirrors iOS ServerListView management mode + ServerRowView rich cards):
@@ -463,6 +463,7 @@ private fun relativeTime(epochMs: Long): String {
         minutes < 60 -> stringResource(R.string.settings_time_minutes_ago, minutes)
         hours < 24 -> stringResource(R.string.settings_time_hours_ago, hours)
         days < 7 -> stringResource(R.string.settings_time_days_ago, days)
-        else -> SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(epochMs))
+        // LocalConfiguration.current recomposes on locale change; Locale.getDefault() is not observable.
+        else -> SimpleDateFormat("yyyy-MM-dd", LocalConfiguration.current.locales[0]).format(Date(epochMs))
     }
 }
