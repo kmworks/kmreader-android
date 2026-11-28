@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.data
 
+import com.kmworks.kmreader.core.image.upscale.ImageEnhancer
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import dagger.hilt.EntryPoint
@@ -12,5 +13,6 @@ import dagger.hilt.components.SingletonComponent
 interface ImageLoaderEntryPoint {
     fun sessionManager(): SessionManager
     fun imageCacheStore(): ImageCacheStore
+    fun imageEnhancer(): ImageEnhancer
     fun appSettingsStore(): AppSettingsStore
 }

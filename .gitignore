@@ -24,3 +24,6 @@ Thumbs.db
 
 # Local agent tooling scratch
 .dsh-acl-recovery/
+
+# ncnn prebuilt SDK (downloaded by the fetchNcnnSdk Gradle task, sha256-pinned)
+third_party/ncnn/

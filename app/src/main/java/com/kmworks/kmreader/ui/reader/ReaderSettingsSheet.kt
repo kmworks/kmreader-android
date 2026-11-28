@@ -222,6 +222,46 @@ fun ReaderSettingsSheet(
                 onSelect = { value -> onUpdate { it.copy(borderCrop = value) } },
             )
             SettingsHintText(stringResource(R.string.reader_crop_hint))
+            SettingsChoiceRow(
+                label = stringResource(R.string.reader_upscale_title),
+                options = UpscaleMode.entries,
+                selected = settings.upscale.mode,
+                optionLabel = { stringResource(it.labelRes) },
+                onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(mode = value)) } },
+            )
+            if (settings.upscale.mode != UpscaleMode.Off) {
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_denoise_title),
+                    options = DenoiseLevel.entries,
+                    selected = settings.upscale.denoise,
+                    optionLabel = { stringResource(it.labelRes) },
+                    onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(denoise = value)) } },
+                )
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_precision_title),
+                    options = UpscalePrecision.entries,
+                    selected = settings.upscale.precision,
+                    optionLabel = { stringResource(it.labelRes) },
+                    onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(precision = value)) } },
+                )
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_preload_ahead_title),
+                    options = (0..UpscaleSettings.MAX_PRELOAD_AHEAD).toList(),
+                    selected = settings.upscale.preloadAhead,
+                    optionLabel = { value ->
+                        if (value == 0) {
+                            stringResource(R.string.reader_upscale_preload_ahead_off)
+                        } else {
+                            value.toString()
+                        }
+                    },
+                    onSelect = { value ->
+                        onUpdate { it.copy(upscale = it.upscale.copy(preloadAhead = value)) }
+                    },
+                )
+                SettingsHintText(stringResource(R.string.reader_upscale_preload_ahead_hint))
+                SettingsHintText(stringResource(R.string.reader_upscale_hint))
+            }
         }
     }
 }

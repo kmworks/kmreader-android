@@ -5,6 +5,10 @@ import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kmworks.kmreader.core.logging.AppLog
+import com.kmworks.kmreader.core.image.upscale.EnhancementCache
+import com.kmworks.kmreader.core.image.upscale.EnhancementDecoder
+import com.kmworks.kmreader.core.image.upscale.ImageEnhancer
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -45,6 +49,8 @@ class ImageCacheStore @Inject constructor(
     private val appSettings: AppSettingsStore,
     private val readerRepository: ReaderRepository,
     val coverStamps: CoverCacheStamps,
+    private val enhancementCache: EnhancementCache,
+    private val imageEnhancer: ImageEnhancer,
     private val scope: CoroutineScope,
 ) {
 
@@ -111,7 +117,15 @@ class ImageCacheStore @Inject constructor(
                 .maxSizeBytes(limitMb * 1024L * 1024L)
                 .build(),
         )
-        .components { add(OkHttpNetworkFetcherFactory(callFactory = okHttpClient)) }
+        .components {
+            add(OkHttpNetworkFetcherFactory(callFactory = okHttpClient))
+            // waifu2x upscaling hooks only into page images (docs/waifu2x-upscaling-plan.md §5.4);
+            // requests without the upscale parameters fall through to the default decoder.
+            if (kind == ImageCachePaths.KIND_PAGES) {
+                add(EnhancementDecoder.Factory(context, enhancementCache, imageEnhancer))
+                AppLog.i(EnhancementDecoder.APP_TAG, "page loader rebuilt with the upscale decoder ($instanceKey)")
+            }
+        }
         .build()
 
     /** Namespace of the active instance, or null when no session is configured. */
@@ -139,6 +153,13 @@ class ImageCacheStore @Inject constructor(
         if (allServers) {
             ImageCachePaths.deleteOtherInstances(context.cacheDir, kind, currentInstanceKey())
         }
+        // Enhanced pages are derived from page images, so clearing pages clears them too.
+        if (kind == ImageCachePaths.KIND_PAGES) {
+            enhancementCache.clear()
+            if (allServers) {
+                ImageCachePaths.deleteOtherInstances(context.cacheDir, ImageCachePaths.KIND_ENHANCED, currentInstanceKey())
+            }
+        }
     }
 
     /** Drop a single cover URL from memory and disk (used when its refresh interval expired the stamp). */
@@ -165,13 +186,17 @@ class ImageCacheStore @Inject constructor(
         val clients = sessionManager.clients.value ?: return@withContext
         val loader = pageLoaderState.value ?: return@withContext
         val pages = runCatching { readerRepository.pages(bookDtoId) }.getOrDefault(emptyList())
+        val pageUrls = ArrayList<String>(pages.size)
         for (page in pages) {
             val url = "${clients.baseUrl}/api/v1/books/$bookDtoId/pages/${page.number}"
+            pageUrls += url
             runCatching { loader.memoryCache?.remove(MemoryCache.Key(url)) }
             runCatching { loader.diskCache?.remove(url) }
             val thumbnailUrl = "$url/thumbnail"
             runCatching { loader.memoryCache?.remove(MemoryCache.Key(thumbnailUrl)) }
             runCatching { loader.diskCache?.remove(thumbnailUrl) }
         }
+        // Drop every denoise variant of the enhanced copies alongside their sources.
+        enhancementCache.evictPages(pageUrls)
     }
 }
