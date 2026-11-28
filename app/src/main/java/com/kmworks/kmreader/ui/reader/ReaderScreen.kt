@@ -353,7 +353,7 @@ fun ReaderScreen(
         AppLog.i("Reader", "open book=${presentedBook.id} incognito=$incognito ${heapFootprint()}")
         onDispose {
             // Book switch or reader exit: drop every queued enhancement of this reading session and
-            // abort the page already inside nativeProcess (docs/waifu2x-upscaling-plan.md §7).
+            // abort the page already inside nativeProcess.
             imageEnhancer.setPaused(false)
             imageEnhancer.nextGeneration()
             AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}")
@@ -593,8 +593,8 @@ fun ReaderScreen(
     }
 
     // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate).
-    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue
-    // (docs/waifu2x-upscaling-plan.md §5.3); otherwise it warms the disk cache only: a prefetched
+    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue;
+    // otherwise it warms the disk cache only: a prefetched
     // full-size decode would be rejected by the sized display request (Precision.EXACT), so decoding
     // here just burns heap on bitmaps that can never be shown.
     LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload, settings.upscale) {
@@ -1998,7 +1998,7 @@ private fun PageImage(
                             "ready=$enhancementReady",
                     )
                     // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
-                    // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
+                    // instead of Coil's memory cache.
                     memoryCachePolicy(CachePolicy.DISABLED)
                 }
             }.build()
@@ -2430,7 +2430,7 @@ private fun coil3.ImageLoader.enqueueDiskPreload(context: Context, url: String) 
 }
 
 /**
- * Enhancement-aware page preload (docs/waifu2x-upscaling-plan.md §5.3): runs the full decode path
+ * Enhancement-aware page preload: runs the full decode path
  * so a page that passes the trigger is enhanced through [ImageEnhancer] at [ImageEnhancer.PRIORITY_PRELOAD]
  * and lands in the EnhancementCache before it is displayed. Pages below the trigger are decoded
  * tiny and discarded — their source bytes stay in Coil's disk cache, which is what the display

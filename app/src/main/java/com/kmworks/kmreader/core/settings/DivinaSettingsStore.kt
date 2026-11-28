@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.ui.reader.BorderCropMode
 import com.kmworks.kmreader.ui.reader.DenoiseLevel
@@ -73,7 +74,7 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.BORDER_CROP] = next.borderCrop.name
             prefs[Keys.UPSCALE_MODE] = next.upscale.mode.name
             prefs[Keys.UPSCALE_DENOISE] = next.upscale.denoise.name
-            prefs[Keys.UPSCALE_AUTO_SCALE] = next.upscale.autoTriggerScale
+            prefs[Keys.UPSCALE_AUTO_SCALE] = UpscaleConfig.clampAutoTriggerScale(next.upscale.autoTriggerScale)
             prefs[Keys.UPSCALE_PRECISION] = next.upscale.precision.name
             prefs[Keys.UPSCALE_PRELOAD_AHEAD] = next.upscale.preloadAhead
                 .coerceIn(0, UpscaleSettings.MAX_PRELOAD_AHEAD)
@@ -249,7 +250,9 @@ class DivinaSettingsStore @Inject constructor(
             upscale = UpscaleSettings(
                 mode = enumOrNull<UpscaleMode>(this[Keys.UPSCALE_MODE]) ?: defaults.upscale.mode,
                 denoise = enumOrNull<DenoiseLevel>(this[Keys.UPSCALE_DENOISE]) ?: defaults.upscale.denoise,
-                autoTriggerScale = this[Keys.UPSCALE_AUTO_SCALE] ?: defaults.upscale.autoTriggerScale,
+                autoTriggerScale = UpscaleConfig.clampAutoTriggerScale(
+                    this[Keys.UPSCALE_AUTO_SCALE] ?: defaults.upscale.autoTriggerScale,
+                ),
                 precision = enumOrNull<UpscalePrecision>(this[Keys.UPSCALE_PRECISION]) ?: defaults.upscale.precision,
                 preloadAhead = (this[Keys.UPSCALE_PRELOAD_AHEAD] ?: defaults.upscale.preloadAhead)
                     .coerceIn(0, UpscaleSettings.MAX_PRELOAD_AHEAD),

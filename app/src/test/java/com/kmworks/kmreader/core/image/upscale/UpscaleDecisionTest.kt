@@ -7,9 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Trigger-decision contract (docs/waifu2x-upscaling-plan.md §3.2): Off never upscales; Always
- * upscales anything that fits a texture; Auto upscales only pages the screen would enlarge by
- * more than the trigger scale (iOS ReaderUpscaleDecision semantics).
+ * Trigger-decision contract: Off never upscales; Always upscales anything that fits a texture;
+ * Auto upscales only pages the screen would enlarge by more than the trigger scale
+ * (iOS ReaderUpscaleDecision semantics).
  */
 class UpscaleDecisionTest {
 
@@ -24,22 +24,27 @@ class UpscaleDecisionTest {
 
     @Test
     fun `auto upscales low-resolution pages enlarged on screen`() {
-        // 400x600 page on a 1200x2400 screen: display scale 3.0 > 1.5.
+        // 400x600 page on a 1200x2400 screen: display scale 3.0, well past the 1.05 default.
         assertTrue(UpscaleDecision.shouldUpscale(400, 600, 1200, 2400, auto))
     }
 
     @Test
     fun `auto leaves pages at or below the trigger scale alone`() {
-        // Display scale exactly at the trigger does not upscale (iOS uses strict >).
-        assertFalse(UpscaleDecision.shouldUpscale(800, 1200, 1200, 2400, auto))
+        // Display scale exactly 1.0: the screen is not enlarging the page at all.
+        assertFalse(UpscaleDecision.shouldUpscale(1200, 2400, 1200, 2400, auto))
+        // 1.04 is below the 1.05 default (iOS compares strictly greater).
+        assertFalse(UpscaleDecision.shouldUpscale(1150, 2300, 1200, 2400, auto))
         // High-resolution pages displayed below the trigger scale are not reprocessed.
         assertFalse(UpscaleDecision.shouldUpscale(1600, 2400, 1200, 2400, auto))
     }
 
     @Test
     fun `auto honors a custom trigger scale`() {
-        val sensitive = auto.copy(autoTriggerScale = 1.2f)
-        assertTrue(UpscaleDecision.shouldUpscale(800, 1200, 1200, 2400, sensitive))
+        // 800x1200 on 1200x2400: required scale is exactly 1.5, so the result depends only on the
+        // threshold — the default upscales it, the top of the iOS slider does not.
+        assertTrue(UpscaleDecision.shouldUpscale(800, 1200, 1200, 2400, auto))
+        assertTrue(UpscaleDecision.shouldUpscale(800, 1200, 1200, 2400, auto.copy(autoTriggerScale = 1.2f)))
+        assertFalse(UpscaleDecision.shouldUpscale(800, 1200, 1200, 2400, auto.copy(autoTriggerScale = 1.5f)))
     }
 
     @Test

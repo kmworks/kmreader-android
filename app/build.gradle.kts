@@ -34,7 +34,7 @@ val releaseKeyPassword = signingCredential("KEY_PASSWORD", "keyPassword") ?: rel
 val hasReleaseSigning = releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null
 
 /**
- * ncnn android-vulkan prebuilt SDK (for waifu2x upscaling, see docs/waifu2x-upscaling-plan.md).
+ * ncnn android-vulkan prebuilt SDK (for waifu2x upscaling).
  * The SDK is NOT committed to git; `fetchNcnnSdk` downloads + sha256-verifies + extracts it
  * into third_party/ncnn/ before any native build runs. Bump the version/hash together.
  */
@@ -92,7 +92,7 @@ android {
         versionName = "2.6.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            // Real devices only; x86 emulators have no reliable Vulkan (see docs/waifu2x-upscaling-plan.md §4.2)
+            // Real devices only; x86 emulators have no reliable Vulkan.
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }

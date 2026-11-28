@@ -4,8 +4,8 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 import kotlin.math.min
 
 /**
- * Pure trigger decision, mirroring the iOS ReaderUpscaleDecision semantics
- * (docs/waifu2x-upscaling-plan.md §3.2): upscale only when a low-resolution source
+ * Pure trigger decision, mirroring the iOS ReaderUpscaleDecision semantics:
+ * upscale only when a low-resolution source
  * would be enlarged for display — the point is to add detail to content the screen
  * must scale up anyway, not to reprocess already-crisp pages.
  */

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import com.kmworks.kmreader.ui.reader.DenoiseLevel
 import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
@@ -41,6 +42,7 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 import com.kmworks.kmreader.ui.reader.UpscalePrecision
 import com.kmworks.kmreader.ui.reader.UpscaleSettings
 import com.kmworks.kmreader.ui.reader.rememberReaderWindowInsetsCss
+import kotlin.math.roundToInt
 
 /**
  * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub preferences).
@@ -198,8 +200,8 @@ fun ReaderDefaultsScreen(
                 }
             }
             item {
-                // waifu2x upscaling defaults (docs/waifu2x-upscaling-plan.md §8); mirrors the sheet's
-                // "Image processing" group so the global defaults page can configure it too.
+                // waifu2x upscaling defaults; mirrors the sheet's "Image processing" group so the
+                // global defaults page can configure it too.
                 SettingsSection(
                     title = stringResource(R.string.reader_upscale_title),
                     footer = stringResource(R.string.reader_upscale_hint),
@@ -215,6 +217,28 @@ fun ReaderDefaultsScreen(
                         },
                         icon = Icons.Outlined.PhotoFilter,
                     )
+                    if (divinaSettings.upscale.mode == UpscaleMode.Auto) {
+                        // The iOS preferences page puts this slider right under the mode picker and
+                        // only while Auto is selected; the range and 0.01 step are the same.
+                        SettingsRowDivider()
+                        SettingsSliderRow(
+                            title = stringResource(R.string.reader_upscale_auto_scale_title),
+                            value = divinaSettings.upscale.autoTriggerScale,
+                            valueRange =
+                                UpscaleConfig.MIN_AUTO_TRIGGER_SCALE..UpscaleConfig.MAX_AUTO_TRIGGER_SCALE,
+                            steps = 49,
+                            valueLabel = "%.2fx".format(divinaSettings.upscale.autoTriggerScale),
+                            onValueChange = { value ->
+                                readerSettingsViewModel.update {
+                                    it.copy(
+                                        upscale = it.upscale.copy(
+                                            autoTriggerScale = (value * 100f).roundToInt() / 100f,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    }
                     if (divinaSettings.upscale.mode != UpscaleMode.Off) {
                         SettingsRowDivider()
                         SettingsPickerRow(

@@ -3,6 +3,7 @@ package com.kmworks.kmreader.ui.reader
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import kotlin.math.max
 import kotlin.math.min
 
@@ -151,11 +152,16 @@ enum class UpscalePrecision(@StringRes val labelRes: Int) {
  * [preloadAhead] is how many *following pages* are preprocessed in the background. The current
  * visible page always gets a visible-priority request on its own; 0 therefore means "current page
  * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page item consumes two slots.
+ *
+ * [autoTriggerScale] is the Auto-mode threshold and is only meaningful in
+ * [UpscaleMode.Auto]: a page is upscaled when the display enlarges it by more than this factor.
+ * The store clamps it to [UpscaleConfig.MIN_AUTO_TRIGGER_SCALE]..[UpscaleConfig.MAX_AUTO_TRIGGER_SCALE],
+ * the same 1.0..1.5 range the iOS slider exposes, and its default (1.05) is the iOS default too.
  */
 data class UpscaleSettings(
     val mode: UpscaleMode = UpscaleMode.Auto,
     val denoise: DenoiseLevel = DenoiseLevel.Low,
-    val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+    val autoTriggerScale: Float = UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
     val precision: UpscalePrecision = UpscalePrecision.Auto,
     val preloadAhead: Int = DEFAULT_PRELOAD_AHEAD,
 ) {

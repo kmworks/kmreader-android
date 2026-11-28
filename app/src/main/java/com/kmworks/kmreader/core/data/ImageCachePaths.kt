@@ -11,7 +11,7 @@ import java.io.File
  * ```
  * cache/images/<instanceKey>/pages     reader page images
  * cache/images/<instanceKey>/covers    book / series / collection / read list covers
- * cache/images/<instanceKey>/enhanced  waifu2x-upscaled page images (docs/waifu2x-upscaling-plan.md §6)
+ * cache/images/<instanceKey>/enhanced  waifu2x-upscaled page images
  * ```
  *
  * Every server instance gets its own namespace (same identity the instance list dedupes on:

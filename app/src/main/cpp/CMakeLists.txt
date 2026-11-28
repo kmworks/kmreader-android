@@ -1,4 +1,4 @@
-# waifu2x upscaling via ncnn + Vulkan (see docs/waifu2x-upscaling-plan.md §4.3)
+# waifu2x upscaling via ncnn + Vulkan
 cmake_minimum_required(VERSION 3.22.1)
 project(waifu2x-jni CXX)
 

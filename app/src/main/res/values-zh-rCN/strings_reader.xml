@@ -42,6 +42,8 @@
     <string name="reader_crop_title">裁边模式</string>
     <string name="reader_crop_hint">裁掉页面四周与底色相同的留白；关闭后按原图显示。</string>
     <string name="reader_upscale_mode_title">超分模式</string>
+    <string name="reader_upscale_auto_scale_title">自动触发阈值</string>
+    <string name="reader_upscale_auto_scale_hint">屏幕需要把源图放大超过该倍数才会超分。1.05 为 iOS 默认值，调高后处理的页面会变少。</string>
     <string name="reader_upscale_title">Waifu2x 超分</string>
     <string name="reader_upscale_denoise_title">降噪强度</string>
     <string name="reader_upscale_hint">在设备端将低分辨率页图放大 2 倍（ncnn + Vulkan）。自动模式仅对需要放大显示的页图生效。降噪越强越能抹平 JPEG 噪点，但会弱化细节。</string>

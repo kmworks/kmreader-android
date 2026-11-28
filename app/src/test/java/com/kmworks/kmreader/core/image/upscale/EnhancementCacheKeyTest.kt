@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Cache-key layout (docs/waifu2x-upscaling-plan.md §6).
+ * Cache-key layout.
  *
  * A page's key is [EnhancementCache.pageKey] (URL + [UpscaleConfig.MODEL_SIGNATURE]) plus denoise
  * and precision *variant* suffixes. The split is what stops a denoise switch from re-running the
