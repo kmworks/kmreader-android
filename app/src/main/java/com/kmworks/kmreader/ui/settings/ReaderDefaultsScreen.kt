@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.ViewAgenda
@@ -34,13 +33,12 @@ import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubSettingsContent
 import com.kmworks.kmreader.ui.reader.EpubThemePresetsSheet
 import com.kmworks.kmreader.ui.reader.PageLayout
-import com.kmworks.kmreader.ui.reader.PdfSettingsContent
 import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.rememberReaderWindowInsetsCss
 
 /**
- * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub/Pdf preferences).
+ * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub preferences).
  *
  * Semantics mirror the original: these defaults are GLOBAL preferences, persisted and effective immediately;
  * direction/layout/split-wide/solo-cover changes made inside a reader session live only for that session
@@ -66,11 +64,8 @@ fun ReaderDefaultsScreen(
     val divinaSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
     val epubSettings by readerSettingsViewModel.epubSettings.collectAsStateWithLifecycle()
     val epubOverlay by readerSettingsViewModel.epubOverlay.collectAsStateWithLifecycle()
-    val pdfSettings by readerSettingsViewModel.pdfSettings.collectAsStateWithLifecycle()
     // Mirrors the original AppConfig.progressRecordingThreshold (default 3; 0 = immediately)
     val progressThreshold by prefsViewModel.progressRecordingThreshold.collectAsStateWithLifecycle()
-    // PDF engine preference (device-local): native PdfRenderer vs the default androidx.pdf engine
-    val useNativePdfReader by prefsViewModel.useNativePdfReader.collectAsStateWithLifecycle()
     // A cutout switch on a device without a notch is a dead control: keep it visible but disabled
     // (hiding it makes the feature undiscoverable until the user changes phones).
     val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
@@ -95,7 +90,7 @@ fun ReaderDefaultsScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                // Shared by DIVINA, EPUB and PDF. Kept in its own section (rather than inside the
+                // Shared by DIVINA and EPUB. Kept in its own section (rather than inside the
                 // DIVINA card) so it reads as what it is: reader-wide behavior, not a DIVINA option
                 // — the precedent is volumeButtonPageTurnEnabled, which is also a shared switch.
                 SettingsSection(
@@ -150,7 +145,7 @@ fun ReaderDefaultsScreen(
                         },
                     )
                     SettingsRowDivider()
-                    // Shared by all three readers (DIVINA, EPUB, PDF) and off by default, mirroring
+                    // Shared by both readers (DIVINA, EPUB) and off by default, mirroring
                     // the original volumeButtonPageTurnEnabled AppStorage key.
                     SettingsSwitchRow(
                         title = stringResource(R.string.reader_volume_button_page_turn),
@@ -227,33 +222,6 @@ fun ReaderDefaultsScreen(
                         onOverlayChange = { new -> readerSettingsViewModel.updateEpubOverlay { new } },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
-                }
-            }
-            item {
-                SettingsSection(title = "PDF") {
-                    SettingsSwitchRow(
-                        title = stringResource(R.string.pdf_native_engine),
-                        subtitle = stringResource(
-                            if (useNativePdfReader) {
-                                R.string.pdf_native_engine_hint
-                            } else {
-                                R.string.pdf_comic_engine_hint
-                            },
-                        ),
-                        checked = useNativePdfReader,
-                        onCheckedChange = prefsViewModel::setUseNativePdfReader,
-                        icon = Icons.Outlined.PictureAsPdf,
-                    )
-                    // Reading options below belong to the PDF reader; the comic reader has its own
-                    // defaults page, exactly as the "Use Native PDF Reader" switch gates them on iOS.
-                    if (useNativePdfReader) {
-                        SettingsRowDivider()
-                        PdfSettingsContent(
-                            settings = pdfSettings,
-                            onSettingsChange = { new -> readerSettingsViewModel.updatePdf { new } },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
                 }
             }
         }

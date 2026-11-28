@@ -42,7 +42,7 @@ api/          Pinned OpenAPI snapshot + sha256 — the versioned wire contract
 core/api/     Retrofit client GENERATED from api/openapi.json (openApiGenerate runs at build time,
               plus deterministic post-generation patches in core/api/build.gradle.kts)
 app/src/main/java/com/kmworks/kmreader/
-  core/       Data, network, downloads, readers (EPUB/PDF/DIVINA), tracker, komf,
+  core/       Data, network, downloads, readers (EPUB/DIVINA), tracker, komf,
               settings, SSE, stats, logging
   data/       UI navigation and page models
   ui/         Compose screens per feature area; ui/components holds shared UI

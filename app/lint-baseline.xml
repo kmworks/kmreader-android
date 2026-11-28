@@ -172,15 +172,4 @@
             column="9"/>
     </issue>
 
-    <issue
-        id="ClickableViewAccessibility"
-        message="Custom view `DiscretePdfContainer` overrides `onTouchEvent` but not `performClick`"
-        errorLine1="    override fun onTouchEvent(ev: MotionEvent): Boolean {"
-        errorLine2="                 ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/kmworks/kmreader/ui/reader/DiscretePdfContainer.kt"
-            line="150"
-            column="18"/>
-    </issue>
-
 </issues>

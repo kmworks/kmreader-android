@@ -557,7 +557,7 @@ fun ReaderPageJumpSheet(
     onDismiss: () -> Unit,
     imageLoader: ImageLoader? = null,
     isRtl: Boolean = false,
-    /** Preview model per 1-based page: a remote URL (DIVINA) or a local render key (PDF pages). */
+    /** Preview model per 1-based page: a remote URL or a local rasterized-page file. */
     pageThumbnailModel: (Int) -> Any? = { null },
     onShare: ((Int) -> Unit)? = null,
 ) {

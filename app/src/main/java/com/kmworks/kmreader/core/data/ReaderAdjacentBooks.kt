@@ -7,7 +7,7 @@ import com.kmworks.kmreader.data.Book
  * Books adjacent to the one being read, resolved for the end-of-book page (mirrors the original
  * ReaderSegment.previousBook/nextBook, filled from the deferred resolveAdjacentBooks lookup).
  *
- * Shared by the three readers (DIVINA, EPUB, PDF), so it lives next to the resolver instead of the
+ * Shared by both readers (DIVINA, EPUB), so it lives next to the resolver instead of the
  * DIVINA view model.
  */
 data class ReaderAdjacentBooks(

@@ -128,8 +128,8 @@ data class Book(
      * Reader route decided from [mediaType] and [epubDivinaCompatible] (mirrors the webui's
      * `mediaProfile === 'EPUB' && !epubDivinaCompatible`): a DIVINA-compatible EPUB carries
      * server-rendered pages and opens in the DIVINA reader like any archive, only a
-     * WebPub/whole-file EPUB opens in the EPUB reader. PDF gets its reader, everything else
-     * is the DIVINA reader. An empty/unknown value opens DIVINA, the same fallback the old lookup had.
+     * WebPub/whole-file EPUB opens in the EPUB reader; PDF and everything else open in the DIVINA
+     * reader. An empty/unknown value opens DIVINA, the same fallback the old lookup had.
      */
     val readerFormat: String
         get() = when {

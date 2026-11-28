@@ -30,12 +30,9 @@ navigation model, translated to Android containers only.
 - **EPUB reader** on the WebView + ReadiumCSS path: theme presets, typography (font size, weight,
   line height, margins, columns), publisher styles, flow style, page-turn animation, nested table of
   contents, and importable custom fonts.
-- **PDF reading** with a choice of reader, matching the iOS app: **Use Native PDF Reader** (Reader
-  defaults → PDF, on by default) opens PDFs in the dedicated AndroidX PDF viewer with a text layer
-  for selection/search, table of contents, page jump, continuous scroll, page presentation,
-  solo-cover, reading background, and progress overlay. Turning it off opens PDFs in the DIVINA
-  comic reader instead — the better fit for comic and manga PDFs, and the only way a
-  downloaded PDF is rendered page-by-page from disk while offline.
+- **PDF reading** through the DIVINA reader: a PDF book is treated as one page per sheet, so
+  paging, zoom, reading direction and the end-page flow all work exactly as they do for an archive,
+  both online and from a downloaded `book.pdf` rasterized on demand.
 
 ### Browse and discovery
 
@@ -64,7 +61,7 @@ them from disk so a downloaded book opens without the server:
 | CBZ (zip comic archive) | one `book.cbz` file | DIVINA reader, pages extracted on demand |
 | CBR and Divina-compatible EPUB | page images | DIVINA reader, page files |
 | EPUB (webpub) | one `book.epub` file | EPUB reader, resources read straight from the zip |
-| PDF | one `book.pdf` file | PDF viewer (text layer), or the DIVINA reader when the native PDF reader is off — its pages are rasterized from disk on demand |
+| PDF | one `book.pdf` file | DIVINA reader, pages rasterized from disk on demand |
 
 Divina rendering places local page files in front of the network, EPUB resources fall back to the
 server when a zip entry is missing, and read progress and table-of-contents links are compared after
@@ -116,7 +113,7 @@ the Compose implementation is the source of truth once a screen ships.
 | `ui/library`, `ui/browse` | Library browse, filters, search |
 | `ui/lists` | Collections, read lists, smart lists, detail and edit sheets |
 | `ui/detail` | Series, book, one-shot detail; edit and komf sheets |
-| `ui/reader` | DIVINA, EPUB, PDF readers; settings; custom fonts |
+| `ui/reader` | DIVINA and EPUB readers; settings; custom fonts |
 | `ui/offline` | Download management |
 | `ui/tracker`, `ui/stats` | Tracker accounts and reading stats |
 | `ui/settings` | All settings sub-pages, servers, logs, about, licenses |

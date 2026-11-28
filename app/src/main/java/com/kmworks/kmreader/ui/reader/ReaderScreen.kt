@@ -167,7 +167,7 @@ private val PageLine = Color.White.copy(alpha = 0.12f)
  * - Preloading: ReaderPreloadProfile window + 0.3s debounce + "preload on Wi-Fi only" gating
  * - End of book: the last cell is the end page (previous/next book hint, mirrors the original
  *   ReaderViewItem.end); the next book is opened in this same session, keeping the reader options,
- *   or handed to [onOpenBook] when it is read by another reader (EPUB/PDF)
+ *   or handed to [onOpenBook] when it is read by another reader (EPUB)
  * - Start of book: symmetric, the first cell is the previous book's end page (the original appends
  *   `.end` after every segment, so the item before a segment's first page is the previous segment's
  *   end page); turning back past it reopens that book on its own progress
@@ -183,7 +183,7 @@ fun ReaderScreen(
     onVisitSeries: (Book) -> Unit = {},
     onOpenReadList: (Int) -> Unit = {},
     onBrowseFilter: (String) -> Unit = {},
-    /** Hands a book another reader owns (EPUB/PDF) to the route; [startAtEnd] opens it on its last page. */
+    /** Hands a book another reader owns (EPUB) to the route; [startAtEnd] opens it on its last page. */
     onOpenBook: (Book, Boolean) -> Unit = { _, _ -> },
     /** The read list the entry book was opened from (null from everywhere else); the session keeps its order. */
     readListStableId: Int? = null,
@@ -604,11 +604,11 @@ fun ReaderScreen(
     }
 
     // Opens the next book from the end page. Progress is flushed first and the current reader options
-    // are kept (mirrors the original openAdjacentBook); a book another reader handles (EPUB/PDF) is
+    // are kept (mirrors the original openAdjacentBook); a book another reader handles (EPUB) is
     // handed back to the route so that reader takes over.
     fun openNext(next: Book) {
         viewModel.flushProgress(page)
-        if (next.readerFormat != "CBZ") {
+        if (next.readerFormat == "EPUB") {
             onOpenBook(next, false)
             return
         }
@@ -620,7 +620,7 @@ fun ReaderScreen(
     // record the book as finished, and the seam card is a way back, not a way to finish it twice.
     fun openPrevious(previous: Book) {
         viewModel.flushProgress(page)
-        if (previous.readerFormat != "CBZ") {
+        if (previous.readerFormat == "EPUB") {
             // Another reader takes over and resumes its own progress (startAtEnd stays false)
             onOpenBook(previous, false)
             return

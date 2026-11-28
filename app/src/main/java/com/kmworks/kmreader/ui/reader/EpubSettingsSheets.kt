@@ -438,7 +438,7 @@ fun EpubSettingsSheet(
     settings: EpubReaderSettings,
     onSettingsChange: (EpubReaderSettings) -> Unit,
     /**
-     * Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA and PDF.
+     * Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA.
      * Passed as the DIVINA settings object because that is where they are persisted, mirroring
      * volumeButtonPageTurnEnabled.
      */

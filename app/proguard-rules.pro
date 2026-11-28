@@ -1,8 +1,8 @@
 # R8 configuration for the release build.
 #
-# Compose, Hilt, Room, WorkManager, Coil, OkHttp, androidx.pdf and
-# kotlinx.serialization ship their own consumer rules; the entries below cover
-# what this app adds on top of them.
+# Compose, Hilt, Room, WorkManager, Coil, OkHttp and kotlinx.serialization
+# ship their own consumer rules; the entries below cover what this app adds on
+# top of them.
 
 # ---- kotlinx.serialization -------------------------------------------------
 # The wire contract with Komga and the trackers is property names, so the
@@ -32,9 +32,3 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
-
-# ---- PdfBox-Android --------------------------------------------------------
-# Optional JPEG2000 decoder that pdfbox-android references from JPXFilter but
-# does not ship; outline parsing never touches image filters, so it is safe to
-# be absent (only PDFs with JPXDecode image streams would need it at runtime).
--dontwarn com.gemalto.jp2.**

@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.BugReport
@@ -92,7 +91,6 @@ import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.core.sse.SseConnectionState
 import com.kmworks.kmreader.ui.RootViewModel
 import com.kmworks.kmreader.ui.update.AppUpdateViewModel
-import com.kmworks.kmreader.core.pdf.PdfRepository
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
@@ -118,7 +116,6 @@ data class CacheUsage(val bytes: Long = 0L, val count: Int = 0)
 @HiltViewModel
 class CacheSettingsViewModel @Inject constructor(
     private val imageCaches: ImageCacheStore,
-    private val pdfRepository: PdfRepository,
 ) : ViewModel() {
 
     private val _pageUsage = MutableStateFlow(CacheUsage())
@@ -126,10 +123,6 @@ class CacheSettingsViewModel @Inject constructor(
 
     private val _coverUsage = MutableStateFlow(CacheUsage())
     val coverUsage: StateFlow<CacheUsage> = _coverUsage.asStateFlow()
-
-    /** Whole-book PDF downloads share the settings screen but have no dedicated cache kind. */
-    private val _pdfBytes = MutableStateFlow(0L)
-    val pdfBytes: StateFlow<Long> = _pdfBytes.asStateFlow()
 
     init {
         refresh()
@@ -139,7 +132,6 @@ class CacheSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _pageUsage.value = usageOf(ImageCachePaths.KIND_PAGES)
             _coverUsage.value = usageOf(ImageCachePaths.KIND_COVERS)
-            _pdfBytes.value = runCatching { pdfRepository.cacheBytes() }.getOrDefault(0L)
         }
     }
 
@@ -157,15 +149,6 @@ class CacheSettingsViewModel @Inject constructor(
             refresh()
         }
     }
-
-    fun clearPdfCache() {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { pdfRepository.clearAll() }
-                .onSuccess { AppLog.i("Cache", "pdf cache cleared") }
-                .onFailure { AppLog.e("Cache", "clear pdf cache failed", it) }
-            refresh()
-        }
-    }
 }
 
 /** Which cache clear the confirmation dialog is asking about. */
@@ -173,7 +156,7 @@ private data class CacheClearRequest(val kind: String, val allServers: Boolean)
 
 /**
  * Cache settings (mirrors iOS SettingsCacheView): a card per cache kind with its own usage, cap,
- * clear actions (and, for covers, the refresh interval), plus the downloaded PDF cache.
+ * clear actions (and, for covers, the refresh interval).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,7 +167,6 @@ fun CacheSettingsScreen(
 ) {
     val pageUsage by viewModel.pageUsage.collectAsStateWithLifecycle()
     val coverUsage by viewModel.coverUsage.collectAsStateWithLifecycle()
-    val pdfBytes by viewModel.pdfBytes.collectAsStateWithLifecycle()
 
     val pageLimitMb by prefsViewModel.pageCacheLimitMb.collectAsStateWithLifecycle()
     val coverLimitMb by prefsViewModel.coverCacheLimitMb.collectAsStateWithLifecycle()
@@ -196,7 +178,6 @@ fun CacheSettingsScreen(
     var expirationDraft by rememberSaveable(expirationDays) { mutableFloatStateOf(expirationDays.toFloat()) }
 
     var pendingClear by remember { mutableStateOf<CacheClearRequest?>(null) }
-    var pdfClearPending by remember { mutableStateOf(false) }
 
     SystemScaffold(title = stringResource(R.string.settings_cache), onBack = onBack) { padding ->
         LazyColumn(
@@ -256,20 +237,6 @@ fun CacheSettingsScreen(
                     },
                 )
             }
-            item {
-                SettingsSection(title = stringResource(R.string.settings_cache_pdf)) {
-                    SettingsValueRow(
-                        title = stringResource(R.string.settings_cache_pdf_size),
-                        value = formatCacheBytes(pdfBytes),
-                    )
-                    SettingsRowDivider()
-                    SettingsDangerRow(
-                        text = stringResource(R.string.settings_cache_clear_action),
-                        icon = Icons.Filled.Delete,
-                        onClick = { pdfClearPending = true },
-                    )
-                }
-            }
         }
     }
 
@@ -303,29 +270,6 @@ fun CacheSettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingClear = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
-        )
-    }
-
-    if (pdfClearPending) {
-        AlertDialog(
-            onDismissRequest = { pdfClearPending = false },
-            title = { Text(stringResource(R.string.settings_cache_pdf)) },
-            text = { Text(stringResource(R.string.settings_cache_clear_pdf_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pdfClearPending = false
-                        viewModel.clearPdfCache()
-                    },
-                ) {
-                    Text(stringResource(R.string.settings_cache_clear_action))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pdfClearPending = false }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -967,7 +911,6 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
         "Material Icons Extended" to "Apache-2.0",
         "Kotlin Coroutines" to "Apache-2.0",
         stringResource(R.string.settings_license_readium) to "BSD-3-Clause",
-        stringResource(R.string.settings_license_pdfium) to "Apache-2.0",
     )
     SystemScaffold(title = stringResource(R.string.settings_licenses), onBack = onBack) { padding ->
         LazyColumn(

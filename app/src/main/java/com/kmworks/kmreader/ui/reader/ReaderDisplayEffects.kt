@@ -61,7 +61,7 @@ internal fun rememberReaderWindowInsetsCss(): ReaderWindowInsetsCss {
 }
 
 /**
- * Keeps the screen awake while [enabled] (shared by DIVINA, EPUB and PDF).
+ * Keeps the screen awake while [enabled] (shared by DIVINA and EPUB).
  *
  * Called ONCE, by the navigation host, for the page the stack draws on top -- never by the readers
  * themselves. [com.kmworks.kmreader.ui.AppRoot] keeps departing and covered readers composed on the

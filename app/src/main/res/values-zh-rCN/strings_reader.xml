@@ -14,9 +14,9 @@
     <string name="reader_controls_gradient">控件渐变背景</string>
     <string name="reader_show_progress_bar">阅读时显示进度条</string>
     <string name="reader_keep_screen_awake">阅读时保持屏幕常亮</string>
-    <!-- 共享阅读行为：一个开关同时作用于 DIVINA、EPUB、PDF 三个阅读器 -->
+    <!-- 共享阅读行为：一个开关同时作用于 DIVINA、EPUB 两个阅读器 -->
     <string name="reader_behavior_section">阅读行为</string>
-    <string name="reader_behavior_section_hint">同时作用于 DIVINA、EPUB 与 PDF 阅读器。</string>
+    <string name="reader_behavior_section_hint">同时作用于 DIVINA 与 EPUB 阅读器。</string>
     <string name="reader_draw_under_cutout">刘海区域显示内容</string>
     <string name="reader_draw_under_cutout_hint">关闭时正文与页面避开刘海或挖孔区域。</string>
     <string name="reader_no_display_cutout">本机没有刘海或挖孔。</string>
@@ -128,7 +128,6 @@
     <string name="reader_back">返回</string>
     <string name="reader_incognito">隐私阅读</string>
     <string name="reader_connection_required">需要连接服务器</string>
-    <string name="reader_volume_pdf">第 %1$s 卷 · PDF</string>
 
     <!-- Reader: end of book page (mirrors the original end-page content) -->
     <string name="reader_end_previous_book">上一本</string>
@@ -137,17 +136,6 @@
     <string name="reader_end_unread_left">还剩 %1$d 本未读</string>
     <string name="reader_end_pages">%1$d 页</string>
     <string name="reader_end_read_next">阅读下一本</string>
-
-    <!-- Reader: PDF -->
-    <string name="pdf_continuous_scroll">连续滚动</string>
-    <string name="pdf_downloading">正在下载 PDF…</string>
-    <string name="pdf_downloading_progress">正在下载 PDF… %1$d%%</string>
-    <string name="pdf_preparing">正在准备 PDF…</string>
-    <string name="pdf_search_hint">在 PDF 中搜索</string>
-    <string name="pdf_searching">正在搜索…</string>
-    <string name="pdf_search_no_matches">未找到匹配项</string>
-    <string name="pdf_search_results">%1$d 个结果</string>
-    <string name="pdf_load_failed">PDF 加载失败</string>
 
     <!-- Reader: EPUB settings -->
     <string name="epub_settings_title">EPUB 设置</string>
@@ -183,7 +171,6 @@
     <string name="epub_new_preset">新预设 %1$d</string>
     <string name="epub_no_theme_presets">暂无主题预设</string>
     <string name="epub_toc">目录</string>
-    <string name="pdf_toc">目录</string>
     <string name="epub_toc_current">当前</string>
     <string name="epub_expand">展开</string>
     <string name="epub_collapse">收起</string>
@@ -257,20 +244,4 @@
     <string name="fonts_imported_installed">已安装的自定义字体</string>
     <string name="fonts_installed_total">已安装 %1$d 款自定义字体</string>
     <string name="fonts_installed_count">已安装 %1$d 款</string>
-    <string name="pdf_settings_title">PDF 设置</string>
-    <string name="pdf_section_paging">翻页</string>
-    <string name="pdf_continuous_scroll_hint">关闭时逐页翻页</string>
-    <string name="pdf_page_presentation">页面呈现</string>
-    <string name="pdf_presentation_auto">自动</string>
-    <string name="pdf_presentation_single">单页</string>
-    <string name="pdf_presentation_single_continuous">单页连续</string>
-    <string name="pdf_presentation_dual_continuous">双页连续</string>
-    <string name="pdf_solo_cover">封面独立成页</string>
-    <string name="pdf_section_appearance">外观</string>
-    <string name="pdf_reading_background">阅读背景</string>
-    <string name="pdf_section_overlay">阅读覆盖层</string>
-    <string name="pdf_show_progress">阅读时显示进度条</string>
-    <string name="pdf_native_engine">使用原生 PDF 阅读器</string>
-    <string name="pdf_native_engine_hint">PDF 使用 PDF 阅读器（系统引擎）打开，文字较多的 PDF 可选中文字与搜索。</string>
-    <string name="pdf_comic_engine_hint">PDF 使用 DIVINA 漫画阅读器打开，适合漫画/条漫 PDF；已下载的 PDF 离线时按页渲染。</string>
 </resources>

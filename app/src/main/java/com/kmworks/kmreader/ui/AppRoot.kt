@@ -101,7 +101,6 @@ import com.kmworks.kmreader.ui.reader.CustomFontsScreen
 import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubReaderScreen
 import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
-import com.kmworks.kmreader.ui.reader.PdfReaderScreen
 import com.kmworks.kmreader.ui.reader.ReaderScreen
 import com.kmworks.kmreader.ui.settings.AboutScreen
 import com.kmworks.kmreader.ui.settings.ServerListScreen
@@ -275,8 +274,6 @@ fun AppRoot(
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
     // (page background only) instead of flashing the login page before the saved session arrives.
     val sessionGate by rootViewModel.sessionGate.collectAsStateWithLifecycle()
-    // PDF reader selection (dedicated PDF reader vs DIVINA comic reader); device-local preference.
-    val useNativePdfReader by rootViewModel.useNativePdfReader.collectAsStateWithLifecycle()
     // Auto update check: the launch lookup prompts only when a release newer than this build exists, and
     // at most once a day (the check itself is throttled in the view model; the About page can force one).
     val updateState by updateViewModel.state.collectAsStateWithLifecycle()
@@ -739,7 +736,8 @@ fun AppRoot(
                 }
 
                 // Route the reader by the format the book carries (Book.readerFormat, from the server
-                // mediaType): CBZ/CBR -> Divina, EPUB -> EPUB, PDF -> PDF.
+                // mediaType): EPUB -> EPUB reader, everything else (CBZ/CBR/PDF) -> DIVINA, which
+                // renders PDF pages the same way it renders archive pages.
                 is ReaderRoute -> {
                     // Cross-page navigation actions from the in-reader detail sheet push the target page
                     // above the reader, so back returns into the book being read. A neighbouring book is
@@ -775,44 +773,8 @@ fun AppRoot(
                             },
                         )
 
-                        // PDF: the dedicated PDF reader (system PDF engine, text layer) or the
-                        // DIVINA comic reader; the choice is the "Use Native PDF Reader" preference.
-                        "PDF" -> if (useNativePdfReader) {
-                            PdfReaderScreen(
-                                book = route.book,
-                                onBack = pop,
-                                incognito = route.incognito,
-                                readListStableId = route.readListStableId,
-                                startAtEnd = route.startAtEnd,
-                                onOpenBook = ::openAdjacent,
-                                onVisitSeries = {
-                                    pop()
-                                    visitSeriesOfBook(it)
-                                },
-                                onOpenReadList = { push(ReadListDetailRoute(it)) },
-                                onBrowseFilter = { filter ->
-                                    pushFilteredLibrary(filter, LibraryContentType.Books)
-                                },
-                            )
-                        } else {
-                            ReaderScreen(
-                                book = route.book,
-                                onBack = pop,
-                                incognito = route.incognito,
-                                readListStableId = route.readListStableId,
-                                startAtEnd = route.startAtEnd,
-                                onVisitSeries = {
-                                    pop()
-                                    visitSeriesOfBook(it)
-                                },
-                                onOpenReadList = { push(ReadListDetailRoute(it)) },
-                                onBrowseFilter = { filter ->
-                                    pushFilteredLibrary(filter, LibraryContentType.Books)
-                                },
-                                onOpenBook = ::openAdjacent,
-                            )
-                        }
-
+                        // PDF (and any other non-EPUB format) opens in the DIVINA comic reader, which
+                        // renders each page — online from the server, offline from the downloaded PDF.
                         else -> ReaderScreen(
                             book = route.book,
                             onBack = pop,

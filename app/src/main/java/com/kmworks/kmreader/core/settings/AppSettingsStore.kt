@@ -105,15 +105,6 @@ class AppSettingsStore @Inject constructor(
         emitChange(ClientSettingKeys.DIVINA_DIRECTION, direction)
     }
 
-    /**
-     * Open PDFs with the dedicated PDF reader instead of the default DIVINA comic reader.
-     * Device-local (not part of client-settings sync): rendering quality depends on the device.
-     */
-    val useNativePdfReader: Flow<Boolean> = booleanPref(Keys.USE_NATIVE_PDF_READER, false)
-
-    suspend fun setUseNativePdfReader(enabled: Boolean) =
-        writeBoolean(Keys.USE_NATIVE_PDF_READER, enabled)
-
     // --- Per-server-instance preferences -------------------------------------------------------
     // Library scope and pinned libraries name Komga library ids, which only mean something on the server
     // they came from. Their preference names therefore carry the instance key, and a scope read on a
@@ -554,7 +545,6 @@ class AppSettingsStore @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val TRUE_BLACK = booleanPreferencesKey("true_black")
         val DIVINA_DIRECTION = stringPreferencesKey("divina_default_direction")
-        val USE_NATIVE_PDF_READER = booleanPreferencesKey("use_native_pdf_reader")
         val PINNED_LIBRARY_IDS = stringPreferencesKey("dashboard_pinned_library_ids")
         val PINNED_COLLECTION_IDS = stringPreferencesKey("pinned_collection_ids")
         val PINNED_READLIST_IDS = stringPreferencesKey("pinned_readlist_ids")

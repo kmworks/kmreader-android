@@ -36,10 +36,6 @@ class SettingsPrefsViewModel @Inject constructor(
     val divinaDefaultDirection: StateFlow<String> = appSettings.divinaDefaultDirection
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.DEFAULT_DIRECTION)
 
-    /** PDF engine: the dedicated PDF reader (true) or the comic reader (false, default). */
-    val useNativePdfReader: StateFlow<Boolean> = appSettings.useNativePdfReader
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
     /** App icon variant (primary/classic/legacy; persisted, applied via manifest aliases). */
     val appIcon: StateFlow<String> = appSettings.appIcon
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsStore.APP_ICON_PRIMARY)
@@ -137,10 +133,6 @@ class SettingsPrefsViewModel @Inject constructor(
 
     fun setDivinaDefaultDirection(direction: String) {
         viewModelScope.launch { appSettings.setDivinaDefaultDirection(direction) }
-    }
-
-    fun setUseNativePdfReader(enabled: Boolean) {
-        viewModelScope.launch { appSettings.setUseNativePdfReader(enabled) }
     }
 
     /**

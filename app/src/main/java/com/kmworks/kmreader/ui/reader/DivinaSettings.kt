@@ -137,14 +137,14 @@ data class DivinaSettings(
     val preloadProfile: PreloadProfile = PreloadProfile.Balanced,
     val borderCrop: BorderCropMode = BorderCropMode.Disabled,
     /**
-     * Keep the display awake while a book is open. Shared by all three readers (DIVINA, EPUB and
-     * PDF): one switch under Reader Defaults, mirrored in each reader's settings panel, so it is
-     * never "on in the comic reader but off in the EPUB reader" by accident.
+     * Keep the display awake while a book is open. Shared by both readers (DIVINA and EPUB): one
+     * switch under Reader Defaults, mirrored in each reader's settings panel, so it is never
+     * "on in the comic reader but off in the EPUB reader" by accident.
      */
     val keepScreenAwake: Boolean = false,
     /**
-     * Let reader content run into the display cutout (notch / punch-hole) band. Shared by all
-     * three readers, mirrors Koharia's `drawUnderCutout` with the same default: off keeps text and
+     * Let reader content run into the display cutout (notch / punch-hole) band. Shared by both
+     * readers, mirrors Koharia's `drawUnderCutout` with the same default: off keeps text and
      * pages clear of the cutout with a band of the reader's own background, on gives the page the
      * whole screen. Off is the default so that a notch never swallows a header line or a page's
      * first row out of the box; full-bleed is the deliberate choice, not the shipped look. The
