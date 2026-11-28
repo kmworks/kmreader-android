@@ -153,6 +153,7 @@ sdk.dir=/path/to/Android/Sdk
 ```bash
 ./gradlew :app:assembleDebug        # APK at app/build/outputs/apk/debug/
 ./gradlew :app:installDebug         # install on a connected device
+./gradlew :app:lintDebug            # lint gate; app/lint-baseline.xml freezes pre-existing findings
 ./gradlew :core:api:openApiGenerate # regenerate the API client from api/openapi.json
 ```
 
