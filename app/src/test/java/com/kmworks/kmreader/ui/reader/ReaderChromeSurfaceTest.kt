@@ -2,6 +2,7 @@ package com.kmworks.kmreader.ui.reader
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,5 +73,15 @@ class ReaderChromeSurfaceTest {
         val dark = readerChromeSurface(darkPage, darkInk)
         val light = readerChromeSurface(lightPage, lightInk)
         assertTrue(dark.border.alpha > light.border.alpha)
+    }
+
+    @Test
+    fun `the shadow is a hint, and the pill gets the heavier one`() {
+        val chrome = readerChromeSurface(lightPage, lightInk)
+        val pill = readerChromeSurface(lightPage, lightInk, prominent = true)
+        assertTrue("the chrome keeps a light shadow", chrome.shadowElevation > 0.dp)
+        assertTrue("a stacked panel of 6dp capsules was the heavy look", chrome.shadowElevation <= 3.dp)
+        assertTrue(pill.shadowElevation > chrome.shadowElevation)
+        assertTrue(pill.shadowElevation < 6.dp)
     }
 }

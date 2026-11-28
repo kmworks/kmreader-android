@@ -2,6 +2,8 @@ package com.kmworks.kmreader.ui.reader
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * Tones for a surface drawn *on the page* — the floating reader chrome, the quick-action capsules
@@ -23,10 +25,16 @@ import androidx.compose.ui.graphics.luminance
  *   foreground on a dark one.
  * @property border hairline in the foreground colour — the separation on a light page, and the edge
  *   that defines the shape on a dark one.
+ * @property shadowElevation a shadow light enough to be a hint, not a drop shadow. It only reads on
+ *   a light page (black on black is nothing), and there the hairline alone already draws the edge —
+ *   so this is depth for the eye, not the separation itself. The stack of capsules in the
+ *   quick-action panel is why it stays at a couple of dp: at 6dp each the six of them merged into
+ *   one heavy shadow over the page.
  */
 internal data class ReaderChromeSurface(
     val background: Color,
     val border: Color,
+    val shadowElevation: Dp,
 )
 
 /** Step the chrome's fill away from a dark page. */
@@ -34,6 +42,10 @@ private const val CHROME_LIFT = 0.10f
 
 /** The one affordance that has to win the eye: the return pill offered after an explicit jump. */
 private const val RETURN_LIFT = 0.18f
+
+/** Depth hint for the chrome; the pill gets one step more. Both are deliberately under 5dp. */
+private val CHROME_SHADOW = 2.dp
+private val PILL_SHADOW = 3.dp
 
 /** Nothing on the page should ever be filled with more than this much foreground — that reads as a dialog. */
 private const val MAX_LIFT = 0.4f
@@ -76,5 +88,6 @@ internal fun readerChromeSurface(
                 else -> 0.10f
             },
         ),
+        shadowElevation = if (prominent) PILL_SHADOW else CHROME_SHADOW,
     )
 }

@@ -84,7 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1767,7 +1767,7 @@ private fun RealEpubReader(
                             ),
                             modifier = Modifier
                                 .width(240.dp)
-                                .clip(RoundedCornerShape(22.dp))
+                                .shadow(chromeSurface.shadowElevation, RoundedCornerShape(22.dp))
                                 .background(chromeSurface.background)
                                 .padding(horizontal = 12.dp),
                         )
@@ -1866,7 +1866,7 @@ private fun RealEpubReader(
                     .align(Alignment.BottomStart)
                     .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .padding(start = 16.dp, bottom = 16.dp)
-                    .clip(CircleShape)
+                    .shadow(returnSurface.shadowElevation, CircleShape)
                     .background(returnSurface.background)
                     .border(1.dp, returnSurface.border, CircleShape)
                     .clickable {
@@ -2095,7 +2095,8 @@ private fun FloatingChromeButton(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(44.dp)
-            .clip(CircleShape)
+            // shadow() clips to the shape it draws, so the disc is already a circle here
+            .shadow(surface.shadowElevation, CircleShape)
             .background(surface.background)
             .border(1.dp, surface.border, CircleShape)
             .then(
@@ -2128,7 +2129,7 @@ private fun QuickActionCapsule(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(CircleShape)
+            .shadow(surface.shadowElevation, CircleShape)
             .background(surface.background)
             .border(1.dp, surface.border, CircleShape)
             .clickable(onClick = onClick)
