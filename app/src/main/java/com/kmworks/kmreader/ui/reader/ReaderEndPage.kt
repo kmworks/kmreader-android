@@ -79,6 +79,12 @@ internal fun ReaderEndPage(
     val next = adjacent.next
     // Caught up when the lookup finished and the series has nothing after this book
     val caughtUp = adjacent.loaded && next == null
+    // False while this card sits in a covered cover-deck slot: the deck composes it only to preload
+    // the page behind the one on screen, so every action here (the card taps, the retry, the card's
+    // own scroll) has to stay inert — the port of isUserInteractionEnabled = isActive on iOS. Compose
+    // still hit-tests a covered composable, so leaving them live let a tap meant for the visible page
+    // open the next book from underneath it.
+    val interactive = LocalCoverSlotInteractive.current
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isPortrait = maxHeight >= maxWidth
@@ -98,7 +104,7 @@ internal fun ReaderEndPage(
                 modifier = Modifier
                     .widthIn(max = 680.dp)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState(), enabled = interactive)
                     .padding(horizontal = 40.dp, vertical = 40.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -181,7 +187,7 @@ internal fun ReaderEndPage(
                     }
                 }
                 if (caughtUp) {
-                    TextButton(onClick = onClose) {
+                    TextButton(onClick = onClose, enabled = interactive) {
                         Text(stringResource(R.string.common_close), color = contentColor)
                     }
                 }
@@ -198,11 +204,13 @@ private fun PreviousSection(
     contentColor: Color,
     onOpen: (() -> Unit)?,
 ) {
+    // A card in a covered deck slot draws for preload only; its tap must not fire through the page above
+    val interactive = LocalCoverSlotInteractive.current
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             // Only a card with somewhere to go is clickable; without a callback the card stays inert
-            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier),
+            .then(if (onOpen != null && interactive) Modifier.clickable(onClick = onOpen) else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -259,10 +267,12 @@ private fun NextSection(
     contentColor: Color,
     onOpenNext: (Book) -> Unit,
 ) {
+    // Covered deck slot: the card and its "read next" strip stay inert (see ReaderEndPage)
+    val interactive = LocalCoverSlotInteractive.current
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onOpenNext(next) },
+            .clickable(enabled = interactive) { onOpenNext(next) },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -285,7 +295,7 @@ private fun NextSection(
             modifier = Modifier
                 .height(20.dp)
                 .fillMaxWidth()
-                .clickable { onOpenNext(next) },
+                .clickable(enabled = interactive) { onOpenNext(next) },
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -342,6 +352,7 @@ private fun CaughtUpSection(
 /** The sibling lookup failed (offline): say so instead of claiming the series is finished. */
 @Composable
 private fun RetrySection(contentColor: Color, onRetry: () -> Unit) {
+    val interactive = LocalCoverSlotInteractive.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -352,7 +363,7 @@ private fun RetrySection(contentColor: Color, onRetry: () -> Unit) {
             color = contentColor.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
         )
-        TextButton(onClick = onRetry) {
+        TextButton(onClick = onRetry, enabled = interactive) {
             Text(stringResource(R.string.common_retry), color = contentColor)
         }
     }
