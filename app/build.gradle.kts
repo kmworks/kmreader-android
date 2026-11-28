@@ -88,8 +88,8 @@ android {
         applicationId = "com.kmworks.kmreader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 23
-        versionName = "2.6.6"
+        versionCode = 24
+        versionName = "2.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // Real devices only; x86 emulators have no reliable Vulkan.
