@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,8 @@ fun ReaderSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val isWebtoon = direction == ReadingDirection.Webtoon
+    // Shared with the EPUB and PDF panels; disabled instead of hidden on a device without a cutout.
+    val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
 
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
@@ -75,10 +78,28 @@ fun ReaderSettingsSheet(
             SettingsToggleRow(stringResource(R.string.reader_show_progress_bar), settings.showProgressBar) { value ->
                 onUpdate { it.copy(showProgressBar = value) }
             }
-            // Mirrors the original ReaderSettingsSheet.keepScreenAwakeWhileReading (default false)
-            SettingsToggleRow(stringResource(R.string.reader_keep_screen_awake), settings.keepScreenAwake) { value ->
-                onUpdate { it.copy(keepScreenAwake = value) }
-            }
+            // Reading behavior shared by all three readers (one persisted switch per row; the
+            // Reader Defaults page mirrors the same values). Kept in the appearance group because
+            // both rows change what the window looks like while reading.
+            SettingsGroupTitle(stringResource(R.string.reader_behavior_section))
+            SettingsToggleRow(
+                label = stringResource(R.string.reader_keep_screen_awake),
+                checked = settings.keepScreenAwake,
+                onCheckedChange = { value -> onUpdate { it.copy(keepScreenAwake = value) } },
+            )
+            SettingsToggleRow(
+                label = stringResource(R.string.reader_draw_under_cutout),
+                subtitle = stringResource(
+                    if (hasDisplayCutout) {
+                        R.string.reader_draw_under_cutout_hint
+                    } else {
+                        R.string.reader_no_display_cutout
+                    },
+                ),
+                checked = settings.drawUnderCutout,
+                enabled = hasDisplayCutout,
+                onCheckedChange = { value -> onUpdate { it.copy(drawUnderCutout = value) } },
+            )
             if (isWebtoon) {
                 SettingsSliderRow(
                     label = stringResource(R.string.reader_webtoon_page_width),
@@ -104,6 +125,17 @@ fun ReaderSettingsSheet(
             }
             SettingsToggleRow(stringResource(R.string.reader_animate_tap_turns), settings.animateTapTurns) { value ->
                 onUpdate { it.copy(animateTapTurns = value) }
+            }
+            // Volume keys turn pages instead of changing the volume; shared with the EPUB and PDF
+            // readers (one persisted switch, mirroring the original volumeButtonPageTurnEnabled).
+            SettingsToggleRow(
+                stringResource(R.string.reader_volume_button_page_turn),
+                settings.volumeButtonPageTurnEnabled,
+            ) { value ->
+                onUpdate { it.copy(volumeButtonPageTurnEnabled = value) }
+            }
+            if (settings.volumeButtonPageTurnEnabled) {
+                SettingsHintText(stringResource(R.string.reader_volume_button_page_turn_hint))
             }
             SettingsChoiceRow(
                 label = stringResource(R.string.reader_tap_zone_layout),
@@ -266,19 +298,34 @@ private fun <T> SettingsChoiceRow(
 }
 
 @Composable
-private fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingsToggleRow(
+    label: String,
+    checked: Boolean,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

@@ -59,7 +59,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.TextFormat
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -67,7 +66,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -95,6 +94,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.CoverShadowStyle
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.GlassTopBarContentHeight
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
@@ -134,9 +134,11 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import com.kmworks.kmreader.ui.components.mediaStatusDetailLabel
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.lists.ListSelection
 
@@ -227,6 +229,10 @@ internal fun BookDetailBody(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Strings delivered from deferred callbacks (share intent, save result) are resolved here at
+    // composition: stringResource is a composable call, so it cannot run inside those callbacks.
+    val shareChooserTitle = stringResource(R.string.book_share_chooser)
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
     // real data: resolve DTO id from registry, fetch book; fall back to sample data
     val state by viewModel.uiState.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
@@ -273,7 +279,7 @@ internal fun BookDetailBody(
                     contentDescription = stringResource(R.string.common_more),
                 )
             }
-            DropdownMenu(
+            KmDropdownMenu(
                 expanded = menuOpen,
                 onDismissRequest = { menuOpen = false },
             ) {
@@ -290,7 +296,7 @@ internal fun BookDetailBody(
                             context.startActivity(
                                 Intent.createChooser(
                                     send,
-                                    context.getString(R.string.book_share_chooser),
+                                    shareChooserTitle,
                                 ),
                             )
                         }
@@ -635,7 +641,7 @@ internal fun BookDetailBody(
                             editOpen = false
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                                snackbarHostState.showSnackbar(saveFailedMsg)
                             }
                         }
                     }
@@ -655,7 +661,7 @@ internal fun BookDetailBody(
                             editOpen = false
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                                snackbarHostState.showSnackbar(saveFailedMsg)
                             }
                         }
                     }
@@ -713,7 +719,9 @@ internal fun BookHero(
             fallbackImageUrl = localCoverUrl,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
+            shadowStyle = CoverShadowStyle.Basic,
         )
         Spacer(Modifier.height(16.dp))
         if (seriesTitle != null) {
@@ -1059,11 +1067,15 @@ internal fun BookActionCard(
             // Mirrors iOS optimizedControlSize(.mini): mini capsule (height 28, 13pt text,
             // small icons)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                // Filled like the rest of the detail actions; an outlined capsule under the white
+                // primary button read as a different control family rather than the quieter sibling.
+                FilledTonalButton(
                     onClick = onReadIncognito,
                     modifier = Modifier
                         .weight(1f)
                         .height(28.dp),
+                    shape = CircleShape,
+                    colors = detailSecondaryButtonColors(),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(
@@ -1074,12 +1086,14 @@ internal fun BookActionCard(
                     Spacer(Modifier.width(4.dp))
                     Text(stringResource(R.string.book_peek), fontSize = 13.sp, maxLines = 1)
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDownloadToggle,
                     enabled = !downloaded,
                     modifier = Modifier
                         .weight(1f)
                         .height(28.dp),
+                    shape = CircleShape,
+                    colors = detailSecondaryButtonColors(),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(

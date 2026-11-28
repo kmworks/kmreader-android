@@ -45,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -152,7 +151,6 @@ fun ApiKeysScreen(
     viewModel: ApiKeysViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showAdd by remember { mutableStateOf(false) }
@@ -161,9 +159,13 @@ fun ApiKeysScreen(
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(state.messageRes) {
-        val res = state.messageRes ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(res))
+    // stringResource is composable, so the message is resolved during composition; the effect
+    // only delivers it (keyed on the same res id, so the delivery timing is unchanged).
+    val messageRes = state.messageRes
+    val message = messageRes?.let { stringResource(it) }
+    LaunchedEffect(messageRes) {
+        message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.consumeMessage()
     }
 

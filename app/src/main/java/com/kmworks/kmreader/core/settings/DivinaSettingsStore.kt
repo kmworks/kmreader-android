@@ -35,8 +35,11 @@ import kotlinx.coroutines.flow.map
 private val Context.divinaSettingsStore by preferencesDataStore(name = "divina_settings")
 
 /**
- * Persistence of DIVINA reader settings (mirrors the @AppStorage key semantics of the original
- * ReaderSettingsSheet).
+ * Persistence of reader settings (mirrors the @AppStorage key semantics of the original
+ * ReaderSettingsSheet). Despite the class name this is the one store behind all three readers:
+ * [DivinaSettings] holds the DIVINA options plus the switches shared by DIVINA/EPUB/PDF
+ * (keepScreenAwake, drawUnderCutout, volumeButtonPageTurnEnabled), while [EpubReaderSettings]
+ * and [PdfReaderSettings] serve the other two readers.
  * Key names match the original (readerBackground/showPageNumber/...), easing side-by-side debugging.
  */
 @Singleton
@@ -73,10 +76,12 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.UPSCALE_AUTO_SCALE] = next.upscale.autoTriggerScale
             prefs[Keys.UPSCALE_PRECISION] = next.upscale.precision.name
             prefs[Keys.KEEP_SCREEN_AWAKE] = next.keepScreenAwake
+            prefs[Keys.DRAW_UNDER_CUTOUT] = next.drawUnderCutout
             prefs[Keys.DEFAULT_PAGE_LAYOUT] = next.defaultPageLayout.name
             prefs[Keys.DEFAULT_SPLIT_WIDE_MODE] = next.defaultSplitWideMode.name
             prefs[Keys.DEFAULT_SOLO_COVER] = next.defaultSoloCoverPage
             prefs[Keys.FORCE_DEFAULT_DIRECTION] = next.forceDefaultDirection
+            prefs[Keys.VOLUME_BUTTON_PAGE_TURN] = next.volumeButtonPageTurnEnabled
         }
     }
 
@@ -280,10 +285,12 @@ class DivinaSettingsStore @Inject constructor(
                 precision = enumOrNull<UpscalePrecision>(this[Keys.UPSCALE_PRECISION]) ?: defaults.upscale.precision,
             ),
             keepScreenAwake = this[Keys.KEEP_SCREEN_AWAKE] ?: defaults.keepScreenAwake,
+            drawUnderCutout = this[Keys.DRAW_UNDER_CUTOUT] ?: defaults.drawUnderCutout,
             defaultPageLayout = enumOrNull<PageLayout>(this[Keys.DEFAULT_PAGE_LAYOUT]) ?: defaults.defaultPageLayout,
             defaultSplitWideMode = enumOrNull<SplitWidePageMode>(this[Keys.DEFAULT_SPLIT_WIDE_MODE]) ?: defaults.defaultSplitWideMode,
             defaultSoloCoverPage = this[Keys.DEFAULT_SOLO_COVER] ?: defaults.defaultSoloCoverPage,
             forceDefaultDirection = this[Keys.FORCE_DEFAULT_DIRECTION] ?: defaults.forceDefaultDirection,
+            volumeButtonPageTurnEnabled = this[Keys.VOLUME_BUTTON_PAGE_TURN] ?: defaults.volumeButtonPageTurnEnabled,
         )
     }
 
@@ -312,11 +319,17 @@ class DivinaSettingsStore @Inject constructor(
         val UPSCALE_DENOISE = stringPreferencesKey("divinaWaifu2xDenoise")
         val UPSCALE_AUTO_SCALE = floatPreferencesKey("divinaWaifu2xAutoTriggerScale")
         val UPSCALE_PRECISION = stringPreferencesKey("divinaWaifu2xPrecision")
+        /** Kept under its legacy key name (written by the DIVINA-only switch before it became
+         *  shared), so an existing user's choice carries over to EPUB and PDF unchanged. */
         val KEEP_SCREEN_AWAKE = booleanPreferencesKey("keepScreenAwakeWhileReading")
+        /** Shared by all three readers; see [com.kmworks.kmreader.ui.reader.DivinaSettings.drawUnderCutout]. */
+        val DRAW_UNDER_CUTOUT = booleanPreferencesKey("drawUnderCutout")
         val DEFAULT_PAGE_LAYOUT = stringPreferencesKey("defaultPageLayout")
         val DEFAULT_SPLIT_WIDE_MODE = stringPreferencesKey("splitWidePageMode")
         val DEFAULT_SOLO_COVER = booleanPreferencesKey("soloCoverPage")
         val FORCE_DEFAULT_DIRECTION = booleanPreferencesKey("forceDefaultReadingDirection")
+        /** Mirrors the original volumeButtonPageTurnEnabled (shared by DIVINA, EPUB and PDF readers). */
+        val VOLUME_BUTTON_PAGE_TURN = booleanPreferencesKey("volumeButtonPageTurnEnabled")
         val EPUB_THEME = stringPreferencesKey("epubTheme")
         val EPUB_FONT_SIZE = floatPreferencesKey("epubFontSizeSp")
         val EPUB_TYPEFACE = stringPreferencesKey("epubTypeface")

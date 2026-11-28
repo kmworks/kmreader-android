@@ -1,6 +1,5 @@
 package com.kmworks.kmreader.ui.settings
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +41,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 
 /**
  * Rows and section cards of the settings hub, styled after the iOS app's Settings form
@@ -111,12 +110,11 @@ internal fun SettingsGroupCard(group: SettingsGroup, modifier: Modifier = Modifi
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = RowInset, bottom = 6.dp),
         )
+        // Borderless, like the downloads page: the card reads off the page background and the row
+        // dividers alone, so no hairline outline is drawn here.
         Surface(
             shape = RoundedCornerShape(CardCorner),
             color = MaterialTheme.colorScheme.surface,
-            // The light scheme's surface sits only a hair above the background; a hairline edge keeps
-            // the card legible without adding a tonal variant the design contract rules out.
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         ) {
             Column {
                 group.rows.forEachIndexed { index, row ->
@@ -232,7 +230,6 @@ internal fun SettingsSection(
         Surface(
             shape = RoundedCornerShape(CardCorner),
             color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         ) {
             Column(content = content)
         }
@@ -389,7 +386,7 @@ internal fun <T> SettingsPickerRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            DropdownMenu(
+            KmDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.widthIn(min = 200.dp),

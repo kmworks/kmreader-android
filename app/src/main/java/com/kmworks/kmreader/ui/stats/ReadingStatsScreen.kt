@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -52,7 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.HeatmapDay
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 
 /**
  * Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView).
@@ -77,7 +77,7 @@ fun ReadingStatsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.stats_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
@@ -370,7 +370,7 @@ private fun LibraryPicker(
         TextButton(onClick = { open = true }) {
             Text(stringResource(R.string.stats_library_label, label))
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        KmDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
                 text = { Text(allLibraries) },
                 onClick = {
@@ -406,7 +406,7 @@ private fun RangePicker(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        KmDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             ReadingStatsTimeRange.entries.forEach { range ->
                 DropdownMenuItem(
                     text = { Text(stringResource(range.labelRes)) },

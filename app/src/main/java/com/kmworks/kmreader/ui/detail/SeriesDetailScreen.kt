@@ -74,12 +74,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -115,6 +114,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.CoverShadowStyle
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
@@ -149,9 +149,11 @@ import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.DetailAlternateTitles
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.lists.AddToListSheet
 import com.kmworks.kmreader.ui.lists.ListSelection
@@ -253,6 +255,17 @@ fun SeriesDetailScreen(
     var editBook by remember { mutableStateOf<Book?>(null) }
     var deleteBookConfirm by remember { mutableStateOf<Book?>(null) }
     val context = LocalContext.current
+    // Labels handed to deferred callbacks (menus, batch actions, save/share results):
+    // stringResource is composable, so they are resolved here and the callbacks only consume them.
+    val markReadLabel = stringResource(R.string.book_mark_read)
+    val markUnreadLabel = stringResource(R.string.book_mark_unread)
+    val downloadLabel = stringResource(R.string.common_download)
+    val addToReadListLabel = stringResource(R.string.book_add_to_readlist)
+    val shareFailedMsg = stringResource(R.string.detail_share_failed)
+    val analyzeFailedMsg = stringResource(R.string.detail_analyze_failed)
+    val refreshFailedMsg = stringResource(R.string.detail_refresh_failed)
+    val deleteFailedMsg = stringResource(R.string.detail_delete_failed)
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
     // Download state: real file scan result (stableId -> complete) + demo local feedback
     val downloadedMap by viewModel.downloaded.collectAsState()
     var demoDownloaded by remember { mutableStateOf(false) }
@@ -282,7 +295,10 @@ fun SeriesDetailScreen(
         selectedIds = if (selectedIds?.size == books.size) emptySet() else books.map { it.id }.toSet()
     }
 
+    // The action name only arrives with the event, so the template is formatted at event time;
+    // reading it via context is deliberate (stringResource cannot run in this deferred lambda).
     val selectionFailure: suspend (String) -> Unit = { action ->
+        @Suppress("LocalContextGetResourceValueCall")
         snackbarHostState.showSnackbar(
             context.getString(R.string.detail_selection_no_data, action),
         )
@@ -293,7 +309,7 @@ fun SeriesDetailScreen(
             if (viewModel.markBooksRead(ids, read)) {
                 selectedIds = null
             } else {
-                scope.launch { selectionFailure(if (read) context.getString(R.string.book_mark_read) else context.getString(R.string.book_mark_unread)) }
+                scope.launch { selectionFailure(if (read) markReadLabel else markUnreadLabel) }
             }
         }
     }
@@ -303,7 +319,7 @@ fun SeriesDetailScreen(
             if (viewModel.downloadBooks(ids)) {
                 selectedIds = null
             } else {
-                scope.launch { selectionFailure(context.getString(R.string.common_download)) }
+                scope.launch { selectionFailure(downloadLabel) }
             }
         }
     }
@@ -408,7 +424,7 @@ fun SeriesDetailScreen(
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
-                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        KmDropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.common_share)) },
                                 leadingIcon = {
@@ -422,7 +438,7 @@ fun SeriesDetailScreen(
                                     } else {
                                         scope.launch {
                                             snackbarHostState.showSnackbar(
-                                                context.getString(R.string.detail_share_failed),
+                                                shareFailedMsg,
                                             )
                                         }
                                     }
@@ -451,7 +467,7 @@ fun SeriesDetailScreen(
                                             if (!ok) {
                                                 scope.launch {
                                                     snackbarHostState.showSnackbar(
-                                                        context.getString(R.string.detail_analyze_failed),
+                                                        analyzeFailedMsg,
                                                     )
                                                 }
                                             }
@@ -469,7 +485,7 @@ fun SeriesDetailScreen(
                                             if (!ok) {
                                                 scope.launch {
                                                     snackbarHostState.showSnackbar(
-                                                        context.getString(R.string.detail_refresh_failed),
+                                                        refreshFailedMsg,
                                                     )
                                                 }
                                             }
@@ -869,7 +885,7 @@ fun SeriesDetailScreen(
                             } else {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        context.getString(R.string.detail_delete_failed),
+                                        deleteFailedMsg,
                                     )
                                 }
                             }
@@ -919,7 +935,7 @@ fun SeriesDetailScreen(
             onCreateReadList = viewModel::createReadListEntry,
             onSelect = { entry ->
                 if (!viewModel.addSeriesToReadList(entry)) {
-                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.book_add_to_readlist)) }
+                    scope.launch { snackbarHostState.showSnackbar(addToReadListLabel) }
                 }
                 addSeriesToReadListOpen = false
             },
@@ -937,7 +953,7 @@ fun SeriesDetailScreen(
                 if (viewModel.addBooksToReadList(entry, ids)) {
                     selectedIds = null
                 } else {
-                    scope.launch { selectionFailure(context.getString(R.string.book_add_to_readlist)) }
+                    scope.launch { selectionFailure(addToReadListLabel) }
                 }
                 addSelectedToReadListOpen = false
             },
@@ -973,7 +989,7 @@ fun SeriesDetailScreen(
                             if (!ok) {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        context.getString(R.string.detail_analyze_failed),
+                                        analyzeFailedMsg,
                                     )
                                 }
                             }
@@ -988,7 +1004,7 @@ fun SeriesDetailScreen(
                             if (!ok) {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        context.getString(R.string.detail_refresh_failed),
+                                        refreshFailedMsg,
                                     )
                                 }
                             }
@@ -1004,7 +1020,7 @@ fun SeriesDetailScreen(
                     } else {
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                context.getString(R.string.detail_share_failed),
+                                shareFailedMsg,
                             )
                         }
                     }
@@ -1031,7 +1047,7 @@ fun SeriesDetailScreen(
                     } else {
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                context.getString(R.string.detail_save_failed),
+                                saveFailedMsg,
                             )
                         }
                     }
@@ -1053,7 +1069,7 @@ fun SeriesDetailScreen(
                         if (!ok) {
                             scope.launch {
                                 snackbarHostState.showSnackbar(
-                                    context.getString(R.string.detail_delete_failed),
+                                    deleteFailedMsg,
                                 )
                             }
                         }
@@ -1074,7 +1090,7 @@ fun SeriesDetailScreen(
                 onCreateReadList = viewModel::createReadListEntry,
                 onSelect = { entry ->
                     if (!viewModel.addBooksToReadList(entry, setOf(target.id))) {
-                        scope.launch { selectionFailure(context.getString(R.string.book_add_to_readlist)) }
+                        scope.launch { selectionFailure(addToReadListLabel) }
                     }
                     addMenuBookToReadListOpen = false
                 },
@@ -1098,7 +1114,7 @@ fun SeriesDetailScreen(
                     } else {
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                context.getString(R.string.detail_delete_failed),
+                                deleteFailedMsg,
                             )
                         }
                     }
@@ -1130,7 +1146,9 @@ private fun DetailHero(
             stableId = series.id,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
+            shadowStyle = CoverShadowStyle.Basic,
         )
         Spacer(Modifier.height(16.dp))
         Row(
@@ -1286,12 +1304,14 @@ private fun DetailActionCard(
             )
         }
         // Secondary button mirrors iOS optimizedControlSize(.mini): mini capsule (28 high, 13sp text, small icon)
-        OutlinedButton(
+        FilledTonalButton(
             onClick = onDownload,
             enabled = !downloaded,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp),
+            shape = CircleShape,
+            colors = detailSecondaryButtonColors(),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             Icon(

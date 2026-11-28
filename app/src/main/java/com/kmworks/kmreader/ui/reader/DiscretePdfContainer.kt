@@ -1,7 +1,9 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.content.Context
+import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.SparseArray
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -43,7 +45,6 @@ class DiscretePdfContainer @JvmOverloads constructor(
             // between pages; snap to the current first page.
             if (value && pdfView.pdfDocument != null) {
                 runCatching { pdfView.scrollToPage(pdfView.firstVisiblePage) }
-                syncReferenceZoom()
             }
             resetGesture()
         }
@@ -54,27 +55,18 @@ class DiscretePdfContainer @JvmOverloads constructor(
     /** Right-to-left reading direction: horizontal swipe directions flip. */
     var rtl: Boolean = false
 
-    /**
-     * Resting fit-zoom baseline. PdfView rests at fit-to-width zoom, which is well above
-     * `minZoom`, so pinch detection must compare against the resting zoom, not `minZoom`
-     * (comparing against `minZoom` is always true and disables interception entirely).
-     */
-    private var referenceZoom = 0f
-
-    /**
-     * Captures the current zoom as the resting baseline. Call after programmatic changes
-     * that reset the zoom (document swaps, page turns, presentation changes); posted so
-     * it reads the zoom after the view has applied them.
-     */
-    fun syncReferenceZoom() {
-        pdfView.post {
-            val zoom = pdfView.zoom
-            if (zoom > 0f) referenceZoom = zoom
-        }
-    }
-
     var onPrevPage: () -> Unit = {}
     var onNextPage: () -> Unit = {}
+
+    /**
+     * Fired whenever PdfView lays out a new viewport, i.e. after a scroll or a page jump.
+     *
+     * The callback arguments are unusable here (`firstVisiblePage` is 0 for every viewport this
+     * reader lays out), so listeners have to read the position from the view themselves; it
+     * still is the only reliable *timing* signal, because `PdfView` lays pages out itself and
+     * never reports scrollX/scrollY, which is all `View.setOnScrollChangeListener` sees.
+     */
+    var onViewportPageChanged: (() -> Unit)? = null
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val turnThreshold = touchSlop * 4
@@ -83,8 +75,33 @@ class DiscretePdfContainer @JvmOverloads constructor(
     private var downY = 0f
     private var axisHorizontal: Boolean? = null
 
+    /**
+     * Zoom when the current gesture started, used to tell a pinch from a one-finger drag.
+     *
+     * This must be sampled per gesture: `PdfView` rests at fit-to-width zoom, which it
+     * only applies in its first layout after a document loads (`setInitialZoomScroll()`
+     * replaces the DEFAULT_INIT_ZOOM of 1.0 with `viewportWidth / contentWidth`). Any
+     * baseline captured earlier — a stored field refreshed by a posted runnable — keeps
+     * the pre-layout 1.0, so `zoom > baseline` is true for the whole session and the
+     * paging layer never intercepts. Sampling at ACTION_DOWN also re-baselines for free
+     * on every page turn, where the fit zoom changes with the page size.
+     */
+    private var zoomAtDown = 0f
+
     init {
         addView(pdfView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pdfView.addOnViewportChangedListener(
+            object : PdfView.OnViewportChangedListener {
+                override fun onViewportChanged(
+                    firstVisiblePage: Int,
+                    visiblePagesCount: Int,
+                    visiblePages: SparseArray<RectF>,
+                    zoom: Float,
+                ) {
+                    onViewportPageChanged?.invoke()
+                }
+            },
+        )
     }
 
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
@@ -107,12 +124,13 @@ class DiscretePdfContainer @JvmOverloads constructor(
                 downX = ev.x
                 downY = ev.y
                 axisHorizontal = null
+                zoomAtDown = pdfView.zoom
             }
             MotionEvent.ACTION_POINTER_DOWN -> resetGesture()
             MotionEvent.ACTION_MOVE -> {
                 // Pinch-zoomed pages keep pan; multi-touch keeps pinch zoom.
                 if (ev.pointerCount > 1) return false
-                if (isZoomedIn()) return false
+                if (zoomAtDown > 0f && pdfView.zoom > zoomAtDown * ZOOM_TOLERANCE) return false
                 val dx = ev.x - downX
                 val dy = ev.y - downY
                 val horizontal = axisHorizontal
@@ -150,9 +168,6 @@ class DiscretePdfContainer @JvmOverloads constructor(
                         dy >= turnThreshold -> onPrevPage()
                     }
                 }
-                // A programmatic page turn re-fits the zoom; re-baseline so slightly
-                // different page sizes do not read as a pinch.
-                syncReferenceZoom()
                 resetGesture()
                 return true
             }
@@ -168,11 +183,8 @@ class DiscretePdfContainer @JvmOverloads constructor(
         axisHorizontal = null
     }
 
-    private fun isZoomedIn(): Boolean =
-        referenceZoom > 0f && pdfView.zoom > referenceZoom * ZOOM_TOLERANCE
-
     private companion object {
-        /** Pinch margin over the resting fit-zoom (per-page fit varies slightly). */
+        /** Pinch margin over the zoom the gesture started at (per-page fit varies slightly). */
         const val ZOOM_TOLERANCE = 1.05f
     }
 }

@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,6 +76,8 @@ import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 
 private val WideLayoutBreakpoint = 960.dp
@@ -110,7 +112,7 @@ fun SmartListDetailScreen(
     val wideListScrollState = rememberScrollState()
     val narrowListScrollState = rememberScrollState()
     // Cache-busting version for "Refresh Cover": re-requests the server cover after incrementing
-    var coverVersion by remember { mutableStateOf(0) }
+    var coverVersion by remember { mutableIntStateOf(0) }
     // Book long-press menu (mirrors the read group of iOS BookContextMenu)
     var menuBook by remember { mutableStateOf<Book?>(null) }
 
@@ -161,7 +163,7 @@ fun SmartListDetailScreen(
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
-                        DropdownMenu(
+                        KmDropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
@@ -472,7 +474,8 @@ private fun SmartListHero(
             coverVersion = coverVersion,
             modifier = Modifier
                 .width(168.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.height(16.dp))
         Text(

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.api.model.LibraryDto
+import com.kmworks.kmreader.core.data.Paged
+import com.kmworks.kmreader.core.data.PagedFeed
 import com.kmworks.kmreader.core.data.CatalogCache
 import com.kmworks.kmreader.core.data.ContentChange
 import com.kmworks.kmreader.core.data.ContentChangeBus
@@ -92,9 +94,67 @@ class ListsViewModel @Inject constructor(
     private val _state = MutableStateFlow(ListsUiState())
     val state = _state.asStateFlow()
 
-    private var collectionsPage = 0
-    private var readListsPage = 0
-    private var smartListsPage = 0
+    /**
+     * Strip feeds (collections, read lists, smart lists). Each maps the DTOs to the cards it shows and applies
+     * the current pins, so a reload of the same scope re-reads the pages already on screen instead of dropping
+     * back to page one (see [PagedFeed]).
+     */
+    private val collectionsFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { entry: ListEntry -> entry.id },
+        fetch = { page, size ->
+            listRepository.collectionsPage(page = page, size = size, libraryIds = currentLibraryIds)
+                ?.let { result ->
+                    val pinned = appSettingsStore.pinnedCollectionIds.first()
+                    Paged(
+                        result.items.map { it.toListEntry() }.applyPinned(pinned, DetailIdRegistry::collectionDtoId),
+                        result.hasMore,
+                        result.totalElements,
+                    )
+                }
+        },
+    )
+    private val readListsFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { entry: ListEntry -> entry.id },
+        fetch = { page, size ->
+            listRepository.readListsPage(page = page, size = size, libraryIds = currentLibraryIds)
+                ?.let { result ->
+                    val pinned = appSettingsStore.pinnedReadListIds.first()
+                    Paged(
+                        result.items.map { dto ->
+                            dto.toListEntry().copy(
+                                modifiedLabel = context.getString(
+                                    R.string.lists_modified_at,
+                                    dto.lastModifiedDate.take(10),
+                                ),
+                            )
+                        }.applyPinned(pinned, DetailIdRegistry::readListDtoId),
+                        result.hasMore,
+                        result.totalElements,
+                    )
+                }
+        },
+    )
+    private val smartListsFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { entry: ListEntry -> entry.id },
+        fetch = { page, size ->
+            smartListRepository.smartListsPage(page = page, size = size)?.let { result ->
+                Paged(
+                    result.items.map { dto ->
+                        dto.toListEntry().copy(
+                            targetLabel = context.getString(
+                                if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
+                            ),
+                        )
+                    },
+                    result.hasMore,
+                    result.totalElements,
+                )
+            }
+        },
+    )
     private var loadingMoreCollections = false
     private var loadingMoreReadLists = false
     private var loadingMoreSmartLists = false
@@ -169,9 +229,6 @@ class ListsViewModel @Inject constructor(
 
     private fun resetForSignedOut() {
         generation++
-        collectionsPage = 0
-        readListsPage = 0
-        smartListsPage = 0
         loadingMoreCollections = false
         loadingMoreReadLists = false
         loadingMoreSmartLists = false
@@ -201,15 +258,15 @@ class ListsViewModel @Inject constructor(
      */
     private suspend fun load(scope: String, pinned: Set<String>) {
         val gen = ++generation
-        // The reload replaces both strips wholesale, so the paging request state goes with the pages.
-        collectionsPage = 0
-        readListsPage = 0
-        smartListsPage = 0
         loadingMoreCollections = false
         loadingMoreReadLists = false
         loadingMoreSmartLists = false
-        // A changed query must not keep the previous scope's rows on screen; a plain refresh may keep them.
+        // A changed query must not keep the previous scope's rows on screen; a plain refresh may keep them,
+        // including the pages each strip already loaded (see [PagedFeed]).
         val sameQuery = displayedScope == scope && displayedPinned == pinned
+        val keepCollections = if (sameQuery) collectionsFeed.page else 0
+        val keepReadLists = if (sameQuery) readListsFeed.page else 0
+        val keepSmartLists = if (sameQuery) smartListsFeed.page else 0
         _state.update {
             it.copy(
                 hasSession = true,
@@ -255,35 +312,16 @@ class ListsViewModel @Inject constructor(
         currentLibraryIds = libraryIds
         _state.update { it.copy(libraryScope = resolvedScope, libraries = libraries) }
         try {
-            val (collectionPage, readListPage, smartListPage) = coroutineScope {
-                val c = async { listRepository.collectionsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
-                val r = async { listRepository.readListsPage(page = 0, size = PAGE_SIZE, libraryIds = libraryIds) }
-                val s = async { smartListRepository.smartListsPage(page = 0, size = PAGE_SIZE) }
-                Triple(c.await(), r.await(), s.await())
+            val (collectionEntries, readListEntries, smartListEntries) = coroutineScope {
+                val previousCollections = if (sameQuery) _state.value.collections.orEmpty() else emptyList()
+                val previousReadLists = if (sameQuery) _state.value.readLists.orEmpty() else emptyList()
+                val previousSmartLists = if (sameQuery) _state.value.smartLists.orEmpty() else emptyList()
+                val c = async { collectionsFeed.reload(previousCollections, keepCollections, newQuery = !sameQuery) }
+                val r = async { readListsFeed.reload(previousReadLists, keepReadLists, newQuery = !sameQuery) }
+                val smart = async { smartListsFeed.reload(previousSmartLists, keepSmartLists, newQuery = !sameQuery) }
+                Triple(c.await(), r.await(), smart.await())
             }
             if (gen != generation) return // a newer scope/pins load started; discard this stale result
-            val pinnedCollectionIds = appSettingsStore.pinnedCollectionIds.first()
-            val pinnedReadListIds = appSettingsStore.pinnedReadListIds.first()
-            val collectionEntries = collectionPage.items.map { dto ->
-                dto.toListEntry()
-            }.applyPinned(pinnedCollectionIds, DetailIdRegistry::collectionDtoId)
-            val readListEntries = readListPage.items.map { dto ->
-                dto.toListEntry().copy(
-                    modifiedLabel = context.getString(
-                        R.string.lists_modified_at,
-                        dto.lastModifiedDate.take(10),
-                    ),
-                )
-            }.applyPinned(pinnedReadListIds, DetailIdRegistry::readListDtoId)
-            val smartListEntries = smartListPage.items.map { dto ->
-                // No modifiedLabel: a smart list card shows only what it groups by, and its
-                // own page carries the timestamps.
-                dto.toListEntry().copy(
-                    targetLabel = context.getString(
-                        if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
-                    ),
-                )
-            }
             displayedScope = resolvedScope
             displayedPinned = pinned
             _state.update {
@@ -293,15 +331,21 @@ class ListsViewModel @Inject constructor(
                     collections = collectionEntries,
                     readLists = readListEntries,
                     smartLists = smartListEntries,
-                    collectionsHasMore = collectionPage.hasMore,
-                    readListsHasMore = readListPage.hasMore,
-                    smartListsHasMore = smartListPage.hasMore,
+                    collectionsHasMore = collectionsFeed.hasMore,
+                    readListsHasMore = readListsFeed.hasMore,
+                    smartListsHasMore = smartListsFeed.hasMore,
                 )
             }
             // Persist the Lists rows so the next launch can paint them before the network answers; only the
             // unfiltered set is cached, because the cache has no scope dimension shared with the library tab.
             if (libraryIds == null) {
-                runCatching { catalogCache.saveLists(collectionEntries, readListEntries, smartListEntries) }
+                runCatching {
+                    catalogCache.saveLists(
+                        collectionEntries.take(PAGE_SIZE),
+                        readListEntries.take(PAGE_SIZE),
+                        smartListEntries.take(PAGE_SIZE),
+                    )
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -352,23 +396,19 @@ class ListsViewModel @Inject constructor(
         if (loadingMoreCollections || state.loading || !state.collectionsHasMore) return
         loadingMoreCollections = true
         val gen = generation
-        val libraryIds = currentLibraryIds
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
-                val nextPage = collectionsPage + 1
-                val result = listRepository.collectionsPage(page = nextPage, size = PAGE_SIZE, libraryIds = libraryIds)
+                val entries = collectionsFeed.append(state.collections.orEmpty())
                 if (gen != generation) return@launch // the scope changed meanwhile; the new load owns the strips
-                collectionsPage = nextPage
-                val pinnedIds = appSettingsStore.pinnedCollectionIds.first()
-                _state.update { st ->
-                    st.copy(
+                // The appended page is sorted with the rows already on screen: sorting each page on its own would
+                // leave a pinned row that arrives later behind unpinned rows already displayed.
+                val pinned = appSettingsStore.pinnedCollectionIds.first()
+                _state.update {
+                    it.copy(
                         loadingMore = false,
-                        collections = (st.collections.orEmpty() +
-                            result.items.map { it.toListEntry() }.filterNot { entry ->
-                                st.collections.orEmpty().any { it.id == entry.id }
-                            }).applyPinned(pinnedIds, DetailIdRegistry::collectionDtoId),
-                        collectionsHasMore = result.hasMore,
+                        collections = entries.applyPinned(pinned, DetailIdRegistry::collectionDtoId),
+                        collectionsHasMore = collectionsFeed.hasMore,
                     )
                 }
             } catch (e: CancellationException) {
@@ -392,30 +432,18 @@ class ListsViewModel @Inject constructor(
         if (loadingMoreReadLists || state.loading || !state.readListsHasMore) return
         loadingMoreReadLists = true
         val gen = generation
-        val libraryIds = currentLibraryIds
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
-                val nextPage = readListsPage + 1
-                val result = listRepository.readListsPage(page = nextPage, size = PAGE_SIZE, libraryIds = libraryIds)
+                val entries = readListsFeed.append(state.readLists.orEmpty())
                 if (gen != generation) return@launch // the scope changed meanwhile; the new load owns the strips
-                readListsPage = nextPage
-                val pinnedIds = appSettingsStore.pinnedReadListIds.first()
-                _state.update { st ->
-                    st.copy(
+                // Same whole-strip ordering as the collections strip: pinned rows stay ahead of unpinned ones.
+                val pinned = appSettingsStore.pinnedReadListIds.first()
+                _state.update {
+                    it.copy(
                         loadingMore = false,
-                        readLists = (st.readLists.orEmpty() +
-                            result.items.map {
-                                it.toListEntry().copy(
-                                    modifiedLabel = context.getString(
-                                        R.string.lists_modified_at,
-                                        it.lastModifiedDate.take(10),
-                                    ),
-                                )
-                            }.filterNot { entry ->
-                                st.readLists.orEmpty().any { it.id == entry.id }
-                            }).applyPinned(pinnedIds, DetailIdRegistry::readListDtoId),
-                        readListsHasMore = result.hasMore,
+                        readLists = entries.applyPinned(pinned, DetailIdRegistry::readListDtoId),
+                        readListsHasMore = readListsFeed.hasMore,
                     )
                 }
             } catch (e: CancellationException) {
@@ -442,24 +470,13 @@ class ListsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
-                val nextPage = smartListsPage + 1
-                val result = smartListRepository.smartListsPage(page = nextPage, size = PAGE_SIZE)
+                val entries = smartListsFeed.append(state.smartLists.orEmpty())
                 if (gen != generation) return@launch // a reload started meanwhile; the new load owns the strips
-                smartListsPage = nextPage
-                _state.update { st ->
-                    st.copy(
+                _state.update {
+                    it.copy(
                         loadingMore = false,
-                        smartLists = st.smartLists.orEmpty() +
-                            result.items.map { dto ->
-                                dto.toListEntry().copy(
-                                    targetLabel = context.getString(
-                                        if (dto.target == "SERIES") R.string.common_series else R.string.common_book,
-                                    ),
-                                )
-                            }.filterNot { entry ->
-                                st.smartLists.orEmpty().any { it.id == entry.id }
-                            },
-                        smartListsHasMore = result.hasMore,
+                        smartLists = entries,
+                        smartListsHasMore = smartListsFeed.hasMore,
                     )
                 }
             } catch (e: CancellationException) {

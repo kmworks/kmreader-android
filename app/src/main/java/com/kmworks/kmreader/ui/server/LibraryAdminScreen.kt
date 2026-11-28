@@ -39,7 +39,6 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -63,7 +62,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +77,7 @@ import com.kmworks.kmreader.core.api.model.LibraryDto
 import com.kmworks.kmreader.core.api.model.LibraryUpdateDto
 import com.kmworks.kmreader.core.server.LibraryMetricValues
 import com.kmworks.kmreader.core.server.ServerAdminRepository
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.settings.SettingsPickerRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
 import com.kmworks.kmreader.ui.settings.SettingsSection
@@ -88,6 +87,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -196,6 +196,11 @@ class LibraryAdminViewModel @Inject constructor(
 
     init {
         load()
+        // Libraries and their metrics belong to one server: when the user switches, reload instead of
+        // keeping the libraries, sizes and "no metrics here" answer of the server just left.
+        viewModelScope.launch {
+            repository.instanceKey.drop(1).collect { load() }
+        }
     }
 
     fun load() {
@@ -440,14 +445,17 @@ fun LibraryAdminScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val browse by viewModel.browse.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(state.messageRes) {
-        val res = state.messageRes ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(res))
+    // stringResource is composable, so the message is resolved during composition; the effect
+    // only delivers it (keyed on the same res id, so the delivery timing is unchanged).
+    val messageRes = state.messageRes
+    val message = messageRes?.let { stringResource(it) }
+    LaunchedEffect(messageRes) {
+        message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.consumeMessage()
     }
 
@@ -622,7 +630,7 @@ private fun LibraryAdminRow(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                KmDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.server_admin_library_edit)) },
                         onClick = { menuOpen = false; onEdit() },

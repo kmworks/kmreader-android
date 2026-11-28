@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.net.toUri
 import java.io.ByteArrayInputStream
 
 /**
@@ -38,7 +39,7 @@ object EpubWeb {
 
     /** Resolve the href back from a fake-domain URL; null for non-fake domains. */
     fun hrefFromUrl(url: String): String? {
-        val uri = Uri.parse(url)
+        val uri = url.toUri()
         if (uri.host != FAKE_HOST) return null
         val segments = uri.pathSegments ?: return null
         if (segments.size < 2) return null
@@ -111,9 +112,23 @@ data class EpubThemeConfig(
     val fontWeight: Int = 400,
     /** Smooth scroll animation on page turns (the animatePageTurns setting). */
     val animatePageTurns: Boolean = true,
-    /** Extra top/bottom content inset (CSS px) reserving room for the header/footer info
-     *  overlay, so page text never slides under it (mirrors the iOS containerInsets +24pt). */
+    /** Extra TOP content inset (CSS px) added on top of the page's own 24px gutter: room for the
+     *  header/footer info overlay and, when content must not draw under it, the display-cutout
+     *  band (mirrors the iOS containerInsets +24pt). Bottom/left/right are separate fields because
+     *  a notch can sit on any edge and a page with the overlay switched off only reserves the
+     *  cutout; with an overlay the two vertical edges still share the larger system bar, since
+     *  the footer label sits on top of the navigation bar. */
     val insetVPx: Int = 0,
+    /** Extra bottom inset (CSS px); null = mirror [insetVPx], which is what every page used to get. */
+    val insetBottomVPx: Int? = null,
+    /** Extra left/right insets (CSS px) added to the margin gutter, for a landscape cutout. */
+    val insetLeftVPx: Int = 0,
+    val insetRightVPx: Int = 0,
+    /** Cutout band (CSS px) still to be clipped at the scroll viewport in scrolled mode; 0 when
+     *  content may draw under the cutout. Page padding can only reserve it once, at the top of the
+     *  scrolling document, so without this a scrolled page slides its text under the notch. */
+    val cutoutTopVPx: Int = 0,
+    val cutoutBottomVPx: Int = 0,
     /** True when the resolved background/foreground pair is a dark theme: enables the dark-mode
      *  text/link rewrites and the monochrome/inline image inversion in the page JS
      *  (iOS makeDarkTextColorOverrideCSS / readest imageClassifier parity). */
@@ -127,7 +142,9 @@ data class EpubThemeConfig(
             "fontFamily:'$safeFamily',lineHeight:$lineHeight," +
             "marginH:$marginHPx,publisherStyles:$publisherStyles,rtl:$rtl,vertical:$vertical," +
             "paged:$paged,colCount:$colCount,fontWeight:$fontWeight,animate:$animatePageTurns," +
-            "insetV:$insetVPx,darkTheme:$darkTheme}"
+            "insetV:$insetVPx,insetB:${insetBottomVPx ?: insetVPx}," +
+            "insetL:$insetLeftVPx,insetR:$insetRightVPx,cutoutT:$cutoutTopVPx,cutoutB:$cutoutBottomVPx," +
+            "darkTheme:$darkTheme}"
     }
 }
 
@@ -175,6 +192,9 @@ object EpubJs {
 
           var S = { c: null, paged: false, vw: 1, vh: 1, pages: 1, page: 0, dir: 1,
                     animate: true, marginH: 24, ready: false, pendingFrac: null, quiet: false,
+                    // Bumped by every navigation attempt; a deferred scroll re-assert only runs
+                    // while its generation is still the current one (see goToPage/cancelSnap).
+                    pageGen: 0,
                     // Vertical writing mode (writing-mode: vertical-rl): paged columns stack
                     // DOWNWARD, so pagination runs along scrollTop — always positive, no dir
                     // flip (foliate: "vertical books page along scrollTop, which never flips")
@@ -218,14 +238,30 @@ object EpubJs {
             if (!S.paged) return;
             S.page = Math.max(0, Math.min(S.pages - 1, Math.round(i)));
             cancelSnap();
+            var animating = !!(animate && S.animate);
             if (S.vertical) {
               var y = S.page * S.vh;
-              if (animate && S.animate) { animateScrollTo(y, true); }
+              if (animating) { animateScrollTo(y, true); }
               else { window.scrollTo(0, y); }
             } else {
               var x = S.dir * S.page * S.vw;
-              if (animate && S.animate) { animateScrollTo(x, false); }
+              if (animating) { animateScrollTo(x, false); }
               else { window.scrollTo(x, 0); }
+            }
+            // A direct scrollTo is exact, but the compositor can still adjust or drop the offset
+            // on the next frame (see animateScrollTo), leaving the strip between two pages.
+            // Verify once on the following frame unless a newer navigation superseded this one;
+            // the animated path verifies itself when its last frame lands.
+            var gen = S.pageGen;
+            if (!animating) {
+              requestAnimationFrame(function() {
+                if (gen !== S.pageGen) return;
+                var want = S.vertical ? S.page * S.vh : S.dir * S.page * S.vw;
+                var now = S.vertical ? sy() : sx();
+                if (Math.abs(now - want) > 1) {
+                  if (S.vertical) { window.scrollTo(0, want); } else { window.scrollTo(want, 0); }
+                }
+              });
             }
             // The Kotlin side keeps its page state exclusively from this callback: every turn
             // must report, or the next tap/swipe computes its target from a stale page.
@@ -247,6 +283,7 @@ object EpubJs {
           function animateScrollTo(target, alongY) {
             var start = alongY ? sy() : sx();
             var delta = target - start;
+            var gen = (S.pageGen = (S.pageGen || 0) + 1);
             if (Math.abs(delta) < 1) { window.scrollTo(alongY ? 0 : target, alongY ? target : 0); return; }
             var dur = 260;
             var t0 = null;
@@ -257,7 +294,18 @@ object EpubJs {
               var pos = start + delta * e;
               window.scrollTo(alongY ? 0 : pos, alongY ? pos : 0);
               if (k < 1) { S.animId = requestAnimationFrame(step); }
-              else { S.animId = null; window.scrollTo(alongY ? 0 : target, alongY ? target : 0); }
+              else {
+                S.animId = null;
+                window.scrollTo(alongY ? 0 : target, alongY ? target : 0);
+                // The compositor owns the scroll offset for a frame after the last step, so a
+                // snap written inside it can still be dropped or adjusted. Re-assert once on
+                // the next frame unless a newer navigation took over in the meantime.
+                requestAnimationFrame(function() {
+                  if (gen !== S.pageGen) return;
+                  var now = alongY ? sy() : sx();
+                  if (Math.abs(now - target) > 1) window.scrollTo(alongY ? 0 : target, alongY ? target : 0);
+                });
+              }
             }
             S.animId = requestAnimationFrame(step);
           }
@@ -265,6 +313,25 @@ object EpubJs {
           function cancelSnap() {
             if (S.snapTimer) { clearTimeout(S.snapTimer); S.snapTimer = null; }
             if (S.animId) { cancelAnimationFrame(S.animId); S.animId = null; }
+            // Invalidate any deferred re-assert from a navigation that is no longer current.
+            S.pageGen = (S.pageGen || 0) + 1;
+          }
+
+          // A page turn must rest exactly on a page boundary. Two things move the strip off the
+          // grid after the turn has landed: a rAF snap interrupted before its last frame (the
+          // WebView stops drawing mid-gesture) and a reflow that redistributes the columns while
+          // body's box keeps its size (an image finishing in an EARLIER column, a font swap).
+          // Chromium's scroll anchoring only compensates the BLOCK axis, so a horizontal paged
+          // strip slides silently and the reader ends up between two pages — the previous
+          // column's glyph tails at the left edge and the current column clipped on the right.
+          function settlePage(animate) {
+            if (!S.paged || !S.ready) return;
+            var want = S.vertical ? S.page * S.vh : S.dir * S.page * S.vw;
+            var now = S.vertical ? sy() : sx();
+            if (Math.abs(now - want) <= 1) return;
+            if (animate && S.animate) { animateScrollTo(want, S.vertical); }
+            else if (S.vertical) { window.scrollTo(0, want); }
+            else { window.scrollTo(want, 0); }
           }
 
           // Interactive page drag (mirrors the iOS pan-to-turn and the comic pager): the finger
@@ -283,8 +350,28 @@ object EpubJs {
             window.scrollTo(x, 0);
           };
 
+          // The page step has to equal the width the columns were actually laid out against.
+          // window.innerWidth is rounded to an integer (411 on a 411.43 px viewport) while the
+          // layout viewport keeps the fraction, so stepping by innerWidth walks the strip by a
+          // fraction of that error on every page: after ~55 pages of a long chapter the text has
+          // left the right gutter and the previous column's tail shows in the left one (the
+          // "cut glyphs on the outer edges" symptom). visualViewport.width keeps the fraction;
+          // the document's own width is the fallback. The < 8 px guard keeps a pinch-zoomed
+          // viewport or a publisher-widened <html> from poisoning the step.
+          function viewportWidth() {
+            var w = window.innerWidth || 1;
+            var vv = window.visualViewport;
+            if (vv && isFinite(vv.width) && vv.width > 0 && Math.abs(vv.width - w) < 8) return vv.width;
+            var el = document.documentElement;
+            if (el) {
+              var r = el.getBoundingClientRect().width;
+              if (isFinite(r) && r > 0 && Math.abs(r - w) < 8) return r;
+            }
+            return w;
+          }
+
           function measure() {
-            S.vw = window.innerWidth || 1;
+            S.vw = viewportWidth();
             S.vh = window.innerHeight || 1;
             // Re-detect vertical writing: at theme-apply time the publisher stylesheet may not
             // be parsed yet, so the first detection can miss a content-declared vertical book.
@@ -304,8 +391,13 @@ object EpubJs {
               return;
             }
             var sw = Math.max(doc().scrollWidth, b.scrollWidth || 0);
-            // Rounding slack: Chrome reports integral scrollWidth for fractional column widths.
-            S.pages = Math.max(1, Math.ceil(sw / S.vw - 0.002));
+            // The strip is an exact multiple of the viewport: layoutCss() gives the columns to
+            // <html> with column-gap 0 and keeps the page gutter on the fragmented <body>, so the
+            // trailing gutter is part of the LAST column instead of trailing padding the scroll
+            // area drops. Round (not ceil) absorbs a fractional column width reported as an
+            // integral scrollWidth; with two columns per page the odd last column rounds up to a
+            // full page, which is the spread the reader expects.
+            S.pages = Math.max(1, Math.round(sw / S.vw));
             S.page = Math.max(0, Math.min(S.pages - 1, Math.round(Math.abs(sx()) / S.vw)));
           }
 
@@ -393,11 +485,24 @@ object EpubJs {
               else goToPage(keepIdx, false);
             } finally { S.quiet = false; }
             measure();
+            // The restore above went through goToPage, but measure() can have changed the page
+            // COUNT and a restore target can clamp short at either end of the strip, so re-assert
+            // the grid: a late repagination must never leave the strip resting between two pages.
+            settlePage(false);
             // Defer the notification (and with it the Kotlin-side reveal) until the compositor
             // has had two frames to rasterize the restored scroll position — see goToPage.
             requestAnimationFrame(function() {
-              requestAnimationFrame(function() { notifyPages(); report(); });
+              requestAnimationFrame(function() { settlePage(false); notifyPages(); report(); });
             });
+            // Late content can still be in flight when the capped measure wait expired (a large
+            // illustration). Re-run once it actually settles so the page count and the resting
+            // offset follow the final layout; the !imagesStillPending() guard keeps a
+            // never-loading image from re-triggering this on every pass.
+            if (imagesStillPending()) {
+              imagesReady(3000).then(function() {
+                if (S.ready && S.paged && !imagesStillPending()) scheduleRepaginate();
+              });
+            }
           }
 
           // ---------- layout ----------
@@ -409,34 +514,90 @@ object EpubJs {
             var vw = window.innerWidth || 1;
             var vh = window.innerHeight || 1;
             var m = c.marginH;
+            // Inset contract: insetV is the TOP reservation, insetB the bottom one (defaults to
+            // insetV, the pre-cutout behaviour where both edges shared a band), insetL/R add to
+            // the horizontal gutter for a landscape cutout.
+            var insetV = c.insetV || 0;
+            var insetB = (c.insetB == null) ? insetV : (c.insetB || 0);
+            var insetL = c.insetL || 0;
+            var insetR = c.insetR || 0;
             if (S.vertical) {
-              // Vertical-rl multicol: the inline axis is vertical, so column-width is a
-              // VERTICAL extent and columns repeat downward. Pitch = column-width + gap =
-              // vh keeps every page exactly one screen tall; body width is pinned so the
-              // block (horizontal) size cannot exceed one screen either.
-              var ch = Math.max(80, vh - 2 * m);
-              return 'html,body{margin:0 !important;}'
-                + 'html{overflow-x:hidden !important;overflow-y:auto !important;}'
-                + 'body{box-sizing:border-box !important;width:' + vw + 'px !important;'
-                + 'padding:' + (m + (c.insetV || 0)) + 'px 24px !important;'
-                + 'column-width:' + ch + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+              // Vertical-rl multicol: the inline axis is vertical, so the columns repeat
+              // downward and one page = the container's inline extent (vh). Same two
+              // invariants as the horizontal strip, with the axes swapped:
+              //   * pitch == vh, because a column's tile is the container's inline size and
+              //     column-gap is 0 — there is no arithmetic pitch (old rule: column-width
+              //     vh-2m plus a 2m gap) that a fractional viewport could desynchronise;
+              //   * strip height == pages * vh, because the trailing inline gutter belongs to
+              //     the LAST column instead of being trailing padding that the scrollable
+              //     overflow drops. That is what lets a turn land exactly on page * vh and
+              //     stops the final page from being clamped short of the strip's end.
+              // Which padding goes where matters, and it is the mirror of the horizontal
+              // branch: the inline-axis (top/bottom) gutter and the overlay reservation are
+              // <body> padding, because a fragmented element repeats its INLINE padding in
+              // every column fragment — that keeps text clear of the header and footer on
+              // EVERY page (on the container it only pads the strip's ends, so every later
+              // page slid under the chrome, which is what the old rule did). The block-axis
+              // (left/right) gutter is container padding, because it has to shrink every
+              // column's tile; on the fragmented <body> it would pad only the first and last
+              // fragment.
+              var inlineTop = m + insetV;
+              var inlineBottom = m + insetB;
+              var ch = Math.max(80, vh - inlineTop - inlineBottom);
+              // overflow-anchor:none — a paged strip that Chromium may "anchor" scrolls itself
+              // off the page grid whenever late layout lands above the reader (see settlePage).
+              return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
+                // width:100% (not `vw px`) so the block extent is resolved by the browser against
+                // the real ICB; only the inline extent is pinned, because that is the page step.
+                + 'html{width:100% !important;height:' + vh + 'px !important;'
+                + 'overflow-x:hidden !important;overflow-y:auto !important;'
+                + 'box-sizing:border-box !important;padding:0 ' + (m + insetR) + 'px 0 ' + (m + insetL) + 'px !important;'
+                + 'column-count:1 !important;column-gap:0 !important;'
                 + 'column-fill:auto !important;}'
+                // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
+                // body padding, and this rule must win on specificity instead of on sheet order.
+                + 'html body{box-sizing:border-box !important;width:100% !important;'
+                + 'padding:' + inlineTop + 'px 0 ' + inlineBottom + 'px 0 !important;}'
                 // break-inside: an image must not be sliced across two columns/pages (foliate
-                // setImageSize); the max-* clamps keep it inside one page box.
-                + 'img,svg,video{max-width:' + Math.max(120, vw - 48) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
+                // setImageSize); the max-* clamps keep it inside one page box, which now means
+                // the tile minus the inline reservation on both sides.
+                // The block-axis gutter now also carries the landscape cutout, so the clamp has to
+                // match the column box (vw - left - right) or a wide plate still reaches the notch.
+                + 'img,svg,video{max-width:' + Math.max(120, vw - 2 * m - insetL - insetR) + 'px !important;max-height:' + ch + 'px !important;break-inside:avoid !important;}';
             }
-            // No floor(): a fractional viewport width (common on Android) floored here makes the
-            // column pitch shorter than vw, so later pages drift off the page boundary — the
-            // "two pages stuck halfway" bug. Chrome handles fractional column widths fine, and
-            // measure() already carries integral-scrollWidth slack.
-            var cw = Math.max(80, vw / S.cols - 2 * m);
-            return 'html,body{margin:0 !important;}'
-              + 'html{overflow-y:hidden !important;}'
-              + 'body{box-sizing:border-box !important;height:' + vh + 'px !important;'
-              + 'padding:' + (24 + (c.insetV || 0)) + 'px ' + m + 'px !important;'
-              + 'column-width:' + cw + 'px !important;column-gap:' + (2 * m) + 'px !important;'
+            // The columns live on <html> and the page gutter lives on the fragmented <body>, so
+            // the two invariants the pager relies on are structural instead of arithmetic:
+            //   * column pitch == the real ICB width (100%, resolved by the browser) — never a
+            //     rounded window.innerWidth, so a fractional viewport cannot desynchronise the
+            //     page step from the strip;
+            //   * strip width == pages * viewport, because the trailing gutter belongs to the
+            //     LAST column instead of being trailing padding that the scrollable overflow
+            //     drops. That is what lets a turn land exactly on page * vw and makes the last
+            //     page need no spacer.
+            // column-gap must stay 0: the gap is added OUTSIDE the column box, so as soon as the
+            // gutter is no longer container padding (the other half of the old pitch arithmetic)
+            // a non-zero gap turns the pitch into vw + gap and every page drifts.
+            // Which padding goes where matters: the horizontal gutter is <body> padding, because
+            // a fragmented element repeats its INLINE padding in every column fragment; the
+            // top/bottom reservation for the info overlay is the container's own padding, because
+            // it must shrink EVERY column box to vh - 2*(24+inset) — put on <body> instead it
+            // would pad only the first and last fragment and a page would gain two lines.
+            // overflow-anchor:none is load-bearing: scroll anchoring only compensates the BLOCK
+            // axis, so when a late image or font changes the column distribution above the
+            // reader, Chromium "anchors" the horizontal strip and moves it off the page grid by
+            // a fraction of a page — the reported mobile symptom (the previous column's glyph
+            // tails visible at the left edge, the current column clipped on the right).
+            return 'html,body{margin:0 !important;overflow-anchor:none !important;}'
+              + 'html{width:100% !important;height:' + vh + 'px !important;'
+              + 'overflow-y:hidden !important;box-sizing:border-box !important;'
+              + 'padding:' + (24 + insetV) + 'px 0 ' + (24 + insetB) + 'px 0 !important;'
+              + 'column-count:' + S.cols + ' !important;column-gap:0 !important;'
               + 'column-fill:auto !important;}'
-              + 'img,svg,video{max-height:' + Math.max(120, vh - 48) + 'px !important;break-inside:avoid !important;}';
+              // `html body` (0,0,2) rather than `body` (0,0,1): the theme sheet also declares
+              // body padding, and this rule must win on specificity instead of on sheet order.
+              + 'html body{box-sizing:border-box !important;width:100% !important;'
+              + 'padding:0 ' + (m + insetR) + 'px 0 ' + (m + insetL) + 'px !important;}'
+              + 'img,svg,video{max-height:' + Math.max(120, vh - 48 - insetV - insetB) + 'px !important;break-inside:avoid !important;}';
           }
           function refreshLayout() {
             var lay = document.getElementById('km-layout');
@@ -769,12 +930,24 @@ object EpubJs {
               + '-webkit-text-size-adjust:none !important;text-size-adjust:none !important;}'
               // Unbreakable long words (URLs, CJK-less runs) must not overflow their column:
               // an overflowing run widens the strip past the computed page boundary.
-              + 'body{padding:' + (24 + (c.insetV || 0)) + 'px ' + c.marginH + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;overflow-wrap:break-word !important;' + fw + ff + '}'
+              + 'body{padding:' + (24 + (c.insetV || 0)) + 'px '
+                + (c.marginH + (c.insetR || 0)) + 'px ' + (24 + (c.insetB == null ? (c.insetV || 0) : (c.insetB || 0))) + 'px '
+                + (c.marginH + (c.insetL || 0)) + 'px !important;margin:0 !important;font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;overflow-wrap:break-word !important;' + fw + ff + '}'
               + (c.publisherStyles ? '' : 'body,body *{font-size:' + c.fontSize + 'px !important;line-height:' + c.lineHeight + ' !important;' + fw + ff + 'color:' + c.fg + ' !important;}')
               + 'img,svg,video{max-width:100% !important;height:auto !important;}'
               // Manifest-forced vertical (readingProgression ttb/btt): pinned on the root so
               // publisher styles cannot talk it back into horizontal.
               + (c.vertical ? 'html{writing-mode:vertical-rl !important;-webkit-writing-mode:vertical-rl !important;}' : '')
+              // Scrolled mode has no layout rules to hang the reservation on: the body padding
+              // above scrolls off with the first line, and later text would run under the notch.
+              // Two fixed, click-through strips painted in the page colour keep the band empty at
+              // every scroll position (empty in paged mode, where the padding already reserves it).
+              + ((c.cutoutT || 0) > 0
+                ? 'html::before{content:"";position:fixed;left:0;right:0;top:0;height:' + c.cutoutT + 'px;background:' + c.bg + ';pointer-events:none;z-index:1;}'
+                : '')
+              + ((c.cutoutB || 0) > 0
+                ? 'html::after{content:"";position:fixed;left:0;right:0;bottom:0;height:' + c.cutoutB + 'px;background:' + c.bg + ';pointer-events:none;z-index:1;}'
+                : '')
               + (c.darkTheme ? darkModeCss(c) : '');
             style.textContent = css;
             S.vertical = !!c.vertical || contentIsVertical();
@@ -847,6 +1020,294 @@ object EpubJs {
             }
           };
 
+          // ---------- footnotes ----------
+          // A tapped note reference pops its body over the page instead of jumping to it. The page
+          // already holds the styled DOM, so the body is extracted here rather than in Kotlin: the
+          // bubble renders through HtmlCompat, which has no CSS engine, so the computed style is
+          // folded back into semantic tags (<b>/<i>/<u>/<sup>) before it leaves the WebView.
+          // Anything unusable returns null and the click falls through to the normal link path.
+          var NOTE_NS = 'http://www.idpf.org/2007/ops';
+          var NOTE_REF_CLASSES = /(^|\s)(noteref|footnote-ref|endnote-ref|duokan-footnote)(\s|$)/;
+          // Bodies a publisher itself marked as notes. Ken / Kindle toolchains use fnote2, some
+          // houses use footnote-text; matched as whole tokens so "footnote" does not leak into
+          // an unrelated "footnote-list" TOC class.
+          var NOTE_BODY_CLASSES = /(^|\s)(fnote\d*|footnote\d*|endnote\d*|note|note-text|aside-note)(\s|$)/;
+          // A reference without epub:type can only be recognised by its target. The target must
+          // still look like a note body: small enough to be one, and linked back to the marker.
+          var NOTE_HEURISTIC_MAX_TEXT = 4000;
+          var NOTE_TAGS = {
+            P: 1, DIV: 1, BLOCKQUOTE: 1, UL: 1, OL: 1, LI: 1,
+            H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, BR: 1,
+            B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, DEL: 1, STRIKE: 1,
+            SUB: 1, SUP: 1, SMALL: 1, MARK: 1, Q: 1, CITE: 1, ABBR: 1, CODE: 1,
+            SPAN: 1
+          };
+          var NOTE_MAX_HTML = 16000;
+          var NOTE_MAX_TEXT = 2000;
+          var NOTE_MAX_IMAGES = 8;
+
+          function noteEpubTypeOf(el) {
+            if (!el || !el.getAttribute) return '';
+            var plain = el.getAttribute('epub:type') || '';
+            // Served as application/xhtml+xml the WebView parses the chapter as XML, where
+            // epub:type is a namespaced attribute and getAttribute('epub:type') returns null.
+            var namespaced = el.getAttributeNS ? (el.getAttributeNS(NOTE_NS, 'type') || '') : '';
+            return plain + ' ' + namespaced;
+          }
+
+          function noteFragmentOf(link) {
+            var stamped = link.getAttribute('data-km-noteref');
+            if (stamped) return stamped;
+            var raw = link.getAttribute('href') || '';
+            var hash = raw.indexOf('#');
+            if (hash < 0 || hash === raw.length - 1) return '';
+            return raw.slice(hash + 1);
+          }
+
+          function noteTargetOf(link) {
+            var frag = noteFragmentOf(link);
+            if (!frag) return null;
+            var target = document.getElementById(frag);
+            if (!target) {
+              try { target = document.querySelector('[name="' + frag.replace(/"/g, '') + '"]'); } catch (e) { target = null; }
+            }
+            return target;
+          }
+
+          // The fragment very often points at an empty marker anchor that starts the note block
+          // (`<p class="note"><a id="m1"></a>[1] …</p>`), so the body is the nearest block that
+          // holds it — not the anchor itself. Only a couple of levels are walked: a note body is a
+          // paragraph, never a whole section.
+          function noteContainerOf(target) {
+            if (!target) return null;
+            var node = target;
+            for (var depth = 0; depth < 3 && node; depth++) {
+              if (node !== target) {
+                var cls = node.getAttribute ? (node.getAttribute('class') || '') : '';
+                if (NOTE_BODY_CLASSES.test(cls)) return node;
+                if (/^(P|DIV|LI|ASIDE|BLOCKQUOTE|SECTION|TD)$/.test(node.tagName || '')) {
+                  if (String(node.textContent || '').trim()) return node;
+                }
+              }
+              node = node.parentElement;
+            }
+            return target;
+          }
+
+          // References and their bodies point at each other (… #m1 in the text, #w1 at the
+          // note), which is the only signal many Kindle-derived Chinese epubs leave behind. That
+          // mutual link, not the marker's look, is what tells a note apart from a chapter link.
+          function noteLinksBack(body, link) {
+            var holder = link.parentElement;
+            var id = link.id || '';
+            var anchors = body.querySelectorAll ? body.querySelectorAll('a[href]') : [];
+            for (var i = 0; i < anchors.length; i++) {
+              var raw = anchors[i].getAttribute('href') || '';
+              var hash = raw.indexOf('#');
+              if (hash < 0) continue;
+              var frag = raw.slice(hash + 1);
+              if (!frag) continue;
+              if (id && frag === id) return true;
+              // The reference often carries no id; the matching id sits next to it (#w1 before
+              // the marker), so the surrounding block is searched for the back-link's target.
+              try {
+                if (holder && holder.querySelector('[id="' + frag.replace(/"/g, '') + '"]')) return true;
+              } catch (e) { /* malformed fragment: ignore */ }
+            }
+            // Kindle style: the marker is #ch1-back and the body is #ch1.
+            if (id.length > 5 && id.slice(-5) === '-back' && noteFragmentOf(link) === id.slice(0, -5)) return true;
+            return false;
+          }
+
+          function isNoteref(link) {
+            if (!link || !link.getAttribute) return false;
+            if (/(^|\s)noteref(\s|$)/.test(noteEpubTypeOf(link))) return true;
+            if ((link.getAttribute('role') || '') === 'doc-noteref') return true;
+            if (NOTE_REF_CLASSES.test(link.getAttribute('class') || '')) return true;
+            var target = noteTargetOf(link);
+            if (!target) return false;
+            var body = noteContainerOf(target);
+            // Back-links ("[1]" at the start of a note, or "(1)" in the note list) resolve to the
+            // marker in the reading text. A real reference always sits BEFORE its note body in
+            // document order, so a body that precedes the link is the reading text, not a note.
+            if (body) {
+              if (body.contains && body.contains(link)) return false;
+              var order = link.compareDocumentPosition ? link.compareDocumentPosition(body) : 0;
+              if (order & 2) return false;  // DOCUMENT_POSITION_PRECEDING: body comes first
+            }
+            var size = String((body || target).textContent || '').length;
+            if (!size || size > NOTE_HEURISTIC_MAX_TEXT) return false;
+            if (noteLinksBack(body || target, link)) return true;
+            return NOTE_BODY_CLASSES.test((body || target).getAttribute('class') || '');
+          }
+
+          // Publishers (Duokan et al.) run a script that strips the href off every noteref after
+          // load. The stamp is taken while the href is still there, so the reference survives it.
+          function stampNoteref(link) {
+            if (link.getAttribute('data-km-noteref')) return;
+            var frag = noteFragmentOf(link);
+            if (frag) link.setAttribute('data-km-noteref', frag);
+          }
+
+          function stampNoterefs() {
+            var links = document.querySelectorAll ? document.querySelectorAll('a') : [];
+            for (var i = 0; i < links.length; i++) {
+              if (isNoteref(links[i])) stampNoteref(links[i]);
+            }
+          }
+
+          function noteEscape(s) {
+            return String(s)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+          }
+
+          function noteAbsoluteUrl(el, attr) {
+            var raw = el.getAttribute ? el.getAttribute(attr) : null;
+            if (!raw) return '';
+            try { return new URL(raw, location.href).href; } catch (e) { return ''; }
+          }
+
+          // Computed style -> semantic tag. This is what recovers the emphasis a publisher wrote as
+          // a class (".fn-em { font-style: italic }") instead of <i>: the chapter stylesheet is
+          // already applied in the page, the bubble has no stylesheet of its own.
+          function noteStyleTags(el) {
+            var tags = [];
+            var cs = null;
+            try { cs = window.getComputedStyle(el); } catch (e) { cs = null; }
+            if (!cs) return tags;
+            var weight = parseInt(cs.fontWeight, 10);
+            if (weight >= 600) tags.push('b');
+            if (cs.fontStyle === 'italic' || cs.fontStyle === 'oblique') tags.push('i');
+            var deco = cs.textDecorationLine || cs.textDecoration || '';
+            if (deco.indexOf('underline') >= 0) tags.push('u');
+            if (cs.verticalAlign === 'super') tags.push('sup');
+            if (cs.verticalAlign === 'sub') tags.push('sub');
+            return tags;
+          }
+
+          // Tables have no representation in a TextView: flatten each row to "cell · cell".
+          function noteTableHtml(table, state) {
+            var rows = table.querySelectorAll ? table.querySelectorAll('tr') : [];
+            if (!rows.length) return noteChildrenHtml(table, state);
+            var html = '';
+            for (var i = 0; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll ? rows[i].querySelectorAll('td,th') : [];
+              var line = '';
+              for (var c = 0; c < cells.length; c++) {
+                var cell = noteChildrenHtml(cells[c], state);
+                if (cell) line += (line ? ' · ' : '') + cell;
+              }
+              if (line) html += '<p>' + line + '</p>';
+            }
+            return html;
+          }
+
+          function noteChildrenHtml(node, state) {
+            var out = '';
+            var kids = node.childNodes || [];
+            for (var i = 0; i < kids.length; i++) {
+              out += noteNodeHtml(kids[i], state);
+            }
+            return out;
+          }
+
+          function noteNodeHtml(n, state) {
+            if (!n) return '';
+            if (n.nodeType === 3) {
+              var text = String(n.nodeValue || '').replace(/\s+/g, ' ');
+              return text ? noteEscape(text) : '';
+            }
+            if (n.nodeType !== 1) return '';
+            var tag = n.nodeName ? n.nodeName.toUpperCase() : '';
+            if (tag === 'IMG') {
+              if (state.images.length >= NOTE_MAX_IMAGES) return '';
+              var src = noteAbsoluteUrl(n, 'src');
+              if (!src) return '';
+              var alt = n.getAttribute('alt') || '';
+              state.images.push({ src: src, alt: alt });
+              return '<img src="' + noteEscape(src) + '" alt="' + noteEscape(alt) + '">';
+            }
+            if (tag === 'RT') {
+              // Ruby annotation: keep it readable instead of gluing it into the base text.
+              var rt = noteChildrenHtml(n, state);
+              return rt ? '（' + rt + '）' : '';
+            }
+            if (tag === 'TABLE') return noteTableHtml(n, state);
+            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TITLE' || tag === 'NOSCRIPT' ||
+                tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED' || tag === 'SVG' ||
+                tag === 'AUDIO' || tag === 'VIDEO' || tag === 'HEAD') {
+              return '';
+            }
+            if (tag === 'BR') return '<br>';
+            if (tag === 'A') {
+              var inner = noteChildrenHtml(n, state);
+              if (!inner) return '';
+              var href = noteAbsoluteUrl(n, 'href');
+              var inBook = false;
+              try { inBook = !!href && new URL(href).origin === location.origin; } catch (e) { inBook = false; }
+              return inBook ? '<a href="' + noteEscape(href) + '">' + inner + '</a>' : inner;
+            }
+            var body = noteChildrenHtml(n, state);
+            if (!body) return '';
+            var lower = tag.toLowerCase();
+            if (!NOTE_TAGS[tag]) return body;  // unknown wrapper: keep what it contains
+            var html = (lower === 'span' || lower === 'div') ? body : '<' + lower + '>' + body + '</' + lower + '>';
+            var wraps = noteStyleTags(n);
+            for (var w = 0; w < wraps.length; w++) {
+              var wt = wraps[w];
+              if (wt === lower) continue;
+              html = '<' + wt + '>' + html + '</' + wt + '>';
+            }
+            return html;
+          }
+
+          function notePayload(link, ev) {
+            var frag = noteFragmentOf(link);
+            if (!frag) return null;
+            var target = noteTargetOf(link);
+            if (!target) return null;  // cross-file note: the caller falls back to the link jump
+            var body = noteContainerOf(target) || target;
+            var state = { images: [] };
+            var html = noteChildrenHtml(body, state);
+            var text = String(body.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!html || (!text && !state.images.length)) return null;
+            var truncated = false;
+            if (text.length > NOTE_MAX_TEXT) {
+              text = text.slice(0, NOTE_MAX_TEXT);
+              truncated = true;
+            }
+            if (html.length > NOTE_MAX_HTML) {
+              html = html.slice(0, NOTE_MAX_HTML);
+              var cut = html.lastIndexOf('>');
+              if (cut > 0) html = html.slice(0, cut + 1);
+              truncated = true;
+            }
+            var vw = S.vw || window.innerWidth || 1;
+            var vh = S.vh || window.innerHeight || 1;
+            var href = noteAbsoluteUrl(link, 'href');
+            if (!href) href = (location.href.split('#')[0] || '') + '#' + frag;
+            return {
+              v: 1,
+              href: href,
+              frag: frag,
+              html: html,
+              text: text,
+              truncated: truncated,
+              images: state.images,
+              anchor: {
+                x: Math.min(1, Math.max(0, ev.clientX / vw)),
+                y: Math.min(1, Math.max(0, ev.clientY / vh))
+              },
+              token: window.__kmLoadToken || 0
+            };
+          }
+
+          stampNoterefs();
+          window.addEventListener('load', function() { stampNoterefs(); });
+
           // ---------- listeners ----------
           window.addEventListener('scroll', report, { passive: true });
           window.addEventListener('resize', function() {
@@ -885,6 +1346,12 @@ object EpubJs {
           }
           // The body's box is pinned to the viewport, so the ResizeObserver above never fires
           // for late-loading images — catch them through capture-phase load events instead.
+          // A web font that lands after kickMeasure's fonts.ready pass (font-display:swap, or a
+          // family the chapter only starts using later) reflows every column without resizing
+          // body's box either, so neither observer sees it.
+          if (document.fonts && document.fonts.addEventListener) {
+            document.fonts.addEventListener('loadingdone', scheduleRepaginate);
+          }
           document.addEventListener('load', function(e) {
             var t = e.target;
             if (t && t.tagName === 'IMG') { if (S.c && S.c.darkTheme) classifyImage(t); scheduleRepaginate(); }
@@ -897,9 +1364,24 @@ object EpubJs {
             // same-document hash hop never reaches shouldOverrideUrlLoading — the WebView
             // just scrolls natively — so without this interception a jump link desyncs the
             // chapter index, skips the progress pipeline and never pushes the return chip.
-            // Footnote/note references navigate the same way (jump to the note, return chip
-            // brings you back) — there is deliberately no popup layer.
-            var link = t && t.closest ? t.closest('a[href]') : null;
+            // Footnote/note references are tried first, before the link path below: a reference
+            // whose body sits in this file pops a bubble (no navigation at all), and only the
+            // ones that cannot be extracted fall through to the normal in-book jump.
+            var anchorEl = t && t.closest ? t.closest('a') : null;
+            // A note reference pops its body over the page instead: no chapter jump, no return
+            // chip, and no onTap (the preventDefault below keeps the tap-zone handler out of it).
+            // When the note cannot be extracted (cross-file target, empty body) the click falls
+            // through to the plain link path and the reader jumps exactly like before.
+            if (anchorEl && isNoteref(anchorEl)) {
+              var note = notePayload(anchorEl, e);
+              if (note) {
+                e.preventDefault();
+                e.stopPropagation();
+                $BRIDGE.onFootnote(JSON.stringify(note));
+                return;
+              }
+            }
+            var link = anchorEl && anchorEl.getAttribute('href') ? anchorEl : null;
             if (link) {
               var u = null;
               try { u = new URL(link.getAttribute('href') || '', location.href); } catch (err) { u = null; }
@@ -908,8 +1390,8 @@ object EpubJs {
                 // illustration link: this reader has no image viewer, and swallowing the tap
                 // makes the whole page a dead zone — treat it as a page-turn tap instead.
                 if (!/\.(jpe?g|png|gif|webp|avif|svg|bmp|heic|m4a|mp[34]|webm|ogg)$/.test(u.pathname.toLowerCase())) {
-                  // Notes and footnote references navigate like every other in-book link (no
-                  // popup): the reader jumps to the note and the return chip takes you back.
+                  // In-book link: the reader navigates itself so the chapter index and the
+                  // anchor stay in sync (the return chip comes from that path).
                   e.preventDefault();
                   e.stopPropagation();
                   $BRIDGE.onLink(u.href);
@@ -945,6 +1427,9 @@ class EpubJsBridge(
     /** In-book link tap routed from the page JS (same-document hash hops never reach
      *  shouldOverrideUrlLoading, so the click handler preventDefaults and reports here). */
     private val linkCallback: (url: String) -> Unit = {},
+    /** A note reference was tapped and its body could be extracted from the page; the argument is
+     *  the JSON record consumed by [EpubFootnote.parse]. */
+    private val footnoteCallback: (json: String) -> Unit = {},
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -952,6 +1437,11 @@ class EpubJsBridge(
     @JavascriptInterface
     fun onLink(url: String) {
         mainHandler.post { linkCallback(url) }
+    }
+
+    @JavascriptInterface
+    fun onFootnote(json: String) {
+        mainHandler.post { footnoteCallback(json) }
     }
 
     @JavascriptInterface

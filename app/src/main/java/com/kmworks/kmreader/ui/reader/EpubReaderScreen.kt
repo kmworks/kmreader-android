@@ -3,6 +3,9 @@ package com.kmworks.kmreader.ui.reader
 import android.app.Activity
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -16,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,16 +48,21 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
 import com.kmworks.kmreader.ui.components.AppModalDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -64,6 +73,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,20 +110,31 @@ import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.AdjacentBooksResolver
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.epub.EpubChapter
+import com.kmworks.kmreader.core.epub.EpubFootnote
+import com.kmworks.kmreader.core.epub.EpubFootnoteNote
 import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
+import com.kmworks.kmreader.core.epub.EpubPageInsets
+import com.kmworks.kmreader.core.epub.EpubPositionIndex
+import com.kmworks.kmreader.core.epub.EpubPositionIndexStore
 import com.kmworks.kmreader.core.epub.EpubRepository
 import com.kmworks.kmreader.core.epub.EpubResource
 import com.kmworks.kmreader.core.epub.EpubScrollWebView
 import com.kmworks.kmreader.core.epub.EpubThemeConfig
 import com.kmworks.kmreader.core.epub.EpubWeb
 import com.kmworks.kmreader.core.epub.EpubWebViewClient
+import com.kmworks.kmreader.core.epub.buildEpubPositionIndex
+import com.kmworks.kmreader.core.epub.computeEpubPageInsets
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.epub.epubPositionIndexKey
+import com.kmworks.kmreader.core.reader.EpubBookmark
+import com.kmworks.kmreader.core.reader.EpubBookmarkStore
 import com.kmworks.kmreader.core.reader.EpubOverlayItem
 import com.kmworks.kmreader.core.download.OfflineLibrary
 import com.kmworks.kmreader.core.fonts.FontRepository
@@ -121,6 +144,7 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.CustomFont
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.net.URLDecoder
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -162,19 +186,24 @@ data class EpubUiState(
 
 /**
  * EPUB reader state (mirrors the WebPub manifest route of EpubReaderView):
- * manifest → chapters, positions → chapter weights, progression GET restores / PUT reports throttled.
+ * manifest → chapters; positions → chapter weights (cached, fetched off the first-render path);
+ * progression GET restores / PUT reports throttled.
  */
 @HiltViewModel
 class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
+    private val positionIndexStore: EpubPositionIndexStore,
     private val offlineLibrary: OfflineLibrary,
     private val fontRepository: FontRepository,
+    private val bookmarkStore: EpubBookmarkStore,
     private val appSettings: AppSettingsStore,
     @ApplicationContext private val context: Context,
     private val actionRepository: ActionRepository,
     private val adjacentBooksResolver: AdjacentBooksResolver,
     private val readListReadingService: ReadListReadingService,
+    /** Holds list refreshes while the reader is open, then posts one reload on close (mirrors iOS). */
+    private val contentChangeBus: ContentChangeBus,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -188,6 +217,11 @@ class EpubReaderViewModel @Inject constructor(
     private val _downloadedFamilies = MutableStateFlow<Set<String>>(emptySet())
     val downloadedFamilies: StateFlow<Set<String>> = _downloadedFamilies.asStateFlow()
 
+    /** Bookmarks of the open book, in reading order (the store is keyed by book DTO id). */
+    private val _bookmarks = MutableStateFlow<List<EpubBookmark>>(emptyList())
+    val bookmarks: StateFlow<List<EpubBookmark>> = _bookmarks.asStateFlow()
+    private var bookmarkJob: Job? = null
+
     /** App-wide theme mode ("system"/"light"/"dark"): the reader theme follows the APP theme,
      *  not the raw system dark flag (mirrors MainActivity's theme resolution). */
     val themeMode: StateFlow<String> = appSettings.themeMode
@@ -198,10 +232,12 @@ class EpubReaderViewModel @Inject constructor(
 
     /** Read list the current book was opened from; kept so the end page can retry the sibling lookup. */
     private var sessionReadListStableId: Int? = null
-    private var weightsByHref: Map<String, Float> = emptyMap()
-
-    /** Sorted position progressions per chapter href (Komga positions); used to snap reported fractions to exact positions. */
-    private var progressionsByHref: Map<String, List<Float>> = emptyMap()
+    /**
+     * Positions of the open book, compacted to per-chapter weights + sorted progressions. Fetched off
+     * the first-render path and cached: a long novel's list is megabytes (2.5 MB / 15,865 entries for
+     * an 8,431-page book), so it must neither block the first chapter nor be re-downloaded per open.
+     */
+    private var positionIndex: EpubPositionIndex? = null
     private var equalWeight: Float = 1f
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
@@ -219,6 +255,10 @@ class EpubReaderViewModel @Inject constructor(
     private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
 
     init {
+        // An EPUB reader is a reading session too: hold list refreshes while it is open and release them on
+        // close, the same deferral the comic and PDF readers apply (see ContentChangeBus.readerOpened).
+        contentChangeBus.readerOpened()
+        viewModelScope.coroutineContext[Job]?.invokeOnCompletion { contentChangeBus.readerClosed() }
         viewModelScope.launch {
             appSettings.progressRecordingThreshold.collect { progressThreshold = it }
         }
@@ -254,6 +294,12 @@ class EpubReaderViewModel @Inject constructor(
             }
             bookDtoId = dtoId
             refreshFonts()
+            // Bookmarks follow the book DTO id, so a cache rebuild (the Room file is restartable)
+            // never loses them. Re-collected per book: the flow is cheap and always in reading order.
+            bookmarkJob?.cancel()
+            bookmarkJob = viewModelScope.launch {
+                bookmarkStore.bookmarks(dtoId).collect { _bookmarks.value = it }
+            }
             // Offline first: a downloaded EPUB carries its own manifest, so the TOC and the
             // reading order survive without the server; the network manifest stays authoritative.
             val manifest = runCatching { epubRepository.manifest(dtoId) }.getOrNull()
@@ -277,24 +323,12 @@ class EpubReaderViewModel @Inject constructor(
                 )
             }
             equalWeight = 1f / chapters.size
-            val positions = epubRepository.positions(dtoId)
-            val positionsTotal = positions?.total ?: 0
-            weightsByHref = positions
-                ?.takeIf { it.total > 0 }
-                ?.positions
-                ?.groupingBy { EpubHref.normalize(it.href) }
-                ?.eachCount()
-                ?.mapValues { it.value.toFloat() / positionsTotal }
-                .orEmpty()
-            progressionsByHref = positions
-                ?.takeIf { it.total > 0 }
-                ?.positions
-                ?.groupBy { EpubHref.normalize(it.href) }
-                ?.mapValues { entry ->
-                    entry.value.mapNotNull { it.locations?.progression }.sorted()
-                }
-                .orEmpty()
-            estimatedTotalPages = positionsTotal
+            // Positions only refine the whole-book percentage and the reported locator — they never
+            // affect the layout, so the first chapter must not wait for them. A cache hit answers
+            // off the main thread in microseconds; a miss is fetched below, after the page is up.
+            val positionKey = epubPositionIndexKey(chapters, book.pageCount)
+            positionIndex = positionIndexStore.cached(dtoId, positionKey)
+            estimatedTotalPages = positionIndex?.total ?: 0
 
             // Restore saved progression (mirrors decodeRemoteWebPubProgression fallback to start)
             val saved = epubRepository.savedProgression(dtoId)
@@ -328,6 +362,33 @@ class EpubReaderViewModel @Inject constructor(
             )
 
             resolveAdjacent(dtoId, readListStableId)
+            if (positionIndex == null) {
+                loadPositionIndex(dtoId, positionKey)
+            }
+        }
+    }
+
+    /**
+     * Fetches the positions list after the first page is already on screen, then applies it: weights
+     * for the whole-book percentage, progressions for snapping the reported locator. A failure is
+     * silent — the reader keeps the equal-weight approximation and an unsnapped report.
+     */
+    private fun loadPositionIndex(dtoId: String, key: String) {
+        viewModelScope.launch {
+            val positions = epubRepository.positions(dtoId) ?: return@launch
+            if (_uiState.value.bookDtoId != dtoId || _uiState.value.chapters.isEmpty()) return@launch
+            val index = buildEpubPositionIndex(positions)
+            if (index.total <= 0) return@launch
+            positionIndexStore.remember(dtoId, key, index)
+            positionIndex = index
+            estimatedTotalPages = index.total
+            // Weights change the whole-book percentage without the reader moving, so the recording
+            // gate's baseline has to move with them: otherwise refitting from equal weights to the
+            // real ones looks like a large jump and records a book that was only just opened.
+            val state = _uiState.value
+            val rebased = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction)
+            if (sessionStartTotalProgression != null) sessionStartTotalProgression = rebased
+            _uiState.value = state.copy(totalProgression = rebased)
         }
     }
 
@@ -422,6 +483,49 @@ class EpubReaderViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Bookmark at the current position, or drop the one already there (the chrome capsule is a
+     * toggle, mirroring Koharia's toggleBookmarkAtCurrentLocator).
+     *
+     * The position is matched to a page, not to the pixel: [currentChapterFraction] moves with
+     * every scroll tick, so an exact comparison would never find the bookmark the user just made.
+     * Incognito reading never writes (and never reads a list) — nothing about that session may
+     * survive.
+     */
+    fun toggleBookmark() {
+        if (incognito) return
+        val dtoId = bookDtoId ?: return
+        val state = _uiState.value
+        val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
+        val fraction = currentChapterFraction
+        val existing = _bookmarks.value.firstOrNull { bookmark ->
+            bookmark.chapterIndex == state.currentChapterIndex &&
+                abs(bookmark.chapterFraction - fraction) <= BOOKMARK_MATCH_TOLERANCE
+        }
+        viewModelScope.launch {
+            if (existing != null) {
+                bookmarkStore.delete(dtoId, existing.id)
+            } else {
+                bookmarkStore.save(
+                    dtoId,
+                    EpubBookmark(
+                        id = java.util.UUID.randomUUID().toString(),
+                        chapterIndex = state.currentChapterIndex,
+                        chapterFraction = fraction,
+                        totalProgression = state.totalProgression,
+                        chapterTitle = chapter.title,
+                        createdAtMs = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
+    }
+
+    fun deleteBookmark(bookmarkId: String) {
+        val dtoId = bookDtoId ?: return
+        viewModelScope.launch { bookmarkStore.delete(dtoId, bookmarkId) }
+    }
+
     /** Consumes the one-shot scroll-restore command. */
     fun consumeScroll() {
         if (_uiState.value.scrollToFraction != null) {
@@ -508,7 +612,11 @@ class EpubReaderViewModel @Inject constructor(
         val dtoId = bookDtoId ?: return
         val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
         val fraction = currentChapterFraction
-        val total = state.totalProgression
+        // Report the snapped position and the percentage OF THAT position: the server stores both halves
+        // in one locator, so deriving the percentage from the unsnapped fraction left a locator whose
+        // progression and totalProgression disagreed with each other.
+        val snapped = snapToPosition(chapter.href, fraction)
+        val total = totalFor(state.chapters, state.currentChapterIndex, snapped)
         // Completed = last chapter scrolled to its end (approximates the original reachedLastPage:
         // Android only knows the in-chapter fraction)
         val completed = state.currentChapterIndex >= state.chapters.lastIndex && fraction >= 0.99f
@@ -518,7 +626,7 @@ class EpubReaderViewModel @Inject constructor(
             val ok = epubRepository.reportProgression(
                 bookDtoId = dtoId,
                 href = chapter.href,
-                chapterFraction = snapToPosition(chapter.href, fraction),
+                chapterFraction = snapped,
                 totalProgression = total,
                 deviceId = deviceId,
                 deviceName = deviceName,
@@ -549,18 +657,24 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     private fun weightOf(chapter: EpubChapter): Float =
-        weightsByHref[chapter.href] ?: equalWeight
+        positionIndex?.weightOf(chapter.href) ?: equalWeight
 
     /**
-     * Snaps the in-chapter fraction to the nearest Komga position of that chapter. The server (Komga/kmrs)
-     * requires the reported progression to exactly match a position or sit strictly between two positions of
-     * the same href — a raw fraction past the chapter's last position is rejected with 400 "Invalid
-     * progression". Sending back the exact f32 the server advertised round-trips to an exact match.
+     * Snaps the in-chapter fraction to a Komga position of that chapter. The server (Komga/kmrs)
+     * requires the reported progression to exactly match a position or sit strictly between two
+     * positions of the same href — a raw fraction past the chapter's last position is rejected with
+     * 400 "Invalid progression". Sending back the exact f32 the server advertised round-trips to an
+     * exact match.
+     *
+     * The FIRST position at or after [fraction] wins: positions are spaced by the server's own
+     * pagination, so the nearest one can sit slightly before what the reader has read and makes a
+     * forward read walk its saved position backwards. Past the chapter's last position the last one
+     * is the only valid answer.
      */
     private fun snapToPosition(href: String, fraction: Float): Float {
-        val progressions = progressionsByHref[href].orEmpty()
+        val progressions = positionIndex?.progressionsByHref?.get(href).orEmpty()
         if (progressions.isEmpty()) return fraction
-        return progressions.minBy { abs(it - fraction) }
+        return progressions.firstOrNull { it >= fraction } ?: progressions.last()
     }
 
     private fun totalFor(chapters: List<EpubChapter>, index: Int, fraction: Float): Float {
@@ -568,6 +682,15 @@ class EpubReaderViewModel @Inject constructor(
         chapters.take(index).forEach { acc += weightOf(it) }
         return (acc + fraction * (chapters.getOrNull(index)?.let { weightOf(it) } ?: 0f))
             .coerceIn(0f, 1f)
+    }
+
+    private companion object {
+        /**
+         * How close two in-chapter fractions must be to count as the same bookmark (1% of a
+         * chapter). Wide enough that the scroll tick under a page still matches the bookmark made
+         * on it, narrow enough that a bookmark on the neighbouring page stays a separate entry.
+         */
+        const val BOOKMARK_MATCH_TOLERANCE = 0.01f
     }
 }
 
@@ -648,6 +771,9 @@ private fun RealEpubReader(
     // EPUB preferences are persisted globally (mirrors the original @AppStorage epubPreferences), so
     // the reader and the defaults page share the same copy
     val epubSettings by settingsViewModel.epubSettings.collectAsStateWithLifecycle()
+    // Volume-key page turning is the shared DIVINA setting (the original AppStorage key lives on the
+    // reader settings sheet, not on the EPUB preferences), so read the global copy here.
+    val readerSettings by settingsViewModel.settings.collectAsStateWithLifecycle()
     // Margin-note ("info overlay") preferences, persisted globally like the theme settings
     val epubOverlay by settingsViewModel.epubOverlay.collectAsStateWithLifecycle()
     // The reader theme follows the APP theme setting, not the raw system dark flag (the user
@@ -675,21 +801,46 @@ private fun RealEpubReader(
     val viewportWidthDp = LocalConfiguration.current.screenWidthDp
     // Reserve vertical room for the header/footer info overlay in the page layout itself, so
     // text never slides under the overlay (mirrors the iOS containerInsets top/bottom +24pt,
-    // applied only when at least one reading slot shows content)
+    // applied only when at least one slot can show content). The chrome-visible slots count too:
+    // with every reading slot set to "none" the page would otherwise reserve nothing at all, and
+    // the progress note that appears above the chrome landed straight on the first line.
     val overlayHasContent = epubOverlay.readerHeaderLeading != EpubOverlayItem.NONE ||
         epubOverlay.readerHeaderCenter != EpubOverlayItem.NONE ||
         epubOverlay.readerHeaderTrailing != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterLeading != EpubOverlayItem.NONE ||
         epubOverlay.readerFooterCenter != EpubOverlayItem.NONE ||
-        epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE
-    val overlayInsetVPx = with(LocalDensity.current) {
-        if (overlayHasContent) 24.dp.roundToPx() else 0
-    }
+        epubOverlay.readerFooterTrailing != EpubOverlayItem.NONE ||
+        epubOverlay.controlsHeaderCenter != EpubOverlayItem.NONE ||
+        epubOverlay.controlsFooterCenter != EpubOverlayItem.NONE
+    // Page insets: the header/footer overlay band plus, when content must not draw under it, the
+    // display-cutout band. The two reservations are resolved together in computeEpubPageInsets
+    // (CSS px, NOT physical px — the injected page CSS consumes these as padding in CSS px, and
+    // handing it density-scaled values once ate four lines per page). The overlay keeps the old
+    // "both edges take the larger system bar" rule (the footer label sits on top of the
+    // navigation bar); the cutout, its horizontal edges and the overlay-off case are what is new.
+    // *IgnoringVisibility keeps the page layout from reflowing while the chrome toggles the
+    // immersive bars on and off.
+    val windowInsetsCss = rememberReaderWindowInsetsCss()
+    val pageInsets = computeEpubPageInsets(
+        cutoutTopVPx = windowInsetsCss.cutoutTop,
+        cutoutBottomVPx = windowInsetsCss.cutoutBottom,
+        cutoutLeftVPx = windowInsetsCss.cutoutLeft,
+        cutoutRightVPx = windowInsetsCss.cutoutRight,
+        statusBarTopVPx = windowInsetsCss.statusBarTop,
+        navigationBarBottomVPx = windowInsetsCss.navigationBarBottom,
+        overlayHasContent = overlayHasContent,
+        drawUnderCutout = readerSettings.drawUnderCutout,
+    )
     val themeConfig = remember(
-        epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+        epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
+        readerSettings.drawUnderCutout, windowInsetsCss.cutoutTop, windowInsetsCss.cutoutBottom,
     ) {
         mapEpubThemeConfig(
-            epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, overlayInsetVPx,
+            epubSettings, dark, fontCss, rtl, viewportWidthDp, state.readingProgression, pageInsets,
+            // Only the cutout part is clipped in scrolled mode: the overlay band scrolls with the
+            // text today and must not gain a permanent strip (see EpubThemeConfig.cutoutTopVPx).
+            cutoutTopVPx = if (readerSettings.drawUnderCutout) 0 else windowInsetsCss.cutoutTop,
+            cutoutBottomVPx = if (readerSettings.drawUnderCutout) 0 else windowInsetsCss.cutoutBottom,
         )
     }
     var latestConfig by remember { mutableStateOf(themeConfig) }
@@ -712,13 +863,13 @@ private fun RealEpubReader(
     var pendingScroll by remember { mutableStateOf<Float?>(null) }
     // Bumped for every chapter load and stamped into the page's JS after injection: measure
     // passes carry it back, so stale callbacks from the previous chapter can be dropped
-    var loadToken by remember { mutableStateOf(0) }
+    var loadToken by remember { mutableIntStateOf(0) }
     // onPageReady fires on BOTH onPageCommitVisible and onPageFinished for the same load (the
     // finished callback is only the fallback for loads where commit never fires). Injecting the
     // script twice re-runs __kmApplyTheme mid-load, which re-measures and re-imposes whatever
     // fraction the half-laid-out strip happens to sit at — destroying a queued end-of-chapter
     // restore (the "back-seam lands at the chapter start" bug).
-    var injectedForToken by remember { mutableStateOf(-1) }
+    var injectedForToken by remember { mutableIntStateOf(-1) }
     var webView by remember { mutableStateOf<EpubScrollWebView?>(null) }
     // The WebView stays invisible until the restored progression has been applied: the chapter is
     // loaded from its top, so without this the first paint shows the chapter start and the injected
@@ -737,21 +888,35 @@ private fun RealEpubReader(
     // book's card (mirrors the DIVINA PreviousEnd pager cell)
     var showingPreviousPage by remember { mutableStateOf(false) }
     // Paged-mode measure results (scrolled mode always reports 1/0)
-    var pageCount by remember { mutableStateOf(1) }
-    var currentPage by remember { mutableStateOf(0) }
+    var pageCount by remember { mutableIntStateOf(1) }
+    var currentPage by remember { mutableIntStateOf(0) }
     // Actual reading direction reported by the page JS: 0 = ltr, 1 = rtl, 2 = vertical.
     // Vertical books paginate downward but pages stack right-to-left, so the tap zones mirror.
-    var jsDirection by remember { mutableStateOf(0) }
+    var jsDirection by remember { mutableIntStateOf(0) }
     // Last reported in-chapter fraction: the scrolled-mode edge test for page stepping
-    var lastFraction by remember { mutableStateOf(0f) }
-    // Anchor of an in-book link, applied once the target chapter's measure pass reports
+    var lastFraction by remember { mutableFloatStateOf(0f) }
+    // Bookmarks of the open book (the store is keyed by the book DTO id) and whether the position
+    // on screen is one of them — the capsule is a toggle, so the icon reflects that state
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val bookmarkedHere = bookmarks.any { bookmark ->
+        bookmark.chapterIndex == state.currentChapterIndex &&
+            abs(bookmark.chapterFraction - lastFraction) <= 0.01f
+    }
+    // Anchor of a jump (in-book link or toc entry), applied once the target chapter's measure
+    // pass reports. Chapter-scoped: a failed load must not let a stale anchor fire on whatever
+    // chapter the reader lands on next.
     var pendingAnchor by remember { mutableStateOf<String?>(null) }
+    var pendingAnchorChapter by remember { mutableStateOf<Int?>(null) }
+    // Note bubble shown after tapping a footnote reference. Kept out of the ViewModel on purpose:
+    // it is pure presentation of the page's own DOM, and it must die with the chapter load (a
+    // bubble floating over the next chapter would be showing text that is no longer on screen).
+    var footnoteNote by remember { mutableStateOf<EpubFootnoteNote?>(null) }
     // Link-jump back stack (mirrors readest's History.back): following an in-book link pushes
     // (chapterIndex, in-chapter fraction); the floating return chip pops it and jumps back.
     var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
     // Cooldown so one overscroll drag cannot skip several chapters (the seam callback repeats
     // while the finger holds past the edge)
-    var lastSeamAt by remember { mutableStateOf(0L) }
+    var lastSeamAt by remember { mutableLongStateOf(0L) }
 
     // Chapter seams (mirrors the iOS goToNextPage/goToPreviousPage): past the last page of the
     // book the end page opens, otherwise the neighbouring chapter loads. The paged WebView drives
@@ -761,6 +926,28 @@ private fun RealEpubReader(
     fun toggleChrome() {
         chromeVisible = !chromeVisible
         if (!chromeVisible) quickActionsExpanded = false
+    }
+
+    /**
+     * Jump to a bookmark: a different chapter loads and is positioned through [pendingScroll],
+     * the same slot the toc and the link-jump return chip use; the current chapter just scrolls,
+     * because selecting the chapter that is already on screen never reloads it.
+     */
+    fun jumpToBookmark(bookmark: EpubBookmark) {
+        if (bookmark.chapterIndex !in state.chapters.indices) return
+        showToc = false
+        chromeVisible = false
+        quickActionsExpanded = false
+        if (bookmark.chapterIndex != state.currentChapterIndex) {
+            pendingScroll = bookmark.chapterFraction
+            restorePositioned = false
+            viewModel.goToChapter(bookmark.chapterIndex)
+        } else {
+            webView?.evaluateJavascript(
+                "window.__kmScrollToFraction(${bookmark.chapterFraction})",
+                null,
+            )
+        }
     }
 
     fun seamNext() {
@@ -850,9 +1037,15 @@ private fun RealEpubReader(
         // reveal the WebView (covers both flow styles; later passes are idempotent)
         restorePositioned = true
         webViewEverRevealed = true
-        pendingAnchor?.let { anchor ->
-            pendingAnchor = null
-            webView?.evaluateJavascript("window.__kmGoToAnchor(${JSONObject.quote(anchor)})", null)
+        // Only the measure pass of the chapter the anchor belongs to consumes it: a toc entry or
+        // in-book link can target a file that fails to load, and the anchor would otherwise be
+        // applied to the following chapter (mirrors the pendingAnchor guard in readest).
+        if (pendingAnchorChapter == state.currentChapterIndex) {
+            pendingAnchorChapter = null
+            pendingAnchor?.let { anchor ->
+                pendingAnchor = null
+                webView?.evaluateJavascript("window.__kmGoToAnchor(${JSONObject.quote(anchor)})", null)
+            }
         }
     }
     val swipeHandler = rememberUpdatedState<(Float, Float) -> Unit> { dx, vx ->
@@ -886,6 +1079,7 @@ private fun RealEpubReader(
                         // reader back (readest pushes every goTo onto its history stack)
                         linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
                         pendingAnchor = anchor
+                        pendingAnchorChapter = index
                         viewModel.goToChapter(index)
                     } else if (anchor != null) {
                         linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
@@ -896,13 +1090,32 @@ private fun RealEpubReader(
                     }
                 }
             }
-            // Notes and footnote references navigate like every other in-book link: jump to the
-            // anchor, push the return chip (linkBackStack). The popup layer was removed by design.
+            // Notes and footnote references that could not be extracted in place (cross-file
+            // targets, empty bodies) navigate like every other in-book link: jump to the anchor,
+            // push the return chip (linkBackStack). The extractable ones never reach here — the
+            // page JS intercepts the tap and reports through footnoteHandler instead.
             navigateFallback()
             // Unknown in-book targets are still swallowed: loading them raw would leave the book
             true
         },
     )
+
+    // A note reference tap: the page JS already extracted and flattened the note body, so this
+    // only has to show the bubble — no navigation, no chapter change. A payload that cannot be
+    // used (token from the previous chapter, an empty body) falls back to the plain jump so the
+    // tap is never silently swallowed.
+    val footnoteHandler = rememberUpdatedState<(String) -> Unit> { json ->
+        val note = EpubFootnote.parse(json, loadToken)
+        when {
+            note == null -> Unit
+            !note.isRenderable -> navigateHandler.value(EpubWeb.hrefFromUrl(note.href) ?: note.href, note.fragment)
+            else -> {
+                // The floating chrome would sit under the bubble and fight it for taps
+                chromeVisible = false
+                footnoteNote = note
+            }
+        }
+    }
 
     // Metrics carry the page's load token (like the pagination callback): a throttled report
     // still in flight from the previous chapter in the loadUrl window must not be attributed
@@ -924,12 +1137,13 @@ private fun RealEpubReader(
             linkCallback = { url ->
                 // In-book link click reported by the page JS (it preventDefaults because a
                 // same-document hash hop never reaches shouldOverrideUrlLoading)
-                val uri = android.net.Uri.parse(url)
+                val uri = url.toUri()
                 if (uri.host == EpubWeb.FAKE_HOST) {
                     val href = EpubWeb.hrefFromUrl(url)
                     if (href != null) navigateHandler.value(href, uri.fragment)
                 }
             },
+            footnoteCallback = { json -> footnoteHandler.value(json) },
         )
     }
 
@@ -973,6 +1187,7 @@ private fun RealEpubReader(
         // of itself first (Koharia's PixelCopy approach adapted to a single WebView — the iOS
         // three-slot deck keeps the old page alive, we cannot), so the user sees the old page
         // until the new one is ready, then an instant swap.
+        footnoteNote = null
         if (webViewEverRevealed) chapterSnapshot = webView?.takeSnapshot()
         restorePositioned = false
         loadToken += 1
@@ -1008,7 +1223,7 @@ private fun RealEpubReader(
     }
 
     val pageBackground = remember(themeConfig) {
-        Color(android.graphics.Color.parseColor(themeConfig.background))
+        Color(themeConfig.background.toColorInt())
     }
     // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
     val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
@@ -1030,6 +1245,18 @@ private fun RealEpubReader(
     }
     val onTopOverscroll = rememberUpdatedState {
         if (!themeConfig.paged) seamPrevious()
+    }
+
+    // Volume keys turn pages instead of changing the volume. The WebView takes the window focus on
+    // touch, so a Compose preview-key handler would never see the press: the reader registers a
+    // window-level handler that MainActivity offers before the view hierarchy (see
+    // MainActivity.dispatchKeyEvent) and consumes, leaving the system volume untouched.
+    VolumeKeyPagingEffect(
+        enabled = readerSettings.volumeButtonPageTurnEnabled &&
+            !sheetOpen && !showingEndPage && !showingPreviousPage,
+        rtl = rtl,
+    ) { page ->
+        turnPage(page == VolumeKeyPage.Next)
     }
 
     Box(
@@ -1085,7 +1312,7 @@ private fun RealEpubReader(
                 }
                 // The WebView's own background paints before the chapter CSS does: without this
                 // it flashes white in dark mode on every chapter load
-                view.setBackgroundColor(android.graphics.Color.parseColor(themeConfig.background))
+                view.setBackgroundColor(themeConfig.background.toColorInt())
             },
             modifier =
                 Modifier
@@ -1160,15 +1387,17 @@ private fun RealEpubReader(
                 chapterProgressFraction = if (themeConfig.paged) null else lastFraction,
                 isRtl = rtl || jsDirection == 2,
                 textColor = pageContent,
+                drawUnderCutout = readerSettings.drawUnderCutout,
             )
         }
 
-        // Floating chrome (mirrors the iOS controlsOverlay): a round close button top-trailing
-        // and a round quick-actions button bottom-trailing whose capsule panel carries the
+        // Floating chrome (mirrors the iOS controlsOverlay): the round close button now sits
+        // top-leading (its old top-trailing slot carries the bookmark toggle), and the round
+        // quick-actions button stays bottom-trailing with the capsule panel that holds the
         // scrubber, contents, book info, settings and the neighbouring books.
         AnimatedVisibility(
             visible = chromeShown,
-            modifier = Modifier.align(Alignment.TopEnd),
+            modifier = Modifier.align(Alignment.TopStart),
             enter = scaleIn() + fadeIn(),
             exit = scaleOut() + fadeOut(),
         ) {
@@ -1176,23 +1405,67 @@ private fun RealEpubReader(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                    .padding(top = 8.dp, end = 12.dp),
+                    .padding(top = 8.dp, start = 12.dp),
             ) {
-                // Incognito indicator (mirrors the eye.slash in the original chrome)
-                if (incognito) {
-                    Icon(
-                        Icons.Filled.VisibilityOff,
-                        contentDescription = stringResource(R.string.reader_incognito),
-                        tint = pageContent.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(end = 10.dp),
-                    )
-                }
                 FloatingChromeButton(onClick = onBack, background = chromeBackground, border = chromeBorder) {
                     Icon(
                         Icons.Filled.Close,
                         contentDescription = stringResource(R.string.epub_close),
                         tint = pageContent,
                     )
+                }
+            }
+        }
+
+        // Bookmark toggle, on the trailing edge the close button used to own. Incognito reading
+        // keeps no bookmarks, so the same slot shows the incognito capsule instead of a bookmark
+        // button that could not do anything.
+        AnimatedVisibility(
+            visible = chromeShown,
+            modifier = Modifier.align(Alignment.TopEnd),
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                    .padding(top = 8.dp, end = 12.dp),
+            ) {
+                if (incognito) {
+                    // An indicator, not an action: no click target, dimmed like the old bare icon.
+                    FloatingChromeButton(
+                        onClick = null,
+                        background = chromeBackground,
+                        border = chromeBorder,
+                    ) {
+                        Icon(
+                            Icons.Filled.VisibilityOff,
+                            contentDescription = stringResource(R.string.reader_incognito),
+                            tint = pageContent.copy(alpha = 0.6f),
+                        )
+                    }
+                } else {
+                    FloatingChromeButton(
+                        onClick = viewModel::toggleBookmark,
+                        background = chromeBackground,
+                        border = chromeBorder,
+                    ) {
+                        Icon(
+                            imageVector = if (bookmarkedHere) {
+                                Icons.Filled.Bookmark
+                            } else {
+                                Icons.Outlined.BookmarkBorder
+                            },
+                            contentDescription = stringResource(
+                                if (bookmarkedHere) {
+                                    R.string.epub_bookmark_remove
+                                } else {
+                                    R.string.epub_bookmark_add
+                                },
+                            ),
+                            tint = pageContent,
+                        )
+                    }
                 }
             }
         }
@@ -1368,6 +1641,25 @@ private fun RealEpubReader(
             }
         }
 
+        // Note bubble (replaces the old "jump to the note, return chip back" behaviour for
+        // references whose body is in the same file; the chip above still serves the cross-file
+        // ones, which the page JS cannot extract). Dismissal is the Popup's own: back press and a
+        // tap outside both route to onDismiss, so it folds before the chrome or the reader does.
+        footnoteNote?.let { note ->
+            EpubFootnotePopup(
+                note = note,
+                themeConfig = themeConfig,
+                pageBackground = pageBackground,
+                contentColor = pageContent,
+                fetchResource = viewModel::fetchResource,
+                onDismiss = { footnoteNote = null },
+                onFollowLink = { href, fragment ->
+                    footnoteNote = null
+                    navigateHandler.value(EpubWeb.hrefFromUrl(href) ?: href, fragment)
+                },
+            )
+        }
+
         // System back dismisses a transition page before leaving the reader (the old end page's
         // "Return" button role); with the bars up it folds the chrome first (readest-style
         // back-key interception), so an accidental back never drops the book outright.
@@ -1440,6 +1732,8 @@ private fun RealEpubReader(
         EpubSettingsSheet(
             settings = epubSettings,
             onSettingsChange = { new -> settingsViewModel.updateEpub { new } },
+            common = readerSettings,
+            onCommonUpdate = { transform -> settingsViewModel.update(transform) },
             customFonts = downloadedFamilies.sorted().map { family ->
                 CustomFont(
                     id = family.hashCode(),
@@ -1471,9 +1765,27 @@ private fun RealEpubReader(
             chapters = state.chapters,
             toc = state.toc,
             currentIndex = state.currentChapterIndex,
-            onJump = {
-                viewModel.goToChapter(it)
+            bookmarks = bookmarks,
+            onBookmarkJump = { bookmark -> jumpToBookmark(bookmark) },
+            onBookmarkDelete = { bookmark -> viewModel.deleteBookmark(bookmark.id) },
+            onJump = { index, anchor ->
                 showToc = false
+                if (index == state.currentChapterIndex && anchor != null) {
+                    // The toc entry lives in the file already on screen: "jumping" to that
+                    // chapter would be a silent no-op (selectChapter with an unchanged index
+                    // never reloads), so move inside the current page box instead. The anchor
+                    // is an element id, which __kmGoToAnchor resolves to the column it starts in.
+                    webView?.evaluateJavascript(
+                        "window.__kmGoToAnchor(${JSONObject.quote(anchor)})",
+                        null,
+                    )
+                } else {
+                    // Different file: hand the anchor to the measure pass of the newly loaded
+                    // chapter (the same slot in-book links use), then switch chapters.
+                    pendingAnchor = anchor
+                    pendingAnchorChapter = index
+                    viewModel.goToChapter(index)
+                }
             },
             onDismiss = { showToc = false },
         )
@@ -1497,18 +1809,21 @@ private fun RealEpubReader(
 private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
     if (width <= 0 || height <= 0) return null
     return runCatching {
-        val bitmap = android.graphics.Bitmap.createBitmap(
-            width, height, android.graphics.Bitmap.Config.ARGB_8888,
-        )
+        val bitmap = createBitmap(width, height)
         draw(android.graphics.Canvas(bitmap))
         bitmap.asImageBitmap()
     }.getOrNull()
 }
 
-/** Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle). */
+/**
+ * Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle).
+ *
+ * A null [onClick] renders the same disc as a status indicator instead of a button: the chrome
+ * carries one non-interactive capsule (the incognito marker) that must not look like a control.
+ */
 @Composable
 private fun FloatingChromeButton(
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     background: Color,
     border: Color,
     content: @Composable () -> Unit,
@@ -1520,7 +1835,19 @@ private fun FloatingChromeButton(
             .clip(CircleShape)
             .background(background)
             .border(1.dp, border, CircleShape)
-            .clickable(onClick = onClick),
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    // Inert, but still swallows the tap: this disc sits inside the top-trailing
+                    // page-turn zone, so letting it fall through would turn the page.
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
+                },
+            ),
     ) {
         content()
     }
@@ -1601,6 +1928,21 @@ private fun initialTocExpanded(
 private fun firstDescendantHref(link: EpubLinkDto): String? =
     link.href ?: link.children.orEmpty().firstNotNullOfOrNull(::firstDescendantHref)
 
+/**
+ * `#fragment` of a manifest/toc href, URL-decoded (null when the href carries none).
+ *
+ * A toc entry usually points at a section *inside* a spine file (`text00005.html#CHP5-1-3`), and
+ * many books pack dozens of entries into one file — 卡拉马佐夫兄弟 puts 28 of its 119 entries in a
+ * single 372-page file. Dropping the fragment collapses every one of them onto the file's first
+ * page, which is what "章节跳转不对" looks like.
+ */
+private fun hrefAnchorFragment(href: String): String? {
+    val raw = href.substringAfter('#', "")
+    if (raw.isEmpty()) return null
+    val decoded = runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+    return decoded.ifEmpty { null }
+}
+
 /** Manifest toc sheet (mirrors EpubTocSheetView: hierarchical indentation, expandable containers, bookmark highlight on the current entry). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1608,9 +1950,14 @@ private fun EpubChapterSheet(
     chapters: List<EpubChapter>,
     toc: List<EpubLinkDto>,
     currentIndex: Int,
-    onJump: (Int) -> Unit,
+    bookmarks: List<EpubBookmark>,
+    onBookmarkJump: (EpubBookmark) -> Unit,
+    onBookmarkDelete: (EpubBookmark) -> Unit,
+    onJump: (Int, String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Contents is the tab the sheet opens on; bookmarks are one tap away instead of a second sheet
+    var tab by remember { mutableIntStateOf(0) }
     val currentHref = chapters.getOrNull(currentIndex)?.href
     var expanded by remember { mutableStateOf(initialTocExpanded(toc, currentHref)) }
     val rows = remember(toc, expanded) {
@@ -1632,56 +1979,148 @@ private fun EpubChapterSheet(
     fun jumpTo(link: EpubLinkDto) {
         val href = firstDescendantHref(link) ?: return
         val index = chapters.indexOfFirst { EpubHref.matches(it.href, href) }
-        if (index >= 0) onJump(index)
+        // Carry the fragment: the entry names a section inside the file, and files are routinely
+        // shared by several entries (see hrefAnchorFragment). Null keeps the plain chapter jump.
+        if (index >= 0) onJump(index, hrefAnchorFragment(href))
     }
 
     AppModalDialog(onDismissRequest = onDismiss) {
-        Text(
-            stringResource(R.string.epub_toc),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-        )
-        // Dialog card bounds the height, so the toc list just takes the remaining space below the
-        // title and scrolls inside the card.
-        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-            if (rows.isEmpty()) {
-                // Missing toc: fall back to a flat readingOrder list
-                items(chapters.size) { index ->
-                    val chapter = chapters[index]
-                    val current = index == currentIndex
-                    TocEntryRow(
-                        title = chapter.title,
-                        depth = 0,
-                        hasChildren = false,
-                        expanded = false,
-                        isCurrent = current,
-                        onClick = { onJump(index) },
-                        onToggle = {},
-                    )
-                }
-            } else {
-                items(rows.size) { index ->
-                    val row = rows[index]
-                    val isCurrent = EpubHref.matches(row.link.href, currentHref)
-                    TocEntryRow(
-                        title = row.link.title ?: row.link.href ?: "",
-                        depth = row.depth,
-                        hasChildren = row.hasChildren,
-                        expanded = row.path in expanded,
-                        isCurrent = isCurrent,
-                        onClick = { jumpTo(row.link) },
-                        onToggle = {
-                            expanded = if (row.path in expanded) {
-                                expanded - row.path
-                            } else {
-                                expanded + row.path
-                            }
-                        },
-                    )
+        // Tabs double as the sheet header (no separate title line: the sheet is a navigation
+        // surface, and both tabs name what they hold)
+        PrimaryTabRow(
+            selectedTabIndex = tab,
+            containerColor = Color.Transparent,
+            divider = { HorizontalDivider() },
+        ) {
+            Tab(
+                selected = tab == 0,
+                onClick = { tab = 0 },
+                text = { Text(stringResource(R.string.epub_toc), maxLines = 1) },
+            )
+            Tab(
+                selected = tab == 1,
+                onClick = { tab = 1 },
+                text = { Text(stringResource(R.string.epub_bookmarks), maxLines = 1) },
+            )
+        }
+        if (tab == 1) {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                if (bookmarks.isEmpty()) {
+                    item {
+                        Text(
+                            stringResource(R.string.epub_bookmarks_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 24.dp),
+                        )
+                    }
+                } else {
+                    items(bookmarks.size, key = { position -> bookmarks[position].id }) { position ->
+                        val bookmark = bookmarks[position]
+                        BookmarkEntryRow(
+                            title = bookmark.chapterTitle.ifBlank { "#${bookmark.chapterIndex + 1}" },
+                            progress = bookmark.totalProgression,
+                            onClick = { onBookmarkJump(bookmark) },
+                            onDelete = { onBookmarkDelete(bookmark) },
+                        )
+                    }
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
+        } else {
+            // Dialog card bounds the height, so the toc list just takes the remaining space below
+            // the tabs and scrolls inside the card.
+            LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+                if (rows.isEmpty()) {
+                    // Missing toc: fall back to a flat readingOrder list
+                    items(chapters.size) { index ->
+                        val chapter = chapters[index]
+                        val current = index == currentIndex
+                        TocEntryRow(
+                            title = chapter.title,
+                            depth = 0,
+                            hasChildren = false,
+                            expanded = false,
+                            isCurrent = current,
+                            onClick = { onJump(index, null) },
+                            onToggle = {},
+                        )
+                    }
+                } else {
+                    items(rows.size) { index ->
+                        val row = rows[index]
+                        val isCurrent = EpubHref.matches(row.link.href, currentHref)
+                        TocEntryRow(
+                            title = row.link.title ?: row.link.href ?: "",
+                            depth = row.depth,
+                            hasChildren = row.hasChildren,
+                            expanded = row.path in expanded,
+                            isCurrent = isCurrent,
+                            onClick = { jumpTo(row.link) },
+                            onToggle = {
+                                expanded = if (row.path in expanded) {
+                                    expanded - row.path
+                                } else {
+                                    expanded + row.path
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
-        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+/** One bookmark in the sheet: chapter title, whole-book progress, jump on tap, delete trailing. */
+@Composable
+private fun BookmarkEntryRow(
+    title: String,
+    progress: Float,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 20.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Bookmark,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 10.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+            )
+            Text(
+                "%.1f%%".format(progress * 100f),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.epub_bookmark_delete),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
@@ -1748,7 +2187,10 @@ private fun mapEpubThemeConfig(
     rtl: Boolean = false,
     viewportWidthDp: Int = 0,
     readingProgression: String? = null,
-    overlayInsetVPx: Int = 0,
+    pageInsets: EpubPageInsets = EpubPageInsets(),
+    /** Cutout band to clip at the scroll viewport in scrolled mode; 0 when content may draw under it. */
+    cutoutTopVPx: Int = 0,
+    cutoutBottomVPx: Int = 0,
 ): EpubThemeConfig {
     // Every family resolves to a light/dark pair, like the iOS ReaderTheme light*/dark* cases —
     // the old mapping had grey placeholders for sepia/green and a mixed-up quiet pair.
@@ -1788,7 +2230,12 @@ private fun mapEpubThemeConfig(
         // EpubThemePreferences font-weight mapping)
         fontWeight = (100 + (settings.fontWeight * 8f).roundToInt() * 100).coerceIn(100, 900),
         animatePageTurns = settings.animatePageTurns,
-        insetVPx = overlayInsetVPx,
+        insetVPx = pageInsets.topVPx,
+        insetBottomVPx = pageInsets.bottomVPx,
+        insetLeftVPx = pageInsets.leftVPx,
+        insetRightVPx = pageInsets.rightVPx,
+        cutoutTopVPx = cutoutTopVPx,
+        cutoutBottomVPx = cutoutBottomVPx,
         // Every family resolves to a light/dark pair, so "dark theme" is exactly the dark slot
         // being active — drives the JS dark-mode overrides (links, hard-coded colors, images).
         darkTheme = dark,

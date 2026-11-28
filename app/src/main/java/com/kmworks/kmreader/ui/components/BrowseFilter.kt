@@ -23,7 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bookmark
@@ -38,11 +40,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -51,7 +54,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -59,6 +61,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -68,24 +71,31 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.data.ActiveFilter
+import com.kmworks.kmreader.data.appliedTo
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
 import com.kmworks.kmreader.data.ReadStatus
 import com.kmworks.kmreader.data.SavedFilter
 import com.kmworks.kmreader.data.SeriesStatus
+import com.kmworks.kmreader.data.SortRelevance
 import com.kmworks.kmreader.data.TriState
-import com.kmworks.kmreader.data.defaultBrowseOptions
 import com.kmworks.kmreader.data.filterKey
 import com.kmworks.kmreader.data.normalizeSortField
 import com.kmworks.kmreader.data.notableEntityFromFilterKey
+import com.kmworks.kmreader.data.resetOptionsFor
 import com.kmworks.kmreader.data.sortFieldsFor
 import com.kmworks.kmreader.data.supportsSortDirection
 import dagger.hilt.android.EntryPointAccessors
@@ -95,6 +105,17 @@ import kotlinx.coroutines.launch
 /** Layout mode (mirrors BrowseLayoutMode: list/grid/largeGrid), cycled. */
 enum class BrowseLayout(@param:StringRes val labelRes: Int) {
     List(R.string.layout_list), Grid(R.string.layout_grid), LargeGrid(R.string.layout_large_grid);
+
+    /**
+     * The glyph describes the layout itself. It used to be one shared Sort icon, which reads as the
+     * neighbouring filter chip's metaphor instead of as "how are these cards arranged".
+     */
+    val icon: ImageVector
+        get() = when (this) {
+            List -> Icons.AutoMirrored.Filled.ViewList
+            Grid -> Icons.Filled.GridView
+            LargeGrid -> Icons.Filled.Dashboard
+        }
 
     val next: BrowseLayout
         get() = when (this) {
@@ -176,6 +197,48 @@ fun BrowseFilterButton(
 }
 
 /**
+ * Pill geometry and fills shared by the browse-level chip rows (the search tab and the library).
+ * M3's stock chip is an 8dp rounded rect drawn with a hairline outline; these rows use a filled
+ * pill instead, and the selected state is the theme accent, so an active scope or filter separates
+ * from its neighbours by fill rather than by a border.
+ */
+@Composable
+internal fun browseChipShape() = RoundedCornerShape(16.dp)
+
+@Composable
+internal fun browseAssistChipColors(
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    keepLookWhenDisabled: Boolean = false,
+) = AssistChipDefaults.assistChipColors(
+    containerColor = containerColor,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    // A chip that carries information but cannot be opened (the search tab's relevance chip) has to
+    // keep its full-strength look: a greyed chip would read as "the results are not ordered at all".
+    // The disabled slots stay the live colours, so enabled = false removes the tap and the ripple
+    // without changing a single pixel.
+    disabledContainerColor = containerColor.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.12f,
+    ),
+    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
+    disabledLeadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (keepLookWhenDisabled) 1f else 0.38f,
+    ),
+)
+
+@Composable
+internal fun browseFilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    selectedContainerColor = MaterialTheme.colorScheme.primary,
+    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+)
+
+/**
  * Filter chip flow (mirrors the horizontal chip row of the original BookFilterView /
  * SeriesFilterView): [layout] [presets] [sort] + active-condition chips; tapping any chip opens
  * the full panel. [contentType] decides which presets and which sort vocabulary apply.
@@ -203,7 +266,10 @@ fun BrowseFilterChipFlow(
         AssistChip(
             onClick = { onLayoutChange(layout.next) },
             label = { Text(stringResource(layout.labelRes)) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+            leadingIcon = { Icon(layout.icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Filter presets (the original savedFilter, persisted in FilterPresetStore, reused across pages)
         val browsePresets = rememberBrowseFilterPresets()
@@ -212,9 +278,12 @@ fun BrowseFilterChipFlow(
             AssistChip(
                 onClick = { presetsOpen = true },
                 label = { Text(stringResource(R.string.filter_presets)) },
-                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                shape = browseChipShape(),
+                colors = browseAssistChipColors(),
+                border = null,
             )
-            DropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
+            KmDropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
                 if (presetsForType.isEmpty()) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.filter_no_presets)) },
@@ -236,7 +305,13 @@ fun BrowseFilterChipFlow(
                         },
                         onClick = {
                             presetsOpen = false
-                            onApplyPreset(preset)
+                            // A catalogue row has no relevance entry, so a preset saved by the
+                            // search tab applies with its own first field instead
+                            onApplyPreset(
+                                preset.copy(
+                                    options = preset.appliedTo(contentType, sortFieldsFor(contentType)),
+                                ),
+                            )
                         },
                     )
                 }
@@ -253,17 +328,28 @@ fun BrowseFilterChipFlow(
                             if (options.sortAscending) Icons.Filled.KeyboardArrowUp
                             else Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
             },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(),
+            border = null,
         )
         // Active-condition chips (negative = excluded, rendered in the error-tone variant)
         options.activeFilterLabels(contentType).forEach { filter ->
             if (filter.negative) {
                 NegativeFilterChip(label = filter.label, onClick = onOpenOptions)
             } else {
-                FilterChip(selected = true, onClick = onOpenOptions, label = { Text(filter.label) })
+                FilterChip(
+                    selected = true,
+                    onClick = onOpenOptions,
+                    label = { Text(filter.label) },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
+                )
             }
         }
     }
@@ -279,22 +365,53 @@ fun BrowseSortChip(
     options: BrowseOptions,
     contentType: BrowseContentType,
     onOpenOptions: () -> Unit,
+    // A scope whose lists are not filterable still shows the order, but is not a way into the panel.
+    // The chip keeps its normal colours (a greyed chip would read as "nothing is ordering this")
+    // through keepLookWhenDisabled, while enabled = false is what actually removes the tap, the
+    // ripple and the accessibility click action.
+    clickable: Boolean = true,
+    // Number of conditions narrowing the results, shown as the count badge. The filter chip used to
+    // carry that count; with it gone, the chip row has no other way to admit a filtered result set.
+    activeFilters: Int = 0,
 ) {
-    AssistChip(
-        onClick = onOpenOptions,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(browseSortFieldLabel(options.sortField, contentType))
-                if (supportsSortDirection(options.sortField, contentType)) {
-                    Icon(
-                        if (options.sortAscending) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null,
-                    )
+    val filterCountLabel = stringResource(R.string.browse_filter_count, activeFilters)
+    // The stock M3 badge -- the same red, content colour and inset as the badge on the library's
+    // filter button, so the two read as one affordance rather than two visual languages.
+    BadgedBox(
+        badge = {
+            if (activeFilters > 0) {
+                Badge(
+                    // A bare digit says nothing on its own; name what it counts
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = filterCountLabel },
+                ) {
+                    Text(if (activeFilters > 9) "9+" else activeFilters.toString())
                 }
             }
         },
-    )
+    ) {
+        // enabled = false (rather than a gesture-swallowing overlay) keeps the chip row scrollable
+        // and leaves no click action behind for TalkBack or a keyboard to fire.
+        AssistChip(
+            onClick = onOpenOptions,
+            enabled = clickable,
+            label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(browseSortFieldLabel(options.sortField, contentType))
+                    if (supportsSortDirection(options.sortField, contentType)) {
+                        Icon(
+                            if (options.sortAscending) Icons.Filled.KeyboardArrowUp
+                            else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            },
+            shape = browseChipShape(),
+            colors = browseAssistChipColors(keepLookWhenDisabled = !clickable),
+            border = null,
+        )
+    }
 }
 
 /**
@@ -307,7 +424,9 @@ fun BrowseSortChip(
 @Composable
 fun BrowseOptions.activeFilterLabels(contentType: BrowseContentType): List<ActiveFilter> {
     val context = LocalContext.current
-    val displayLocale = context.resources.configuration.locales[0]
+    // LocalConfiguration (not context.resources.configuration) is the configuration-aware ambient:
+    // it reflects the app's own locale and recomposes when the configuration changes.
+    val displayLocale = LocalConfiguration.current.locales[0]
     val isSeries = contentType == BrowseContentType.Series
     return buildList {
     readStatuses.forEach { (status, state) ->
@@ -357,15 +476,19 @@ fun BrowseOptions.activeFilterLabels(contentType: BrowseContentType): List<Activ
         if (releaseYears.isNotEmpty()) add(ActiveFilter(releaseYears.joinToString(" ∨ "), negative = false))
         if (seriesStatuses.isNotEmpty()) {
             val symbol = if (seriesStatusAllMatch) " ∧ " else " ∨ "
+            // stringResource is a composable call, so the labels are collected in a loop instead of
+            // inside joinToString's (non-composable) lambda.
+            val statusLabels = mutableListOf<String>()
+            seriesStatuses.forEach { statusLabels += stringResource(it.labelRes) }
             add(
                 ActiveFilter(
-                    seriesStatuses.joinToString(symbol) { context.getString(it.labelRes) },
+                    statusLabels.joinToString(symbol),
                     negative = false,
                 ),
             )
         }
         excludedSeriesStatuses.forEach { status ->
-            add(ActiveFilter(context.getString(status.labelRes), negative = true))
+            add(ActiveFilter(stringResource(status.labelRes), negative = true))
         }
     }
     }
@@ -378,6 +501,8 @@ private fun NegativeFilterChip(label: String, onClick: () -> Unit) {
         selected = true,
         onClick = onClick,
         label = { Text(stringResource(R.string.filter_excluded, label)) },
+        shape = browseChipShape(),
+        border = null,
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.error,
             selectedLabelColor = MaterialTheme.colorScheme.onError,
@@ -405,6 +530,9 @@ fun BrowseOptionsSheet(
     contentType: BrowseContentType = BrowseContentType.Books,
     // Smart lists store conditions only, so the embedded panel hides the Sort card (mirrors showsSort: false)
     showsSort: Boolean = true,
+    // Sort vocabulary of this panel: the search tab passes relevance in front of the catalogue's
+    // own fields, everything else keeps its type's list.
+    sortFields: List<String> = sortFieldsFor(contentType),
     // Scope of metadata suggestion values (mirrors the original MetadataFilterItemSource; fetched per scope when the sheet opens)
     suggestionLibraryIds: List<String>? = null,
     suggestionSeriesStableId: Int? = null,
@@ -417,8 +545,14 @@ fun BrowseOptionsSheet(
     // leaves the list exactly as it was (mirrors the original BrowseFilterSheet).
     // A sort token from the other catalogue (switching Library tabs, an old preset) falls back to
     // the closest equivalent of this type, otherwise the picker would show no selection.
-    val initialOptionsForType = remember(initialOptions, contentType) {
-        initialOptions.copy(sortField = normalizeSortField(initialOptions.sortField, contentType))
+    val initialOptionsForType = remember(initialOptions, contentType, sortFields) {
+        initialOptions.copy(
+            sortField = normalizeSortField(
+                initialOptions.sortField,
+                contentType,
+                allowRelevance = SortRelevance in sortFields,
+            ),
+        )
     }
     var options by remember(initialOptionsForType) { mutableStateOf(initialOptionsForType) }
     val onOptionsChange: (BrowseOptions) -> Unit = { updated -> options = updated }
@@ -440,9 +574,14 @@ fun BrowseOptionsSheet(
     // Currently open full multi-select metadata dimension (mirrors the original MetadataMultiSelectLoader navigation page)
     var pickerDimId by remember { mutableStateOf<String?>(null) }
     val browsePresets = rememberBrowseFilterPresets()
+    // Presets of this catalogue, offered right here: the panel is the one place every list opens,
+    // so the saved set is usable without hopping to a detail page that happens to carry a preset
+    // chip for this content type.
+    val presetsForType = browsePresets.presets.filter { it.contentType == contentType }
     val context = LocalContext.current
-    // Follow the app's own locale (per-app language), not just the system default.
-    val displayLocale = context.resources.configuration.locales[0]
+    // Follow the app's own locale (per-app language), not just the system default; LocalConfiguration
+    // is the configuration-aware ambient (LocalContext's resources copy is not).
+    val displayLocale = LocalConfiguration.current.locales[0]
     // Row order mirrors the iOS MetadataFilterSection: publisher, authors, genres, tags,
     // notable entities, languages, age ratings and release years.
     val metadataDimensions = mutableListOf<MetaDimension>()
@@ -515,17 +654,13 @@ fun BrowseOptionsSheet(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
-                // 重置 clears the conditions but keeps the current sort (mirrors the original Reset,
-                // which never overwrites sortField/sortDirection)
+                // Reset clears every dimension of the panel, the order included: conditions go back to
+                // their defaults and the sort returns to the first entry of this panel's own vocabulary
+                // (relevance on the search tab, the type's default field in the catalogues). Keeping the
+                // old sort left a panel that said "nothing is filtering" while still ordering by a field
+                // the user had picked earlier.
                 TextButton(
-                    onClick = {
-                        onOptionsChange(
-                            defaultBrowseOptions(contentType).copy(
-                                sortField = options.sortField,
-                                sortAscending = options.sortAscending,
-                            ),
-                        )
-                    },
+                    onClick = { onOptionsChange(resetOptionsFor(contentType, sortFields)) },
                 ) {
                     Text(stringResource(R.string.common_reset), color = MaterialTheme.colorScheme.error)
                 }
@@ -541,11 +676,50 @@ fun BrowseOptionsSheet(
                     .fillMaxWidth(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
             ) {
+                if (presetsForType.isNotEmpty()) {
+                    item {
+                        FilterSection(stringResource(R.string.filter_presets)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                presetsForType.forEach { preset ->
+                                    AssistChip(
+                                        onClick = {
+                                            onOptionsChange(preset.appliedTo(contentType, sortFields))
+                                        },
+                                        label = { Text(preset.name) },
+                                        trailingIcon = {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = stringResource(R.string.filter_delete_preset),
+                                                // The chip applies; only this glyph deletes
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable { browsePresets.delete(preset.name, contentType) },
+                                            )
+                                        },
+                                        shape = browseChipShape(),
+                                        // The card under them is surfaceContainerHighest; the chip
+                                        // takes the dialog surface so the two do not merge
+                                        colors = browseAssistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                        ),
+                                        border = null,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (showsSort) {
                     item {
                         FilterSection(stringResource(R.string.filter_sort)) {
                             SortFieldRow(
-                                fields = sortFieldsFor(contentType),
+                                fields = sortFields,
                                 selectedField = options.sortField,
                                 labelOf = { field -> browseSortFieldLabel(field, contentType) },
                                 onSelect = { field -> onOptionsChange(options.copy(sortField = field)) },
@@ -671,9 +845,10 @@ fun BrowseOptionsSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { showSaveDialog = true },
                     modifier = Modifier.weight(1f),
+                    colors = secondaryButtonColors(),
                 ) {
                     Icon(Icons.Filled.BookmarkAdd, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -858,7 +1033,7 @@ private fun SortFieldRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            DropdownMenu(
+            KmDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.widthIn(min = 200.dp),

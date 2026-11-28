@@ -62,7 +62,7 @@ import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.DashboardSectionSetting
 import com.kmworks.kmreader.data.ReadListsInProgressSectionId
 import com.kmworks.kmreader.ui.components.isPhoneWindow
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 import com.kmworks.kmreader.ui.settings.SettingsDangerRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
 import com.kmworks.kmreader.ui.settings.SettingsSection
@@ -104,7 +104,7 @@ fun SettingsDashboardScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.dashboard_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,

@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -33,6 +32,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -61,6 +62,7 @@ import com.kmworks.kmreader.ui.components.roleLabelText
 import kotlinx.serialization.json.JsonObject
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 
 private enum class OneshotEditTab(@param:StringRes val labelRes: Int) {
     General(R.string.edit_tab_general),
@@ -335,10 +337,11 @@ fun OneshotEditSheet(
 
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDismiss,
                     enabled = !saving,
                     modifier = Modifier.weight(1f),
+                    colors = secondaryButtonColors(),
                 ) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = {
@@ -506,7 +509,7 @@ private fun OneshotAuthorsContent(
             onClick = { roleMenuOpen = true },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.detail_role_format, stringResource(role.labelRes))) }
-        DropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
+        KmDropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
             (AuthorRole.predefined + AuthorRole.Custom).forEach { option ->
                 DropdownMenuItem(
                     text = { Text(stringResource(option.labelRes)) },

@@ -38,7 +38,6 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -59,12 +58,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -86,6 +85,8 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.BrowseSortChip
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.browseChipShape
+import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.MetaChip
 import com.kmworks.kmreader.ui.components.notableEntityIcon
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
@@ -95,11 +96,11 @@ import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.SeriesListRow
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
-import com.kmworks.kmreader.ui.components.libraryMetricsCaption
 import com.kmworks.kmreader.ui.components.deviceBrowseLayoutDefault
 import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.bookContextMenuItems
@@ -116,7 +117,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.launch
 
 /** Library: content-first browsing (Apple Books style). Top = content type chips (series/books,
- *  with counts), below it the scope summary (scope title + size caption); the scope
+ *  with counts) and the sort chip, directly followed by the grid; the scope
  *  (all/pinned/single library) is switched in place from the toolbar menu, is persisted per server
  *  and defaults to all libraries.
  *  Mirrors KMReader LibraryBrowseView + BrowseContentView. */
@@ -136,7 +137,9 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     komfViewModel: KomfSeriesViewModel = hiltViewModel(),
 ) {
-    var contentType by remember { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
+    // rememberSaveable so the chip choice survives leaving the tab (the tab content is wrapped in a
+    // SaveableStateProvider in AppRoot; a plain remember would reset to Series on every tab switch).
+    var contentType by rememberSaveable { mutableStateOf(initialFilter?.contentType ?: LibraryContentType.Series) }
     // The panel type of the current tab: series and books each keep their own filter options.
     val browseContentType = contentType.toBrowseContentType()
     // The route restricting this page (null = none). The applied condition lives in the view model, so it
@@ -183,6 +186,8 @@ fun LibraryScreen(
     // so the list-wide loading bar below would only duplicate it.
     var pulling by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    // Shown from the save-result callback; stringResource is composable, so resolve it here.
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
 
     val state by viewModel.state.collectAsState()
     val komfState by komfViewModel.uiState.collectAsState()
@@ -194,6 +199,9 @@ fun LibraryScreen(
     // real content only; empty state when there is no session or nothing loaded
     val series = state.series ?: emptyList()
     val allBooks = state.books ?: emptyList()
+    // Nothing to show for the active tab yet: the loading row only belongs above an empty list, never above
+    // rows that are already on screen (inserting it shifted the whole list by one row on every re-read).
+    val activeListEmpty = if (contentType == LibraryContentType.Series) series.isEmpty() else allBooks.isEmpty()
     // Display name of the current scope (mirrors iOS LibraryScopeMenu)
     val scopeLabel = libraryScopeLabel(state.scope, state.libraries)
 
@@ -247,19 +255,6 @@ fun LibraryScreen(
         }
     }
 
-    // One compact caption row: size/series/book totals once a source answered, otherwise just the scope/library count
-    val headerCaption = libraryMetricsCaption(state.scope, state.metricsByLibrary, state.metricsTotal)
-        ?: if (state.hasSession) {
-            pluralStringResource(
-                R.plurals.library_scope_libraries,
-                state.libraryCount,
-                scopeLabel,
-                state.libraryCount,
-            )
-        } else {
-            scopeLabel
-        }
-
     // Content-first page: the bar floats over the content (it reserves no layout height) and only the header rows
     // scroll away with it, so the grid starts right below the bar instead of below four stacked caption rows.
     // The page paints its own surface: it is also pushed above another page (a metadata-chip jump), and a stack
@@ -290,7 +285,7 @@ fun LibraryScreen(
                         bottom = 8.dp + LocalNavOverlaySpace.current,
                     ),
                 ) {
-                    if (state.loading && !pulling) {
+                    if (state.loading && !pulling && activeListEmpty) {
                         item(key = "loading") {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
@@ -304,7 +299,6 @@ fun LibraryScreen(
                             onContentTypeChange = { contentType = it },
                             seriesCount = state.seriesTotal ?: series.size.toLong(),
                             booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                            caption = headerCaption,
                             activeFilter = activeFilter?.route,
                             onClearFilter = {
                                 viewModel.clearMetadataRoute()
@@ -364,7 +358,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (state.loading && !pulling) {
+                    if (state.loading && !pulling && activeListEmpty) {
                         item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
@@ -380,7 +374,6 @@ fun LibraryScreen(
                             onContentTypeChange = { contentType = it },
                             seriesCount = state.seriesTotal ?: series.size.toLong(),
                             booksCount = state.booksTotal ?: allBooks.size.toLong(),
-                            caption = headerCaption,
                             activeFilter = activeFilter?.route,
                             onClearFilter = {
                                 viewModel.clearMetadataRoute()
@@ -461,7 +454,7 @@ fun LibraryScreen(
                             contentDescription = stringResource(R.string.library_switch_scope),
                         )
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
@@ -649,7 +642,7 @@ fun LibraryScreen(
                         editSeries = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }
@@ -668,7 +661,7 @@ fun LibraryScreen(
                         editBook = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }
@@ -774,9 +767,9 @@ private fun LibraryErrorText(message: String, horizontalPadding: Dp = 16.dp) {
 }
 
 /**
- * Header rows of the library page: content-type chips carrying the server-side totals, one compact caption
- * line and the active metadata-filter chip. It lives inside the scrolling content (instead of above it like
- * the original toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
+ * Header rows of the library page: content-type chips carrying the server-side totals, the sort chip and the
+ * active metadata-filter chip. It lives inside the scrolling content (instead of above it like the original
+ * toolbar captions), so it scrolls away under the frosted bar and the grid starts right below it.
  */
 @Composable
 private fun LibraryHeader(
@@ -784,7 +777,6 @@ private fun LibraryHeader(
     onContentTypeChange: (LibraryContentType) -> Unit,
     seriesCount: Long,
     booksCount: Long,
-    caption: String,
     activeFilter: String?,
     onClearFilter: () -> Unit,
     sortOptions: BrowseOptions,
@@ -816,15 +808,12 @@ private fun LibraryHeader(
                             ),
                         )
                     },
+                    shape = browseChipShape(),
+                    colors = browseFilterChipColors(),
+                    border = null,
                 )
             }
         }
-        Text(
-            text = caption,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
         // Target of the metadata-chip jump. It wears the very chip that was tapped on the detail page (field
         // icon + value, no close glyph): the condition is metadata, not a text filter, and tapping the chip
         // drops it again (the page itself stays, like a browse page whose filter was reset).

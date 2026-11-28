@@ -2,6 +2,7 @@ package com.kmworks.kmreader.core.download
 
 import android.content.Context
 import android.os.StatFs
+import androidx.core.content.edit
 import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -113,9 +114,10 @@ class DownloadRepository @Inject constructor(
                 .forEach { (bookId, identity) -> legacySeries[bookId] = identity }
             missing.forEach { bookId ->
                 val identity = legacySeries[bookId] ?: return@forEach
-                val editor = enqueueMeta.edit().putString("$bookId#series", identity.first)
-                if (identity.second > 0) editor.putInt("$bookId#seriesCount", identity.second)
-                editor.apply()
+                enqueueMeta.edit {
+                    putString("$bookId#series", identity.first)
+                    if (identity.second > 0) putInt("$bookId#seriesCount", identity.second)
+                }
             }
         }
 
@@ -187,7 +189,7 @@ class DownloadRepository @Inject constructor(
     val wifiOnly: Flow<Boolean> = _wifiOnly
 
     fun setWifiOnly(enabled: Boolean) {
-        settingsPrefs.edit().putBoolean(KEY_WIFI_ONLY, enabled).apply()
+        settingsPrefs.edit { putBoolean(KEY_WIFI_ONLY, enabled) }
         _wifiOnly.value = enabled
     }
 
@@ -200,7 +202,7 @@ class DownloadRepository @Inject constructor(
     val autoDownloadUnread: Flow<Boolean> = _autoDownloadUnread
 
     fun setAutoDownloadUnread(enabled: Boolean) {
-        settingsPrefs.edit().putBoolean(KEY_AUTO_UNREAD, enabled).apply()
+        settingsPrefs.edit { putBoolean(KEY_AUTO_UNREAD, enabled) }
         _autoDownloadUnread.value = enabled
     }
 
@@ -267,19 +269,17 @@ class DownloadRepository @Inject constructor(
         seriesDtoId: String? = null,
         seriesBookCount: Int? = null,
     ) {
-        enqueueMeta.edit()
-            .putString(bookDtoId, title)
-            .putInt("$bookDtoId#pages", pageCount)
-            .putString("$bookDtoId#kind", spec.kind.metaValue)
-            .putString("$bookDtoId#format", spec.format)
-            .apply {
-                if (libraryId != null) putString("$bookDtoId#library", libraryId)
-                if (seriesDtoId != null) putString("$bookDtoId#series", seriesDtoId)
-                if (seriesBookCount != null && seriesBookCount > 0) {
-                    putInt("$bookDtoId#seriesCount", seriesBookCount)
-                }
+        enqueueMeta.edit {
+            putString(bookDtoId, title)
+            putInt("$bookDtoId#pages", pageCount)
+            putString("$bookDtoId#kind", spec.kind.metaValue)
+            putString("$bookDtoId#format", spec.format)
+            if (libraryId != null) putString("$bookDtoId#library", libraryId)
+            if (seriesDtoId != null) putString("$bookDtoId#series", seriesDtoId)
+            if (seriesBookCount != null && seriesBookCount > 0) {
+                putInt("$bookDtoId#seriesCount", seriesBookCount)
             }
-            .apply()
+        }
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(
                 if (_wifiOnly.value) NetworkType.UNMETERED else NetworkType.NOT_REQUIRED,
@@ -305,7 +305,7 @@ class DownloadRepository @Inject constructor(
 
     /** Real pause: mark the paused state and cancel the task; downloaded pages are kept (skipped automatically on resume). */
     suspend fun pauseBook(bookDtoId: String) = withContext(Dispatchers.IO) {
-        enqueueMeta.edit().putBoolean("$bookDtoId#paused", true).apply()
+        enqueueMeta.edit { putBoolean("$bookDtoId#paused", true) }
         workManager.cancelUniqueWork(workName(bookDtoId))
         AppLog.i("Download", "pause: ${enqueueMeta.getString(bookDtoId, null) ?: bookDtoId}")
         tick.value += 1
@@ -314,7 +314,7 @@ class DownloadRepository @Inject constructor(
     /** Resume download: clear the paused flag and re-enqueue (existing content is skipped — natural resume). */
     suspend fun resumeBook(bookDtoId: String) = withContext(Dispatchers.IO) {
         val title = enqueueMeta.getString(bookDtoId, null) ?: return@withContext
-        enqueueMeta.edit().putBoolean("$bookDtoId#paused", false).apply()
+        enqueueMeta.edit { putBoolean("$bookDtoId#paused", false) }
         AppLog.i("Download", "resume: $title")
         retryBook(bookDtoId)
     }
@@ -474,16 +474,16 @@ class DownloadRepository @Inject constructor(
     }
 
     private fun clearEnqueueMeta(bookDtoId: String) {
-        enqueueMeta.edit()
-            .remove(bookDtoId)
-            .remove("$bookDtoId#pages")
-            .remove("$bookDtoId#paused")
-            .remove("$bookDtoId#library")
-            .remove("$bookDtoId#kind")
-            .remove("$bookDtoId#format")
-            .remove("$bookDtoId#series")
-            .remove("$bookDtoId#seriesCount")
-            .apply()
+        enqueueMeta.edit {
+            remove(bookDtoId)
+            remove("$bookDtoId#pages")
+            remove("$bookDtoId#paused")
+            remove("$bookDtoId#library")
+            remove("$bookDtoId#kind")
+            remove("$bookDtoId#format")
+            remove("$bookDtoId#series")
+            remove("$bookDtoId#seriesCount")
+        }
     }
 
     /** Total bytes used by the download directory. */

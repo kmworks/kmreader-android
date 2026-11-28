@@ -173,5 +173,6 @@
     <string name="sort_folder_name">Folder Name</string>
     <string name="sort_books_count">Book Count</string>
     <string name="sort_random">Random</string>
+    <string name="sort_relevance">Relevance</string>
     <string name="filter_complete">Complete</string>
 </resources>

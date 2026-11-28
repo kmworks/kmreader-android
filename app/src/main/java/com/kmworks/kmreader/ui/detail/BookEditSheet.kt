@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -28,6 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalButton
+import com.kmworks.kmreader.ui.components.secondaryButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +60,7 @@ import com.kmworks.kmreader.ui.components.rememberLockedField
 import com.kmworks.kmreader.ui.components.roleLabelText
 import androidx.compose.ui.res.stringResource
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 
 /**
  * Book metadata edit draft (mirrors the field set of iOS BookMetadataUpdate + per-field lock state).
@@ -377,10 +379,11 @@ fun BookEditSheet(
                     .padding(top = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     enabled = !saving,
+                    colors = secondaryButtonColors(),
                 ) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = {
@@ -527,7 +530,7 @@ private fun AuthorsTab(
             onClick = { roleMenuOpen = true },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.detail_role_format, stringResource(role.labelRes))) }
-        DropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
+        KmDropdownMenu(expanded = roleMenuOpen, onDismissRequest = { roleMenuOpen = false }) {
             (AuthorRole.predefined + AuthorRole.Custom).forEach { option ->
                 DropdownMenuItem(
                     text = { Text(stringResource(option.labelRes)) },

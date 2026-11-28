@@ -30,6 +30,7 @@ import com.kmworks.kmreader.core.data.libraryCondition
 import com.kmworks.kmreader.core.data.searchBody
 import com.kmworks.kmreader.core.network.ServerConfigStore
 import com.kmworks.kmreader.core.network.SessionManager
+import com.kmworks.kmreader.core.network.instanceStorageKey
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -119,10 +120,22 @@ class ServerAdminRepository @Inject constructor(
         .map { it?.isAdmin == true }
         .distinctUntilChanged()
 
+    /**
+     * Storage key of the active server as a flow: screens that hold a per-server snapshot collect it to
+     * reload when the user switches, instead of keeping the server they just left.
+     */
+    val instanceKey: Flow<String> = configStore.config
+        .map { it.instanceStorageKey() }
+        .distinctUntilChanged()
+
     suspend fun username(): String = configStore.config.first()?.username.orEmpty()
 
-    /** Last library-metric snapshot; avoids re-querying every actuator tag on each reload. */
-    private var metricsCache: Pair<Long, LibraryMetrics>? = null
+    /**
+     * Last library-metric snapshot, tagged with the server it came from and its fetch time:
+     * instance key + timestamp + snapshot. Without the instance the 5-minute window would hand the
+     * previous server's numbers (or its "no metrics" answer) to the server it just switched to.
+     */
+    private var metricsCache: Triple<String, Long, LibraryMetrics>? = null
 
     // region kmrs stats
 
@@ -150,12 +163,15 @@ class ServerAdminRepository @Inject constructor(
      * Returns an empty snapshot when neither source has numbers.
      */
     suspend fun libraryMetrics(): LibraryMetrics {
+        val instance = configStore.config.first().instanceStorageKey()
         val cached = metricsCache
-        if (cached != null && System.currentTimeMillis() - cached.first < METRICS_TTL_MS) {
-            return cached.second
+        if (cached != null && cached.first == instance &&
+            System.currentTimeMillis() - cached.second < METRICS_TTL_MS
+        ) {
+            return cached.third
         }
         val metrics = loadLibraryMetrics()
-        metricsCache = System.currentTimeMillis() to metrics
+        metricsCache = Triple(instance, System.currentTimeMillis(), metrics)
         return metrics
     }
 

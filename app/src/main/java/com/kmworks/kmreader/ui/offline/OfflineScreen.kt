@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -73,7 +72,9 @@ import com.kmworks.kmreader.core.download.DownloadedBookUi
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
@@ -147,7 +148,7 @@ fun OfflineScreen(
                             contentDescription = stringResource(R.string.offline_library_scope),
                         )
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
@@ -546,7 +547,8 @@ private fun DownloadTaskRow(
             stableId = StableIds.book(task.bookDtoId),
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -699,52 +701,55 @@ private fun DownloadedRow(
     onOpenSeries: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Box {
-        Row(
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onOpenBook,
+                onLongClick = { menuOpen = true },
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val localCover = remember(item.coverFile) {
+            item.coverFile?.let { Uri.fromFile(it).toString() }
+        }
+        CoverArt(
+            title = item.title,
+            hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
+            // A saved cover is authoritative: it belongs to the download, not to whichever server
+            // is active now (the server thumbnail would be a 404 after switching).
+            stableId = if (localCover == null) StableIds.book(item.bookDtoId) else null,
+            imageUrl = localCover,
             modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onOpenBook,
-                    onLongClick = { menuOpen = true },
-                )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val localCover = remember(item.coverFile) {
-                item.coverFile?.let { Uri.fromFile(it).toString() }
-            }
-            CoverArt(
-                title = item.title,
-                hue = (item.bookDtoId.hashCode() and Int.MAX_VALUE % 360).toFloat(),
-                // A saved cover is authoritative: it belongs to the download, not to whichever server
-                // is active now (the server thumbnail would be a 404 after switching).
-                stableId = if (localCover == null) StableIds.book(item.bookDtoId) else null,
-                imageUrl = localCover,
-                modifier = Modifier
-                    .width(44.dp)
-                    .aspectRatio(2f / 3f),
+                .width(44.dp)
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = stringResource(R.string.offline_book_pages_size, item.pageCount, formatBytes(item.sizeBytes)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = stringResource(R.string.offline_completed),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+            Text(
+                text = stringResource(R.string.offline_book_pages_size, item.pageCount, formatBytes(item.sizeBytes)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // Mirrors the iOS offline card context menus: open the book/series detail, or release the storage.
+        }
+        Icon(
+            imageVector = Icons.Filled.CheckCircle,
+            contentDescription = stringResource(R.string.offline_completed),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        // Mirrors the iOS offline card context menus: open the book/series detail, or release the storage.
+        // Anchoring the menu to the overflow button (not the full-width row) keeps the popup next to
+        // the icon the user tapped instead of dropping it over the neighbouring row.
+        Box {
             IconButton(onClick = { menuOpen = true }) {
                 Icon(
                     Icons.Filled.MoreVert,
@@ -752,32 +757,32 @@ private fun DownloadedRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        DropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-        ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.menu_view_details)) },
-                onClick = {
-                    menuOpen = false
-                    onOpenBook()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.menu_open_series)) },
-                onClick = {
-                    menuOpen = false
-                    onOpenSeries()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.menu_remove_download)) },
-                onClick = {
-                    menuOpen = false
-                    onRemove()
-                },
-            )
+            KmDropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_view_details)) },
+                    onClick = {
+                        menuOpen = false
+                        onOpenBook()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_open_series)) },
+                    onClick = {
+                        menuOpen = false
+                        onOpenSeries()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_remove_download)) },
+                    onClick = {
+                        menuOpen = false
+                        onRemove()
+                    },
+                )
+            }
         }
     }
 }

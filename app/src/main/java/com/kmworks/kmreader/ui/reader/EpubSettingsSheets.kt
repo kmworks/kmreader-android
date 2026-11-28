@@ -55,13 +55,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kmworks.kmreader.R
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import com.kmworks.kmreader.core.reader.EpubOverlayItem
 import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
 import com.kmworks.kmreader.core.reader.EpubThemePreset
 import com.kmworks.kmreader.core.reader.EpubThemePresetStore
 import com.kmworks.kmreader.data.CustomFont
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -437,6 +437,15 @@ fun EpubSettingsContent(
 fun EpubSettingsSheet(
     settings: EpubReaderSettings,
     onSettingsChange: (EpubReaderSettings) -> Unit,
+    /**
+     * Reader-wide switches (keep screen awake / draw under cutout), shared with DIVINA and PDF.
+     * Passed as the DIVINA settings object because that is where they are persisted, mirroring
+     * volumeButtonPageTurnEnabled.
+     */
+    common: DivinaSettings,
+    /** Transform on the SHARED reader settings: applied to the latest persisted value, not to the
+     *  snapshot this sheet was composed with, so two quick toggles cannot clobber each other. */
+    onCommonUpdate: ((DivinaSettings) -> DivinaSettings) -> Unit,
     customFonts: List<CustomFont>,
     onOpenCustomFonts: () -> Unit,
     overlay: EpubOverlayPreferences,
@@ -444,6 +453,7 @@ fun EpubSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     var showPresets by remember { mutableStateOf(false) }
+    val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
     AppModalDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -464,6 +474,27 @@ fun EpubSettingsSheet(
                 onOpenCustomFonts = onOpenCustomFonts,
                 overlay = overlay,
                 onOverlayChange = onOverlayChange,
+            )
+            // Reader-wide behavior, mirrored from (and back into) the DIVINA settings object so
+            // the same switch toggled in any reader stays in step everywhere.
+            EpubSectionTitle(stringResource(R.string.reader_behavior_section))
+            EpubSwitchRow(
+                label = stringResource(R.string.reader_keep_screen_awake),
+                checked = common.keepScreenAwake,
+                onCheckedChange = { value -> onCommonUpdate { it.copy(keepScreenAwake = value) } },
+            )
+            EpubSwitchRow(
+                label = stringResource(R.string.reader_draw_under_cutout),
+                subtitle = stringResource(
+                    if (hasDisplayCutout) {
+                        R.string.reader_draw_under_cutout_hint
+                    } else {
+                        R.string.reader_no_display_cutout
+                    },
+                ),
+                checked = common.drawUnderCutout,
+                enabled = hasDisplayCutout,
+                onCheckedChange = { value -> onCommonUpdate { it.copy(drawUnderCutout = value) } },
             )
         }
     }
@@ -708,7 +739,7 @@ private fun EpubOverlayPickerRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        KmDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             EpubOverlayItem.entries.forEach { item ->
                 DropdownMenuItem(
                     text = { Text(stringResource(epubOverlayItemLabelRes(item))) },
@@ -723,15 +754,34 @@ private fun EpubOverlayPickerRow(
 }
 
 @Composable
-private fun EpubSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun EpubSwitchRow(
+    label: String,
+    checked: Boolean,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

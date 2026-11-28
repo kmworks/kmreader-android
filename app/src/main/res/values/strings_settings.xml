@@ -76,7 +76,7 @@
     <string name="browse_settings_show_series_title">Show Series Title on Book Cards</string>
     <string name="browse_settings_show_series_subtitle">Show the book series on the second line of book cards</string>
     <string name="browse_settings_preserve_aspect_title">Preserve Cover Aspect Ratio</string>
-    <string name="browse_settings_preserve_aspect_subtitle">Covers are cropped square when disabled</string>
+    <string name="browse_settings_preserve_aspect_subtitle">Covers keep their own aspect ratio; when off they are cropped to the card slot</string>
     <string name="browse_settings_shadow_title">Show Cover Shadows</string>
     <string name="browse_settings_shadow_subtitle">Add a subtle shadow to covers</string>
     <string name="browse_settings_unread_indicator_title">Unread Indicator</string>

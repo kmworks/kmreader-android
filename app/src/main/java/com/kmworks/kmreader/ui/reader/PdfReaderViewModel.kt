@@ -1,11 +1,13 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.content.Context
+import androidx.core.util.size
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.pdf.PdfDocument
 import com.kmworks.kmreader.core.data.ActionRepository
 import com.kmworks.kmreader.core.data.AdjacentBooksResolver
+import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.DetailRepository
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.network.SessionManager
@@ -20,6 +22,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +72,7 @@ constructor(
     private val appSettings: AppSettingsStore,
     private val adjacentBooksResolver: AdjacentBooksResolver,
     private val readListReadingService: ReadListReadingService,
+    private val contentChangeBus: ContentChangeBus,
     /** Application scope: the exit flush must survive this view model being cleared with the page. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -81,6 +85,10 @@ constructor(
     private var progressThreshold: Int = ReaderProgressRecordingGate.THRESHOLD
 
     init {
+        // A PDF reader is a reading session too: hold list refreshes while it is open and release them on close,
+        // the same deferral the EPUB reader applies (see ContentChangeBus.readerOpened).
+        contentChangeBus.readerOpened()
+        viewModelScope.coroutineContext[Job]?.invokeOnCompletion { contentChangeBus.readerClosed() }
         viewModelScope.launch {
             appSettings.progressRecordingThreshold.collect { progressThreshold = it }
         }
@@ -224,7 +232,7 @@ constructor(
         return runCatching {
                 val matches = doc.searchDocument(query, 0 until doc.pageCount)
                 val results = ArrayList<PdfSearchResult>()
-                for (i in 0 until matches.size()) {
+                for (i in 0 until matches.size) {
                     val page = matches.keyAt(i)
                     val text =
                         doc.getPageContent(page)

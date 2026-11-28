@@ -7,7 +7,6 @@
     <string name="dashboard_scope_pinned">已釘選</string>
     <string name="dashboard_pin_libraries">釘選書庫…</string>
     <string name="dashboard_library_scope">庫範圍</string>
-    <string name="dashboard_filter">篩選</string>
     <string name="dashboard_layout">佈局：%1$s</string>
     <string name="dashboard_action_read">閱讀</string>
     <string name="dashboard_action_read_incognito">隱私閱讀</string>
@@ -109,31 +108,22 @@
     <string name="offline_title">下載</string>
     <string name="offline_storage_usage">儲存佔用</string>
     <string name="offline_storage_total">共 %1$s</string>
-    <string name="offline_storage_summary">已下載 %1$s，共 %2$s</string>
     <string name="offline_queue">下載佇列</string>
     <string name="offline_queue_empty">暫無下載任務</string>
     <string name="offline_queue_empty_caption">加入下載的書籍會顯示在這裡</string>
     <string name="offline_policy">下載策略</string>
     <string name="offline_auto_download_unread">自動下載未讀內容</string>
-    <string name="offline_auto_download_unread_subtitle">新內容（SSE）或開啟系列詳情時自動下載未讀書籍</string>
     <string name="offline_wifi_only">僅 Wi-Fi 下載</string>
-    <string name="offline_wifi_only_subtitle">使用蜂窩網路時暫停下載</string>
-    <string name="offline_downloaded_books">已下載書籍</string>
     <string name="offline_downloaded_empty">暫無已下載內容</string>
     <string name="offline_downloaded_empty_caption">已下載的書籍可離線閱讀</string>
     <string name="offline_task_pages">%1$d/%2$d 頁</string>
     <string name="offline_task_file">正在下載書籍檔案</string>
     <string name="offline_task_paused_file">已暫停 · 恢復後續傳</string>
-    <string name="offline_paused_resume">已暫停 · 已下載 %1$d 頁，恢復後續傳</string>
-    <string name="offline_failed_retry">下載失敗，可重試</string>
     <string name="offline_pause">暫停</string>
     <string name="offline_resume">繼續</string>
     <string name="offline_status_downloading">下載中</string>
     <string name="offline_status_queued">排隊中</string>
-    <string name="offline_status_paused">已暫停</string>
-    <string name="offline_status_failed">失敗</string>
     <string name="offline_completed">已完成</string>
-    <string name="offline_delete_free_space">刪除釋放空間</string>
     <string name="offline_book_pages_size">%1$d 頁 · %2$s</string>
     <!-- Login -->
     <string name="login_subtitle">連線到你的 Komga 伺服器</string>
@@ -153,7 +143,6 @@
     <string name="offline_auto_download_unread_caption">新內容（SSE）或開啟系列詳情時自動下載未讀書籍</string>
     <string name="offline_downloaded">已下載書籍</string>
     <string name="offline_library_scope">庫範圍</string>
-    <string name="offline_storage_detail">已下載 %1$s，共 %2$s</string>
     <string name="offline_task_failed_detail">下載失敗，可重試</string>
     <string name="offline_task_paused_detail">已暫停 · 已下載 %1$d 頁，恢復後續傳</string>
     <string name="offline_wifi_only_caption">使用蜂窩網路時暫停下載</string>

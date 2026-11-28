@@ -28,6 +28,11 @@ private val Context.coverStampStore by preferencesDataStore(name = "cover_cache_
  *
  * The in-memory [stamps] map mirrors the DataStore copy so cover rendering never waits on disk; writes
  * are fire-and-forget, and an interrupted write only costs one extra cover fetch after a restart.
+ *
+ * [stamps] is null until the persisted snapshot has been read. Callers must treat null as "not ready":
+ * stamping an identity or building a cover cache key before the table is loaded invents a stamp that
+ * the snapshot then contradicts — and every stamp is a Coil cache key, so a contradicting stamp throws
+ * away the cover already on screen and refetches it (the visible flash-then-reload).
  */
 @Singleton
 class CoverCacheStamps @Inject constructor(
@@ -35,22 +40,28 @@ class CoverCacheStamps @Inject constructor(
     private val scope: CoroutineScope,
 ) {
 
-    private val _stamps = MutableStateFlow<Map<String, Long>>(emptyMap())
+    private val _stamps = MutableStateFlow<Map<String, Long>?>(null)
 
-    /** Cover identity → last allowed display time (epoch millis). */
-    val stamps: StateFlow<Map<String, Long>> = _stamps.asStateFlow()
+    /** Cover identity → last allowed display time (epoch millis); null while the snapshot is loading. */
+    val stamps: StateFlow<Map<String, Long>?> = _stamps.asStateFlow()
 
     init {
         scope.launch {
             runCatching {
                 context.coverStampStore.data.collect { prefs ->
-                    _stamps.value = buildMap {
+                    val persisted = buildMap {
                         prefs.asMap().forEach { (key, value) ->
                             val name = key.name
                             if (name.startsWith(KEY_PREFIX) && value is Long) {
                                 put(name.removePrefix(KEY_PREFIX), value)
                             }
                         }
+                    }
+                    // Merge instead of replacing: a stamp minted in memory after this snapshot was read
+                    // is newer than the snapshot and must survive it. The write re-emits through this
+                    // same collect once it lands, so the merged view converges.
+                    _stamps.update { current ->
+                        if (current == null) persisted else persisted + current
                     }
                 }
             }
@@ -59,9 +70,9 @@ class CoverCacheStamps @Inject constructor(
 
     /** Current stamp of [identity]; a cover seen for the first time is stamped now. */
     fun stamp(identity: String): Long {
-        _stamps.value[identity]?.let { return it }
+        _stamps.value?.get(identity)?.let { return it }
         val now = System.currentTimeMillis()
-        _stamps.update { it + (identity to now) }
+        _stamps.update { (it ?: emptyMap()) + (identity to now) }
         persist(identity, now)
         return now
     }
@@ -71,10 +82,10 @@ class CoverCacheStamps @Inject constructor(
      * Callers evict [Refresh.previous]'s cache entry before rendering the new key.
      */
     fun refreshIfExpired(identity: String, days: Int): Refresh? {
-        val previous = _stamps.value[identity] ?: return null
+        val previous = _stamps.value?.get(identity) ?: return null
         val now = System.currentTimeMillis()
         if (now - previous <= days.coerceAtLeast(1) * DAY_MS) return null
-        _stamps.update { it + (identity to now) }
+        _stamps.update { (it ?: emptyMap()) + (identity to now) }
         persist(identity, now)
         return Refresh(previous = previous, current = now)
     }

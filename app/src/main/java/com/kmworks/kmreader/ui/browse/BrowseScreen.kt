@@ -1,7 +1,11 @@
 package com.kmworks.kmreader.ui.browse
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,17 +28,22 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Checklist
 import com.kmworks.kmreader.ui.components.rememberBrowseFilterSuggestions
 import com.kmworks.kmreader.ui.components.resolveLibraryScopeIds
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
+import com.kmworks.kmreader.ui.components.browseAssistChipColors
+import com.kmworks.kmreader.ui.components.browseChipShape
+import com.kmworks.kmreader.ui.components.browseFilterChipColors
 import com.kmworks.kmreader.ui.components.BrowseSortChip
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -42,14 +51,14 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,9 +68,14 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +91,8 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.DashboardCardKind
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
+import com.kmworks.kmreader.data.defaultSearchOptions
+import com.kmworks.kmreader.data.searchSortFieldsFor
 import com.kmworks.kmreader.ui.components.BookGridCard
 import com.kmworks.kmreader.ui.components.activeFilterLabels
 import com.kmworks.kmreader.ui.components.BookListRow
@@ -84,6 +100,7 @@ import com.kmworks.kmreader.ui.components.BrowseLayout
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.LibraryPinSheet
 import com.kmworks.kmreader.ui.components.LocalNavOverlaySpace
 import com.kmworks.kmreader.ui.components.SeriesGridCard
@@ -106,7 +123,8 @@ fun BrowseScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
-    var scope by remember { mutableStateOf(SearchScope.All) }
+    // rememberSaveable so the scope chip survives leaving the tab (see LibraryScreen's contentType).
+    var scope by rememberSaveable { mutableStateOf(SearchScope.All) }
     // Library scope switch (pinned/all/single library + pin editing), mirroring iOS LibraryScopeMenu;
     // the search tab scope is persisted per server and defaults to all libraries
     var scopeMenuOpen by remember { mutableStateOf(false) }
@@ -128,7 +146,17 @@ fun BrowseScreen(
     val filterContentType =
         if (scope == SearchScope.Books) BrowseContentType.Books else BrowseContentType.Series
     val filterOptions =
-        if (filterContentType == BrowseContentType.Books) booksBrowseOptions else seriesBrowseOptions
+        when {
+            // Outside the series/books scopes nothing is applied, so the chip reads the server's own
+            // order (relevance) instead of a field stored for a scope that is not in use.
+            !filtersEnabled -> defaultSearchOptions(filterContentType)
+            filterContentType == BrowseContentType.Books -> booksBrowseOptions
+            else -> seriesBrowseOptions
+        }
+    // Conditions narrowing the results, shown as a corner badge on the sort chip (the filter chip
+    // that used to carry the count is gone)
+    val filterCount =
+        if (filtersEnabled) filterOptions.activeFilterLabels(filterContentType).size else 0
 
     // Same floating frosted bar as the other tab roots (dashboard / library / lists): a stock M3 TopAppBar
     // painted its own surface-coloured strip above the page, which read as a separate band instead of
@@ -141,23 +169,23 @@ fun BrowseScreen(
                 // has to start below it explicitly.
                 .padding(top = glassTopBarTopPadding() + 4.dp),
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = {
+            SearchField(
+                query = query,
+                onQueryChange = {
                     query = it
                     viewModel.onQueryChange(it)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                placeholder = { Text(stringResource(R.string.browse_search_placeholder)) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
             )
             Row(
                 modifier = Modifier
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    // 10dp rather than 8dp: the sort chip's count badge overhangs its corner by ~8dp,
+                    // and the scroll row clips at its own bounds -- two dp of slack keep the badge
+                    // clear of the edge.
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Layout toggle chip (mirrors the BrowseFilterChipFlow layout chip: cycles list → grid → large grid)
@@ -165,40 +193,23 @@ fun BrowseScreen(
                     onClick = { setResultsLayout(resultsLayout.next) },
                     label = { Text(stringResource(resultsLayout.labelRes)) },
                     leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
+                        Icon(resultsLayout.icon, contentDescription = null, modifier = Modifier.size(18.dp))
                     },
+                    shape = browseChipShape(),
+                    colors = browseAssistChipColors(),
+                    border = null,
                 )
-                // Filter chip (extra conditions layered on series/books full-text search, mirroring the iOS
-                // search tab filters). It carries the selected state, so an applied filter is visible in the
-                // chip row instead of only inside the panel. Disabled outside the series/books scopes.
-                val filterCount =
-                    if (filtersEnabled) filterOptions.activeFilterLabels(filterContentType).size else 0
-                FilterChip(
-                    selected = filtersEnabled && filterCount > 0,
-                    enabled = filtersEnabled,
-                    onClick = { if (filtersEnabled) showFilterSheet = true },
-                    label = {
-                        Text(
-                            if (filterCount > 0) {
-                                stringResource(R.string.browse_filter_count, filterCount)
-                            } else {
-                                stringResource(R.string.browse_filter)
-                            },
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Filled.FilterList, contentDescription = null)
-                    },
+                // Sort chip, always drawn: it carries the conditions and the order in one panel, so
+                // the filter chip is not needed as a second door. Only the series/books scopes have
+                // that panel at all -- elsewhere the results are relevance-ranked by the server, and
+                // the chip says so without being a way in.
+                BrowseSortChip(
+                    options = filterOptions,
+                    contentType = filterContentType,
+                    onOpenOptions = { showFilterSheet = true },
+                    clickable = filtersEnabled,
+                    activeFilters = filterCount,
                 )
-                // Current sort only: the panel keeps the conditions, the chip row shows how the results
-                // are ordered. Only the series/books scopes have a filter panel at all.
-                if (filtersEnabled) {
-                    BrowseSortChip(
-                        options = filterOptions,
-                        contentType = filterContentType,
-                        onOpenOptions = { showFilterSheet = true },
-                    )
-                }
                 SearchScope.entries.forEach { s ->
                     FilterChip(
                         selected = s == scope,
@@ -207,6 +218,9 @@ fun BrowseScreen(
                             viewModel.onScopeChange(s)
                         },
                         label = { Text(stringResource(s.labelRes)) },
+                        shape = browseChipShape(),
+                        colors = browseFilterChipColors(),
+                        border = null,
                     )
                 }
             }
@@ -237,6 +251,9 @@ fun BrowseScreen(
                     // Each dedicated scope edits its own set: Series edits the series filters, Books the
                     // book filters. Both stay stored while the chip is disabled in the other scopes.
                     contentType = filterContentType,
+                    // Sort card: relevance first, then the scope's own fields (a picked field applies
+                    // even while a term is present).
+                    sortFields = searchSortFieldsFor(filterContentType),
                     suggestionLibraryIds = resolveLibraryScopeIds(state.libraryScope, state.pinnedIds),
                 )
             }
@@ -261,7 +278,7 @@ fun BrowseScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(libraryScopeLabel(state.libraryScope, state.libraries))
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
@@ -642,6 +659,7 @@ private fun GroupedSearchResults(
                         item(key = "section-series") {
                             SearchGroup(
                                 title = stringResource(R.string.common_series),
+                                count = state.seriesTotal,
                                 showMore = state.seriesHasMore,
                                 onShowMore = { onShowMore(SearchScope.Series) },
                                 hasMore = state.seriesHasMore,
@@ -663,6 +681,7 @@ private fun GroupedSearchResults(
                         item(key = "section-books") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_books),
+                                count = state.booksTotal,
                                 showMore = state.booksHasMore,
                                 onShowMore = { onShowMore(SearchScope.Books) },
                                 hasMore = state.booksHasMore,
@@ -686,6 +705,7 @@ private fun GroupedSearchResults(
                         item(key = "section-collections") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_collections),
+                                count = state.collectionsTotal,
                                 showMore = state.collectionsHasMore,
                                 onShowMore = { onShowMore(SearchScope.Collections) },
                                 hasMore = state.collectionsHasMore,
@@ -706,6 +726,7 @@ private fun GroupedSearchResults(
                         item(key = "section-readlists") {
                             SearchGroup(
                                 title = stringResource(R.string.browse_scope_readlists),
+                                count = state.readListsTotal,
                                 showMore = state.readListsHasMore,
                                 onShowMore = { onShowMore(SearchScope.ReadLists) },
                                 hasMore = state.readListsHasMore,
@@ -728,12 +749,122 @@ private fun GroupedSearchResults(
     }
 }
 
-/** Group container: section header (title + "More ›") + horizontal LazyRow (content slot).
+/**
+ * Search input: a filled pill instead of the outlined M3 field. The stock OutlinedTextField drew a 1dp
+ * white outline around a full-width square, which read as a bare box on the dark page; the pill fills with
+ * a surface role, keeps a hairline only for definition (brighter while focused) and carries a trailing
+ * clear button.
+ */
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(22.dp)
+    // Filled-field role from M3: surfaceContainerHighest in both states.  surfaceContainerHigh
+    // (#F0F0F2) is barely distinguishable from the #F7F7F8 light background, so the pill vanished
+    // there; focus is carried by the outline instead of by a second fill level.
+    val container = MaterialTheme.colorScheme.surfaceContainerHighest
+    // primary is white in the dark palette and near-black in the light one, so a single alpha yields
+    // two weights. Light strokes read thinner on black than dark strokes read on white, so the rings
+    // are tuned apart: 0.42 white on #242428 (≈#7E7E80) and 0.35 black on #E8E8EB (≈#9D9DA0) land
+    // at comparable perceived strength and neither reads as an outline.
+    val lightSurface = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val outline =
+        if (focused) MaterialTheme.colorScheme.primary.copy(alpha = if (lightSurface) 0.35f else 0.42f)
+        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+    // The clear disc is an inverted chip: a soft neutral under a high-contrast cross.  Its alpha
+    // follows the surface polarity — 0.62 on a dark pill yields the reference's pale grey (#9E9EA1),
+    // while the same value on the light pill would read as a near-black dot, so it drops to 0.45.
+    val clearDisc =
+        MaterialTheme.colorScheme.onSurface.copy(alpha = if (lightSurface) 0.45f else 0.62f)
+    BasicTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(container, shape)
+            .border(1.dp, outline, shape),
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+        ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        interactionSource = interactionSource,
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.browse_search_placeholder),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    innerTextField()
+                }
+                if (query.isNotEmpty()) {
+                    // M3 icon button owns the 44dp touch target and the ripple, but its container is
+                    // transparent: the visible 18dp disc is painted inside. One composable therefore
+                    // gives a small, quiet glyph and a full-size hit area.
+                    FilledIconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.size(44.dp),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(clearDisc, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.browse_search_clear),
+                                tint = MaterialTheme.colorScheme.background,
+                                modifier = Modifier.size(9.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/** Group container: section header (title · total + "More ›") + horizontal LazyRow (content slot).
  *  "More" is hidden when there are no further results; the strip itself pages when scrolled to
  *  its end, so reaching the dedicated page is no longer the only way to see further results. */
 @Composable
 private fun SearchGroup(
     title: String,
+    count: Long? = null,
     showMore: Boolean,
     onShowMore: () -> Unit,
     hasMore: Boolean = false,
@@ -754,21 +885,44 @@ private fun SearchGroup(
     LaunchedEffect(shouldLoadMore, hasMore, loadingMore, stripState.layoutInfo.totalItemsCount) {
         if (shouldLoadMore && hasMore && !loadingMore) onLoadMore()
     }
-    Column(modifier = Modifier.padding(top = 8.dp)) {
+    Column(modifier = Modifier.padding(top = 12.dp)) {
+        // Fixed height: the title-to-cards gap must not depend on whether "More" is drawn (a TextButton
+        // brought its own 48dp touch height, so groups without further results sat tighter).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(44.dp)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = title, style = MaterialTheme.typography.titleMedium)
+            if (count != null) {
+                // Server-side total ("系列 · 65"), the muted number of the reference search UI.
+                Text(
+                    text = " · $count",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.weight(1f))
             if (showMore) {
-                TextButton(onClick = onShowMore) {
-                    Text(stringResource(R.string.common_more))
+                // Plain clickable row instead of a TextButton: its content padding kept "More" inset from
+                // the 16dp card edge. Bottom padding keeps a 44dp touch target inside the fixed header.
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onShowMore)
+                        .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.common_more),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp),
                     )
                 }

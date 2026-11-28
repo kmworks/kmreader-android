@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,6 +70,7 @@ import com.kmworks.kmreader.ui.components.bookContextMenuItems
 import com.kmworks.kmreader.ui.components.libraryScopeLabel
 import com.kmworks.kmreader.ui.components.seriesContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
 import com.kmworks.kmreader.ui.components.isPhoneWindow
@@ -121,6 +121,8 @@ fun DashboardScreen(
     var deleteSeriesTarget by remember { mutableStateOf<Series?>(null) }
     var deleteBookTarget by remember { mutableStateOf<Book?>(null) }
     val context = LocalContext.current
+    // Shown from the save-result callback; stringResource is composable, so resolve it here.
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
     // "Add to Collection/Read List" sheet target
     var addTarget by remember { mutableStateOf<Any?>(null) }
     var addToCollectionOpen by remember { mutableStateOf(false) }
@@ -157,7 +159,7 @@ fun DashboardScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(libraryScopeLabel(state.libraryScope, state.libraries))
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {
@@ -378,7 +380,7 @@ fun DashboardScreen(
                         editSeries = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }
@@ -397,7 +399,7 @@ fun DashboardScreen(
                         editBook = null
                     } else {
                         scope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                            snackbarHostState.showSnackbar(saveFailedMsg)
                         }
                     }
                 }
@@ -547,7 +549,7 @@ private fun DashboardSectionRow(
                         ),
                     )
                 }
-                DropdownMenu(
+                KmDropdownMenu(
                     expanded = kindMenuOpen,
                     onDismissRequest = { kindMenuOpen = false },
                 ) {

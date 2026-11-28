@@ -28,7 +28,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,6 +55,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.kmworks.kmreader.ui.components.CoverShadowStyle
 import com.kmworks.kmreader.ui.components.GlassTopBar
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
@@ -75,6 +75,8 @@ import com.kmworks.kmreader.ui.components.rememberPersistentBrowseLayout
 import com.kmworks.kmreader.ui.components.BrowseOptionsSheet
 import com.kmworks.kmreader.ui.components.ConfirmDeleteDialog
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.SelectionToolbar
 import com.kmworks.kmreader.ui.components.SeriesGridCard
 import com.kmworks.kmreader.ui.components.subtitleText
@@ -121,7 +123,18 @@ fun CollectionDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // Labels handed to deferred callbacks: stringResource is composable, so they are resolved here
+    // and the callbacks only consume the strings.
+    val markReadLabel = stringResource(R.string.lists_mark_read)
+    val markUnreadLabel = stringResource(R.string.lists_mark_unread)
+    val addToDownloadQueueLabel = stringResource(R.string.lists_add_to_download_queue)
+    val addToReadListLabel = stringResource(R.string.lists_add_to_readlist)
+    val collectionSaveLabel = stringResource(R.string.collection_save)
+    val collectionDeleteLabel = stringResource(R.string.collection_delete)
+    // The action name only arrives with the event, so the template is formatted at event time;
+    // reading it via context is deliberate (stringResource cannot run in this deferred lambda).
     val notifyFailure: suspend (String) -> Unit = { action ->
+        @Suppress("LocalContextGetResourceValueCall")
         snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     val onSelectedMarkRead: (Boolean) -> Unit = { read ->
@@ -131,7 +144,7 @@ fun CollectionDetailScreen(
                 selecting = false
             } else {
                 scope.launch {
-                    notifyFailure(context.getString(if (read) R.string.lists_mark_read else R.string.lists_mark_unread))
+                    notifyFailure(if (read) markReadLabel else markUnreadLabel)
                 }
             }
         }
@@ -142,7 +155,7 @@ fun CollectionDetailScreen(
                 selected = emptySet()
                 selecting = false
             } else {
-                scope.launch { notifyFailure(context.getString(R.string.lists_add_to_download_queue)) }
+                scope.launch { notifyFailure(addToDownloadQueueLabel) }
             }
         }
     }
@@ -225,7 +238,7 @@ fun CollectionDetailScreen(
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
-                        DropdownMenu(
+                        KmDropdownMenu(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
@@ -418,7 +431,7 @@ fun CollectionDetailScreen(
                         selected = emptySet()
                         selecting = false
                     } else {
-                        scope.launch { notifyFailure(context.getString(R.string.lists_add_to_readlist)) }
+                        scope.launch { notifyFailure(addToReadListLabel) }
                     }
                 }
                 addToReadListOpen = false
@@ -438,7 +451,7 @@ fun CollectionDetailScreen(
                         editOpen = false
                     } else {
                         // Keep the sheet open so the typed name is not lost
-                        scope.launch { notifyFailure(context.getString(R.string.collection_save)) }
+                        scope.launch { notifyFailure(collectionSaveLabel) }
                     }
                 }
             },
@@ -462,7 +475,7 @@ fun CollectionDetailScreen(
                     if (ok) {
                         onBack()
                     } else {
-                        scope.launch { notifyFailure(context.getString(R.string.collection_delete)) }
+                        scope.launch { notifyFailure(collectionDeleteLabel) }
                     }
                 }
             },
@@ -506,15 +519,17 @@ private fun CollectionHero(
             .padding(top = 8.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        // The collection thumbnail (a 2:3 collage) must keep the cover shape: a square frame
-        // would crop the portrait collage top and bottom.
+        // The collection thumbnail is a portrait collage: it keeps its own shape inside the √2 slot
+        // instead of being cropped to it.
         CoverArt(
             title = collection.name,
             hue = coverHue,
             stableId = stableId,
             modifier = Modifier
                 .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
+            shadowStyle = CoverShadowStyle.Basic,
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -697,7 +712,8 @@ private fun SeriesListRow(
             stableId = series.id,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
+            followThumbnailPreference = true,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

@@ -41,6 +41,7 @@ import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.UpscaleMode
 import com.kmworks.kmreader.ui.reader.UpscalePrecision
+import com.kmworks.kmreader.ui.reader.rememberReaderWindowInsetsCss
 
 /**
  * Reader defaults (mirrors the original ReaderPreferencesView + Divina/Epub/Pdf preferences).
@@ -74,12 +75,15 @@ fun ReaderDefaultsScreen(
     val progressThreshold by prefsViewModel.progressRecordingThreshold.collectAsStateWithLifecycle()
     // PDF engine preference (device-local): native PdfRenderer vs the default androidx.pdf engine
     val useNativePdfReader by prefsViewModel.useNativePdfReader.collectAsStateWithLifecycle()
+    // A cutout switch on a device without a notch is a dead control: keep it visible but disabled
+    // (hiding it makes the feature undiscoverable until the user changes phones).
+    val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.reader_defaults_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
@@ -94,6 +98,39 @@ fun ReaderDefaultsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
+            item {
+                // Shared by DIVINA, EPUB and PDF. Kept in its own section (rather than inside the
+                // DIVINA card) so it reads as what it is: reader-wide behavior, not a DIVINA option
+                // — the precedent is volumeButtonPageTurnEnabled, which is also a shared switch.
+                SettingsSection(
+                    title = stringResource(R.string.reader_behavior_section),
+                    footer = stringResource(R.string.reader_behavior_section_hint),
+                ) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_keep_screen_awake),
+                        checked = divinaSettings.keepScreenAwake,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(keepScreenAwake = value) }
+                        },
+                    )
+                    SettingsRowDivider()
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_draw_under_cutout),
+                        subtitle = stringResource(
+                            if (hasDisplayCutout) {
+                                R.string.reader_draw_under_cutout_hint
+                            } else {
+                                R.string.reader_no_display_cutout
+                            },
+                        ),
+                        checked = divinaSettings.drawUnderCutout,
+                        enabled = hasDisplayCutout,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(drawUnderCutout = value) }
+                        },
+                    )
+                }
+            }
             item {
                 SettingsSection(title = stringResource(R.string.reader_defaults_divina_section)) {
                     SettingsPickerRow(
@@ -114,6 +151,17 @@ fun ReaderDefaultsScreen(
                         checked = divinaSettings.forceDefaultDirection,
                         onCheckedChange = { value ->
                             readerSettingsViewModel.update { it.copy(forceDefaultDirection = value) }
+                        },
+                    )
+                    SettingsRowDivider()
+                    // Shared by all three readers (DIVINA, EPUB, PDF) and off by default, mirroring
+                    // the original volumeButtonPageTurnEnabled AppStorage key.
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_volume_button_page_turn),
+                        subtitle = stringResource(R.string.reader_volume_button_page_turn_hint),
+                        checked = divinaSettings.volumeButtonPageTurnEnabled,
+                        onCheckedChange = { value ->
+                            readerSettingsViewModel.update { it.copy(volumeButtonPageTurnEnabled = value) }
                         },
                     )
                     SettingsRowDivider()

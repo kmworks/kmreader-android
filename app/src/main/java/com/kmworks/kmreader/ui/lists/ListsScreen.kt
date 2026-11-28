@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -74,6 +73,7 @@ import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.SampleData.ListEntry
 import com.kmworks.kmreader.ui.components.CoverArt
+import com.kmworks.kmreader.ui.components.CoverAspectRatio
 import com.kmworks.kmreader.ui.components.EmptyState
 import com.kmworks.kmreader.ui.components.ContextMenuItem
 import com.kmworks.kmreader.ui.components.ContextMenuSheet
@@ -84,6 +84,7 @@ import com.kmworks.kmreader.ui.components.PullRefreshBox
 import com.kmworks.kmreader.ui.components.readListContextMenuItems
 import com.kmworks.kmreader.ui.components.smartListContextMenuItems
 import com.kmworks.kmreader.ui.components.GlassTopBar
+import com.kmworks.kmreader.ui.components.KmDropdownMenu
 import com.kmworks.kmreader.ui.components.glassPageContentWindowInsets
 import com.kmworks.kmreader.ui.components.glassTopBarTopPadding
 import com.kmworks.kmreader.ui.components.hasScrolled
@@ -140,11 +141,25 @@ fun ListsScreen(
     // Create sheet (SmartListEditSheet in create mode; "New Smart List" in the bar of either destination)
     var creatingSmartList by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    // Labels handed to deferred callbacks (context menus, edit/delete results): stringResource is
+    // composable, so they are resolved here and the callbacks only consume the strings.
+    val refreshCoverLabel = stringResource(R.string.common_refresh_cover)
+    val readListShareLabel = stringResource(R.string.readlist_share)
+    val collectionSaveLabel = stringResource(R.string.collection_save)
+    val collectionDeleteLabel = stringResource(R.string.collection_delete)
+    val readListSaveLabel = stringResource(R.string.readlist_save)
+    val readListDeleteLabel = stringResource(R.string.readlist_delete)
+    val smartListSaveLabel = stringResource(R.string.smartlist_save)
+    val smartListDeleteLabel = stringResource(R.string.smartlist_delete)
+    val smartListSaveFailedMsg = stringResource(R.string.smartlist_save_failed)
 
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    // The action name only arrives with the event, so the template is formatted at event time;
+    // reading it via context is deliberate (stringResource cannot run in this deferred lambda).
     val notifyActionFailure: suspend (String) -> Unit = { action ->
+        @Suppress("LocalContextGetResourceValueCall")
         snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     // real groups only (capability-gated: smart lists hidden when unsupported/empty)
@@ -216,7 +231,7 @@ fun ListsScreen(
                 onEdit = { editTarget = groupTitle to entry },
                 onRefreshCover = {
                     if (!viewModel.refreshCover(entry.id)) {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                        coroutineScope.launch { notifyActionFailure(refreshCoverLabel) }
                     }
                 },
                 onDelete = { deleteTarget = groupTitle to entry },
@@ -227,7 +242,7 @@ fun ListsScreen(
                 onEdit = { editTarget = groupTitle to entry },
                 onRefreshCover = {
                     if (!viewModel.refreshCover(entry.id)) {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                        coroutineScope.launch { notifyActionFailure(refreshCoverLabel) }
                     }
                 },
                 onShare = {
@@ -235,7 +250,7 @@ fun ListsScreen(
                     if (url != null) {
                         shareText(context, url)
                     } else {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_share)) }
+                        coroutineScope.launch { notifyActionFailure(readListShareLabel) }
                     }
                 },
                 onDelete = { deleteTarget = groupTitle to entry },
@@ -245,7 +260,7 @@ fun ListsScreen(
                 onEdit = { editTarget = groupTitle to entry },
                 onRefreshCover = {
                     if (!viewModel.refreshCover(entry.id)) {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.common_refresh_cover)) }
+                        coroutineScope.launch { notifyActionFailure(refreshCoverLabel) }
                     }
                 },
                 onDelete = { deleteTarget = groupTitle to entry },
@@ -264,13 +279,13 @@ fun ListsScreen(
                     deleteTarget = null
                     when (groupTitle) {
                         groupCollectionsLabel -> viewModel.deleteCollection(entry) { ok ->
-                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_delete)) }
+                            if (!ok) coroutineScope.launch { notifyActionFailure(collectionDeleteLabel) }
                         }
                         groupReadListsLabel -> viewModel.deleteReadList(entry) { ok ->
-                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
+                            if (!ok) coroutineScope.launch { notifyActionFailure(readListDeleteLabel) }
                         }
                         else -> viewModel.deleteSmartList(entry) { ok ->
-                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_delete)) }
+                            if (!ok) coroutineScope.launch { notifyActionFailure(smartListDeleteLabel) }
                         }
                     }
                 }) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
@@ -286,7 +301,7 @@ fun ListsScreen(
             groupCollectionsLabel -> CollectionEditSheet(
                 onSave = { name, ordered ->
                     viewModel.saveCollection(entry, name, ordered) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_save)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(collectionSaveLabel) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -295,14 +310,14 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteCollection(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.collection_delete)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(collectionDeleteLabel) }
                     }
                 },
             )
             groupReadListsLabel -> ReadListEditSheet(
                 onSave = { name, summary, ordered ->
                     viewModel.saveReadList(entry, name, summary, ordered) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_save)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(readListSaveLabel) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -312,7 +327,7 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteReadList(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(readListDeleteLabel) }
                     }
                 },
             )
@@ -326,7 +341,7 @@ fun ListsScreen(
                         visibility = visibility,
                         sharedWithUserIds = sharedWithUserIds,
                     ) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_save)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(smartListSaveLabel) }
                     }
                 },
                 onDismiss = { editTarget = null },
@@ -339,7 +354,7 @@ fun ListsScreen(
                 isEdit = true,
                 onDelete = {
                     viewModel.deleteSmartList(entry) { ok ->
-                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(context.getString(R.string.smartlist_delete)) }
+                        if (ok) editTarget = null else coroutineScope.launch { notifyActionFailure(smartListDeleteLabel) }
                     }
                 },
             )
@@ -363,7 +378,7 @@ fun ListsScreen(
                         onOpenSmartList(stableId)
                     } else {
                         coroutineScope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.smartlist_save_failed))
+                            snackbarHostState.showSnackbar(smartListSaveFailedMsg)
                         }
                     }
                 }
@@ -622,13 +637,14 @@ private fun ListEntryCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f),
+                .aspectRatio(CoverAspectRatio),
         ) {
             CoverArt(
                 title = entry.title,
                 hue = entry.hue,
                 stableId = entry.id,
                 modifier = Modifier.matchParentSize(),
+                followThumbnailPreference = true,
             )
             if (entry.pinned) {
                 Icon(
@@ -724,7 +740,7 @@ private fun ListsTabBody(
                         Spacer(Modifier.width(6.dp))
                         Text(libraryScopeLabel(state.libraryScope, state.libraries))
                     }
-                    DropdownMenu(
+                    KmDropdownMenu(
                         expanded = scopeMenuOpen,
                         onDismissRequest = { scopeMenuOpen = false },
                     ) {

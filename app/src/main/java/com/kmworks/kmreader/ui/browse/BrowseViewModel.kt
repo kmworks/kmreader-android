@@ -14,7 +14,7 @@ import com.kmworks.kmreader.core.settings.AppSettingsStore
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.BrowseContentType
 import com.kmworks.kmreader.data.BrowseOptions
-import com.kmworks.kmreader.data.defaultBrowseOptions
+import com.kmworks.kmreader.data.defaultSearchOptions
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.SampleData
 import com.kmworks.kmreader.data.Series
@@ -60,6 +60,11 @@ data class BrowseUiState(
     val booksHasMore: Boolean = false,
     val readListsHasMore: Boolean = false,
     val collectionsHasMore: Boolean = false,
+    /** Server-side totals of the current query, shown next to the grouped section titles (null = unknown). */
+    val seriesTotal: Long? = null,
+    val booksTotal: Long? = null,
+    val readListsTotal: Long? = null,
+    val collectionsTotal: Long? = null,
     /** Whether the current scope has another page (for bottom-of-list detection). */
     val hasMore: Boolean = false,
     /** Library scope (pinned/all/library:{id}; mirrors iOS LibraryBrowseScope, persisted per server, defaults to all). */
@@ -82,8 +87,8 @@ private data class SearchRequest(
      * publisher/genre/series-status dimensions a book query cannot express, and each group sorts by
      * its own vocabulary.
      */
-    val seriesOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Series),
-    val booksOptions: BrowseOptions = defaultBrowseOptions(BrowseContentType.Books),
+    val seriesOptions: BrowseOptions = defaultSearchOptions(BrowseContentType.Series),
+    val booksOptions: BrowseOptions = defaultSearchOptions(BrowseContentType.Books),
 ) {
     /**
      * Filters only apply in the dedicated scopes: the mixed All scope, and the collections/read lists
@@ -108,8 +113,8 @@ class BrowseViewModel @Inject constructor(
 
     private val query = MutableStateFlow("")
     private val scope = MutableStateFlow(SearchScope.All)
-    private val seriesBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Series))
-    private val booksBrowseOptions = MutableStateFlow(defaultBrowseOptions(BrowseContentType.Books))
+    private val seriesBrowseOptions = MutableStateFlow(defaultSearchOptions(BrowseContentType.Series))
+    private val booksBrowseOptions = MutableStateFlow(defaultSearchOptions(BrowseContentType.Books))
 
     private val _state = MutableStateFlow(BrowseUiState())
     val state = _state.asStateFlow()
@@ -181,8 +186,8 @@ class BrowseViewModel @Inject constructor(
                 .map { it?.cacheNamespace }
                 .distinctUntilChanged()
                 .collect {
-                    seriesBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Series)
-                    booksBrowseOptions.value = defaultBrowseOptions(BrowseContentType.Books)
+                    seriesBrowseOptions.value = defaultSearchOptions(BrowseContentType.Series)
+                    booksBrowseOptions.value = defaultSearchOptions(BrowseContentType.Books)
                 }
         }
         // sync library scope / pinned ids into UI state (for the scope menu and the pin-editing sheet)
@@ -326,6 +331,10 @@ class BrowseViewModel @Inject constructor(
                             booksHasMore = booksResult?.hasMore ?: st.booksHasMore,
                             readListsHasMore = readListsResult?.hasMore ?: st.readListsHasMore,
                             collectionsHasMore = collectionsResult?.hasMore ?: st.collectionsHasMore,
+                            seriesTotal = seriesResult?.totalElements ?: st.seriesTotal,
+                            booksTotal = booksResult?.totalElements ?: st.booksTotal,
+                            readListsTotal = readListsResult?.totalElements ?: st.readListsTotal,
+                            collectionsTotal = collectionsResult?.totalElements ?: st.collectionsTotal,
                             hasMore = computeHasMore(
                                 st.copy(
                                     seriesHasMore = seriesResult?.hasMore ?: st.seriesHasMore,
@@ -355,13 +364,13 @@ class BrowseViewModel @Inject constructor(
     private fun seriesKey(request: SearchRequest): String = listOf(
         request.query,
         request.libraryIds?.joinToString(","),
-        request.seriesFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Series) },
+        request.seriesFilters?.takeIf { it != defaultSearchOptions(BrowseContentType.Series) },
     ).joinToString("|")
 
     private fun booksKey(request: SearchRequest): String = listOf(
         request.query,
         request.libraryIds?.joinToString(","),
-        request.bookFilters?.takeIf { it != defaultBrowseOptions(BrowseContentType.Books) },
+        request.bookFilters?.takeIf { it != defaultSearchOptions(BrowseContentType.Books) },
     ).joinToString("|")
 
     private fun listsKey(request: SearchRequest): String =
@@ -410,6 +419,7 @@ class BrowseViewModel @Inject constructor(
                                 loadingMore = false,
                                 series = items,
                                 seriesHasMore = result.hasMore,
+                                seriesTotal = result.totalElements ?: st.seriesTotal,
                                 hasMore = computeHasMore(st.copy(seriesHasMore = result.hasMore), request.scope),
                             )
                         }
@@ -427,6 +437,7 @@ class BrowseViewModel @Inject constructor(
                                 loadingMore = false,
                                 books = items,
                                 booksHasMore = result.hasMore,
+                                booksTotal = result.totalElements ?: st.booksTotal,
                                 hasMore = computeHasMore(st.copy(booksHasMore = result.hasMore), request.scope),
                             )
                         }
@@ -444,6 +455,7 @@ class BrowseViewModel @Inject constructor(
                                 loadingMore = false,
                                 readLists = items,
                                 readListsHasMore = result.hasMore,
+                                readListsTotal = result.totalElements ?: st.readListsTotal,
                                 hasMore = computeHasMore(st.copy(readListsHasMore = result.hasMore), request.scope),
                             )
                         }
@@ -461,6 +473,7 @@ class BrowseViewModel @Inject constructor(
                                 loadingMore = false,
                                 collections = items,
                                 collectionsHasMore = result.hasMore,
+                                collectionsTotal = result.totalElements ?: st.collectionsTotal,
                                 hasMore = computeHasMore(st.copy(collectionsHasMore = result.hasMore), request.scope),
                             )
                         }
@@ -501,6 +514,10 @@ class BrowseViewModel @Inject constructor(
                     booksHasMore = false,
                     readListsHasMore = false,
                     collectionsHasMore = false,
+                    seriesTotal = null,
+                    booksTotal = null,
+                    readListsTotal = null,
+                    collectionsTotal = null,
                     hasMore = false,
                 )
             }
@@ -624,6 +641,10 @@ class BrowseViewModel @Inject constructor(
                     booksHasMore = if (fetchBooks) seriesResult.books?.hasMore ?: false else if (wantsBooks) st.booksHasMore else false,
                     readListsHasMore = if (fetchReadLists) seriesResult.readLists?.hasMore ?: false else if (wantsReadLists) st.readListsHasMore else false,
                     collectionsHasMore = if (fetchCollections) seriesResult.collections?.hasMore ?: false else if (wantsCollections) st.collectionsHasMore else false,
+                    seriesTotal = if (fetchSeries) seriesResult.series?.totalElements else if (wantsSeries) st.seriesTotal else null,
+                    booksTotal = if (fetchBooks) seriesResult.books?.totalElements else if (wantsBooks) st.booksTotal else null,
+                    readListsTotal = if (fetchReadLists) seriesResult.readLists?.totalElements else if (wantsReadLists) st.readListsTotal else null,
+                    collectionsTotal = if (fetchCollections) seriesResult.collections?.totalElements else if (wantsCollections) st.collectionsTotal else null,
                 )
                 updated.copy(hasMore = computeHasMore(updated, request.scope))
             }

@@ -51,7 +51,7 @@ fun BrowseSettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.browse_settings_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

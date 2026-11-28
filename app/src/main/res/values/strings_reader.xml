@@ -14,12 +14,21 @@
     <string name="reader_controls_gradient">Control bar gradient</string>
     <string name="reader_show_progress_bar">Show progress bar while reading</string>
     <string name="reader_keep_screen_awake">Keep screen awake while reading</string>
+    <!-- Shared reading behavior: one switch pair for DIVINA, EPUB and PDF (Reader Defaults +
+         each reader's panel mirror the same persisted values). -->
+    <string name="reader_behavior_section">Reading behavior</string>
+    <string name="reader_behavior_section_hint">Applies to the DIVINA, EPUB and PDF readers.</string>
+    <string name="reader_draw_under_cutout">Show content in cutout area</string>
+    <string name="reader_draw_under_cutout_hint">Off keeps text and pages clear of the notch or punch-hole.</string>
+    <string name="reader_no_display_cutout">This device has no notch or punch-hole.</string>
     <string name="reader_webtoon_page_width">Webtoon page width</string>
     <string name="reader_group_page_turn">Page turn</string>
     <string name="reader_transition_title">Page turn animation</string>
     <string name="reader_transition_scroll">Scroll</string>
     <string name="reader_transition_cover">Cover</string>
     <string name="reader_animate_tap_turns">Animate tap turns</string>
+    <string name="reader_volume_button_page_turn">Turn pages with volume buttons</string>
+    <string name="reader_volume_button_page_turn_hint">Volume up turns to the next page and volume down to the previous one. Your system volume stays unchanged while reading.</string>
     <string name="reader_tap_zone_layout">Tap zone layout</string>
     <string name="reader_tap_zone_inversion">Mirror tap zones</string>
     <string name="reader_show_tap_zone_hints">Show tap zone hints</string>
@@ -135,10 +144,6 @@
     <string name="reader_back">Back</string>
     <string name="reader_incognito">Incognito reading</string>
     <string name="reader_connection_required">Server connection required</string>
-    <string name="reader_close_search">Close search</string>
-    <string name="reader_search_document">Search document</string>
-    <string name="reader_previous_match">Previous match</string>
-    <string name="reader_next_match">Next match</string>
     <string name="reader_volume_pdf">Vol. %1$s · PDF</string>
 
     <!-- Reader: end of book page (mirrors the original end-page content) -->
@@ -199,14 +204,21 @@
     <string name="epub_expand">Expand</string>
     <string name="epub_collapse">Collapse</string>
     <string name="epub_chapter_fallback">Chapter %1$d</string>
-    <string name="epub_volume">Vol. %1$s · EPUB</string>
-    <string name="epub_chapter_progress">Ch. %1$d/%2$d · %3$d%%</string>
     <string name="epub_error_locate_book">Cannot locate this book</string>
     <string name="epub_error_load_toc">Cannot load the table of contents</string>
-    <string name="epub_end_finished">Book finished</string>
     <string name="epub_end_return">Return</string>
+    <!-- Footnote bubble: the note body was cut short (a huge endnote table); the pill jumps to
+         the full note in the text instead. -->
+    <string name="epub_footnote_full_note">Show full note</string>
     <string name="epub_book_info">Book Info</string>
     <string name="epub_close">Close</string>
+    <!-- Reader bookmarks: the top-trailing capsule toggles one at the current position, the
+         contents sheet lists them (second tab). -->
+    <string name="epub_bookmarks">Bookmarks</string>
+    <string name="epub_bookmark_add">Add bookmark</string>
+    <string name="epub_bookmark_remove">Remove bookmark</string>
+    <string name="epub_bookmark_delete">Delete bookmark</string>
+    <string name="epub_bookmarks_empty">No bookmarks yet. Tap the bookmark button while reading to add one.</string>
     <string name="epub_quick_actions">Quick actions</string>
     <string name="epub_section_overlay">Margin Notes</string>
     <string name="epub_section_overlay_controls">While Controls Visible</string>

@@ -81,6 +81,8 @@ data class SessionsSnapshot(
     val loading: Boolean = false,
     val hasMore: Boolean = false,
     val supported: Boolean = true,
+    /** Last page that answered; the next request asks for [page] + 1. */
+    val page: Int = 0,
     /** Id currently being kicked (the row shows a spinner and the others disable). */
     val kickingId: String? = null,
 )
@@ -303,25 +305,47 @@ class ServerAdminViewModel @Inject constructor(
 
     // region sessions
 
+    /** Serialises session paging requests; see [loadSessions]. */
+    private var sessionsInFlight = false
+
     fun loadSessions(reset: Boolean = false, scope: SessionScope = _state.value.sessions.scope) {
-        if (_state.value.sessions.loading) return
-        viewModelScope.launch { loadSessionsInternal(reset, scope) }
+        // The list triggers a load from each of its last rows, so several requests can arrive before the
+        // first one has flagged `loading`: one guard here keeps them from asking for the same page twice.
+        if (sessionsInFlight) return
+        sessionsInFlight = true
+        viewModelScope.launch {
+            try {
+                loadSessionsInternal(reset, scope)
+            } finally {
+                sessionsInFlight = false
+            }
+        }
     }
 
     private suspend fun loadSessionsInternal(reset: Boolean, scope: SessionScope) {
         val previous = _state.value.sessions
-        val page = if (reset || previous.scope != scope) 0 else previous.entries.size / SESSION_PAGE_SIZE
+        val fresh = reset || previous.scope != scope
+        // Paging follows the page counter, not entries.size / PAGE_SIZE: the merge below drops repeats,
+        // so the size no longer tells which page came last.
+        val page = if (fresh) 0 else previous.page + 1
         _state.update { it.copy(sessions = previous.copy(scope = scope, loading = true)) }
         val result = repository.sessions(scope, page = page, size = SESSION_PAGE_SIZE)
-        val entries = if (reset || previous.scope != scope) result.entries else previous.entries + result.entries
+        // The server pages by offset over a list that keeps changing while the user scrolls: a session
+        // that expires or a request that reorders the list puts the same id on two pages. Both copies
+        // used to go into the list, whose keys are the ids -- a duplicate key throws. De-duplicating
+        // every page, not only the appended ones, also covers a single page that repeats an id.
+        val merged = (if (fresh) result.entries else previous.entries + result.entries).distinctBy { it.id }
         _state.update {
             it.copy(
                 sessions = SessionsSnapshot(
                     scope = scope,
-                    entries = entries,
+                    entries = merged,
                     loading = false,
-                    hasMore = result.hasMore,
+                    // A page that added nothing new ends the list: asking again would return the same
+                    // window forever, since the scroll trigger fires on every pass.
+                    hasMore = result.hasMore && result.entries.isNotEmpty() && merged.size > if (fresh) 0 else previous.entries.size,
                     supported = result.supported,
+                    page = page,
                 ),
             )
         }
@@ -339,7 +363,7 @@ class ServerAdminViewModel @Inject constructor(
                     messageRes = if (ok) R.string.server_admin_session_kicked else R.string.server_admin_action_failed,
                 )
             }
-            if (ok) loadSessionsInternal(reset = true, scope = sessions.scope)
+            if (ok) loadSessions(reset = true, scope = sessions.scope)
         }
     }
 
@@ -363,9 +387,20 @@ class ServerAdminViewModel @Inject constructor(
 
     // region history
 
+    /** Serialises history paging requests; see [loadHistory]. */
+    private var historyInFlight = false
+
     fun loadHistory(reset: Boolean = false) {
-        if (_state.value.history.loading) return
-        viewModelScope.launch { loadHistoryInternal(reset) }
+        // Same trigger-per-row situation as the session list; one guard keeps the requests serial.
+        if (historyInFlight) return
+        historyInFlight = true
+        viewModelScope.launch {
+            try {
+                loadHistoryInternal(reset)
+            } finally {
+                historyInFlight = false
+            }
+        }
     }
 
     private suspend fun loadHistoryInternal(reset: Boolean) {
@@ -373,12 +408,17 @@ class ServerAdminViewModel @Inject constructor(
         val page = if (reset) 0 else previous.page + 1
         _state.update { it.copy(history = previous.copy(loading = true)) }
         val result = repository.history(page = page, size = HISTORY_PAGE_SIZE)
+        // Events are appended while the user reads them and the server pages by offset, so an event id
+        // can repeat across pages; the list's keys are the ids, and a duplicate key throws.
+        val merged = (if (reset) result.items else previous.events + result.items).distinctBy { it.id }
         _state.update {
             it.copy(
                 history = HistorySnapshot(
-                    events = if (reset) result.items else previous.events + result.items,
+                    events = merged,
                     loading = false,
-                    hasMore = result.hasMore,
+                    // A page that added nothing new ends the list, or the scroll trigger keeps asking
+                    // for the same window.
+                    hasMore = result.hasMore && result.items.isNotEmpty() && merged.size > if (reset) 0 else previous.events.size,
                     page = page,
                 ),
             )

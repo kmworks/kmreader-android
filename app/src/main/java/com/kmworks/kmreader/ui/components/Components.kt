@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -46,6 +48,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -56,8 +59,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.scale
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -72,9 +77,28 @@ import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.Series
 import dagger.hilt.android.EntryPointAccessors
 import java.net.URI
-import kotlin.math.min
 
 private val CoverShape = RoundedCornerShape(8.dp)
+/** Cover aspect ratios seen in this process, so a cover re-entering composition knows its ratio at once. */
+private object CoverAspectCache {
+    private const val MAX_ENTRIES = 400
+    private val entries = object : LinkedHashMap<String, Float>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean =
+            size > MAX_ENTRIES
+    }
+
+    @Synchronized
+    fun get(key: String): Float? = entries[key]
+
+    @Synchronized
+    fun put(key: String, aspect: Float) {
+        entries[key] = aspect
+    }
+}
+
+/** iOS `Color.gray.opacity(0.2)` for the loading skeleton fill. */
+private const val PlaceholderFillAlpha = 0.2f
+
 
 /**
  * Cover art: gray placeholder with the reading icon until the image loads.
@@ -102,30 +126,68 @@ fun CoverArt(
     fallbackImageUrl: String? = null,
     coverVersion: Int = 0,
     contentScale: ContentScale = ContentScale.Crop,
+    /** Honour the "preserve cover ratio" preference: the cover keeps its own aspect inside the slot and hugs the
+     *  bottom, leaving the slack above; otherwise it fills the slot. Mirrors iOS ThumbnailImage, whose slot is always
+     *  the √2 one and whose `.alignment: .bottom` puts a wide cover on the same baseline as the text below it. */
+    followThumbnailPreference: Boolean = false,
+    /** Cover is an unread download: with the "blur unread covers" preference on, the blur lands on the cover itself. */
+    unread: Boolean = false,
+    /** Painted over the cover itself, not over the slot — iOS `framedImageCard.overlay { overlay() }`, so a
+     *  letterboxed wide cover carries its corner badge on its own top-right corner instead of floating at the
+     *  slot's. Callers align into this box. */
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
+    /** iOS `ShadowStyle`: `.platform` on cards, `.basic` on detail heroes (ThumbnailImage's default there). */
+    shadowStyle: CoverShadowStyle = CoverShadowStyle.Platform,
     /** Callback after the cover loads (horizontal cards extract the average-color tint; mirrors iOS ThumbnailTintColorCache). */
     onCoverBitmap: ((Bitmap) -> Unit)? = null,
 ) {
+    val display = LocalCardDisplay.current
+    // iOS semantics (ThumbnailImage + GridCardView): the slot never moves, and a card that draws the text overlay
+    // passes `preserveAspectRatioOverride: false`, i.e. it always crops to the slot whatever the "preserve cover
+    // ratio" switch says. Outside overlay mode the switch decides: fit inside the slot + hug the bottom, or fill.
+    val drawsOverlay = display.textOverlay && !display.coverOnly
+    val letterboxAllowed = followThumbnailPreference && display.preserveAspectRatio && !drawsOverlay
+    val effectiveScale = if (letterboxAllowed) ContentScale.Fit else contentScale
+    val effectiveAlignment = if (letterboxAllowed) Alignment.BottomCenter else Alignment.Center
+    // Identity of the cover for the aspect cache: a cover is re-composed every time its tab is entered, and
+    // re-learning the ratio one frame late makes the corner badge jump from the slot to the cover.
+    val aspectKey = remember(stableId, imageUrl, coverVersion) {
+        if (stableId != null) "id:$stableId#$coverVersion" else imageUrl?.let { "url:$it" }
+    }
+    // Intrinsic ratio of the loaded cover; null until something is on screen, which is what shows the placeholder.
+    var loadedAspect by remember(aspectKey) { mutableStateOf(aspectKey?.let(CoverAspectCache::get)) }
+    // The last successfully displayed cover, kept across cache-key changes (refresh-interval stamp,
+    // manual "Refresh cover" bump) and handed to Coil as the next request's placeholder, so a refetch
+    // keeps the old cover on screen instead of flashing an empty slot.
+    var displayedPainter by remember(stableId, imageUrl) { mutableStateOf<Painter?>(null) }
+    // No slot-level clip: the cover is clipped at its own display size below, and clipping the slot shears the
+    // cover's shadow flat at the slot edge — a letterboxed cover fills the slot's height but not its width, so
+    // the cut shadow shows as a faint right angle beside the cover's bottom corners.
     BoxWithConstraints(
-        modifier = modifier
-            .clip(CoverShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        // Same icon as the read buttons, scaled to the cover size.
-        val iconSize = with(LocalDensity.current) {
-            if (constraints.hasBoundedWidth && constraints.hasBoundedHeight && constraints.maxWidth > 0) {
-                (min(constraints.maxWidth, constraints.maxHeight).toDp() * 0.35f)
-                    .coerceIn(16.dp, 48.dp)
-            } else {
-                28.dp
+        // iOS keeps the slot transparent (`Color.clear`) and only shows the grey placeholder while the cover is
+        // still loading. Once it lands, the slack above a wide cover is page background, never a slab.
+        // Fixed 28dp glyph: scaling it to 35% of the slot turned a loading grid into a wall of giant book icons.
+        val placeholderIconSize = 28.dp
+        if (loadedAspect == null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    // iOS `placeholderCard` fills with `Color.gray.opacity(0.2)`; surfaceVariant is far darker.
+                    // The slot no longer clips, so the fill has to carry the cover corner itself.
+                    .background(Color.Gray.copy(alpha = PlaceholderFillAlpha), CoverShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = null,
+                    modifier = Modifier.size(placeholderIconSize),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.MenuBook,
-            contentDescription = null,
-            modifier = Modifier.size(iconSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         val context = LocalContext.current
         val entryPoint = remember(context) {
             EntryPointAccessors.fromApplication(
@@ -163,10 +225,19 @@ fun CoverArt(
         }
         val stamps by imageCaches.coverStamps.stamps.collectAsState()
         val expirationDays by imageCaches.coverExpirationDays.collectAsState()
-        val coverStamp = coverIdentity?.let { stamps[it] } ?: 0L
+        // Null while the stamp table is still loading from disk. The stamp is part of Coil's cache key,
+        // so composing with a guessed key (0) and correcting it once the table lands throws away the
+        // cover already on screen and refetches it — that was the visible flash-then-reload.
+        val stampTable = stamps
+        val coverStamp: Long? = when {
+            coverIdentity == null -> 0L
+            stampTable == null -> null
+            else -> stampTable[coverIdentity] ?: 0L
+        }
         LaunchedEffect(coverIdentity, coverStamp, expirationDays) {
             val identity = coverIdentity ?: return@LaunchedEffect
-            if (coverStamp == 0L) {
+            val knownStamp = coverStamp ?: return@LaunchedEffect
+            if (knownStamp == 0L) {
                 // First sighting: stamp it, which also gives the cover a stable cache key from now on.
                 imageCaches.coverStamps.stamp(identity)
                 return@LaunchedEffect
@@ -177,7 +248,12 @@ fun CoverArt(
             imageCaches.evictCover(coverUrlWithVersion(primaryResolvedUrl, refresh.previous, 0))
         }
         val modelUrl = remember(resolvedUrl, coverStamp, coverVersion, usingFallback) {
-            if (usingFallback) resolvedUrl else coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
+            when {
+                usingFallback -> resolvedUrl
+                // Stamp table not ready: no stable cache key exists yet, so don't fetch at all.
+                coverStamp == null -> null
+                else -> coverUrlWithVersion(resolvedUrl, coverStamp, coverVersion)
+            }
         }
         val serverOwnedImage = resolvedUrl != null && serverBaseUrl != null &&
             sameOrigin(resolvedUrl, serverBaseUrl)
@@ -211,7 +287,7 @@ fun CoverArt(
             // and back recreates its painter. An explicit size puts the box size into the request
             // identity (the model equality delegate compares ImageRequest.sizeResolver), so a resize
             // re-decodes at the new size instead of reusing the small bitmap.
-            val decodeBounds = if (contentScale != ContentScale.None &&
+            val decodeBounds = if (effectiveScale != ContentScale.None &&
                 constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
                 constraints.maxWidth > 0 && constraints.maxHeight > 0
             ) {
@@ -220,7 +296,7 @@ fun CoverArt(
                 null
             }
             // ImageRequest models bypass Coil's requestOf() wrapping untouched, so this size is kept.
-            val model: Any? = remember(modelUrl, decodeBounds, contentScale) {
+            val model: Any? = remember(modelUrl, decodeBounds, effectiveScale) {
                 val bounds = decodeBounds
                 if (bounds == null) {
                     modelUrl
@@ -229,7 +305,7 @@ fun CoverArt(
                         .data(modelUrl)
                         .size(bounds.first, bounds.second)
                         .scale(
-                            if (contentScale == ContentScale.Fit || contentScale == ContentScale.Inside) {
+                            if (effectiveScale == ContentScale.Fit || effectiveScale == ContentScale.Inside) {
                                 Scale.FIT
                             } else {
                                 Scale.FILL
@@ -238,29 +314,104 @@ fun CoverArt(
                         .build()
                 }
             }
-            AsyncImage(
-                model = model,
-                contentDescription = null,
-                imageLoader = loader,
-                contentScale = contentScale,
-                // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
-                // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
-                filterQuality = FilterQuality.High,
-                modifier = Modifier.matchParentSize(),
-                onSuccess = { state -> onCoverBitmap?.invoke(state.result.image.toBitmap()) },
-                onError = { state ->
-                    if (!usingFallback && fallbackResolvedUrl != null) {
-                        // The server cover is unreachable (offline, or a book from another server):
-                        // swap in the cover saved with the download.
-                        primaryFailed = true
+            // iOS `displayedContentSize`: fit the cover's own ratio inside the slot and hug the bottom, so a
+            // wide cover ends on the same baseline as the text below it while the slack stays see-through.
+            val aspect = loadedAspect?.takeIf { it > 0f }
+            val letterboxedSize: DpSize? =
+                if (letterboxAllowed && aspect != null &&
+                    constraints.hasBoundedWidth && constraints.hasBoundedHeight &&
+                    constraints.maxWidth > 0 && constraints.maxHeight > 0
+                ) {
+                    val density = LocalDensity.current
+                    val slotWidth = constraints.maxWidth
+                    val slotHeight = constraints.maxHeight
+                    val slotAspect = slotWidth.toFloat() / slotHeight
+                    if (aspect > slotAspect) {
+                        DpSize(
+                            with(density) { slotWidth.toDp() },
+                            with(density) { (slotWidth / aspect).toDp() },
+                        )
                     } else {
-                        AppLog.w(
-                            "CoverArt",
-                            "cover load failed: $modelUrl (${state.result.throwable.message})",
+                        DpSize(
+                            with(density) { (slotHeight * aspect).toDp() },
+                            with(density) { slotHeight.toDp() },
                         )
                     }
-                },
-            )
+                } else {
+                    null
+                }
+            // iOS shadows the image card, not the slot: a letterboxed cover carries its shadow on its own edges.
+            val coverFrame = Modifier
+                .then(
+                    if (letterboxedSize != null) {
+                        Modifier.size(letterboxedSize.width, letterboxedSize.height)
+                    } else {
+                        Modifier.fillMaxSize()
+                    },
+                )
+                .coverShadow(
+                    if (followThumbnailPreference && display.showShadow && loadedAspect != null) {
+                        shadowStyle
+                    } else {
+                        CoverShadowStyle.None
+                    },
+                )
+            // The overlay sits outside the clip, so a corner badge keeps its slab flush with the cover corner.
+            val coverImage = Modifier
+                .matchParentSize()
+                .clip(CoverShape)
+                .then(
+                    if (followThumbnailPreference && display.blurUnreadCovers && unread) {
+                        Modifier.blur(6.dp)
+                    } else {
+                        Modifier
+                    },
+                )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                Box(modifier = coverFrame) {
+                    AsyncImage(
+                        model = model,
+                        contentDescription = null,
+                        imageLoader = loader,
+                        contentScale = effectiveScale,
+                        alignment = effectiveAlignment,
+                        // While a refreshed key loads, keep showing the previous cover instead of a blank slot.
+                        placeholder = displayedPainter,
+                        // Server thumbnails are often displayed upscaled (large grid 152dp@3x≈456px vs a 300px source)
+                        // and look blurry with the default Low sampling; mirror the high-quality resampling of iOS ImageDecodeHelper.
+                        filterQuality = FilterQuality.High,
+                        modifier = coverImage,
+                        onSuccess = { state ->
+                            displayedPainter = state.painter
+                            val image = state.result.image
+                            if (image.height > 0) {
+                                val aspect = image.width.toFloat() / image.height.toFloat()
+                                loadedAspect = aspect
+                                aspectKey?.let { CoverAspectCache.put(it, aspect) }
+                            }
+                            onCoverBitmap?.invoke(image.toBitmap())
+                        },
+                        onError = { state ->
+                            if (!usingFallback && fallbackResolvedUrl != null) {
+                                // The server cover is unreachable (offline, or a book from another server):
+                                // swap in the cover saved with the download.
+                                primaryFailed = true
+                            } else {
+                                // Nothing will paint, so drop the remembered ratio: a cached one would keep
+                                // the placeholder hidden and leave an empty slot (offline book, no local cover).
+                                loadedAspect = null
+                                AppLog.w(
+                                    "CoverArt",
+                                    "cover load failed: $modelUrl (${state.result.throwable.message})",
+                                )
+                            }
+                        },
+                    )
+                    // iOS attaches the overlay to `framedImageCard`, which exists only once the image does; drawing
+                    // the badge on the empty slot first is what makes it visibly jump onto the cover.
+                    if (loadedAspect != null) overlay?.invoke(this)
+                }
+            }
         }
     }
 }
@@ -346,17 +497,19 @@ fun SeriesGridCard(
                 hue = series.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display))
-                    .coverDecoration(display, unread = series.unreadCount > 0),
+                    .aspectRatio(CoverAspectRatio),
                 stableId = series.id,
-                contentScale = coverScale(display),
+                followThumbnailPreference = true,
+                unread = series.unreadCount > 0,
+                overlay = {
+                    if (display.showUnreadIndicator && series.unreadCount > 0) {
+                        UnreadCountBadge(
+                            count = series.unreadCount,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        )
+                    }
+                },
             )
-            if (display.showUnreadIndicator && series.unreadCount > 0) {
-                UnreadCountBadge(
-                    count = series.unreadCount,
-                    modifier = Modifier.align(Alignment.TopEnd),
-                )
-            }
             if (!display.coverOnly && display.textOverlay) {
                 CardTextOverlay(
                     title = series.title,
@@ -450,14 +603,16 @@ fun BookGridCard(
                 hue = book.hue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(seriesAspect(display))
-                    .coverDecoration(display, unread = book.progress == null),
+                    .aspectRatio(CoverAspectRatio),
                 stableId = book.id,
-                contentScale = coverScale(display),
+                followThumbnailPreference = true,
+                unread = book.progress == null,
+                overlay = {
+                    if (book.progress == 1f) {
+                        CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
+                    }
+                },
             )
-            if (book.progress == 1f) {
-                CompletedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd))
-            }
             if (!display.coverOnly && display.textOverlay) {
                 // Mirrors iOS BookCardView: the oneshot subtitle is the author line (with a small book icon);
                 // otherwise the series title is shown per settings. The status line mirrors overlayDetail's
@@ -572,18 +727,15 @@ private fun sameOrigin(url: String, serverBaseUrl: String): Boolean = runCatchin
         urlPort == serverPort
 }.getOrDefault(false)
 
-/** Card cover aspect ratio: the comic cover ratio when preserving the original proportion, otherwise a square crop. */
-private fun seriesAspect(display: CardDisplayOptions): Float =
-    if (display.preserveAspectRatio) 2f / 3f else 1f
-
-private fun coverScale(display: CardDisplayOptions): ContentScale =
-    if (display.preserveAspectRatio) ContentScale.Crop else ContentScale.Fit
-
-/** Cover decoration: shadow + unread blur (mirrors thumbnailShowShadow / thumbnailBlurUnreadCovers). */
-private fun Modifier.coverDecoration(display: CardDisplayOptions, unread: Boolean): Modifier =
-    this
-        .then(if (display.showShadow) Modifier.shadow(3.dp, CoverShape) else Modifier)
-        .then(if (display.blurUnreadCovers && unread) Modifier.blur(6.dp) else Modifier)
+/**
+ * The one cover slot ratio, mirroring iOS `CoverAspectRatio.widthToHeight` = 1/√2.
+ *
+ * iOS never moves the slot: it is always √2, and the "preserve cover ratio" preference only decides whether the
+ * cover scales to fit inside it (`displayedContentSize` + `alignment: .bottom`) or fills it. Android used to move the
+ * slot instead — 2:3 with the preference on, 1:1 when off — so the same library rendered at three heights, and a 1:1
+ * slot holding a 2:3 cover letterboxed it.
+ */
+internal const val CoverAspectRatio: Float = 0.7071f
 
 /** Badge slab: mirrors iOS CornerBadgeSlab — a dark translucent slab shaped to hug the cover's top-right corner
  *  (topTrailing radius = cover radius 8, bottomLeading radius ≈ 8, all other corners square). */
@@ -807,7 +959,7 @@ private fun computeCoverTint(bitmap: Bitmap): Color? {
     } else {
         bitmap
     }
-    val scaled = Bitmap.createScaledBitmap(software, 8, 8, true)
+    val scaled = software.scale(8, 8, true)
     var r = 0L
     var g = 0L
     var b = 0L
@@ -839,9 +991,6 @@ internal class HorizontalCardPalette(
     val meta: Color,
 )
 
-/** iOS CoverAspectRatio.widthToHeight = 1/√2. */
-private const val Sqrt2CoverAspect: Float = 0.7071f
-
 /** The iOS cover width the √2 slot is derived from. The cover itself fills [HorizontalCardTextHeight] while keeping
  *  its √2 aspect, so the extra card height widens it to ≈47.2dp instead of stretching it. */
 private val HorizontalCardCoverWidth = 43.dp
@@ -853,7 +1002,7 @@ private val HorizontalCardCoverWidth = 43.dp
  *  parenthesis) can paint a few dp below its box. The 6dp of slack is that room: without it the series line ends flush
  *  with the block edge and any glyph ink below the baseline is cut off (see [HorizontalCardContainer]).
  *  Cards in a row must not differ in height, so this cannot be derived from the text. */
-private val HorizontalCardTextHeight = HorizontalCardCoverWidth / Sqrt2CoverAspect + 6.dp
+private val HorizontalCardTextHeight = HorizontalCardCoverWidth / CoverAspectRatio + 6.dp
 
 /** Tight text style with font padding disabled: in fixed-height text columns (horizontal cards / overlays)
  *  the default includeFontPadding of the first and last lines pushes content out of the visible area, so it must be off. */
@@ -920,7 +1069,7 @@ internal fun HorizontalCardContainer(
             hue = hue,
             modifier = Modifier
                 .height(HorizontalCardTextHeight)
-                .aspectRatio(Sqrt2CoverAspect)
+                .aspectRatio(CoverAspectRatio)
                 .then(if (blurUnread) Modifier.blur(6.dp) else Modifier),
             stableId = coverStableId,
             contentScale = ContentScale.Crop,
@@ -1086,10 +1235,10 @@ fun BookListRow(
             hue = book.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(seriesAspect(display))
-                .coverDecoration(display, unread = book.progress == null),
+                .aspectRatio(CoverAspectRatio),
             stableId = book.id,
-            contentScale = coverScale(display),
+            followThumbnailPreference = true,
+            unread = book.progress == null,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1161,10 +1310,10 @@ fun SeriesListRow(
             hue = series.hue,
             modifier = Modifier
                 .width(44.dp)
-                .aspectRatio(seriesAspect(display))
-                .coverDecoration(display, unread = series.progress == null),
+                .aspectRatio(CoverAspectRatio),
             stableId = series.id,
-            contentScale = coverScale(display),
+            followThumbnailPreference = true,
+            unread = series.progress == null,
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

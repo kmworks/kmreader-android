@@ -39,7 +39,7 @@ internal val LocalSettingsPane = staticCompositionLocalOf { false }
  * cannot take the user back out of it.
  */
 @Composable
-internal fun SettingsBackIcon(
+internal fun settingsBackIcon(
     paneRoot: Boolean = true,
     arrow: @Composable () -> Unit,
 ): @Composable () -> Unit {

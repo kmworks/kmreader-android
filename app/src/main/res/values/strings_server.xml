@@ -12,7 +12,6 @@
     <string name="server_admin_health">Health</string>
     <string name="server_admin_started">Started</string>
     <string name="server_admin_uptime">Uptime</string>
-    <string name="server_admin_rel_time">%1$s</string>
 
     <string name="server_admin_section_updates">Updates</string>
     <string name="server_admin_update_checks">Update checks</string>
@@ -52,14 +51,11 @@
     <string name="server_admin_shutdown">Shut down server</string>
     <string name="server_admin_shutdown_confirm">The server will stop immediately and everyone will be disconnected.</string>
     <string name="server_admin_shutdown_requested">Shutdown requested</string>
-
-    <string name="server_admin_library_counts">%1$d series · %2$d books</string>
     <string name="server_admin_total">Total</string>
     <string name="server_admin_stats_unavailable">This server does not expose library statistics.</string>
 
     <string name="server_admin_tasks_queue">Task queue</string>
     <string name="server_admin_tasks_total">Total tasks</string>
-    <string name="server_admin_tasks_queued">%1$d queued</string>
     <string name="server_admin_tasks_cancel_all">Cancel all tasks</string>
     <string name="server_admin_tasks_cancel_all_confirm">Every queued task will be discarded.</string>
     <string name="server_admin_tasks_executed">Tasks executed</string>
@@ -156,11 +152,6 @@
     <string name="server_admin_auth_activity_empty">No authentication activity.</string>
     <string name="server_admin_auth_activity_success">Success</string>
     <string name="server_admin_auth_activity_failure">Failed</string>
-    <string name="server_admin_auth_activity_source">Source</string>
-    <string name="server_admin_auth_activity_ip">IP address</string>
-    <string name="server_admin_auth_activity_email">Email</string>
-    <string name="server_admin_auth_activity_api_key">API key</string>
-    <string name="server_admin_auth_activity_agent">User agent</string>
 
     <string name="server_admin_libraries_manage">Manage libraries</string>
     <string name="server_admin_library_add">Add library</string>

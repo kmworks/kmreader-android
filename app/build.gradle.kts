@@ -88,8 +88,8 @@ android {
         applicationId = "com.kmworks.kmreader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
-        versionName = "2.4.0"
+        versionCode = 23
+        versionName = "2.6.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // Real devices only; x86 emulators have no reliable Vulkan (see docs/waifu2x-upscaling-plan.md §4.2)
@@ -125,6 +125,26 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    lint {
+        // The lint gate: errors fail the build, and CI runs lintDebug on every push and PR.
+        // The baseline freezes the findings that predate the gate — fix them opportunistically
+        // and lint itself shrinks the file; any NEW issue fails the build until it is fixed or
+        // deliberately baselined (`./gradlew :app:lintDebug` regenerates the file).
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        disable += setOf(
+            // The UI ships in English and Chinese only, and Chinese has no plural quantity forms,
+            // so the "use a plurals element" suggestion is pure noise for this project.
+            "PluralsCandidate",
+            // Dependency-upgrade reminders: versions in the catalog are pinned deliberately and
+            // bumped by hand, not flagged on every build.
+            "GradleDependency",
+            "NewerVersionAvailable",
+            "AndroidGradlePluginVersion",
+            "UseTomlInstead",
+            "OldTargetApi",
+        )
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

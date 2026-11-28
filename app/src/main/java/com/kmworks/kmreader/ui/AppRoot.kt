@@ -11,7 +11,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -38,10 +37,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +54,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,7 +98,9 @@ import com.kmworks.kmreader.ui.lists.SmartListDetailScreen
 import com.kmworks.kmreader.ui.login.LoginScreen
 import com.kmworks.kmreader.ui.offline.OfflineScreen
 import com.kmworks.kmreader.ui.reader.CustomFontsScreen
+import com.kmworks.kmreader.ui.reader.DivinaSettingsViewModel
 import com.kmworks.kmreader.ui.reader.EpubReaderScreen
+import com.kmworks.kmreader.ui.reader.KeepScreenOnEffect
 import com.kmworks.kmreader.ui.reader.PdfReaderScreen
 import com.kmworks.kmreader.ui.reader.ReaderScreen
 import com.kmworks.kmreader.ui.settings.AboutScreen
@@ -262,6 +267,9 @@ private const val PageShadowAlpha = 0.32f
 fun AppRoot(
     rootViewModel: RootViewModel = hiltViewModel(),
     updateViewModel: AppUpdateViewModel = hiltViewModel(),
+    // Only read here, for the device-wide keep-screen-on flag: the readers hold the same preference
+    // but never write the flag themselves (see KeepScreenOnEffect).
+    readerSettingsViewModel: DivinaSettingsViewModel = hiltViewModel(),
 ) {
     // Session gating: render only the login page while no instance is configured. The config is read
     // from disk asynchronously, so the gate resolves asynchronously too: keep that first frame blank
@@ -314,17 +322,38 @@ fun AppRoot(
     // Pages that were just popped and are still travelling out. They hold their own motion until they are
     // gone, and the page they uncover reads it, so a page is never left standing at a half-covered position.
     val leaving = remember { mutableStateListOf<PageEntry>() }
+
+    // Keep-screen-on has exactly ONE writer: this host, for the page the stack currently draws on top.
+    // The three readers only share the preference. AppRoot keeps departing and covered readers composed
+    // on the same view, so a per-reader effect would let an outgoing reader clear the flag the incoming
+    // reader just set, and would keep the device awake while a reader sits covered by a library page.
+    val readerSettings by readerSettingsViewModel.settings.collectAsStateWithLifecycle()
+    KeepScreenOnEffect(
+        enabled = readerSettings.keepScreenAwake && pages.lastOrNull()?.route is ReaderRoute,
+    )
     // Identifies this appearance of a page rather than the page itself: the same route can be opened again
     // after it was closed, and the motion that slides a page in has to belong to the appearance.
-    var pageSequence by remember { mutableStateOf(0L) }
+    var pageSequence by remember { mutableLongStateOf(0L) }
     // Keeps every metadata-chip jump a distinct request (so a second jump re-applies the filter instead of
     // being treated as unchanged)
-    var filterSequence by remember { mutableStateOf(0L) }
+    var filterSequence by remember { mutableLongStateOf(0L) }
 
     val scope = rememberCoroutineScope()
+    // Input on a page that is about to be covered has to give up its focus. The covered page stays
+    // composed (OverlayStack draws every layer), so a focused field keeps its input session alive:
+    // backgrounding hides the IME while the session survives, and returning re-attaches the keyboard
+    // to a field the user cannot see. This is the one place a page covers another, so every field
+    // is served by it -- and with nothing pushed, a field keeps its focus, keyboard and cursor
+    // through a trip to the background.
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     // Pushes a page. The page on top is never stacked twice, so tapping the same entry twice does nothing.
     val push: (Route) -> Unit = { route ->
         if (pages.lastOrNull()?.route?.key != route.key) {
+            // End the input session before dropping the IME: the keyboard would otherwise collapse
+            // over the old page while the new one is already sliding in.
+            focusManager.clearFocus()
+            keyboardController?.hide()
             pages.add(PageEntry(id = pageSequence++, route = route))
         }
     }
@@ -429,7 +458,7 @@ fun AppRoot(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
         // Overlay navigation on every form factor: the tab bar floats above the pages, so their content keeps the full
         // height and scrolls underneath it, reserving only LocalNavOverlaySpace at the bottom. Wide layouts just cap the
         // capsule width instead of switching to a different bar shape (no more NavigationBar row eating ~80dp on phones).
@@ -441,6 +470,11 @@ fun AppRoot(
             // The pages no longer own a Scaffold: the root paints the app background behind their edge-to-edge
             // content (status bar strip included), so the frosted top bars have something to sit on.
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                // Keep each tab's remembered state (scroll positions, drafts) alive across tab switches:
+                // without a per-tab SaveableStateProvider the leaving page drops out of composition and its
+                // rememberSaveable state (the lazy list/grid scroll offsets included) is discarded.
+                val tabStateHolder = rememberSaveableStateHolder()
+                tabStateHolder.SaveableStateProvider(tab) {
                 when (tab) {
                     AppTab.Home -> DashboardScreen(
                         onOpenSeries = openSeries,
@@ -480,6 +514,7 @@ fun AppRoot(
                         onOpenCollection = { push(CollectionDetailRoute(it)) },
                         onReadBook = openReader,
                     )
+                }
                 }
 
                 // Floating capsule navigation: drawn after the tab pages (so it stays above their content) and
@@ -924,7 +959,14 @@ private fun OverlayStack(
     // the page above it, and a page drops its own once it is gone.
     val motions = remember { mutableMapOf<Long, PageMotion>() }
     val drawn = stack + leaving
-    drawn.forEach { page -> motions.getOrPut(page.id) { Animatable(1f) } }
+    // The Animatable constructor is @RememberInComposition: it must be created inside remember, and
+    // key(page.id) keeps one remember slot per page appearance so the getOrPut still runs only once.
+    // (RememberReturnType suppressed: the remember result is intentionally unbound — the layers read
+    // the motion back through the map, and the nested getOrPut lambda makes lint infer Unit.)
+    @Suppress("RememberReturnType")
+    drawn.forEach { page ->
+        key(page.id) { remember { motions.getOrPut(page.id) { Animatable(1f) } } }
+    }
     // The gesture drags the page in front; with an empty stack there is nothing to drag.
     SideEffect { backDrag.page = stack.lastOrNull()?.let { motions[it.id] } }
 

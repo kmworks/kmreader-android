@@ -266,12 +266,10 @@ fun ReaderScreen(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var zoomed = zoom > 1.01f
 
-    // Keep the screen awake while reading (mirrors the original keepScreenAwakeWhileReading, default false)
     val view = LocalView.current
-    DisposableEffect(view, settings.keepScreenAwake) {
-        view.keepScreenOn = settings.keepScreenAwake
-        onDispose { view.keepScreenOn = false }
-    }
+    // Content band: with "draw under cutout" off the pages are letterboxed out of the notch /
+    // punch-hole (the band shows the reader background), on they get the whole screen.
+    val contentInset = readerCutoutPadding(settings.drawUnderCutout)
 
     // Immersive mode: hide system bars while the chrome is hidden, restore them when the chrome
     // appears (mirrors iOS .statusBarHidden(!shouldShowControls))
@@ -811,11 +809,14 @@ fun ReaderScreen(
         // The end page opens the next book, so the handler must see the resolved neighbour
         uiState.adjacent,
     ) {
-        val viewSize = size
         coroutineScope {
         launch {
             detectTapGestures(
                 onTap = { offset ->
+                    // Read the size HERE, not when pointerInput starts: the cutout switch resizes
+                    // the content box without restarting the gesture handler, so a captured size
+                    // would keep normalising taps against the pre-toggle bounds.
+                    val viewSize = size
                     val action = TapZoneHelper.action(
                         normalizedX = offset.x / viewSize.width,
                         normalizedY = offset.y / viewSize.height,
@@ -980,7 +981,17 @@ fun ReaderScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(readerBackground)) {
+    // Volume keys turn pages instead of changing the volume (mirrors the original
+    // volumeButtonPageTurnEnabled): the root takes the focus while no sheet is up, and the preview
+    // pass consumes the press before the window — and the system — can act on it.
+    val volumeKeyModifier = rememberVolumeKeyPagingModifier(
+        enabled = settings.volumeButtonPageTurnEnabled && !sheetOpen,
+        rtl = directionNow == ReadingDirection.Rtl,
+    ) { page ->
+        if (page == VolumeKeyPage.Next) tapNext() else tapPrevious()
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(readerBackground).then(volumeKeyModifier)) {
         when (uiState.status) {
             ReaderPagesStatus.Loading -> Box(
                 modifier = Modifier
@@ -1018,7 +1029,7 @@ fun ReaderScreen(
                         settings = settings,
                         rotationDegrees = rotationDegrees,
                         state = webtoonState,
-                        modifier = Modifier.fillMaxSize().then(gestureModifier).nestedScroll(continueConnection),
+                        modifier = Modifier.fillMaxSize().padding(contentInset).then(gestureModifier).nestedScroll(continueConnection),
                         pageUrl = viewModel::pageImageUrl,
                         endPage = endPage,
                         previousEndPage = previousEndPage,
@@ -1028,6 +1039,7 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier)
                             .nestedScroll(continueConnection),
@@ -1061,6 +1073,7 @@ fun ReaderScreen(
                         backgroundColor = readerBackground,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier),
                     ) { item ->
@@ -1083,6 +1096,7 @@ fun ReaderScreen(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier)
                             .nestedScroll(continueConnection),
@@ -1577,43 +1591,54 @@ private fun WebtoonReader(
     previousEndPage: @Composable (Modifier) -> Unit,
 ) {
     val widthFraction = (pageWidthPercentage / 100f).coerceIn(0.5f, 1f)
-    LazyColumn(
-        state = state,
-        modifier = modifier,
-        contentPadding = PaddingValues(0.dp),
-    ) {
-        items(items.size) { index ->
-            val item = items[index]
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                when {
-                    // The end pages scroll like a page, but size to their content instead of the page width
-                    item is ReaderViewItem.End -> Box(modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp)) {
-                        endPage(Modifier.fillMaxSize())
-                    }
+    // The strip is ONE long LazyColumn, so every cell is measured with an INFINITE max height. The
+    // end-of-book cards are themselves scrollable (ReaderEndPage keeps its body in a verticalScroll),
+    // and a scrollable measured with an infinite height throws "Vertically scrollable component was
+    // measured with an infinity maximum height constraints" — that killed the reader as soon as a
+    // card scrolled into view. Sizing the cards to the viewport keeps their scroll bounded, and makes
+    // a card fill exactly one screen like the paged readers' cell instead of growing with its content.
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier) {
+        val endCellHeight = if (constraints.hasBoundedHeight) maxHeight else EndCellFallbackHeight
+        LazyColumn(
+            state = state,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            items(items.size) { index ->
+                val item = items[index]
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    when {
+                        item is ReaderViewItem.End -> Box(modifier = Modifier.fillMaxWidth().height(endCellHeight)) {
+                            endPage(Modifier.fillMaxSize())
+                        }
 
-                    item is ReaderViewItem.PreviousEnd -> Box(modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp)) {
-                        previousEndPage(Modifier.fillMaxSize())
-                    }
+                        item is ReaderViewItem.PreviousEnd -> Box(modifier = Modifier.fillMaxWidth().height(endCellHeight)) {
+                            previousEndPage(Modifier.fillMaxSize())
+                        }
 
-                    else -> WebtoonItem(
-                        item = item,
-                        imageLoader = imageLoader,
-                        settings = settings,
-                        rotationDegrees = rotationDegrees,
-                        contentColor = settings.background.contentColor(
-                            androidx.compose.foundation.isSystemInDarkTheme(),
-                        ),
-                        pageUrl = pageUrl,
-                        modifier = Modifier.fillMaxWidth(widthFraction),
-                    )
+                        else -> WebtoonItem(
+                            item = item,
+                            imageLoader = imageLoader,
+                            settings = settings,
+                            rotationDegrees = rotationDegrees,
+                            contentColor = settings.background.contentColor(
+                                androidx.compose.foundation.isSystemInDarkTheme(),
+                            ),
+                            pageUrl = pageUrl,
+                            modifier = Modifier.fillMaxWidth(widthFraction),
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/** Height the end-of-book cards fall back to when a host measures them unbounded. */
+private val EndCellFallbackHeight = 420.dp
 
 /** A webtoon cell (same structure as the paged ViewerPage, but height is content-driven). */
 @Composable

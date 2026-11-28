@@ -10,6 +10,8 @@ import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.ContentChangeKind
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.SmartListRepository
+import com.kmworks.kmreader.core.data.Paged
+import com.kmworks.kmreader.core.data.PagedFeed
 import com.kmworks.kmreader.core.data.PatchOutcome
 import com.kmworks.kmreader.core.data.observeChanges
 import com.kmworks.kmreader.core.data.toUiBook
@@ -71,7 +73,36 @@ class SmartListDetailViewModel @Inject constructor(
     private var currentDtoId: String? = null
     private var currentSearch: JsonObject? = null
     private var currentTarget: SmartListTarget? = null
-    private var nextPage = 0
+    /**
+     * Hit feeds (a smart list is books or series, never both). Both read the current DTO and search document,
+     * so a reload of the same list keeps the pages already on screen (see [PagedFeed]).
+     */
+    private val booksFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { book: Book -> book.id },
+        fetch = { page, size ->
+            currentDtoId?.let { dtoId ->
+                smartListRepository.smartListBooks(dtoId, currentSearch, page = page, size = size)
+                    ?.let { result ->
+                        Paged(result.items.map { dto -> dto.toUiBook() }, result.hasMore, result.totalElements)
+                    }
+            }
+        },
+    )
+    private val seriesFeed = PagedFeed(
+        pageSize = PAGE_SIZE,
+        identity = { series: Series -> series.id },
+        fetch = { page, size ->
+            currentDtoId?.let { dtoId ->
+                smartListRepository.smartListSeries(dtoId, currentSearch, page = page, size = size)
+                    ?.let { result ->
+                        Paged(result.items.map { dto -> dto.toUiSeries() }, result.hasMore, result.totalElements)
+                    }
+            }
+        },
+    )
+    /** Bumped on every whole-list load: a load-more that lands on top of one must not overwrite it. */
+    private var generation = 0
     private var loadJob: kotlinx.coroutines.Job? = null
     private var contentJob: kotlinx.coroutines.Job? = null
 
@@ -224,6 +255,7 @@ class SmartListDetailViewModel @Inject constructor(
     fun load(stableId: Int) {
         if (loadedId == stableId) return
         loadedId = stableId
+        val gen = ++generation
         val hasSession = sessionManager.clients.value != null
         loadJob?.cancel()
         if (contentId != stableId) {
@@ -238,10 +270,14 @@ class SmartListDetailViewModel @Inject constructor(
             _state.update { it.copy(hasSession = true, loading = false) }
             return
         }
+        // Captured before the reset below: a reload of the same list re-reads the pages it had, while a new list
+        // starts from page 0.
+        val previousTarget = currentTarget
+        val previousPages = if (previousTarget == SmartListTarget.Series) seriesFeed.page else booksFeed.page
+        val sameContent = contentId == stableId
         currentDtoId = dtoId
         currentSearch = null
         currentTarget = null
-        nextPage = 0
         lastLoadAtMs = SystemClock.elapsedRealtime()
         loadJob = viewModelScope.launch {
             _state.update {
@@ -250,9 +286,10 @@ class SmartListDetailViewModel @Inject constructor(
                     loading = true,
                     error = null,
                     hasRealSmartList = true,
-                    books = null,
-                    series = null,
-                    hasMore = false,
+                    // Only a different smart list drops its rows; a reload of the same one keeps them on screen.
+                    books = if (sameContent) it.books else null,
+                    series = if (sameContent) it.series else null,
+                    hasMore = if (sameContent) it.hasMore else false,
                     search = null,
                     visibility = SmartListVisibilityPrivate,
                     sharedWithUserIds = emptyList(),
@@ -266,17 +303,22 @@ class SmartListDetailViewModel @Inject constructor(
                 val target = if (detail.target == "SERIES") SmartListTarget.Series else SmartListTarget.Book
                 currentSearch = detail.search
                 currentTarget = target
-                val booksPage = if (target == SmartListTarget.Book) {
-                    smartListRepository.smartListBooks(dtoId, detail.search, page = 0, size = PAGE_SIZE)
+                // Same smart list and same target is the same query; switching either starts from page 0.
+                val sameQuery = sameContent && previousTarget == target
+                val keepPages = if (sameQuery) previousPages else 0
+                val books = if (target == SmartListTarget.Book) {
+                    val current = if (sameQuery) _state.value.books.orEmpty() else emptyList()
+                    booksFeed.reload(current, keepPages, newQuery = !sameQuery)
                 } else {
-                    null
+                    emptyList()
                 }
-                val seriesPage = if (target == SmartListTarget.Series) {
-                    smartListRepository.smartListSeries(dtoId, detail.search, page = 0, size = PAGE_SIZE)
+                val series = if (target == SmartListTarget.Series) {
+                    val current = if (sameQuery) _state.value.series.orEmpty() else emptyList()
+                    seriesFeed.reload(current, keepPages, newQuery = !sameQuery)
                 } else {
-                    null
+                    emptyList()
                 }
-                nextPage = 1
+                if (gen != generation) return@launch
                 _state.update {
                     it.copy(
                         loading = false,
@@ -289,9 +331,9 @@ class SmartListDetailViewModel @Inject constructor(
                         ),
                         createdLabel = detail.createdDate.takeIf { it.isNotBlank() }
                             ?.let { context.getString(R.string.lists_created_at, it.take(10)) },
-                        books = booksPage?.items.orEmpty().map { dto -> dto.toUiBook() },
-                        series = seriesPage?.items.orEmpty().map { dto -> dto.toUiSeries() },
-                        hasMore = booksPage?.hasMore ?: seriesPage?.hasMore ?: false,
+                        books = books,
+                        series = series,
+                        hasMore = if (target == SmartListTarget.Book) booksFeed.hasMore else seriesFeed.hasMore,
                         search = detail.search,
                         visibility = detail.visibility,
                         sharedWithUserIds = detail.sharedWithUserIds,
@@ -310,36 +352,43 @@ class SmartListDetailViewModel @Inject constructor(
     }
 
     fun loadMore() {
+        val gen = generation
         val state = _state.value
-        val dtoId = currentDtoId ?: return
+        if (currentDtoId == null) return
         val target = currentTarget ?: return
         if (state.loading || state.loadingMore || !state.hasMore) return
         _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             try {
                 if (target == SmartListTarget.Book) {
-                    val page = smartListRepository.smartListBooks(dtoId, currentSearch, page = nextPage, size = PAGE_SIZE)
-                    nextPage += 1
-                    _state.update { state ->
-                        val seen = state.books.orEmpty().map { it.id }.toMutableSet()
-                        val appended = page.items.map { dto -> dto.toUiBook() }.filter { seen.add(it.id) }
-                        state.copy(
-                            loadingMore = false,
-                            books = state.books.orEmpty() + appended,
-                            hasMore = page.hasMore && appended.isNotEmpty(),
-                        )
+                    val books = booksFeed.append(state.books.orEmpty())
+                    if (gen != generation) { // a newer load owns the window; only clear this page's spinner
+                        _state.update { it.copy(loadingMore = false) }
+                        return@launch
+                    }
+                    _state.update { st ->
+                        // A whole-list reload started meanwhile and owns the window: this page must not
+                        // overwrite it (the reload's deeper page count already covers it).
+                        if (st.loading) {
+                            st.copy(loadingMore = false)
+                        } else {
+                            st.copy(loadingMore = false, books = books, hasMore = booksFeed.hasMore)
+                        }
                     }
                 } else {
-                    val page = smartListRepository.smartListSeries(dtoId, currentSearch, page = nextPage, size = PAGE_SIZE)
-                    nextPage += 1
-                    _state.update { state ->
-                        val seen = state.series.orEmpty().map { it.id }.toMutableSet()
-                        val appended = page.items.map { dto -> dto.toUiSeries() }.filter { seen.add(it.id) }
-                        state.copy(
-                            loadingMore = false,
-                            series = state.series.orEmpty() + appended,
-                            hasMore = page.hasMore && appended.isNotEmpty(),
-                        )
+                    val series = seriesFeed.append(state.series.orEmpty())
+                    if (gen != generation) { // a newer load owns the window; only clear this page's spinner
+                        _state.update { it.copy(loadingMore = false) }
+                        return@launch
+                    }
+                    _state.update { st ->
+                        // A whole-list reload started meanwhile and owns the window: this page must not
+                        // overwrite it (the reload's deeper page count already covers it).
+                        if (st.loading) {
+                            st.copy(loadingMore = false)
+                        } else {
+                            st.copy(loadingMore = false, series = series, hasMore = seriesFeed.hasMore)
+                        }
                     }
                 }
             } catch (e: Exception) {
