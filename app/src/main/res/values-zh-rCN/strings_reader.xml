@@ -48,7 +48,6 @@
     <string name="reader_upscale_denoise_title">降噪强度</string>
     <string name="reader_upscale_hint">在设备端将低分辨率页图放大 2 倍（ncnn + Vulkan）。自动模式仅对需要放大显示的页图生效。降噪越强越能抹平 JPEG 噪点，但会弱化细节。</string>
     <string name="upscale_mode_auto">自动</string>
-    <string name="upscale_mode_always">总是</string>
     <string name="upscale_denoise_none">无</string>
     <string name="upscale_denoise_low">低</string>
     <string name="upscale_denoise_medium">中</string>

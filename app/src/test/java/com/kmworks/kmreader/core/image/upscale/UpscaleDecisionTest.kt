@@ -7,14 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Trigger-decision contract: Off never upscales; Always upscales anything that fits a texture;
- * Auto upscales only pages the screen would enlarge by more than the trigger scale
- * (iOS ReaderUpscaleDecision semantics).
+ * Trigger-decision contract: Off never upscales; Auto upscales only pages the screen would enlarge
+ * by more than the trigger scale (iOS ReaderUpscaleDecision semantics) and never past the texture
+ * limit.
  */
 class UpscaleDecisionTest {
 
     private val auto = UpscaleConfig(mode = UpscaleMode.Auto, denoise = DenoiseLevel.Low)
-    private val always = auto.copy(mode = UpscaleMode.Always)
     private val off = auto.copy(mode = UpscaleMode.Off)
 
     @Test
@@ -48,20 +47,26 @@ class UpscaleDecisionTest {
     }
 
     @Test
-    fun `always upscales any page that fits a texture`() {
-        assertTrue(UpscaleDecision.shouldUpscale(1600, 2400, 1200, 2400, always))
-    }
-
-    @Test
     fun `texture limit rejects a 2x output that could not be drawn`() {
-        // 2x of 5000 would exceed an 8192-px texture.
-        assertFalse(UpscaleDecision.shouldUpscale(5000, 3000, 1200, 2400, always, maxTextureWidth = 8192, maxTextureHeight = 8192))
-        assertTrue(UpscaleDecision.shouldUpscale(4000, 3000, 1200, 2400, always, maxTextureWidth = 8192, maxTextureHeight = 8192))
+        // The guard is independent of the ratio check: 2x of 5000 would exceed an 8192-px texture,
+        // 2x of 4000 would still fit. The display size is synthetic — no real screen is this wide.
+        assertFalse(
+            UpscaleDecision.shouldUpscale(
+                5000, 3000, 8000, 6000, auto,
+                maxTextureWidth = 8192, maxTextureHeight = 8192,
+            ),
+        )
+        assertTrue(
+            UpscaleDecision.shouldUpscale(
+                4000, 3000, 8000, 6000, auto,
+                maxTextureWidth = 8192, maxTextureHeight = 8192,
+            ),
+        )
     }
 
     @Test
     fun `invalid dimensions never upscale`() {
-        assertFalse(UpscaleDecision.shouldUpscale(0, 600, 1200, 2400, always))
-        assertFalse(UpscaleDecision.shouldUpscale(400, 600, 0, 2400, always))
+        assertFalse(UpscaleDecision.shouldUpscale(0, 600, 1200, 2400, auto))
+        assertFalse(UpscaleDecision.shouldUpscale(400, 600, 0, 2400, auto))
     }
 }

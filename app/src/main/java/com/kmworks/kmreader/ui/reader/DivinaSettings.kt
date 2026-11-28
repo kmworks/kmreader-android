@@ -111,11 +111,16 @@ enum class BorderCropMode(@StringRes val labelRes: Int, val maxFraction: Float, 
     Aggressive(R.string.reader_crop_aggressive, 0.20f, 24)
 }
 
-/** Waifu2x upscaling trigger (mirrors the iOS upscale setting: off / auto when enlarged on screen / always). */
+/**
+ * Waifu2x upscaling trigger: off, or auto when the screen would enlarge the page.
+ *
+ * There is deliberately no "always" entry: a page that already has enough pixels for the screen
+ * gains nothing from a 2x pass, only GPU time and a 4x-larger cache entry, and the threshold
+ * slider already covers "be more eager".
+ */
 enum class UpscaleMode(@StringRes val labelRes: Int) {
     Off(R.string.reader_off),
     Auto(R.string.upscale_mode_auto),
-    Always(R.string.upscale_mode_always),
 }
 
 /**

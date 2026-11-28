@@ -4,10 +4,9 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 import kotlin.math.min
 
 /**
- * Pure trigger decision, mirroring the iOS ReaderUpscaleDecision semantics:
- * upscale only when a low-resolution source
- * would be enlarged for display — the point is to add detail to content the screen
- * must scale up anyway, not to reprocess already-crisp pages.
+ * Pure trigger decision, mirroring the iOS ReaderUpscaleDecision semantics: upscale only when a
+ * low-resolution source would be enlarged for display — the point is to add detail to content the
+ * screen must scale up anyway, not to reprocess already-crisp pages.
  */
 object UpscaleDecision {
 
@@ -29,7 +28,6 @@ object UpscaleDecision {
 
         return when (config.mode) {
             UpscaleMode.Off -> false
-            UpscaleMode.Always -> fitsTexture(srcWidth, srcHeight, maxTextureWidth, maxTextureHeight)
             UpscaleMode.Auto ->
                 fitsTexture(srcWidth, srcHeight, maxTextureWidth, maxTextureHeight) &&
                     min(screenWidth.toFloat() / srcWidth, screenHeight.toFloat() / srcHeight) >
@@ -37,7 +35,11 @@ object UpscaleDecision {
         }
     }
 
-    /** A 2x output that cannot fit a texture would be downscaled on draw, destroying the gain (plan §9). */
+    /**
+     * A 2x output that cannot fit a texture would be downscaled on draw, destroying the gain.
+     * With only Auto left this is a safety net rather than a routine skip: a source small enough
+     * to pass the trigger scale is far below any modern device's texture limit.
+     */
     private fun fitsTexture(srcWidth: Int, srcHeight: Int, maxTextureWidth: Int, maxTextureHeight: Int): Boolean {
         if (maxTextureWidth > 0 && srcWidth * Waifu2xBridge.SCALE > maxTextureWidth) return false
         if (maxTextureHeight > 0 && srcHeight * Waifu2xBridge.SCALE > maxTextureHeight) return false

@@ -49,7 +49,6 @@
     <string name="reader_upscale_denoise_title">Denoise strength</string>
     <string name="reader_upscale_hint">Upscales low-resolution pages 2x on-device (ncnn + Vulkan). Auto only upscales pages that would be enlarged on screen. Higher denoise smooths JPEG noise more but softens fine detail.</string>
     <string name="upscale_mode_auto">Auto</string>
-    <string name="upscale_mode_always">Always</string>
     <string name="upscale_denoise_none">None</string>
     <string name="upscale_denoise_low">Low</string>
     <string name="upscale_denoise_medium">Medium</string>
