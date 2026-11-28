@@ -607,18 +607,25 @@ fun ReaderScreen(
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
                 // The current item is already requested at PRIORITY_VISIBLE. Preprocessing is
-                // forward-only and counted in reader items, not pages: a dual-page spread consumes
-                // one slot and preprocesses both of its pages, so the configured count never leaves
-                // half a spread cold (and in single-page mode the two readings are the same).
+                // forward-only and budgeted in pages, but a spread is taken as a whole: with 3 and a
+                // dual-page layout the window is 2 spreads (4 pages) — never one spread plus half of
+                // the next — because the queued work cannot cover "half a spread" in any useful way.
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
-                    for (offset in 1..ahead) {
-                        items.getOrNull(index + offset)?.pages?.forEach { number ->
+                    var remaining = ahead
+                    var cursor = index + 1
+                    while (remaining > 0 && cursor < items.size) {
+                        val pages = items.getOrNull(cursor)?.pages.orEmpty()
+                        for (number in pages) {
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
                             }
                         }
+                        // Charged by the item's page count, so a dual-page item spends two and the
+                        // rounding-up happens naturally at the loop boundary.
+                        remaining -= pages.size
+                        cursor++
                     }
                 }
                 // The original disk-prefetch window is intentionally unchanged: previous pages may
@@ -669,16 +676,22 @@ fun ReaderScreen(
                 val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
-                // Same forward-only, item-counted split as the paged reader.
+                // Same forward-only, page-budgeted split as the paged reader (webtoon items are
+                // single pages, so no rounding is involved here).
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
-                    for (offset in 1..ahead) {
-                        items.getOrNull(index + offset)?.pages?.forEach { number ->
+                    var remaining = ahead
+                    var cursor = index + 1
+                    while (remaining > 0 && cursor < items.size) {
+                        val pages = items.getOrNull(cursor)?.pages.orEmpty()
+                        for (number in pages) {
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
                             }
                         }
+                        remaining -= pages.size
+                        cursor++
                     }
                 }
                 // Same as the paged reader: keep the original disk window, forward-only for waifu2x.

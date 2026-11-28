@@ -58,9 +58,9 @@
     <string name="upscale_precision_fp16">FP16（更快）</string>
     <string name="upscale_precision_fp32">FP32（更準）</string>
     <string name="reader_upscale_badge_description">正在超分 2x</string>
-    <string name="reader_upscale_preload_ahead_title">預處理後續項數</string>
+    <string name="reader_upscale_preload_ahead_title">預處理後續頁數</string>
     <string name="reader_upscale_preload_ahead_off">僅目前頁</string>
-    <string name="reader_upscale_preload_ahead_hint">目前頁及後續 N 項會在背景預處理，最多 5 項。雙頁版面下，一個雙頁算 1 項。項數越多翻頁越容易命中，但 GPU 負擔越高。</string>
+    <string name="reader_upscale_preload_ahead_hint">目前頁之後最多 N 頁會在背景預處理，最多 5 頁。雙頁版面下按整雙頁補齊，例如 3 頁會處理 2 個雙頁。</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">從左到右</string>
