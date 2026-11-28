@@ -154,9 +154,10 @@ enum class UpscalePrecision(@StringRes val labelRes: Int) {
 /**
  * Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model).
  *
- * [preloadAhead] is how many *following pages* are preprocessed in the background. The current
- * visible page always gets a visible-priority request on its own; 0 therefore means "current page
- * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page item consumes two slots.
+ * [preloadAhead] is how many *following reader items* are preprocessed in the background. The
+ * current visible page always gets a visible-priority request on its own; 0 therefore means
+ * "current page only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page spread counts
+ * as one item and preprocesses both of its pages, so the count never leaves half a spread cold.
  *
  * [autoTriggerScale] is the Auto-mode threshold and is only meaningful in
  * [UpscaleMode.Auto]: a page is upscaled when the display enlarges it by more than this factor.

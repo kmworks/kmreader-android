@@ -59,9 +59,9 @@
     <string name="upscale_precision_fp16">FP16 (faster)</string>
     <string name="upscale_precision_fp32">FP32 (accurate)</string>
     <string name="reader_upscale_badge_description">Upscaling page 2x</string>
-    <string name="reader_upscale_preload_ahead_title">Preprocess following pages</string>
+    <string name="reader_upscale_preload_ahead_title">Preprocess following items</string>
     <string name="reader_upscale_preload_ahead_off">Current page only</string>
-    <string name="reader_upscale_preload_ahead_hint">The current page plus the next N pages are preprocessed in the background (maximum 5). More pages improve page-turn readiness but increase GPU load.</string>
+    <string name="reader_upscale_preload_ahead_hint">The current page plus the next N reader items are preprocessed in the background (maximum 5). In a dual-page layout one spread counts as one item. More items improve page-turn readiness but increase GPU load.</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">Left to right</string>

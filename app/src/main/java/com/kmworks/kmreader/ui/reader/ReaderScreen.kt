@@ -607,22 +607,18 @@ fun ReaderScreen(
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
                 // The current item is already requested at PRIORITY_VISIBLE. Preprocessing is
-                // forward-only and counted in actual pages: one page consumes one slot, so a
-                // dual-page item consumes two slots.
+                // forward-only and counted in reader items, not pages: a dual-page spread consumes
+                // one slot and preprocesses both of its pages, so the configured count never leaves
+                // half a spread cold (and in single-page mode the two readings are the same).
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
-                    var remaining = ahead
-                    var cursor = index + 1
-                    while (remaining > 0 && cursor < items.size) {
-                        for (number in items[cursor]?.pages.orEmpty()) {
-                            if (remaining <= 0) break
+                    for (offset in 1..ahead) {
+                        items.getOrNull(index + offset)?.pages?.forEach { number ->
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
-                                remaining--
                             }
                         }
-                        cursor++
                     }
                 }
                 // The original disk-prefetch window is intentionally unchanged: previous pages may
@@ -673,21 +669,16 @@ fun ReaderScreen(
                 val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
-                // Same forward-only, page-counted split as the paged reader.
+                // Same forward-only, item-counted split as the paged reader.
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
-                    var remaining = ahead
-                    var cursor = index + 1
-                    while (remaining > 0 && cursor < items.size) {
-                        for (number in items[cursor]?.pages.orEmpty()) {
-                            if (remaining <= 0) break
+                    for (offset in 1..ahead) {
+                        items.getOrNull(index + offset)?.pages?.forEach { number ->
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
-                                remaining--
                             }
                         }
-                        cursor++
                     }
                 }
                 // Same as the paged reader: keep the original disk window, forward-only for waifu2x.
