@@ -79,8 +79,7 @@ import kotlin.math.min
  * publisher emphasis but loses CSS metadata — HtmlCompat has no stylesheet engine.
  *
  * @param note the payload extracted on tap.
- * @param pageBackground the page colour: the bubble sits on the page, so it must match it in both
- *   themes (the bubble is the page surface, its shadow and hairline border are the separation).
+ * @param pageBackground the page colour the bubble floats over.
  * @param contentColor the page's foreground colour.
  * @param fetchResource synchronous resource reader for note images (called on the IO dispatcher).
  * @param onFollowLink follows a link found inside the note (`href`, `#fragment`).
@@ -128,8 +127,16 @@ internal fun EpubFootnotePopup(
 
     val textColor = contentColor
     val linkColor = if (pageBackground.luminance() > 0.5f) Color(0xFF1A5FB4) else Color(0xFF8AB4F8)
-    val background = pageBackground
-    val border = contentColor.copy(alpha = 0.12f)
+    // The bubble floats over the page, so it needs the raised fill the chrome uses: painted in the
+    // page colour it had no edge at all on a dark page — black bubble, black page, one hairline at
+    // 0.12 alpha — which read as the note text having been pasted onto the paragraph.
+    // No shadow: the Popup window is only as large as the bubble, so anything drawn outside its
+    // bounds is clipped away. The fill step and the hairline carry the separation here.
+    val surface = remember(pageBackground, contentColor) {
+        readerChromeSurface(pageBackground, contentColor)
+    }
+    val background = surface.background
+    val border = surface.border
 
     // Note images are publication resources, not data URLs: fetch them like the web view would
     // (offline archive first) and hand the result to the TextView's ImageGetter.
