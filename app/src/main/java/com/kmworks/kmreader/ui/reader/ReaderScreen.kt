@@ -353,7 +353,7 @@ fun ReaderScreen(
         AppLog.i("Reader", "open book=${presentedBook.id} incognito=$incognito ${heapFootprint()}")
         onDispose {
             // Book switch or reader exit: drop every queued enhancement of this reading session and
-            // abort the page already inside nativeProcess (docs/waifu2x-upscaling-plan.md §7).
+            // abort the page already inside nativeProcess.
             imageEnhancer.setPaused(false)
             imageEnhancer.nextGeneration()
             AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}")
@@ -593,8 +593,8 @@ fun ReaderScreen(
     }
 
     // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate).
-    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue
-    // (docs/waifu2x-upscaling-plan.md §5.3); otherwise it warms the disk cache only: a prefetched
+    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue;
+    // otherwise it warms the disk cache only: a prefetched
     // full-size decode would be rejected by the sized display request (Precision.EXACT), so decoding
     // here just burns heap on bitmaps that can never be shown.
     LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload, settings.upscale) {
@@ -607,21 +607,24 @@ fun ReaderScreen(
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
                 // The current item is already requested at PRIORITY_VISIBLE. Preprocessing is
-                // forward-only and counted in actual pages: one page consumes one slot, so a
-                // dual-page item consumes two slots.
+                // forward-only and budgeted in pages, but a spread is taken as a whole: with 3 and a
+                // dual-page layout the window is 2 spreads (4 pages) — never one spread plus half of
+                // the next — because the queued work cannot cover "half a spread" in any useful way.
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
                     var remaining = ahead
                     var cursor = index + 1
                     while (remaining > 0 && cursor < items.size) {
-                        for (number in items[cursor]?.pages.orEmpty()) {
-                            if (remaining <= 0) break
+                        val pages = items.getOrNull(cursor)?.pages.orEmpty()
+                        for (number in pages) {
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
-                                remaining--
                             }
                         }
+                        // Charged by the item's page count, so a dual-page item spends two and the
+                        // rounding-up happens naturally at the loop boundary.
+                        remaining -= pages.size
                         cursor++
                     }
                 }
@@ -673,20 +676,21 @@ fun ReaderScreen(
                 val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
                 val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
-                // Same forward-only, page-counted split as the paged reader.
+                // Same forward-only, page-budgeted split as the paged reader (webtoon items are
+                // single pages, so no rounding is involved here).
                 val enhancedPages = HashSet<Int>()
                 if (upscale != null) {
                     var remaining = ahead
                     var cursor = index + 1
                     while (remaining > 0 && cursor < items.size) {
-                        for (number in items[cursor]?.pages.orEmpty()) {
-                            if (remaining <= 0) break
+                        val pages = items.getOrNull(cursor)?.pages.orEmpty()
+                        for (number in pages) {
                             viewModel.pageImageUrl(number)?.let { url ->
                                 imageLoader.enhancedPreload(context, url, upscale)
                                 enhancedPages += number
-                                remaining--
                             }
                         }
+                        remaining -= pages.size
                         cursor++
                     }
                 }
@@ -1998,7 +2002,7 @@ private fun PageImage(
                             "ready=$enhancementReady",
                     )
                     // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
-                    // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
+                    // instead of Coil's memory cache.
                     memoryCachePolicy(CachePolicy.DISABLED)
                 }
             }.build()
@@ -2430,7 +2434,7 @@ private fun coil3.ImageLoader.enqueueDiskPreload(context: Context, url: String) 
 }
 
 /**
- * Enhancement-aware page preload (docs/waifu2x-upscaling-plan.md §5.3): runs the full decode path
+ * Enhancement-aware page preload: runs the full decode path
  * so a page that passes the trigger is enhanced through [ImageEnhancer] at [ImageEnhancer.PRIORITY_PRELOAD]
  * and lands in the EnhancementCache before it is displayed. Pages below the trigger are decoded
  * tiny and discarded — their source bytes stay in Coil's disk cache, which is what the display

@@ -5,7 +5,7 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 import com.kmworks.kmreader.ui.reader.UpscalePrecision
 
 /**
- * Resolved upscaling configuration for one image request (docs/waifu2x-upscaling-plan.md §3.1).
+ * Resolved upscaling configuration for one image request.
  *
  * The EnhancementCache key is derived from two independent axes:
  *
@@ -28,8 +28,29 @@ data class UpscaleConfig(
     val enabled: Boolean get() = mode != UpscaleMode.Off
 
     companion object {
-        /** Same default as the iOS ReaderUpscaleDecision.autoTriggerScale. */
-        const val DEFAULT_AUTO_TRIGGER_SCALE = 1.5f
+        /**
+         * Default Auto trigger threshold, mirroring iOS `AppConfig.imageUpscaleAutoTriggerScale`:
+         * its getter returns 1.05 when nothing is stored, and its setter clamps to >= 1.0.
+         *
+         * The threshold is the *smaller* of the two display ratios
+         * (see [UpscaleDecision.shouldUpscale]), so 1.05 means "the screen enlarges this source in
+         * both directions", which is the point where a 2x pass starts adding detail that the user
+         * can actually see. It used to be 1.5 — that is the *upper end* of the iOS slider
+         * (`in: 1.0...1.5`), not its default, and at 1.5 almost every ordinary page was skipped.
+         */
+        const val DEFAULT_AUTO_TRIGGER_SCALE = 1.05f
+
+        /** The iOS slider's range, kept identical so the same numbers mean the same thing. */
+        const val MIN_AUTO_TRIGGER_SCALE = 1f
+        const val MAX_AUTO_TRIGGER_SCALE = 1.5f
+
+        /**
+         * Clamps a stored or user-picked threshold into the iOS range. A non-finite value (a
+         * corrupt preference) falls back to the default instead of poisoning the decision.
+         */
+        fun clampAutoTriggerScale(value: Float): Float =
+            if (!value.isFinite()) DEFAULT_AUTO_TRIGGER_SCALE
+            else value.coerceIn(MIN_AUTO_TRIGGER_SCALE, MAX_AUTO_TRIGGER_SCALE)
 
         /**
          * Bumped whenever the native path that turns a source page into pixels changes (tiling,

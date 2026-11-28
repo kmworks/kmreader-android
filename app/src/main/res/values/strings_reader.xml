@@ -43,11 +43,12 @@
     <string name="reader_crop_title">Border cropping</string>
     <string name="reader_crop_hint">Crops the margins around the page that match the background color; when off, pages are shown as-is.</string>
     <string name="reader_upscale_mode_title">Upscaling mode</string>
+    <string name="reader_upscale_auto_scale_title">Auto trigger threshold</string>
+    <string name="reader_upscale_auto_scale_hint">A page is upscaled when the screen enlarges it by more than this factor. 1.05 is the iOS default; raise it to process fewer pages.</string>
     <string name="reader_upscale_title">Waifu2x upscaling</string>
     <string name="reader_upscale_denoise_title">Denoise strength</string>
     <string name="reader_upscale_hint">Upscales low-resolution pages 2x on-device (ncnn + Vulkan). Auto only upscales pages that would be enlarged on screen. Higher denoise smooths JPEG noise more but softens fine detail.</string>
     <string name="upscale_mode_auto">Auto</string>
-    <string name="upscale_mode_always">Always</string>
     <string name="upscale_denoise_none">None</string>
     <string name="upscale_denoise_low">Low</string>
     <string name="upscale_denoise_medium">Medium</string>
@@ -60,7 +61,7 @@
     <string name="reader_upscale_badge_description">Upscaling page 2x</string>
     <string name="reader_upscale_preload_ahead_title">Preprocess following pages</string>
     <string name="reader_upscale_preload_ahead_off">Current page only</string>
-    <string name="reader_upscale_preload_ahead_hint">The current page plus the next N pages are preprocessed in the background (maximum 5). More pages improve page-turn readiness but increase GPU load.</string>
+    <string name="reader_upscale_preload_ahead_hint">Up to N pages after the current one are preprocessed in the background (maximum 5). In a dual-page layout the window is rounded up to whole spreads, so 3 covers two spreads.</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">Left to right</string>

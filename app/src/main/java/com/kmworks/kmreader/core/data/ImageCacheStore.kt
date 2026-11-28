@@ -119,7 +119,7 @@ class ImageCacheStore @Inject constructor(
         )
         .components {
             add(OkHttpNetworkFetcherFactory(callFactory = okHttpClient))
-            // waifu2x upscaling hooks only into page images (docs/waifu2x-upscaling-plan.md §5.4);
+            // waifu2x upscaling hooks only into page images;
             // requests without the upscale parameters fall through to the default decoder.
             if (kind == ImageCachePaths.KIND_PAGES) {
                 add(EnhancementDecoder.Factory(context, enhancementCache, imageEnhancer))

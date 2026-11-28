@@ -42,11 +42,12 @@
     <string name="reader_crop_title">裁邊模式</string>
     <string name="reader_crop_hint">裁掉頁面四周與底色相同的留白；關閉後按原圖顯示。</string>
     <string name="reader_upscale_mode_title">超分模式</string>
+    <string name="reader_upscale_auto_scale_title">自動觸發閾值</string>
+    <string name="reader_upscale_auto_scale_hint">螢幕需要把來源圖放大超過該倍數才會超分。1.05 為 iOS 預設值，調高後處理的頁面會變少。</string>
     <string name="reader_upscale_title">Waifu2x 超分</string>
     <string name="reader_upscale_denoise_title">降噪強度</string>
     <string name="reader_upscale_hint">在裝置端將低解析度頁圖放大 2 倍（ncnn + Vulkan）。自動模式僅對需要放大顯示的頁圖生效。降噪越強越能抹平 JPEG 噪點，但會弱化細節。</string>
     <string name="upscale_mode_auto">自動</string>
-    <string name="upscale_mode_always">總是</string>
     <string name="upscale_denoise_none">無</string>
     <string name="upscale_denoise_low">低</string>
     <string name="upscale_denoise_medium">中</string>
@@ -59,7 +60,7 @@
     <string name="reader_upscale_badge_description">正在超分 2x</string>
     <string name="reader_upscale_preload_ahead_title">預處理後續頁數</string>
     <string name="reader_upscale_preload_ahead_off">僅目前頁</string>
-    <string name="reader_upscale_preload_ahead_hint">目前頁及後續 N 頁會在背景預處理，最多 5 頁。頁數越多翻頁越容易命中，但 GPU 負擔越高。</string>
+    <string name="reader_upscale_preload_ahead_hint">目前頁之後最多 N 頁會在背景預處理，最多 5 頁。雙頁版面下按整雙頁補齊，例如 3 頁會處理 2 個雙頁。</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">從左到右</string>

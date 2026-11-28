@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Priority queue for waifu2x enhancement tasks (docs/waifu2x-upscaling-plan.md §7, mirroring
+ * Priority queue for waifu2x enhancement tasks, mirroring
  * mihon's ImageEnhancer):
  *
  * - priorities: [PRIORITY_VISIBLE] > [PRIORITY_ADJACENT] > [PRIORITY_ELEVATED] > [PRIORITY_PRELOAD];

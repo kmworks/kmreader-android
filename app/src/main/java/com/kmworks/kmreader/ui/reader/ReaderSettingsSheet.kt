@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import kotlin.math.roundToInt
 
 /**
@@ -31,7 +32,7 @@ import kotlin.math.roundToInt
  *
  * Differences from the original (recorded in the README differences list):
  * - Page transitions only offer "Scroll" and "Cover"; "Page Curl" is iOS PageCurl-specific and not implemented on Android
- * - Panel Mode, Waifu2x upscaling, and Live Text are not implemented per project constraints
+ * - Panel Mode and Live Text are not implemented per project constraints
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,6 +231,26 @@ fun ReaderSettingsSheet(
                 onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(mode = value)) } },
             )
             if (settings.upscale.mode != UpscaleMode.Off) {
+                if (settings.upscale.mode == UpscaleMode.Auto) {
+                    // Same control the iOS sheet shows below its mode picker: 1.00...1.50 in 0.01 steps.
+                    SettingsSliderRow(
+                        label = stringResource(R.string.reader_upscale_auto_scale_title),
+                        value = settings.upscale.autoTriggerScale,
+                        valueRange = UpscaleConfig.MIN_AUTO_TRIGGER_SCALE..UpscaleConfig.MAX_AUTO_TRIGGER_SCALE,
+                        steps = 49,
+                        display = "%.2fx".format(settings.upscale.autoTriggerScale),
+                        onValueChange = { value ->
+                            onUpdate {
+                                it.copy(
+                                    upscale = it.upscale.copy(
+                                        autoTriggerScale = (value * 100f).roundToInt() / 100f,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                    SettingsHintText(stringResource(R.string.reader_upscale_auto_scale_hint))
+                }
                 SettingsChoiceRow(
                     label = stringResource(R.string.reader_upscale_denoise_title),
                     options = DenoiseLevel.entries,

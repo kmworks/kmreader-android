@@ -46,7 +46,6 @@ app/src/main/java/com/kmworks/kmreader/
               settings, SSE, stats, logging
   data/       UI navigation and page models
   ui/         Compose screens per feature area; ui/components holds shared UI
-docs/         Static design reference (preview.html)
 ```
 
 **Never hand-edit generated sources** under `core/api/build/generated/`. Change

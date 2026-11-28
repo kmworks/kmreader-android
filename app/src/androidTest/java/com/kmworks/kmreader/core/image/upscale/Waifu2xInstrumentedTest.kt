@@ -17,7 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Phase 0 PoC verification (docs/waifu2x-upscaling-plan.md §10):
+ * Engine verification on a real device:
  * proves the ncnn+Vulkan build chain end-to-end on a real device — model extraction,
  * engine init, tiled 2x upscale, and per-run timing in logcat (tag Waifu2xJNI).
  *

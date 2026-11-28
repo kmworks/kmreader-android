@@ -1,6 +1,6 @@
 // waifu2x (upconv7) upscaling via ncnn + Vulkan.
 // Ported/trimmed from nihui/waifu2x-ncnn-vulkan (MIT) as referenced by
-// HaoweiLi97/mihon_img_upscale (Apache-2.0). See docs/waifu2x-upscaling-plan.md.
+// HaoweiLi97/mihon_img_upscale (Apache-2.0).
 //
 // Two paths:
 //  * fused   — the page stays in VRAM: a preproc compute shader samples the padded tile out of
@@ -51,7 +51,7 @@
 
 namespace {
 
-// waifu2x upconv7 constants (docs/waifu2x-upscaling-plan.md §9)
+// waifu2x upconv7 constants
 constexpr int kScale = 2;
 constexpr int kTileSize = 128;
 // A short pause between tile submissions leaves the GPU command queue a chance to service the

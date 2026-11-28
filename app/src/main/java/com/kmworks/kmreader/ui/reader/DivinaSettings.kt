@@ -3,6 +3,7 @@ package com.kmworks.kmreader.ui.reader
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import kotlin.math.max
 import kotlin.math.min
 
@@ -110,11 +111,16 @@ enum class BorderCropMode(@StringRes val labelRes: Int, val maxFraction: Float, 
     Aggressive(R.string.reader_crop_aggressive, 0.20f, 24)
 }
 
-/** Waifu2x upscaling trigger (mirrors the iOS upscale setting: off / auto when enlarged on screen / always). */
+/**
+ * Waifu2x upscaling trigger: off, or auto when the screen would enlarge the page.
+ *
+ * There is deliberately no "always" entry: a page that already has enough pixels for the screen
+ * gains nothing from a 2x pass, only GPU time and a 4x-larger cache entry, and the threshold
+ * slider already covers "be more eager".
+ */
 enum class UpscaleMode(@StringRes val labelRes: Int) {
     Off(R.string.reader_off),
     Auto(R.string.upscale_mode_auto),
-    Always(R.string.upscale_mode_always),
 }
 
 /**
@@ -150,12 +156,18 @@ enum class UpscalePrecision(@StringRes val labelRes: Int) {
  *
  * [preloadAhead] is how many *following pages* are preprocessed in the background. The current
  * visible page always gets a visible-priority request on its own; 0 therefore means "current page
- * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page item consumes two slots.
+ * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page layout rounds the budget up
+ * to whole spreads — 3 covers two spreads (4 pages), never one spread plus half of the next.
+ *
+ * [autoTriggerScale] is the Auto-mode threshold and is only meaningful in
+ * [UpscaleMode.Auto]: a page is upscaled when the display enlarges it by more than this factor.
+ * The store clamps it to [UpscaleConfig.MIN_AUTO_TRIGGER_SCALE]..[UpscaleConfig.MAX_AUTO_TRIGGER_SCALE],
+ * the same 1.0..1.5 range the iOS slider exposes, and its default (1.05) is the iOS default too.
  */
 data class UpscaleSettings(
     val mode: UpscaleMode = UpscaleMode.Auto,
     val denoise: DenoiseLevel = DenoiseLevel.Low,
-    val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+    val autoTriggerScale: Float = UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
     val precision: UpscalePrecision = UpscalePrecision.Auto,
     val preloadAhead: Int = DEFAULT_PRELOAD_AHEAD,
 ) {

@@ -21,7 +21,7 @@ import com.kmworks.kmreader.ui.reader.UpscaleMode
 import com.kmworks.kmreader.ui.reader.UpscalePrecision
 
 /**
- * Coil decoder that upscales page images with waifu2x (docs/waifu2x-upscaling-plan.md §5.2).
+ * Coil decoder that upscales page images with waifu2x.
  *
  * Registered only on the page loader, and only for requests marked by [applyTo], so covers,
  * thumbnails and plain page loads keep the default decoder. Flow:

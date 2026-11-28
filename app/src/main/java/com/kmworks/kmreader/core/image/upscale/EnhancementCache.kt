@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 import okio.Path.Companion.toOkioPath
 
 /**
- * Disk cache for waifu2x-upscaled page images (docs/waifu2x-upscaling-plan.md §6).
+ * Disk cache for waifu2x-upscaled page images.
  *
  * Kept separate from Coil's page cache because the key is not a plain URL: it is
  * [pageKey] (page URL + [UpscaleConfig.MODEL_SIGNATURE]) with denoise and precision *variant*

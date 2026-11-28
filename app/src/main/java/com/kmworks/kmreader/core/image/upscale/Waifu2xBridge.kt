@@ -11,7 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * JNI bridge to the ncnn+Vulkan waifu2x engine (docs/waifu2x-upscaling-plan.md §3.1).
+ * JNI bridge to the ncnn+Vulkan waifu2x engine.
  *
  * Models ship in assets and are extracted to the cache dir on first use; bump
  * [MODEL_CACHE_VERSION] whenever the bundled models change so stale extractions
