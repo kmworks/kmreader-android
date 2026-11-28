@@ -113,6 +113,8 @@ import com.kmworks.kmreader.core.data.AdjacentBooksResolver
 import com.kmworks.kmreader.core.data.ContentChangeBus
 import com.kmworks.kmreader.core.data.DetailIdRegistry
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
+import com.kmworks.kmreader.core.epub.EpubBookPageProgress
+import com.kmworks.kmreader.core.epub.EpubBookPages
 import com.kmworks.kmreader.core.epub.EpubChapter
 import com.kmworks.kmreader.core.epub.EpubFootnote
 import com.kmworks.kmreader.core.epub.EpubFootnoteNote
@@ -120,6 +122,7 @@ import com.kmworks.kmreader.core.epub.EpubHref
 import com.kmworks.kmreader.core.epub.EpubJs
 import com.kmworks.kmreader.core.epub.EpubJsBridge
 import com.kmworks.kmreader.core.epub.EpubLinkDto
+import com.kmworks.kmreader.core.epub.EpubPageCountStore
 import com.kmworks.kmreader.core.epub.EpubPageInsets
 import com.kmworks.kmreader.core.epub.EpubPositionIndex
 import com.kmworks.kmreader.core.epub.EpubPositionIndexStore
@@ -132,7 +135,10 @@ import com.kmworks.kmreader.core.epub.EpubWebViewClient
 import com.kmworks.kmreader.core.epub.buildEpubPositionIndex
 import com.kmworks.kmreader.core.epub.computeEpubPageInsets
 import com.kmworks.kmreader.core.epub.createEpubWebView
+import com.kmworks.kmreader.core.epub.epubPageCountKey
 import com.kmworks.kmreader.core.epub.epubPositionIndexKey
+import com.kmworks.kmreader.core.epub.resolveEpubBookPages
+import com.kmworks.kmreader.core.epub.resolveEpubChapterTitles
 import com.kmworks.kmreader.core.reader.EpubBookmark
 import com.kmworks.kmreader.core.reader.EpubBookmarkStore
 import com.kmworks.kmreader.core.reader.EpubOverlayItem
@@ -172,6 +178,11 @@ data class EpubUiState(
     val currentChapterIndex: Int = 0,
     val totalProgression: Float = 0f,
     val scrollToFraction: Float? = null,
+    /**
+     * The reader's page in the whole book ("132 of 1,204"), from the measured chapter page counts
+     * plus estimates for the chapters not laid out yet. Null until the first chapter reports pages.
+     */
+    val bookPageProgress: EpubBookPageProgress? = null,
     /** Books adjacent to this one (read list order, else series); resolved after the first page shows. */
     val adjacent: ReaderAdjacentBooks = ReaderAdjacentBooks(),
     /**
@@ -194,6 +205,7 @@ class EpubReaderViewModel @Inject constructor(
     private val sessionManager: SessionManager,
     private val epubRepository: EpubRepository,
     private val positionIndexStore: EpubPositionIndexStore,
+    private val pageCountStore: EpubPageCountStore,
     private val offlineLibrary: OfflineLibrary,
     private val fontRepository: FontRepository,
     private val bookmarkStore: EpubBookmarkStore,
@@ -222,6 +234,13 @@ class EpubReaderViewModel @Inject constructor(
     val bookmarks: StateFlow<List<EpubBookmark>> = _bookmarks.asStateFlow()
     private var bookmarkJob: Job? = null
 
+    /**
+     * Return stack of explicit jumps (progress slider, table of contents, bookmark, in-book link);
+     * ordinary page turns never enter it. See [EpubPositionHistory].
+     */
+    private val _positionStack = MutableStateFlow<List<EpubReaderPosition>>(emptyList())
+    val positionStack: StateFlow<List<EpubReaderPosition>> = _positionStack.asStateFlow()
+
     /** App-wide theme mode ("system"/"light"/"dark"): the reader theme follows the APP theme,
      *  not the raw system dark flag (mirrors MainActivity's theme resolution). */
     val themeMode: StateFlow<String> = appSettings.themeMode
@@ -241,6 +260,24 @@ class EpubReaderViewModel @Inject constructor(
     private var equalWeight: Float = 1f
     private var currentChapterFraction: Float = 0f
     private var reportJob: Job? = null
+
+    /**
+     * Measured page counts of the chapters this device has laid out (href → pages). The rest of the
+     * book contributes estimates, so the whole-book page number exists before the reader has visited
+     * every chapter; [resolvedBookPages] is the memoized mix of the two.
+     */
+    private var measuredPageCounts: Map<String, Int> = emptyMap()
+    private var resolvedBookPages: EpubBookPages? = null
+    /**
+     * Layout signature the counts were measured under (font size, margins, viewport…). Page counts
+     * belong to a layout: a cached count from a different one would print a wrong "page X of Y", so
+     * the cache key includes this and a change simply re-measures.
+     */
+    private var pageCountLayout: String? = null
+    /** 0-based page inside the current chapter, and whether the current flow style reports pages. */
+    private var currentChapterPage: Int = 0
+    private var pagedFlow: Boolean = true
+    private var pageCountJob: Job? = null
 
     // Progress reporting gate (mirrors ReaderProgressRecordingGate in the original
     // EpubReaderViewModel): an unread book reports only after moving more than 3 pages, a book
@@ -294,6 +331,12 @@ class EpubReaderViewModel @Inject constructor(
             }
             bookDtoId = dtoId
             refreshFonts()
+            // Page counts and the return stack belong to one book: a sibling opened in the same
+            // reader session must inherit neither.
+            measuredPageCounts = emptyMap()
+            resolvedBookPages = null
+            currentChapterPage = 0
+            _positionStack.value = emptyList()
             // Bookmarks follow the book DTO id, so a cache rebuild (the Room file is restartable)
             // never loses them. Re-collected per book: the flow is cheap and always in reading order.
             bookmarkJob?.cancel()
@@ -313,13 +356,17 @@ class EpubReaderViewModel @Inject constructor(
                 )
                 return@launch
             }
+            val titles = resolveEpubChapterTitles(
+                order = order,
+                toc = manifest?.toc.orEmpty(),
+                fallback = { index -> context.getString(R.string.epub_chapter_fallback, index + 1) },
+            )
             val chapters = order.mapIndexed { index, link ->
                 EpubChapter(
                     index = index,
                     // Canonical path; resource URLs and progression hrefs are compared through it.
                     href = EpubHref.normalize(link.href.orEmpty()),
-                    title = link.title?.takeIf { it.isNotBlank() }
-                        ?: context.getString(R.string.epub_chapter_fallback, index + 1),
+                    title = titles[index],
                 )
             }
             equalWeight = 1f / chapters.size
@@ -358,14 +405,60 @@ class EpubReaderViewModel @Inject constructor(
                 currentChapterIndex = startIndex,
                 scrollToFraction = startFraction,
                 totalProgression = totalFor(chapters, startIndex, startFraction ?: 0f),
+                // The previous book's page number must not survive into this one
+                bookPageProgress = null,
                 readingProgression = manifest?.metadata?.readingProgression,
             )
 
             resolveAdjacent(dtoId, readListStableId)
+            // Cached page counts first: they feed the whole-book page total for chapters this
+            // session has not laid out yet, which is the only way that number is right from the
+            // first page rather than after walking the book.
+            loadPageCounts(dtoId, chapters)
             if (positionIndex == null) {
                 loadPositionIndex(dtoId, positionKey)
             }
         }
+    }
+
+    /**
+     * Reads the cached page counts of [chapters] for the current layout. A miss (first open, new
+     * layout, re-imported book) is silent — the estimates stand in until the chapters are measured.
+     */
+    private fun loadPageCounts(dtoId: String, chapters: List<EpubChapter>) {
+        val layout = pageCountLayout ?: return
+        val key = epubPageCountKey(chapters, layout)
+        pageCountJob?.cancel()
+        pageCountJob = viewModelScope.launch {
+            val cached = pageCountStore.cached(dtoId, key) ?: return@launch
+            if (_uiState.value.bookDtoId != dtoId || _uiState.value.chapters.isEmpty()) return@launch
+            val known = cached.filterKeys { href -> chapters.any { it.href == href } }
+            if (known.isEmpty()) return@launch
+            // Merge, cache first: a chapter measured while the read was in flight must win over the
+            // count cached for the same layout.
+            measuredPageCounts = known + measuredPageCounts
+            resolvedBookPages = null
+            refreshBookProgress()
+        }
+    }
+
+    /**
+     * Tells the view model which layout the reader is paginating with, so the page-count cache can
+     * be keyed to it: the same chapter has a different page count at a different font size, and a
+     * stale total would simply be a wrong number on screen. The UI computes the signature from the
+     * injected theme config, which the view model never sees.
+     */
+    fun attachPageCountLayout(layout: String) {
+        if (layout == pageCountLayout) return
+        pageCountLayout = layout
+        // Counts measured under the previous layout stay in memory for nothing; drop them and let
+        // the chapters re-measure (the JS re-runs its measure pass when the theme is applied).
+        measuredPageCounts = emptyMap()
+        resolvedBookPages = null
+        val state = _uiState.value
+        val dtoId = state.bookDtoId
+        if (dtoId != null && state.chapters.isNotEmpty()) loadPageCounts(dtoId, state.chapters)
+        refreshBookProgress()
     }
 
     /**
@@ -382,6 +475,8 @@ class EpubReaderViewModel @Inject constructor(
             positionIndexStore.remember(dtoId, key, index)
             positionIndex = index
             estimatedTotalPages = index.total
+            // The per-chapter estimates are derived from these counts, so the memoized mix is stale.
+            resolvedBookPages = null
             // Weights change the whole-book percentage without the reader moving, so the recording
             // gate's baseline has to move with them: otherwise refitting from equal weights to the
             // real ones looks like a large jump and records a book that was only just opened.
@@ -389,6 +484,7 @@ class EpubReaderViewModel @Inject constructor(
             val rebased = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction)
             if (sessionStartTotalProgression != null) sessionStartTotalProgression = rebased
             _uiState.value = state.copy(totalProgression = rebased)
+            refreshBookProgress()
         }
     }
 
@@ -416,23 +512,125 @@ class EpubReaderViewModel @Inject constructor(
         viewModelScope.launch { resolveAdjacent(dtoId, sessionReadListStableId) }
     }
 
-    /** Scroll-metrics callback from the JS bridge: updates the in-chapter and whole-book fractions, then reports throttled (mirrors the original updateThrottleInterval=2s). */
-    fun onMetrics(chapterFraction: Float) {
+    /**
+     * Scroll-metrics callback from the JS bridge: updates the in-chapter and whole-book fractions,
+     * then reports throttled (mirrors the original updateThrottleInterval=2s).
+     *
+     * [paged] is the flow style of the layout that reported: scrolled chapters have no page of
+     * their own, so the whole-book page number is derived from the fraction instead.
+     */
+    fun onMetrics(chapterFraction: Float, paged: Boolean = true) {
         val state = _uiState.value
         if (state.chapters.isEmpty()) return
+        pagedFlow = paged
         currentChapterFraction = chapterFraction.coerceIn(0f, 1f)
         val total = totalFor(state.chapters, state.currentChapterIndex, currentChapterFraction)
         if (sessionStartTotalProgression == null) {
             sessionStartTotalProgression = total
         }
         _uiState.value = state.copy(totalProgression = total)
+        refreshBookProgress()
         scheduleReport()
     }
 
-    /** Jump to a chapter (table of contents). */
+    /**
+     * Page-measure callback from the JS bridge: the chapter's page count and the page on screen.
+     *
+     * The count is remembered per chapter (and cached) so the whole-book total stays exact for
+     * every chapter this device has laid out; the page feeds the whole-book page number. Scrolled
+     * mode reports 1/0 for every chapter and is ignored — a "page count" of 1 there would claim a
+     * 400-page book has 80 pages.
+     */
+    fun onChapterPagination(chapterIndex: Int, pageCount: Int, currentPage: Int, paged: Boolean) {
+        val state = _uiState.value
+        val chapter = state.chapters.getOrNull(chapterIndex) ?: return
+        pagedFlow = paged
+        currentChapterPage = currentPage
+        if (paged && pageCount > 0 && measuredPageCounts[chapter.href] != pageCount) {
+            measuredPageCounts = measuredPageCounts + (chapter.href to pageCount)
+            resolvedBookPages = null
+            persistPageCounts()
+        }
+        refreshBookProgress()
+    }
+
+    /** Writes the measured counts for the current book/layout (fire and forget; cache only). */
+    private fun persistPageCounts() {
+        val dtoId = bookDtoId ?: return
+        val layout = pageCountLayout ?: return
+        val chapters = _uiState.value.chapters
+        if (chapters.isEmpty() || measuredPageCounts.isEmpty()) return
+        val key = epubPageCountKey(chapters, layout)
+        val counts = measuredPageCounts
+        viewModelScope.launch { pageCountStore.remember(dtoId, key, counts) }
+    }
+
+    /**
+     * Recomputes the whole-book page position from the memoized page counts and the reader's place
+     * in the current chapter. No-op while the book has no chapters; the page number needs both ends.
+     */
+    private fun refreshBookProgress() {
+        val state = _uiState.value
+        if (state.chapters.isEmpty()) return
+        val pages = resolvedBookPages
+            ?: resolveEpubBookPages(state.chapters, measuredPageCounts, positionIndex)
+                .also { resolvedBookPages = it }
+        val current = if (pagedFlow) {
+            pages.pageAt(state.currentChapterIndex, currentChapterPage)
+        } else {
+            pages.pageAt(state.currentChapterIndex, currentChapterFraction)
+        }
+        val progress = current?.let { EpubBookPageProgress(it, pages.totalPages) }
+        if (progress != null && progress != state.bookPageProgress) {
+            _uiState.value = state.copy(bookPageProgress = progress)
+        }
+    }
+
+    /**
+     * Remembers the current position as the place an explicit jump started from, so the reader can
+     * come back to it (see [EpubPositionHistory]). Callers are the jump affordances only: page
+     * turns and chapter seams must never push, or "return" would just undo a page turn.
+     */
+    fun recordPositionForReturn() {
+        val state = _uiState.value
+        val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
+        _positionStack.value = EpubPositionHistory.push(
+            _positionStack.value,
+            EpubReaderPosition(
+                chapterIndex = state.currentChapterIndex,
+                chapterFraction = currentChapterFraction,
+                chapterTitle = chapter.title,
+            ),
+        )
+    }
+
+    /**
+     * Returns to where the most recent explicit jump started: pops the stack and moves there. The
+     * target is handed back because a jump inside the CURRENT chapter cannot go through
+     * [selectChapter] (that never reloads a chapter); the caller scrolls the live page instead.
+     * Null when the stack is empty or its entry no longer resolves.
+     */
+    fun returnToPreviousPosition(): EpubReaderPosition? {
+        val (stack, target) = EpubPositionHistory.pop(_positionStack.value)
+        _positionStack.value = stack
+        if (target == null) return null
+        val state = _uiState.value
+        if (target.chapterIndex !in state.chapters.indices) return null
+        flushReport()
+        if (target.chapterIndex != state.currentChapterIndex) {
+            selectChapter(target.chapterIndex, target.chapterFraction)
+        }
+        return target
+    }
+
+    /** Jump to a chapter (table of contents, bookmark, in-book link); the origin is recorded. */
     fun goToChapter(index: Int) {
         val state = _uiState.value
         if (index !in state.chapters.indices) return
+        // Nothing moves when the target chapter is already on screen (selectChapter never reloads
+        // it), so there is no origin to come back to — the UI records the in-chapter anchor jumps
+        // itself, where the page really does travel.
+        if (index != state.currentChapterIndex) recordPositionForReturn()
         flushReport()
         selectChapter(index, null)
     }
@@ -461,11 +659,19 @@ class EpubReaderViewModel @Inject constructor(
         return true
     }
 
-    /** Whole-book fraction seek (bottom-bar slider): derives the chapter and in-chapter fraction from the chapter weights. */
-    fun seekTo(totalFraction: Float) {
+    /**
+     * Whole-book fraction seek (the quick-actions slider): derives the chapter and in-chapter
+     * fraction from the chapter weights. An explicit jump, so the origin is recorded for the
+     * return affordance.
+     *
+     * Returns the in-chapter fraction to scroll the LIVE page to when the seek stays inside the
+     * chapter already on screen; null when it switches chapters (the queued state restore applies
+     * that after the reload). Without this split a same-chapter seek queued a scroll that only a
+     * page load consumes — the slider moved the numbers while the page stood still.
+     */
+    fun seekTo(totalFraction: Float): Float? {
         val state = _uiState.value
-        if (state.chapters.isEmpty()) return
-        flushReport()
+        if (state.chapters.isEmpty()) return null
         val target = totalFraction.coerceIn(0f, 1f)
         var acc = 0f
         state.chapters.forEachIndexed { index, chapter ->
@@ -476,11 +682,24 @@ class EpubReaderViewModel @Inject constructor(
                 } else {
                     0f
                 }
+                recordPositionForReturn()
+                flushReport()
+                if (index == state.currentChapterIndex) {
+                    // selectChapter would set scrollToFraction, which ALSO hides the WebView until
+                    // a reload reveals it — and nothing reloads the chapter already on screen.
+                    currentChapterFraction = fraction
+                    _uiState.value = _uiState.value.copy(
+                        totalProgression = totalFor(state.chapters, index, fraction),
+                    )
+                    refreshBookProgress()
+                    return fraction
+                }
                 selectChapter(index, fraction)
-                return
+                return null
             }
             acc += weight
         }
+        return null
     }
 
     /**
@@ -583,12 +802,16 @@ class EpubReaderViewModel @Inject constructor(
     }
 
     private fun selectChapter(index: Int, scrollFraction: Float?) {
+        // The page index belongs to the chapter it was measured in: carrying it into the next one
+        // would print a book page from the chapter the reader just left.
+        if (index != _uiState.value.currentChapterIndex) currentChapterPage = 0
         currentChapterFraction = scrollFraction ?: 0f
         _uiState.value = _uiState.value.copy(
             currentChapterIndex = index,
             scrollToFraction = scrollFraction,
             totalProgression = totalFor(_uiState.value.chapters, index, currentChapterFraction),
         )
+        refreshBookProgress()
     }
 
     private fun scheduleReport() {
@@ -846,6 +1069,22 @@ private fun RealEpubReader(
     var latestConfig by remember { mutableStateOf(themeConfig) }
     SideEffect { latestConfig = themeConfig }
 
+    // Layout signature for the page-count cache: a page count belongs to the layout that produced
+    // it, so a font-size or margin change must invalidate the cached ones instead of printing a
+    // wrong "page 421 of 8,431". The view model never sees the theme config, hence the push.
+    val pageCountLayout = remember(themeConfig, viewportWidthDp) {
+        listOf(
+            if (themeConfig.paged) "paged" else "scrolled",
+            "f${themeConfig.fontSizePx}",
+            "lh${themeConfig.lineHeight}",
+            "m${themeConfig.marginHPx}",
+            "c${themeConfig.colCount}",
+            "w$viewportWidthDp",
+            "i${themeConfig.insetVPx}/${themeConfig.insetBottomVPx}",
+        ).joinToString("|")
+    }
+    LaunchedEffect(pageCountLayout) { viewModel.attachPageCountLayout(pageCountLayout) }
+
     var chromeVisible by remember { mutableStateOf(false) }
     // Quick-actions panel of the floating chrome (mirrors the iOS showingQuickActions): lives
     // under the bottom-end menu button and folds whenever the chrome hides
@@ -911,9 +1150,10 @@ private fun RealEpubReader(
     // it is pure presentation of the page's own DOM, and it must die with the chapter load (a
     // bubble floating over the next chapter would be showing text that is no longer on screen).
     var footnoteNote by remember { mutableStateOf<EpubFootnoteNote?>(null) }
-    // Link-jump back stack (mirrors readest's History.back): following an in-book link pushes
-    // (chapterIndex, in-chapter fraction); the floating return chip pops it and jumps back.
-    var linkBackStack by remember { mutableStateOf<List<Pair<Int, Float>>>(emptyList()) }
+    // Return stack of explicit jumps (table of contents, bookmark, progress slider, in-book link).
+    // Owned by the view model; the floating chip pops it. Page turns never push, so "return"
+    // always means "back to where I jumped from" (mirrors the iOS positionBackStack).
+    val positionStack by viewModel.positionStack.collectAsStateWithLifecycle()
     // Cooldown so one overscroll drag cannot skip several chapters (the seam callback repeats
     // while the finger holds past the edge)
     var lastSeamAt by remember { mutableLongStateOf(0L) }
@@ -930,8 +1170,9 @@ private fun RealEpubReader(
 
     /**
      * Jump to a bookmark: a different chapter loads and is positioned through [pendingScroll],
-     * the same slot the toc and the link-jump return chip use; the current chapter just scrolls,
-     * because selecting the chapter that is already on screen never reloads it.
+     * the same slot the toc and the return chip use; the current chapter just scrolls,
+     * because selecting the chapter that is already on screen never reloads it. The origin is
+     * recorded so the jump is reversible like every other explicit one.
      */
     fun jumpToBookmark(bookmark: EpubBookmark) {
         if (bookmark.chapterIndex !in state.chapters.indices) return
@@ -943,6 +1184,7 @@ private fun RealEpubReader(
             restorePositioned = false
             viewModel.goToChapter(bookmark.chapterIndex)
         } else {
+            viewModel.recordPositionForReturn()
             webView?.evaluateJavascript(
                 "window.__kmScrollToFraction(${bookmark.chapterFraction})",
                 null,
@@ -1033,6 +1275,9 @@ private fun RealEpubReader(
         pageCount = total
         currentPage = page
         jsDirection = dir
+        // Feeds the whole-book page number: the chapter's measured count (cached for the next open)
+        // and the page on screen. Scrolled mode reports 1/0 and is ignored by the view model.
+        viewModel.onChapterPagination(state.currentChapterIndex, total, page, themeConfig.paged)
         // The first measure pass of a chapter means the restored position has been applied:
         // reveal the WebView (covers both flow styles; later passes are idempotent)
         restorePositioned = true
@@ -1076,13 +1321,13 @@ private fun RealEpubReader(
                 if (index >= 0) {
                     if (index != state.currentChapterIndex) {
                         // Remember where the jump started so the return chip can bring the
-                        // reader back (readest pushes every goTo onto its history stack)
-                        linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
+                        // reader back (goToChapter pushes only when the chapter changes, so this
+                        // is the single entry for the jump).
                         pendingAnchor = anchor
                         pendingAnchorChapter = index
                         viewModel.goToChapter(index)
                     } else if (anchor != null) {
-                        linkBackStack = linkBackStack + (state.currentChapterIndex to lastFraction)
+                        viewModel.recordPositionForReturn()
                         webView?.evaluateJavascript(
                             "window.__kmGoToAnchor(${JSONObject.quote(anchor)})",
                             null,
@@ -1092,7 +1337,7 @@ private fun RealEpubReader(
             }
             // Notes and footnote references that could not be extracted in place (cross-file
             // targets, empty bodies) navigate like every other in-book link: jump to the anchor,
-            // push the return chip (linkBackStack). The extractable ones never reach here — the
+            // record the origin for the return chip. The extractable ones never reach here — the
             // page JS intercepts the tap and reports through footnoteHandler instead.
             navigateFallback()
             // Unknown in-book targets are still swallowed: loading them raw would leave the book
@@ -1125,7 +1370,7 @@ private fun RealEpubReader(
         { fraction, token ->
             if (token != loadToken) return@rememberUpdatedState
             lastFraction = fraction
-            viewModel.onMetrics(fraction)
+            viewModel.onMetrics(fraction, themeConfig.paged)
         },
     )
 
@@ -1385,6 +1630,7 @@ private fun RealEpubReader(
                 currentPage = currentPage,
                 totalPages = if (themeConfig.paged) pageCount else 0,
                 chapterProgressFraction = if (themeConfig.paged) null else lastFraction,
+                bookPage = state.bookPageProgress,
                 isRtl = rtl || jsDirection == 2,
                 textColor = pageContent,
                 drawUnderCutout = readerSettings.drawUnderCutout,
@@ -1501,7 +1747,19 @@ private fun RealEpubReader(
                             value = progress,
                             onValueChange = { scrub = it },
                             onValueChangeFinished = {
-                                scrub?.let(viewModel::seekTo)
+                                val fraction = scrub
+                                if (fraction != null) {
+                                    // A seek inside the current chapter comes back as a fraction to
+                                    // scroll the live page with; a chapter switch is already queued
+                                    // in the reader state.
+                                    val live = viewModel.seekTo(fraction)
+                                    if (live != null) {
+                                        webView?.evaluateJavascript(
+                                            "window.__kmScrollToFraction($live)",
+                                            null,
+                                        )
+                                    }
+                                }
                                 scrub = null
                             },
                             valueRange = 0f..1f,
@@ -1599,9 +1857,10 @@ private fun RealEpubReader(
             }
         }
 
-        // Link-jump return chip (mirrors readest's history back() affordance): after following
-        // an in-book link, a floating pill offers the trip back to where the jump started.
-        if (linkBackStack.isNotEmpty() && !showingEndPage && !showingPreviousPage) {
+        // Return chip for explicit jumps (mirrors the iOS return button): after jumping through the
+        // contents, a bookmark, the progress slider or an in-book link, a floating pill offers the
+        // trip back to where the jump started.
+        if (positionStack.isNotEmpty() && !showingEndPage && !showingPreviousPage) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -1611,15 +1870,13 @@ private fun RealEpubReader(
                     .clip(CircleShape)
                     .background(chromeBackground)
                     .clickable {
-                        val target = linkBackStack.last()
-                        linkBackStack = linkBackStack.dropLast(1)
-                        if (target.first != state.currentChapterIndex) {
-                            pendingScroll = target.second
-                            if (target.second > 0f) restorePositioned = false
-                            viewModel.goToChapter(target.first)
-                        } else {
+                        val target = viewModel.returnToPreviousPosition() ?: return@clickable
+                        // A jump inside the chapter already on screen cannot be performed by the
+                        // view model (selecting the current chapter never reloads it), so the live
+                        // page scrolls back instead — same split as jumpToBookmark.
+                        if (target.chapterIndex == state.currentChapterIndex) {
                             webView?.evaluateJavascript(
-                                "window.__kmScrollToFraction(${target.second})",
+                                "window.__kmScrollToFraction(${target.chapterFraction})",
                                 null,
                             )
                         }
@@ -1775,13 +2032,16 @@ private fun RealEpubReader(
                     // chapter would be a silent no-op (selectChapter with an unchanged index
                     // never reloads), so move inside the current page box instead. The anchor
                     // is an element id, which __kmGoToAnchor resolves to the column it starts in.
+                    // Still an explicit jump, so the return chip gets the origin.
+                    viewModel.recordPositionForReturn()
                     webView?.evaluateJavascript(
                         "window.__kmGoToAnchor(${JSONObject.quote(anchor)})",
                         null,
                     )
                 } else {
                     // Different file: hand the anchor to the measure pass of the newly loaded
-                    // chapter (the same slot in-book links use), then switch chapters.
+                    // chapter (the same slot in-book links use), then switch chapters — which
+                    // records the origin for the return chip.
                     pendingAnchor = anchor
                     pendingAnchorChapter = index
                     viewModel.goToChapter(index)

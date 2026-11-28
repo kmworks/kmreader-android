@@ -226,10 +226,12 @@
     <string name="epub_overlay_item_chapter_progress">本章进度</string>
     <string name="epub_overlay_item_chapter_remaining">本章剩余</string>
     <string name="epub_overlay_item_chapter_position">本章页码</string>
+    <string name="epub_overlay_item_book_position">全书页码</string>
     <string name="epub_overlay_book_progress">全书进度 %1$s</string>
     <string name="epub_overlay_remaining">剩余 %1$s</string>
     <string name="epub_overlay_chapter_progress">本章进度 %1$s</string>
     <string name="epub_overlay_chapter_position">本章 %1$d / %2$d</string>
+    <string name="epub_overlay_book_position">全书 %1$d / %2$d</string>
     <string name="epub_overlay_pages_left">还剩 %1$d 页</string>
     <string name="epub_overlay_last_page">最后一页</string>
     <string name="epub_preset_updated_now">刚刚更新</string>

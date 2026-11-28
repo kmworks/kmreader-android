@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.reader
 
+import com.kmworks.kmreader.core.epub.EpubBookPageProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,6 +18,7 @@ class EpubOverlayTest {
         remaining = "%s left",
         chapterProgress = "%s",
         chapterPosition = "Chapter %d / %d",
+        bookPosition = "Book %d / %d",
         pagesLeft = "%d pages left",
         lastPage = "Last page",
     )
@@ -31,6 +33,7 @@ class EpubOverlayTest {
         currentPage: Int = 2,
         totalPages: Int = 12,
         chapterProgressFraction: Float? = null,
+        bookPage: EpubBookPageProgress? = EpubBookPageProgress(currentPage = 421, totalPages = 1204),
         isRtl: Boolean = false,
     ) = resolveEpubOverlay(
         prefs = prefs,
@@ -42,6 +45,7 @@ class EpubOverlayTest {
         currentPage = currentPage,
         totalPages = totalPages,
         chapterProgressFraction = chapterProgressFraction,
+        bookPage = bookPage,
         isRtl = isRtl,
         strings = strings,
     )
@@ -120,9 +124,27 @@ class EpubOverlayTest {
         assertNull(content.bottomTrailing.text)
         // controlsHeaderCenter defaults to the book progress
         assertEquals("Book Progress 12.34%", content.topCenter.text)
-        // controlsFooterCenter defaults to the chapter position
-        assertEquals("Chapter 3 / 12", content.bottomCenter.text)
+        // controlsFooterCenter defaults to the whole-book page position (mirrors the iOS controls bar)
+        assertEquals("Book 421 / 1204", content.bottomCenter.text)
         assertNull(content.bottomProgress)
+    }
+
+    @Test
+    fun `book position needs page counts and has no fraction fallback`() {
+        val prefs = EpubOverlayPreferences(controlsFooterCenter = EpubOverlayItem.BOOK_POSITION)
+        val withoutCounts = resolve(prefs = prefs, showingControls = true, bookPage = null)
+        assertFalse(withoutCounts.bottomCenter.isVisible)
+        assertNull(withoutCounts.bottomCenter.text)
+
+        // A scrolling chapter can still name its book page: the counts cover the whole book.
+        val scrolled = resolve(
+            prefs = prefs,
+            showingControls = true,
+            paged = false,
+            totalPages = 0,
+            chapterProgressFraction = 0.5f,
+        )
+        assertEquals("Book 421 / 1204", scrolled.bottomCenter.text)
     }
 
     @Test

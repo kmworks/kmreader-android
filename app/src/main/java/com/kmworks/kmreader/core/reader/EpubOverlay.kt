@@ -1,5 +1,6 @@
 package com.kmworks.kmreader.core.reader
 
+import com.kmworks.kmreader.core.epub.EpubBookPageProgress
 import org.json.JSONObject
 
 /**
@@ -17,6 +18,13 @@ enum class EpubOverlayItem(val wire: String) {
     CHAPTER_PROGRESS_PERCENT("chapterProgressPercent"),
     CHAPTER_REMAINING("chapterRemaining"),
     CHAPTER_POSITION("chapterPosition"),
+
+    /**
+     * The reader's position in the whole book, counted in pages ("132 of 1,204"). Needs measured or
+     * estimated per-chapter page counts, which the reader builds as it walks the book — see
+     * [com.kmworks.kmreader.core.epub.EpubBookPages].
+     */
+    BOOK_POSITION("bookPosition"),
     ;
 
     companion object {
@@ -34,7 +42,12 @@ data class EpubOverlayPreferences(
     val readerFooterTrailing: EpubOverlayItem = EpubOverlayItem.CHAPTER_REMAINING,
     val showsReaderProgressBar: Boolean = false,
     val controlsHeaderCenter: EpubOverlayItem = EpubOverlayItem.BOOK_PROGRESS_PERCENT,
-    val controlsFooterCenter: EpubOverlayItem = EpubOverlayItem.CHAPTER_POSITION,
+    /**
+     * The chrome-visible footer shows the whole-book page position by default (mirrors the iOS
+     * reader, where the controls bar footer is the "X of Y" book page and no longer configurable).
+     * Still a configurable slot here, so a reader who prefers the percentage can keep it.
+     */
+    val controlsFooterCenter: EpubOverlayItem = EpubOverlayItem.BOOK_POSITION,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("readerHeaderLeading", readerHeaderLeading.wire)
@@ -90,6 +103,8 @@ data class EpubOverlayStrings(
     val chapterProgress: String,
     /** "Chapter Progress %1$d / %2$d" — current page (1-based) / total pages. */
     val chapterPosition: String,
+    /** "Book %1$d / %2$d" — the reader's page in the whole book (1-based) / the book's pages. */
+    val bookPosition: String,
     /** "%1$d pages left". */
     val pagesLeft: String,
     /** "Last page". */
@@ -130,6 +145,7 @@ private fun percent1(value: Float): String = "%.1f%%".format(clamped(value) * 10
  * Resolves one slot (mirrors WebPubInfoOverlaySupport.entry). [chapterProgressFraction] is the
  * in-chapter reading fraction used when page counts are unavailable (scrolled mode reports no
  * pages); page-based items fall back to it, percent-based items need one source or stay hidden.
+ * [bookPage] carries the whole-book page position; without it that slot stays hidden.
  */
 private fun resolveEntry(
     item: EpubOverlayItem,
@@ -140,6 +156,7 @@ private fun resolveEntry(
     currentPage: Int,
     totalPages: Int,
     chapterProgressFraction: Float?,
+    bookPage: EpubBookPageProgress?,
     strings: EpubOverlayStrings,
 ): EpubOverlayEntry {
     fun chapterProgress(): Float? = when {
@@ -185,6 +202,22 @@ private fun resolveEntry(
                 EpubOverlayEntry(String.format(strings.chapterProgress, percent1(progress)), true)
             }
         }
+        EpubOverlayItem.BOOK_POSITION -> {
+            // Unlike the chapter items this one has no fraction fallback: "page 421 of 8,431" is a
+            // page claim, and a scrolling chapter cannot honour it. Hidden until counts exist.
+            if (bookPage == null || bookPage.totalPages <= 0) {
+                EpubOverlayEntry.HIDDEN
+            } else {
+                EpubOverlayEntry(
+                    String.format(
+                        strings.bookPosition,
+                        bookPage.currentPage.coerceIn(1, bookPage.totalPages),
+                        bookPage.totalPages,
+                    ),
+                    true,
+                )
+            }
+        }
     }
 }
 
@@ -202,6 +235,7 @@ fun resolveEpubOverlay(
     currentPage: Int,
     totalPages: Int,
     chapterProgressFraction: Float?,
+    bookPage: EpubBookPageProgress?,
     isRtl: Boolean,
     strings: EpubOverlayStrings,
 ): EpubOverlayContent {
@@ -211,13 +245,13 @@ fun resolveEpubOverlay(
             topLeading = EpubOverlayEntry.HIDDEN,
             topCenter = resolveEntry(
                 prefs.controlsHeaderCenter, paged, bookTitle, chapterTitle,
-                totalProgression, currentPage, totalPages, chapterProgressFraction, strings,
+                totalProgression, currentPage, totalPages, chapterProgressFraction, bookPage, strings,
             ),
             topTrailing = EpubOverlayEntry.HIDDEN,
             bottomLeading = EpubOverlayEntry.HIDDEN,
             bottomCenter = resolveEntry(
                 prefs.controlsFooterCenter, paged, bookTitle, chapterTitle,
-                totalProgression, currentPage, totalPages, chapterProgressFraction, strings,
+                totalProgression, currentPage, totalPages, chapterProgressFraction, bookPage, strings,
             ),
             bottomTrailing = EpubOverlayEntry.HIDDEN,
             bottomProgress = null,
@@ -226,7 +260,7 @@ fun resolveEpubOverlay(
     }
     fun reader(item: EpubOverlayItem) = resolveEntry(
         item, paged, bookTitle, chapterTitle,
-        totalProgression, currentPage, totalPages, chapterProgressFraction, strings,
+        totalProgression, currentPage, totalPages, chapterProgressFraction, bookPage, strings,
     )
     return EpubOverlayContent(
         showingControls = false,
