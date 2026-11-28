@@ -113,7 +113,22 @@ fun ReadListDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    // Labels handed to deferred callbacks: stringResource is composable, so they are resolved here
+    // and the callbacks only consume the strings.
+    val downloadSelectedLabel = stringResource(R.string.lists_download_selected_books)
+    val openSeriesLabel = stringResource(R.string.lists_open_series)
+    val downloadBookLabel = stringResource(R.string.lists_download_book)
+    val analyzeBookLabel = stringResource(R.string.lists_analyze_book)
+    val refreshMetadataLabel = stringResource(R.string.lists_refresh_metadata)
+    val shareBookLabel = stringResource(R.string.lists_share_book)
+    val saveBookMetadataLabel = stringResource(R.string.lists_save_book_metadata)
+    val addToReadListLabel = stringResource(R.string.lists_add_to_readlist)
+    val readListSaveLabel = stringResource(R.string.readlist_save)
+    val readListDeleteLabel = stringResource(R.string.readlist_delete)
+    // The action name only arrives with the event, so the template is formatted at event time;
+    // reading it via context is deliberate (stringResource cannot run in this deferred lambda).
     val notifyActionFailure: suspend (String) -> Unit = { action ->
+        @Suppress("LocalContextGetResourceValueCall")
         snackbarHostState.showSnackbar(context.getString(R.string.common_action_failed_retry, action))
     }
     LaunchedEffect(readList.id) { viewModel.load(readList.id) }
@@ -177,7 +192,7 @@ fun ReadListDetailScreen(
     }
     val onSelectedDownload: () -> Unit = {
         viewModel.downloadBooks(selected) { ok ->
-            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_selected_books)) }
+            if (!ok) coroutineScope.launch { notifyActionFailure(downloadSelectedLabel) }
         }
         exitSelection()
     }
@@ -448,7 +463,7 @@ fun ReadListDetailScreen(
                 onOpenSeries = {
                     viewModel.seriesStableIdForBook(target.id) { seriesStableId ->
                         if (seriesStableId != null) onOpenSeries(seriesStableId)
-                        else coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_open_series)) }
+                        else coroutineScope.launch { notifyActionFailure(openSeriesLabel) }
                     }
                 },
                 onRead = { onRead(target) },
@@ -456,7 +471,7 @@ fun ReadListDetailScreen(
                 onOpenDetails = { onOpenBook(target) },
                 onDownload = {
                     viewModel.downloadBooks(setOf(target.id)) { ok ->
-                        if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_download_book)) }
+                        if (!ok) coroutineScope.launch { notifyActionFailure(downloadBookLabel) }
                     }
                 },
                 onMarkRead = {
@@ -482,7 +497,7 @@ fun ReadListDetailScreen(
                 onAnalyze = if (state.isAdmin) {
                     {
                         viewModel.analyzeBook(target.id) { ok ->
-                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_analyze_book)) }
+                            if (!ok) coroutineScope.launch { notifyActionFailure(analyzeBookLabel) }
                         }
                     }
                 } else {
@@ -491,7 +506,7 @@ fun ReadListDetailScreen(
                 onRefresh = if (state.isAdmin) {
                     {
                         viewModel.refreshBookMetadata(target.id) { ok ->
-                            if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_refresh_metadata)) }
+                            if (!ok) coroutineScope.launch { notifyActionFailure(refreshMetadataLabel) }
                         }
                     }
                 } else {
@@ -502,7 +517,7 @@ fun ReadListDetailScreen(
                     if (url != null) {
                         shareText(context, url)
                     } else {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_share_book)) }
+                        coroutineScope.launch { notifyActionFailure(shareBookLabel) }
                     }
                 },
                 onDelete = {
@@ -529,7 +544,7 @@ fun ReadListDetailScreen(
                     if (ok) {
                         editBook = null
                     } else {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_save_book_metadata)) }
+                        coroutineScope.launch { notifyActionFailure(saveBookMetadataLabel) }
                     }
                 }
             },
@@ -544,7 +559,7 @@ fun ReadListDetailScreen(
             onCreateReadList = viewModel::createReadListEntry,
             onSelect = { entry ->
                 viewModel.addBooksToReadList(entry, selected) { ok ->
-                    if (!ok) coroutineScope.launch { notifyActionFailure(context.getString(R.string.lists_add_to_readlist)) }
+                    if (!ok) coroutineScope.launch { notifyActionFailure(addToReadListLabel) }
                 }
                 addSelectedToReadListOpen = false
                 selected = emptySet()
@@ -584,7 +599,7 @@ fun ReadListDetailScreen(
                         editListOpen = false
                     } else {
                         // Keep the sheet open so the typed name/summary is not lost
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_save)) }
+                        coroutineScope.launch { notifyActionFailure(readListSaveLabel) }
                     }
                 }
             },
@@ -609,7 +624,7 @@ fun ReadListDetailScreen(
                     if (ok) {
                         onBack()
                     } else {
-                        coroutineScope.launch { notifyActionFailure(context.getString(R.string.readlist_delete)) }
+                        coroutineScope.launch { notifyActionFailure(readListDeleteLabel) }
                     }
                 }
             },

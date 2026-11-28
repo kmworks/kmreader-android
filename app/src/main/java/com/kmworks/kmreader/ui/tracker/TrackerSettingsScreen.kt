@@ -63,7 +63,7 @@ import com.kmworks.kmreader.core.tracker.TrackerLinkDto
 import com.kmworks.kmreader.core.tracker.TrackerLinkGroupDto
 import com.kmworks.kmreader.core.tracker.TrackerPreferencesDto
 import com.kmworks.kmreader.core.tracker.TrackerRepository
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 import com.kmworks.kmreader.ui.settings.SettingsMenuRow
 import com.kmworks.kmreader.ui.settings.SettingsPickerRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
@@ -138,7 +138,7 @@ fun TrackerSettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tracker_trackers_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

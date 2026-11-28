@@ -73,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -423,7 +424,9 @@ fun BrowseSortChip(
 @Composable
 fun BrowseOptions.activeFilterLabels(contentType: BrowseContentType): List<ActiveFilter> {
     val context = LocalContext.current
-    val displayLocale = context.resources.configuration.locales[0]
+    // LocalConfiguration (not context.resources.configuration) is the configuration-aware ambient:
+    // it reflects the app's own locale and recomposes when the configuration changes.
+    val displayLocale = LocalConfiguration.current.locales[0]
     val isSeries = contentType == BrowseContentType.Series
     return buildList {
     readStatuses.forEach { (status, state) ->
@@ -473,15 +476,19 @@ fun BrowseOptions.activeFilterLabels(contentType: BrowseContentType): List<Activ
         if (releaseYears.isNotEmpty()) add(ActiveFilter(releaseYears.joinToString(" ∨ "), negative = false))
         if (seriesStatuses.isNotEmpty()) {
             val symbol = if (seriesStatusAllMatch) " ∧ " else " ∨ "
+            // stringResource is a composable call, so the labels are collected in a loop instead of
+            // inside joinToString's (non-composable) lambda.
+            val statusLabels = mutableListOf<String>()
+            seriesStatuses.forEach { statusLabels += stringResource(it.labelRes) }
             add(
                 ActiveFilter(
-                    seriesStatuses.joinToString(symbol) { context.getString(it.labelRes) },
+                    statusLabels.joinToString(symbol),
                     negative = false,
                 ),
             )
         }
         excludedSeriesStatuses.forEach { status ->
-            add(ActiveFilter(context.getString(status.labelRes), negative = true))
+            add(ActiveFilter(stringResource(status.labelRes), negative = true))
         }
     }
     }
@@ -572,8 +579,9 @@ fun BrowseOptionsSheet(
     // chip for this content type.
     val presetsForType = browsePresets.presets.filter { it.contentType == contentType }
     val context = LocalContext.current
-    // Follow the app's own locale (per-app language), not just the system default.
-    val displayLocale = context.resources.configuration.locales[0]
+    // Follow the app's own locale (per-app language), not just the system default; LocalConfiguration
+    // is the configuration-aware ambient (LocalContext's resources copy is not).
+    val displayLocale = LocalConfiguration.current.locales[0]
     // Row order mirrors the iOS MetadataFilterSection: publisher, authors, genres, tags,
     // notable entities, languages, age ratings and release years.
     val metadataDimensions = mutableListOf<MetaDimension>()

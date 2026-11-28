@@ -52,7 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.data.HeatmapDay
 import com.kmworks.kmreader.ui.components.KmDropdownMenu
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 
 /**
  * Reading history stats (mirrors ServerReadingStatsView + ReadingPagesHeatmapView).
@@ -77,7 +77,7 @@ fun ReadingStatsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.stats_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,

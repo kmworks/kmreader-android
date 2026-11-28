@@ -128,10 +128,6 @@
     <string name="reader_back">返回</string>
     <string name="reader_incognito">隐私阅读</string>
     <string name="reader_connection_required">需要连接服务器</string>
-    <string name="reader_close_search">关闭搜索</string>
-    <string name="reader_search_document">搜索文档</string>
-    <string name="reader_previous_match">上一个匹配</string>
-    <string name="reader_next_match">下一个匹配</string>
     <string name="reader_volume_pdf">第 %1$s 卷 · PDF</string>
 
     <!-- Reader: end of book page (mirrors the original end-page content) -->
@@ -192,11 +188,8 @@
     <string name="epub_expand">展开</string>
     <string name="epub_collapse">收起</string>
     <string name="epub_chapter_fallback">第 %1$d 章</string>
-    <string name="epub_volume">第 %1$s 册 · EPUB</string>
-    <string name="epub_chapter_progress">第 %1$d/%2$d 章 · %3$d%%</string>
     <string name="epub_error_locate_book">无法定位书籍</string>
     <string name="epub_error_load_toc">无法加载目录</string>
-    <string name="epub_end_finished">已读完</string>
     <string name="epub_end_return">返回</string>
     <!-- 脚注气泡：注释正文过长被截断，点此跳转到正文中的完整注释 -->
     <string name="epub_footnote_full_note">查看完整注释</string>

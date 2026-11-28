@@ -54,7 +54,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.graphics.scale
 import androidx.core.text.HtmlCompat
+import androidx.core.text.parseAsHtml
 import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.epub.EpubFootnoteImage
 import com.kmworks.kmreader.core.epub.EpubFootnoteNote
@@ -316,7 +318,7 @@ private fun linkifyNoteHtml(
             setBounds(0, 0, bitmap.width, bitmap.height)
         }
     }
-    val parsed = HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_COMPACT, imageGetter, null)
+    val parsed = html.parseAsHtml(HtmlCompat.FROM_HTML_MODE_COMPACT, imageGetter, null)
     val spannable: Spannable = if (parsed is Spannable) parsed else SpannableString(parsed)
     for (span in spannable.getSpans(0, spannable.length, URLSpan::class.java)) {
         val start = spannable.getSpanStart(span)
@@ -362,5 +364,5 @@ private fun decodeNoteImage(
     } ?: return null
     if (maxWidthPx <= 0 || bitmap.width <= maxWidthPx) return bitmap
     val height = (bitmap.height * (maxWidthPx.toFloat() / bitmap.width)).toInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(bitmap, maxWidthPx, height, true)
+    return bitmap.scale(maxWidthPx, height, true)
 }

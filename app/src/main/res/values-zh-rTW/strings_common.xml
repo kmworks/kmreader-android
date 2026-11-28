@@ -17,8 +17,6 @@
     <string name="common_load_failed">載入失敗</string>
     <string name="common_refresh">重新整理</string>
     <string name="common_add">新增</string>
-    <string name="common_remove">移除</string>
-    <string name="common_copy">複製</string>
     <string name="common_confirm">確定</string>
     <string name="common_loading">載入中…</string>
     <string name="common_open">開啟</string>
@@ -27,7 +25,6 @@
     <string name="common_title">標題</string>
     <string name="common_none">無</string>
     <string name="common_off">關</string>
-    <string name="common_on">開</string>
     <string name="common_load_more_failed">載入更多失敗</string>
     <string name="common_offline">離線</string>
     <string name="common_offline_cached_hint">無法連線伺服器，當前顯示快取資料。點選重試</string>
@@ -43,9 +40,6 @@
     <string name="common_refresh_cover">重新整理封面</string>
     <string name="common_unread">未讀</string>
     <string name="common_completed">已讀完</string>
-    <string name="common_unknown">未知</string>
-    <string name="common_yes">是</string>
-    <string name="common_no">否</string>
     <string name="common_page_number">第 %1$d 頁</string>
 
     <plurals name="book_pages">

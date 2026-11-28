@@ -7,7 +7,6 @@
     <string name="dashboard_scope_pinned">Pinned</string>
     <string name="dashboard_pin_libraries">Pin Libraries…</string>
     <string name="dashboard_library_scope">Library Scope</string>
-    <string name="dashboard_filter">Filter</string>
     <string name="dashboard_layout">Layout: %1$s</string>
     <string name="dashboard_action_read">Read</string>
     <string name="dashboard_action_read_incognito">Read Incognito</string>
@@ -109,31 +108,22 @@
     <string name="offline_title">Downloads</string>
     <string name="offline_storage_usage">Storage</string>
     <string name="offline_storage_total">%1$s total</string>
-    <string name="offline_storage_summary">%1$s downloaded of %2$s</string>
     <string name="offline_queue">Download Queue</string>
     <string name="offline_queue_empty">No download tasks</string>
     <string name="offline_queue_empty_caption">Books you download will appear here</string>
     <string name="offline_policy">Download Policy</string>
     <string name="offline_auto_download_unread">Auto-download Unread</string>
-    <string name="offline_auto_download_unread_subtitle">Automatically download unread books on new content (SSE) or when opening a series</string>
     <string name="offline_wifi_only">Wi-Fi Only</string>
-    <string name="offline_wifi_only_subtitle">Pause downloads while on cellular</string>
-    <string name="offline_downloaded_books">Downloaded Books</string>
     <string name="offline_downloaded_empty">No downloaded content</string>
     <string name="offline_downloaded_empty_caption">Downloaded books can be read offline</string>
     <string name="offline_task_pages">%1$d/%2$d pages</string>
     <string name="offline_task_file">Downloading book file</string>
     <string name="offline_task_paused_file">Paused · resumes where it left off</string>
-    <string name="offline_paused_resume">Paused · %1$d pages downloaded, will resume</string>
-    <string name="offline_failed_retry">Download failed, you can retry</string>
     <string name="offline_pause">Pause</string>
     <string name="offline_resume">Resume</string>
     <string name="offline_status_downloading">Downloading</string>
     <string name="offline_status_queued">Queued</string>
-    <string name="offline_status_paused">Paused</string>
-    <string name="offline_status_failed">Failed</string>
     <string name="offline_completed">Completed</string>
-    <string name="offline_delete_free_space">Delete to free up space</string>
     <string name="offline_book_pages_size">%1$d pages · %2$s</string>
     <!-- Login -->
     <string name="login_subtitle">Connect to your Komga server</string>
@@ -153,7 +143,6 @@
     <string name="offline_auto_download_unread_caption">Automatically download unread books for new content (SSE) or when a series detail is opened</string>
     <string name="offline_downloaded">Downloaded books</string>
     <string name="offline_library_scope">Library scope</string>
-    <string name="offline_storage_detail">%1$s downloaded of %2$s</string>
     <string name="offline_task_failed_detail">Download failed — tap to retry</string>
     <string name="offline_task_paused_detail">Paused · %1$d pages downloaded, resumes where it left off</string>
     <string name="offline_wifi_only_caption">Pause downloads on cellular networks</string>

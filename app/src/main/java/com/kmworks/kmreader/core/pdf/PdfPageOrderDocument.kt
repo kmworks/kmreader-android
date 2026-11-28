@@ -7,6 +7,8 @@ import android.graphics.Rect
 import android.net.Uri
 import android.util.Size
 import android.util.SparseArray
+import androidx.core.graphics.createBitmap
+import androidx.core.util.size
 import androidx.pdf.ExperimentalPdfApi
 import androidx.pdf.PdfDocument
 import androidx.pdf.PdfFeature
@@ -94,8 +96,8 @@ class PdfPageOrderDocument(
         val physicalLast = order.positionToPhysical(pageRange.last).coerceAtLeast(0)
         if (physicalLast < physicalFirst) return SparseArray()
         val results = delegate.searchDocument(query, physicalFirst..physicalLast)
-        val remapped = SparseArray<List<PageMatchBounds>>(results.size())
-        for (i in 0 until results.size()) {
+        val remapped = SparseArray<List<PageMatchBounds>>(results.size)
+        for (i in 0 until results.size) {
             remapped.put(order.physicalToPosition(results.keyAt(i)), results.valueAt(i))
         }
         return remapped
@@ -237,10 +239,9 @@ class PdfPageOrderDocument(
         private val fillColorArgb: Int,
     ) : PdfDocument.BitmapSource {
         override suspend fun getBitmap(scaledPageSizePx: Size, tileRegion: Rect?): Bitmap =
-            Bitmap.createBitmap(
+            createBitmap(
                 (tileRegion?.width() ?: scaledPageSizePx.width).coerceAtLeast(1),
                 (tileRegion?.height() ?: scaledPageSizePx.height).coerceAtLeast(1),
-                Bitmap.Config.ARGB_8888,
             ).also { it.eraseColor(fillColorArgb) }
 
         override fun close() {}

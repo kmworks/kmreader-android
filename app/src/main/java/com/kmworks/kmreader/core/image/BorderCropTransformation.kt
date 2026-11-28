@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.core.image
 
 import android.graphics.Bitmap
+import androidx.core.graphics.get
 import coil3.size.Size
 import coil3.transform.Transformation
 import com.kmworks.kmreader.ui.reader.BorderCropMode
@@ -34,7 +35,7 @@ class BorderCropTransformation(private val mode: BorderCropMode) : Transformatio
             val step = max(1, width / 48)
             var x = 0
             while (x < width) {
-                if (!closeTo(input.getPixel(x, y), bg, tolerance)) return false
+                if (!closeTo(input[x, y], bg, tolerance)) return false
                 x += step
             }
             return true
@@ -44,7 +45,7 @@ class BorderCropTransformation(private val mode: BorderCropMode) : Transformatio
             val step = max(1, height / 48)
             var y = 0
             while (y < height) {
-                if (!closeTo(input.getPixel(x, y), bg, tolerance)) return false
+                if (!closeTo(input[x, y], bg, tolerance)) return false
                 y += step
             }
             return true
@@ -80,7 +81,7 @@ class BorderCropTransformation(private val mode: BorderCropMode) : Transformatio
         var b = 0L
         var a = 0L
         for (x in xs) for (y in ys) {
-            val c = bitmap.getPixel(x, y)
+            val c = bitmap[x, y]
             a += (c ushr 24) and 0xFF
             r += (c shr 16) and 0xFF
             g += (c shr 8) and 0xFF

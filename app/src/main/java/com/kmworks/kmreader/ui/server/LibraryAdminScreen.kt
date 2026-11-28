@@ -62,7 +62,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -446,14 +445,17 @@ fun LibraryAdminScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val browse by viewModel.browse.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(state.messageRes) {
-        val res = state.messageRes ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(res))
+    // stringResource is composable, so the message is resolved during composition; the effect
+    // only delivers it (keyed on the same res id, so the delivery timing is unchanged).
+    val messageRes = state.messageRes
+    val message = messageRes?.let { stringResource(it) }
+    LaunchedEffect(messageRes) {
+        message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.consumeMessage()
     }
 

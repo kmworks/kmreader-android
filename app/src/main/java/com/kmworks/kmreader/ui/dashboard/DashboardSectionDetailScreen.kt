@@ -3,7 +3,6 @@ package com.kmworks.kmreader.ui.dashboard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -163,7 +162,7 @@ fun DashboardSectionDetailScreen(
     // The content box has to start under the status bar: if the Scaffold insets it instead, the
     // scrollers stop at the status bar and the bar has no backdrop for that strip (hard seam).
     Scaffold(contentWindowInsets = glassPageContentWindowInsets()) { padding ->
-        BoxWithConstraints(
+        Box(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize(),

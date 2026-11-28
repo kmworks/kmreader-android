@@ -17,8 +17,6 @@
     <string name="common_load_failed">加载失败</string>
     <string name="common_refresh">刷新</string>
     <string name="common_add">添加</string>
-    <string name="common_remove">移除</string>
-    <string name="common_copy">复制</string>
     <string name="common_confirm">确定</string>
     <string name="common_loading">加载中…</string>
     <string name="common_open">打开</string>
@@ -27,7 +25,6 @@
     <string name="common_title">标题</string>
     <string name="common_none">无</string>
     <string name="common_off">关</string>
-    <string name="common_on">开</string>
     <string name="common_load_more_failed">加载更多失败</string>
     <string name="common_offline">离线</string>
     <string name="common_offline_cached_hint">无法连接服务器，当前显示缓存数据。点击重试</string>
@@ -43,9 +40,6 @@
     <string name="common_refresh_cover">刷新封面</string>
     <string name="common_unread">未读</string>
     <string name="common_completed">已读完</string>
-    <string name="common_unknown">未知</string>
-    <string name="common_yes">是</string>
-    <string name="common_no">否</string>
     <string name="common_page_number">第 %1$d 页</string>
 
     <plurals name="book_pages">

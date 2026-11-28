@@ -667,7 +667,7 @@ fun LogsScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_logs)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
@@ -1024,7 +1024,7 @@ internal fun SystemScaffold(
         topBar = {
             TopAppBar(
                 title = { Text(title) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

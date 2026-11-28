@@ -7,15 +7,4 @@
     <string name="download_status_queued">排隊中</string>
     <string name="download_status_paused">已暫停</string>
     <string name="download_status_failed">失敗</string>
-    <string name="core_volume_number">第 %1$s 卷</string>
-    <string name="core_status_ongoing">連載中</string>
-    <string name="core_status_ended">已完結</string>
-    <string name="core_status_abandoned">已棄坑</string>
-    <string name="core_status_hiatus">休刊中</string>
-    <string name="core_sort_number">卷號</string>
-    <string name="core_sort_release_date">釋出日期</string>
-    <string name="core_sort_added_date">新增日期</string>
-    <string name="core_sort_updated_date">更新日期</string>
-    <string name="core_sort_file_size">檔案大小</string>
-    <string name="core_sort_page_count">頁數</string>
 </resources>

@@ -11,7 +11,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -38,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -333,10 +333,10 @@ fun AppRoot(
     )
     // Identifies this appearance of a page rather than the page itself: the same route can be opened again
     // after it was closed, and the motion that slides a page in has to belong to the appearance.
-    var pageSequence by remember { mutableStateOf(0L) }
+    var pageSequence by remember { mutableLongStateOf(0L) }
     // Keeps every metadata-chip jump a distinct request (so a second jump re-applies the filter instead of
     // being treated as unchanged)
-    var filterSequence by remember { mutableStateOf(0L) }
+    var filterSequence by remember { mutableLongStateOf(0L) }
 
     val scope = rememberCoroutineScope()
     // Input on a page that is about to be covered has to give up its focus. The covered page stays
@@ -458,7 +458,7 @@ fun AppRoot(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
         // Overlay navigation on every form factor: the tab bar floats above the pages, so their content keeps the full
         // height and scrolls underneath it, reserving only LocalNavOverlaySpace at the bottom. Wide layouts just cap the
         // capsule width instead of switching to a different bar shape (no more NavigationBar row eating ~80dp on phones).
@@ -959,7 +959,14 @@ private fun OverlayStack(
     // the page above it, and a page drops its own once it is gone.
     val motions = remember { mutableMapOf<Long, PageMotion>() }
     val drawn = stack + leaving
-    drawn.forEach { page -> motions.getOrPut(page.id) { Animatable(1f) } }
+    // The Animatable constructor is @RememberInComposition: it must be created inside remember, and
+    // key(page.id) keeps one remember slot per page appearance so the getOrPut still runs only once.
+    // (RememberReturnType suppressed: the remember result is intentionally unbound — the layers read
+    // the motion back through the map, and the nested getOrPut lambda makes lint infer Unit.)
+    @Suppress("RememberReturnType")
+    drawn.forEach { page ->
+        key(page.id) { remember { motions.getOrPut(page.id) { Animatable(1f) } } }
+    }
     // The gesture drags the page in front; with an empty stack there is nothing to drag.
     SideEffect { backDrag.page = stack.lastOrNull()?.let { motions[it.id] } }
 

@@ -123,7 +123,8 @@ object AppLog {
                     )
                 } else if (parsed.isNotEmpty() && line.isNotEmpty()) {
                     // Multi-line messages such as stack traces: continuation lines merge into the previous entry
-                    val last = parsed.removeLast()
+                    // removeAt(lastIndex): List.removeLast resolves to the platform method on API 35+ only.
+                    val last = parsed.removeAt(parsed.lastIndex)
                     parsed += last.copy(message = last.message + "\n" + line)
                 }
             }

@@ -47,7 +47,7 @@ import com.kmworks.kmreader.core.fonts.FontRepository
 import com.kmworks.kmreader.core.network.SessionManager
 import com.kmworks.kmreader.data.CustomFont
 import com.kmworks.kmreader.data.SampleSystemData
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 import com.kmworks.kmreader.ui.settings.SettingsMenuRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
 import com.kmworks.kmreader.ui.settings.SettingsSection
@@ -142,7 +142,7 @@ fun CustomFontsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.fonts_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

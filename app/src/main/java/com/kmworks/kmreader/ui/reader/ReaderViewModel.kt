@@ -432,7 +432,6 @@ class ReaderViewModel @Inject constructor(
         _uiState.value.bookDtoId?.let { dtoId ->
             runCatching { offlineLibrary.closePdf(dtoId) }
         }
-        super.onCleared()
     }
 
     // ---- Progress reporting (mirrors the original ReaderProgressRecordingGate) ----

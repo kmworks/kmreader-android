@@ -229,6 +229,10 @@ internal fun BookDetailBody(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Strings delivered from deferred callbacks (share intent, save result) are resolved here at
+    // composition: stringResource is a composable call, so it cannot run inside those callbacks.
+    val shareChooserTitle = stringResource(R.string.book_share_chooser)
+    val saveFailedMsg = stringResource(R.string.detail_save_failed)
     // real data: resolve DTO id from registry, fetch book; fall back to sample data
     val state by viewModel.uiState.collectAsState()
     val readLists by viewModel.readLists.collectAsState()
@@ -292,7 +296,7 @@ internal fun BookDetailBody(
                             context.startActivity(
                                 Intent.createChooser(
                                     send,
-                                    context.getString(R.string.book_share_chooser),
+                                    shareChooserTitle,
                                 ),
                             )
                         }
@@ -637,7 +641,7 @@ internal fun BookDetailBody(
                             editOpen = false
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                                snackbarHostState.showSnackbar(saveFailedMsg)
                             }
                         }
                     }
@@ -657,7 +661,7 @@ internal fun BookDetailBody(
                             editOpen = false
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.detail_save_failed))
+                                snackbarHostState.showSnackbar(saveFailedMsg)
                             }
                         }
                     }

@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -111,7 +112,7 @@ fun SmartListDetailScreen(
     val wideListScrollState = rememberScrollState()
     val narrowListScrollState = rememberScrollState()
     // Cache-busting version for "Refresh Cover": re-requests the server cover after incrementing
-    var coverVersion by remember { mutableStateOf(0) }
+    var coverVersion by remember { mutableIntStateOf(0) }
     // Book long-press menu (mirrors the read group of iOS BookContextMenu)
     var menuBook by remember { mutableStateOf<Book?>(null) }
 

@@ -12,7 +12,6 @@
     <string name="server_admin_health">健康状态</string>
     <string name="server_admin_started">启动时间</string>
     <string name="server_admin_uptime">运行时长</string>
-    <string name="server_admin_rel_time">%1$s</string>
 
     <string name="server_admin_section_updates">更新</string>
     <string name="server_admin_update_checks">更新检查</string>
@@ -52,14 +51,11 @@
     <string name="server_admin_shutdown">关闭服务器</string>
     <string name="server_admin_shutdown_confirm">服务器将立即停止，所有用户都会断开连接。</string>
     <string name="server_admin_shutdown_requested">已请求关闭</string>
-
-    <string name="server_admin_library_counts">%1$d 个系列 · %2$d 本书</string>
     <string name="server_admin_total">汇总</string>
     <string name="server_admin_stats_unavailable">该服务器未提供书库统计。</string>
 
     <string name="server_admin_tasks_queue">任务队列</string>
     <string name="server_admin_tasks_total">总任务</string>
-    <string name="server_admin_tasks_queued">排队 %1$d 个</string>
     <string name="server_admin_tasks_cancel_all">取消全部任务</string>
     <string name="server_admin_tasks_cancel_all_confirm">所有排队中的任务都将被丢弃。</string>
     <string name="server_admin_tasks_executed">已执行任务</string>
@@ -156,11 +152,6 @@
     <string name="server_admin_auth_activity_empty">暂无认证活动。</string>
     <string name="server_admin_auth_activity_success">成功</string>
     <string name="server_admin_auth_activity_failure">失败</string>
-    <string name="server_admin_auth_activity_source">来源</string>
-    <string name="server_admin_auth_activity_ip">IP 地址</string>
-    <string name="server_admin_auth_activity_email">邮箱</string>
-    <string name="server_admin_auth_activity_api_key">API 密钥</string>
-    <string name="server_admin_auth_activity_agent">客户端</string>
 
     <string name="server_admin_libraries_manage">书库管理</string>
     <string name="server_admin_library_add">添加书库</string>

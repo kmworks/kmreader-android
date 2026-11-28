@@ -7,7 +7,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import java.io.File
 import java.time.Instant
 import com.kmworks.kmreader.core.download.AutoDownloadUnreadTrigger
@@ -92,6 +94,8 @@ class LogInitProvider : ContentProvider() {
      * entries are deduplicated by timestamp.
      */
     private fun reportHistoricalCrashes(context: Context) {
+        // ApplicationExitInfo exists only on API 30+; older devices keep no system exit log to read.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         runCatching {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val exits = am.getHistoricalProcessExitReasons(context.packageName, 0, 8)
@@ -124,6 +128,7 @@ class LogInitProvider : ContentProvider() {
     }
 
     /** Human-readable name for an [ApplicationExitInfo] reason, including the ones that are not crashes. */
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun describeExit(info: ApplicationExitInfo): String = when (info.reason) {
         ApplicationExitInfo.REASON_CRASH -> "CRASH (Java/Kotlin exception)"
         ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE (native crash)"

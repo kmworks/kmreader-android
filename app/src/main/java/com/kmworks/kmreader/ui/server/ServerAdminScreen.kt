@@ -83,7 +83,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -99,7 +98,7 @@ import com.kmworks.kmreader.core.server.SessionEntry
 import com.kmworks.kmreader.core.server.SessionScope
 import com.kmworks.kmreader.core.server.TaskTypeStatsDto
 import com.kmworks.kmreader.ui.components.relativeTimeLabel
-import com.kmworks.kmreader.ui.settings.SettingsBackIcon
+import com.kmworks.kmreader.ui.settings.settingsBackIcon
 import com.kmworks.kmreader.ui.settings.SettingsDangerRow
 import com.kmworks.kmreader.ui.settings.SettingsMenuRow
 import com.kmworks.kmreader.ui.settings.SettingsRowDivider
@@ -127,15 +126,18 @@ fun ServerAdminScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
     var confirmShutdown by remember { mutableStateOf(false) }
     var confirmCancelAll by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialPage) { viewModel.open(initialPage) }
 
-    LaunchedEffect(state.messageRes) {
-        val res = state.messageRes ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(res))
+    // stringResource is composable, so the message is resolved during composition; the effect
+    // only delivers it (keyed on the same res id, so the delivery timing is unchanged).
+    val messageRes = state.messageRes
+    val message = messageRes?.let { stringResource(it) }
+    LaunchedEffect(messageRes) {
+        message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.consumeMessage()
     }
 
@@ -171,7 +173,7 @@ fun ServerAdminScreen(
                 title = { Text(stringResource(pageTitleRes(state.page))) },
                 // Only the Info page is the root of the split's pane; pages opened from it keep their arrow
                 // so they can return to Info.
-                navigationIcon = SettingsBackIcon(paneRoot = state.page == ServerAdminPage.Info) {
+                navigationIcon = settingsBackIcon(paneRoot = state.page == ServerAdminPage.Info) {
                     IconButton(onClick = {
                         if (state.page == ServerAdminPage.Info) onBack()
                         else viewModel.open(ServerAdminPage.Info)

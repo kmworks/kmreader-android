@@ -79,7 +79,7 @@ fun ReaderDefaultsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.reader_defaults_title)) },
-                navigationIcon = SettingsBackIcon {
+                navigationIcon = settingsBackIcon {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }

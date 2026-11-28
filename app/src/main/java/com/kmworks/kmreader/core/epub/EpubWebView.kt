@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.net.toUri
 import java.io.ByteArrayInputStream
 
 /**
@@ -38,7 +39,7 @@ object EpubWeb {
 
     /** Resolve the href back from a fake-domain URL; null for non-fake domains. */
     fun hrefFromUrl(url: String): String? {
-        val uri = Uri.parse(url)
+        val uri = url.toUri()
         if (uri.host != FAKE_HOST) return null
         val segments = uri.pathSegments ?: return null
         if (segments.size < 2) return null

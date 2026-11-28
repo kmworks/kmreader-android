@@ -1,6 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 import android.app.Activity
+import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -922,6 +923,9 @@ private class InitialApply {
  * scroll position, so this is the only source of position left. Returns null when the view has
  * no usable indicator yet (before the first layout).
  */
+// RestrictedApi: currentPageIndicatorLabel is library-group restricted in the beta; it is the
+// only page-position source that works here (see above), so the restriction is accepted on purpose.
+@SuppressLint("RestrictedApi")
 private fun PdfView.firstVisibleDisplayPage(): Int? =
     currentPageIndicatorLabel.substringBefore('-').substringBefore(' ').trim().toIntOrNull()
 
