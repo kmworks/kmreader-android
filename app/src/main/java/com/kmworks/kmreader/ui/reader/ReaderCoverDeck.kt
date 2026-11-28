@@ -9,7 +9,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -25,6 +27,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.kmworks.kmreader.data.ReaderViewItem
@@ -352,10 +355,40 @@ internal class CoverDeckState(
 }
 
 /**
+ * Whether the slot's content may react to input — the port of `NativeCoverSlotView`'s
+ * `isUserInteractionEnabled = isVisible && isActive`. Only the deck's front slot is provided `true`.
+ *
+ * A Compose UI has no occlusion: a slot composed *under* an opaque sibling is still hit-tested, and
+ * `zIndex` only orders drawing. Without this flag the two idle neighbour slots keep their real
+ * content interactive, so on the last page of a book (where the middle slot holds
+ * [ReaderViewItem.End]) a tap meant for the visible page fires the covered "read next" card
+ * instead — the deck's own tap handling never sees the up, because the card consumes it. The same
+ * goes for a failed page's retry button and the end page's scroll.
+ *
+ * Deliberately *not* solved with a pointer-input consumer on the covered slot: consuming a change
+ * makes the deck's own `positionChange()` read zero (Compose reports a consumed move as no move),
+ * which is exactly what broke dragging before `fix(reader): hidden deck slots must not swallow the
+ * deck's own drags`. Gating the content leaves the gesture stream untouched.
+ */
+internal val LocalCoverSlotInteractive = compositionLocalOf { true }
+
+/**
  * The three-slot cover stack (mirrors NativeCoverPageView/NativeCoverSlotView). Slots are keyed by
  * the item they show, so after a commit the composable that already holds the decoded page moves
  * with its item instead of being rebound — the slot rotation the original gets from reusing three
  * UIViews.
+ *
+ * Invariant: **every in-range slot is composed at all times**, including the two neighbours the user
+ * cannot see. The neighbours' page images are requested (and decoded at display size) here while
+ * idle, which is what makes a turn reveal an already-rendered page instead of one that starts
+ * loading at the moment the front page slides away. Compose paints an `alpha = 0` layer as nothing
+ * while still composing it, so the invisibility costs nothing and must not be "optimized" into
+ * `if (visible)` / a lazy slot list: that reintroduces the first-frame flash the iOS cover deck
+ * fixed in `fix(reader): eliminate cover-mode page-turn flash`. (Also why the slots never hide via
+ * `alpha = 0` *animations*: only the moving slot's translation and shadow animate.)
+ *
+ * [pageContent]'s boolean tells the content whether it is the active front slot; it is the value the
+ * enhancement priority and the interaction flag are derived from.
  */
 @Composable
 internal fun CoverDeck(
@@ -365,7 +398,7 @@ internal fun CoverDeck(
     zoomed: Boolean,
     backgroundColor: Color,
     modifier: Modifier = Modifier,
-    pageContent: @Composable (ReaderViewItem) -> Unit,
+    pageContent: @Composable (ReaderViewItem, Boolean) -> Unit,
 ) {
     SideEffect {
         state.itemCount = items.size
@@ -463,6 +496,7 @@ internal fun CoverDeck(
         }
         for (spec in slots) {
             val item = items[spec.index]
+            val isFront = spec.index == front
             key(item) {
                 // A slot the user can see but must not touch (the page revealed under a forward
                 // turn, or the page sliding in over the front page): swallow its touches so an
@@ -475,6 +509,10 @@ internal fun CoverDeck(
                     modifier = Modifier
                         .fillMaxSize()
                         .zIndex(spec.z)
+                        // A covered slot is rendered for preload only: clear its semantics so
+                        // TalkBack cannot read page numbers or end-page copy that is not on screen
+                        // (the port of `accessibilityElementsHidden` on the iOS cover slot).
+                        .then(if (isFront) Modifier else Modifier.clearAndSetSemantics { })
                         .graphicsLayer {
                             translationX = if (spec.moving) state.dragOffset else 0f
                             alpha = if (spec.visible) 1f else 0f
@@ -488,7 +526,11 @@ internal fun CoverDeck(
                         .background(backgroundColor)
                         .then(if (swallowTouches) ConsumeTouchesModifier else Modifier),
                 ) {
-                    pageContent(item)
+                    // Only the front slot's content reacts to input; a neighbour's actions stay
+                    // inert while it waits underneath (see LocalCoverSlotInteractive).
+                    CompositionLocalProvider(LocalCoverSlotInteractive provides isFront) {
+                        pageContent(item, isFront)
+                    }
                 }
             }
         }

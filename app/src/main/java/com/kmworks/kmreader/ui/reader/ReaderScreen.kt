@@ -1125,6 +1125,13 @@ fun ReaderScreen(
                                 contentColor = pageContentColor,
                                 pageUrl = viewModel::pageImageUrl,
                                 firstHalfOnLeft = firstHalfOnLeft,
+                                // The pre-composed neighbour is a preload cell, not the page being
+                                // read: keep its waifu2x work behind the visible page (plan §7)
+                                enhancementPriority = if (index == pagerState.currentPage) {
+                                    ImageEnhancer.PRIORITY_VISIBLE
+                                } else {
+                                    ImageEnhancer.PRIORITY_ADJACENT
+                                },
                             )
                         }
                     }
@@ -1140,7 +1147,17 @@ fun ReaderScreen(
                             .padding(contentInset)
                             .then(zoomModifier)
                             .then(gestureModifier),
-                    ) { item ->
+                    ) { item, isActive ->
+                        // The two idle neighbours are a preload window: their base image is already
+                        // requested at display size by composition alone, so only their waifu2x work
+                        // is demoted (ADJACENT, plan §7's "相邻页 2"). Keeping them at VISIBLE made
+                        // the *visible* page queue behind them, because the deck composes back,
+                        // middle, then front — the page on screen submitted last.
+                        val priority = if (isActive) {
+                            ImageEnhancer.PRIORITY_VISIBLE
+                        } else {
+                            ImageEnhancer.PRIORITY_ADJACENT
+                        }
                         when {
                             item is ReaderViewItem.End -> endPage(Modifier.fillMaxSize())
                             item is ReaderViewItem.PreviousEnd -> previousEndPage(Modifier.fillMaxSize())
@@ -1152,6 +1169,7 @@ fun ReaderScreen(
                                 contentColor = pageContentColor,
                                 pageUrl = viewModel::pageImageUrl,
                                 firstHalfOnLeft = firstHalfOnLeft,
+                                enhancementPriority = priority,
                             )
                         }
                     }
@@ -1194,6 +1212,11 @@ fun ReaderScreen(
                                     contentColor = pageContentColor,
                                     pageUrl = viewModel::pageImageUrl,
                                     firstHalfOnLeft = firstHalfOnLeft,
+                                    enhancementPriority = if (index == pagerState.currentPage) {
+                                        ImageEnhancer.PRIORITY_VISIBLE
+                                    } else {
+                                        ImageEnhancer.PRIORITY_ADJACENT
+                                    },
                                 )
                             }
                         }
@@ -1778,6 +1801,9 @@ private fun ViewerPage(
     contentColor: Color,
     pageUrl: (Int) -> String?,
     firstHalfOnLeft: Boolean = true,
+    /** waifu2x queue level for this cell's pages (plan §7). A pre-composed neighbour passes
+     * [ImageEnhancer.PRIORITY_ADJACENT] so the page being read always keeps the queue. */
+    enhancementPriority: Int = ImageEnhancer.PRIORITY_VISIBLE,
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -1791,6 +1817,7 @@ private fun ViewerPage(
                 settings = settings,
                 rotationDegrees = rotationDegrees,
                 contentColor = contentColor,
+                enhancementPriority = enhancementPriority,
             )
 
             // Dual-page pair (mirrors the original: no spacing; the two pages align toward the gutter)
@@ -1807,6 +1834,7 @@ private fun ViewerPage(
                     contentColor = contentColor,
                     modifier = Modifier.weight(1f),
                     alignment = Alignment.CenterEnd,
+                    enhancementPriority = enhancementPriority,
                 )
                 PageImage(
                     page = item.second,
@@ -1817,6 +1845,7 @@ private fun ViewerPage(
                     contentColor = contentColor,
                     modifier = Modifier.weight(1f),
                     alignment = Alignment.CenterStart,
+                    enhancementPriority = enhancementPriority,
                 )
             }
 
@@ -1829,6 +1858,7 @@ private fun ViewerPage(
                 contentColor = contentColor,
                 half = if (item.secondHalf) 1 else 0,
                 firstHalfOnLeft = firstHalfOnLeft,
+                enhancementPriority = enhancementPriority,
             )
 
             // The end pages own no pages and are rendered by the caller
@@ -1856,6 +1886,8 @@ private fun PageImage(
     firstHalfOnLeft: Boolean = true,
     /** Content alignment inside the cell (toward the gutter in dual pairs; mirrors the original trailing/leading). */
     alignment: Alignment = Alignment.Center,
+    /** waifu2x queue level; see [ViewerPage]. */
+    enhancementPriority: Int = ImageEnhancer.PRIORITY_VISIBLE,
 ) {
     // The box is sized from the decoded page once it is available, like iOS (which fits by the loaded
     // UIImage size): the server page.width/height is only the pre-load guess, so missing or stale
@@ -1948,7 +1980,13 @@ private fun PageImage(
                         builder = this,
                         config = upscaleConfig,
                         pageUrl = it,
-                        priority = ImageEnhancer.PRIORITY_VISIBLE,
+                        // Priority is a typed extra: it is carried into the decoder but stays out of
+                        // the request's identity (see the memoryCacheKeyExtra note below), so a slot
+                        // changing role (neighbour → front) does not restart the decode it already
+                        // has in flight. The enhancer boosts a queued key when the visible page asks
+                        // for it again, so the demotion only ever applies while the page is a
+                        // preload.
+                        priority = enhancementPriority,
                     )
                     // Coil's default compose equality compares memoryCacheKeyExtras but NOT typed
                     // extras. The ready flag and the upscale config must therefore live here, or a
@@ -2216,6 +2254,9 @@ private fun PageLoadingIndicator(pageNumber: Int, contentColor: Color) {
 /** Load failure placeholder with a retry action. */
 @Composable
 private fun PageErrorIndicator(pageNumber: Int, contentColor: Color, onRetry: () -> Unit) {
+    // A covered cover-deck slot is a preload cell: its retry must not be tappable through the page
+    // on screen (LocalCoverSlotInteractive is false there).
+    val interactive = LocalCoverSlotInteractive.current
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -2223,7 +2264,7 @@ private fun PageErrorIndicator(pageNumber: Int, contentColor: Color, onRetry: ()
                 style = MaterialTheme.typography.titleSmall,
                 color = contentColor.copy(alpha = 0.45f),
             )
-            TextButton(onClick = onRetry) {
+            TextButton(onClick = onRetry, enabled = interactive) {
                 Text(stringResource(R.string.common_retry), color = contentColor)
             }
         }

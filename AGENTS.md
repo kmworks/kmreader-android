@@ -73,6 +73,14 @@ post-generation fixes in `core/api/build.gradle.kts`.
   treatment (see `SseChangeParser` / `SseContentSync`) rather than a blanket reload.
 - **State**: Compose + `StateFlow`, `collectAsStateWithLifecycle`. Per-tab state survives via the
   `SaveableStateProvider` in `AppRoot` — user choices on tab pages belong in `rememberSaveable`.
+- **Cover deck**: `CoverDeck` (`ui/reader/ReaderCoverDeck.kt`) keeps all three slots composed at all
+  times — idle neighbours sit at `alpha = 0`, they are never dropped — because composing them is what
+  requests and decodes the neighbour pages before a turn; gating that on visibility (`if (visible)`,
+  a lazy slot list) brings back the first-frame flash the iOS deck fixed. Only the front slot is
+  interactive or exposed to accessibility (`LocalCoverSlotInteractive`, `clearAndSetSemantics`):
+  Compose hit-tests a covered composable, so a live neighbour's end-page card would fire through the
+  page on screen. Do not fix that with a touch consumer — consuming a change zeroes the deck's own
+  drag deltas (see `fix(reader): hidden deck slots must not swallow the deck's own drags`).
 - **Storage**: Room (cache entities), DataStore (settings, cover stamps), WorkManager (downloads).
 
 ## UI conventions
