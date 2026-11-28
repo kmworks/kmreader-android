@@ -84,7 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1472,15 +1472,14 @@ private fun RealEpubReader(
     }
     // End-page text follows the page background (no second parseColor: lint flags it as String.toColorInt)
     val pageContent = if (pageBackground.luminance() > 0.5f) Color.Black else Color.White
-    // Chrome follows the page theme (mirrors the iOS material-adaptive bars): the bar is the page
-    // background slightly translucent, its text and icons the page's foreground. A hairline
-    // divider separates the bar from the page instead of the old flat black slab.
-    // Floating chrome tint: the page background near-opaque, so the buttons read on both light
-    // and dark themes (mirrors the iOS borderedProminent chrome look)
-    // Floating chrome sits directly over the page text, so it must read as solid: an opaque
-    // disc in the page color plus a hairline border (the iOS borderedProminent material look).
-    val chromeBackground = pageBackground
-    val chromeBorder = pageContent.copy(alpha = 0.10f)
+    // Chrome follows the page theme (mirrors the iOS material-adaptive bars): its text and icons
+    // are the page's foreground, and on a light page its fill stays the page background (a grey
+    // disc on white paper reads heavier than this reader wants). Dark pages cannot keep that fill
+    // — a black disc over black text is bare glyphs — so there the fill steps toward the page's
+    // foreground and the hairline goes with it. See [readerChromeSurface].
+    val chromeSurface = remember(pageBackground, pageContent) {
+        readerChromeSurface(pageBackground, pageContent)
+    }
 
     // Overscroll past an edge is a chapter seam in scrolled mode (mirrors the iOS overscroll
     // chapter switch, reached here by dragging beyond the edge instead of panning past the last
@@ -1653,7 +1652,7 @@ private fun RealEpubReader(
                     .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
                     .padding(top = 8.dp, start = 12.dp),
             ) {
-                FloatingChromeButton(onClick = onBack, background = chromeBackground, border = chromeBorder) {
+                FloatingChromeButton(onClick = onBack, surface = chromeSurface) {
                     Icon(
                         Icons.Filled.Close,
                         contentDescription = stringResource(R.string.epub_close),
@@ -1681,8 +1680,7 @@ private fun RealEpubReader(
                     // An indicator, not an action: no click target, dimmed like the old bare icon.
                     FloatingChromeButton(
                         onClick = null,
-                        background = chromeBackground,
-                        border = chromeBorder,
+                        surface = chromeSurface,
                     ) {
                         Icon(
                             Icons.Filled.VisibilityOff,
@@ -1693,8 +1691,7 @@ private fun RealEpubReader(
                 } else {
                     FloatingChromeButton(
                         onClick = viewModel::toggleBookmark,
-                        background = chromeBackground,
-                        border = chromeBorder,
+                        surface = chromeSurface,
                     ) {
                         Icon(
                             imageVector = if (bookmarkedHere) {
@@ -1770,8 +1767,8 @@ private fun RealEpubReader(
                             ),
                             modifier = Modifier
                                 .width(240.dp)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(chromeBackground)
+                                .shadow(chromeSurface.shadowElevation, RoundedCornerShape(22.dp))
+                                .background(chromeSurface.background)
                                 .padding(horizontal = 12.dp),
                         )
                         QuickActionCapsule(
@@ -1780,8 +1777,7 @@ private fun RealEpubReader(
                             text = stringResource(R.string.epub_toc) +
                                 " · " + "%.1f%%".format(progress * 100f),
                             icon = Icons.AutoMirrored.Filled.List,
-                            background = chromeBackground,
-                            border = chromeBorder,
+                            surface = chromeSurface,
                             contentColor = pageContent,
                             onClick = {
                                 quickActionsExpanded = false
@@ -1791,8 +1787,7 @@ private fun RealEpubReader(
                         QuickActionCapsule(
                             text = stringResource(R.string.epub_book_info),
                             icon = Icons.Outlined.Info,
-                            background = chromeBackground,
-                            border = chromeBorder,
+                            surface = chromeSurface,
                             contentColor = pageContent,
                             onClick = {
                                 quickActionsExpanded = false
@@ -1802,8 +1797,7 @@ private fun RealEpubReader(
                         QuickActionCapsule(
                             text = stringResource(R.string.reader_settings_title),
                             icon = Icons.Filled.Settings,
-                            background = chromeBackground,
-                            border = chromeBorder,
+                            surface = chromeSurface,
                             contentColor = pageContent,
                             onClick = {
                                 quickActionsExpanded = false
@@ -1817,8 +1811,7 @@ private fun RealEpubReader(
                             QuickActionCapsule(
                                 text = stringResource(R.string.reader_menu_previous_book),
                                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                                background = chromeBackground,
-                                border = chromeBorder,
+                                surface = chromeSurface,
                                 contentColor = pageContent,
                                 onClick = {
                                     quickActionsExpanded = false
@@ -1831,8 +1824,7 @@ private fun RealEpubReader(
                             QuickActionCapsule(
                                 text = stringResource(R.string.reader_menu_next_book),
                                 icon = Icons.AutoMirrored.Filled.ArrowForward,
-                                background = chromeBackground,
-                                border = chromeBorder,
+                                surface = chromeSurface,
                                 contentColor = pageContent,
                                 onClick = {
                                     quickActionsExpanded = false
@@ -1845,8 +1837,7 @@ private fun RealEpubReader(
                 }
                 FloatingChromeButton(
                     onClick = { quickActionsExpanded = !quickActionsExpanded },
-                    background = chromeBackground,
-                    border = chromeBorder,
+                    surface = chromeSurface,
                 ) {
                     Icon(
                         if (quickActionsExpanded) Icons.Filled.Close else Icons.Filled.Menu,
@@ -1857,18 +1848,27 @@ private fun RealEpubReader(
             }
         }
 
-        // Return chip for explicit jumps (mirrors the iOS return button): after jumping through the
+        // Return pill for explicit jumps (mirrors the iOS return button): after jumping through the
         // contents, a bookmark, the progress slider or an in-book link, a floating pill offers the
         // trip back to where the jump started.
+        //
+        // It is the only affordance on screen after a jump, so it takes the prominent surface (a
+        // deeper fill and a heavier hairline on a dark page, the heavier hairline alone on a light
+        // one) plus a larger label and icon. At the chrome's 10% step the pill was the page colour
+        // with a hairline on it — on a dark page that reads as loose text, not as a capsule.
         if (positionStack.isNotEmpty() && !showingEndPage && !showingPreviousPage) {
+            val returnSurface = remember(pageBackground, pageContent) {
+                readerChromeSurface(pageBackground, pageContent, prominent = true)
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .padding(start = 16.dp, bottom = 16.dp)
-                    .clip(CircleShape)
-                    .background(chromeBackground)
+                    .shadow(returnSurface.shadowElevation, CircleShape)
+                    .background(returnSurface.background)
+                    .border(1.dp, returnSurface.border, CircleShape)
                     .clickable {
                         val target = viewModel.returnToPreviousPosition() ?: return@clickable
                         // A jump inside the chapter already on screen cannot be performed by the
@@ -1881,19 +1881,20 @@ private fun RealEpubReader(
                             )
                         }
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = null,
                     tint = pageContent,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(7.dp))
                 Text(
                     text = stringResource(R.string.epub_end_return),
                     color = pageContent,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -2078,23 +2079,26 @@ private fun EpubScrollWebView.takeSnapshot(): ImageBitmap? {
 /**
  * Round chrome button on a tinted disc (mirrors the iOS ReaderControlButtonStyle circle).
  *
+ * The disc's fill is [surface]: the page colour on a light page, a step off it on a dark one —
+ * a disc painted in the page colour is invisible there (see [readerChromeSurface]).
+ *
  * A null [onClick] renders the same disc as a status indicator instead of a button: the chrome
  * carries one non-interactive capsule (the incognito marker) that must not look like a control.
  */
 @Composable
 private fun FloatingChromeButton(
     onClick: (() -> Unit)?,
-    background: Color,
-    border: Color,
+    surface: ReaderChromeSurface,
     content: @Composable () -> Unit,
 ) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(44.dp)
-            .clip(CircleShape)
-            .background(background)
-            .border(1.dp, border, CircleShape)
+            // shadow() clips to the shape it draws, so the disc is already a circle here
+            .shadow(surface.shadowElevation, CircleShape)
+            .background(surface.background)
+            .border(1.dp, surface.border, CircleShape)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClick = onClick)
@@ -2118,17 +2122,16 @@ private fun FloatingChromeButton(
 private fun QuickActionCapsule(
     text: String,
     icon: ImageVector,
-    background: Color,
-    border: Color,
+    surface: ReaderChromeSurface,
     contentColor: Color,
     onClick: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(CircleShape)
-            .background(background)
-            .border(1.dp, border, CircleShape)
+            .shadow(surface.shadowElevation, CircleShape)
+            .background(surface.background)
+            .border(1.dp, surface.border, CircleShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
