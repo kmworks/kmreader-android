@@ -244,6 +244,22 @@ fun ReaderSettingsSheet(
                     optionLabel = { stringResource(it.labelRes) },
                     onSelect = { value -> onUpdate { it.copy(upscale = it.upscale.copy(precision = value)) } },
                 )
+                SettingsChoiceRow(
+                    label = stringResource(R.string.reader_upscale_preload_ahead_title),
+                    options = (0..UpscaleSettings.MAX_PRELOAD_AHEAD).toList(),
+                    selected = settings.upscale.preloadAhead,
+                    optionLabel = { value ->
+                        if (value == 0) {
+                            stringResource(R.string.reader_upscale_preload_ahead_off)
+                        } else {
+                            value.toString()
+                        }
+                    },
+                    onSelect = { value ->
+                        onUpdate { it.copy(upscale = it.upscale.copy(preloadAhead = value)) }
+                    },
+                )
+                SettingsHintText(stringResource(R.string.reader_upscale_preload_ahead_hint))
                 SettingsHintText(stringResource(R.string.reader_upscale_hint))
             }
         }

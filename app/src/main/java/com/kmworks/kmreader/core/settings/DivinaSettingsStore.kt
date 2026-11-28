@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
@@ -75,6 +76,8 @@ class DivinaSettingsStore @Inject constructor(
             prefs[Keys.UPSCALE_DENOISE] = next.upscale.denoise.name
             prefs[Keys.UPSCALE_AUTO_SCALE] = next.upscale.autoTriggerScale
             prefs[Keys.UPSCALE_PRECISION] = next.upscale.precision.name
+            prefs[Keys.UPSCALE_PRELOAD_AHEAD] = next.upscale.preloadAhead
+                .coerceIn(0, UpscaleSettings.MAX_PRELOAD_AHEAD)
             prefs[Keys.KEEP_SCREEN_AWAKE] = next.keepScreenAwake
             prefs[Keys.DRAW_UNDER_CUTOUT] = next.drawUnderCutout
             prefs[Keys.DEFAULT_PAGE_LAYOUT] = next.defaultPageLayout.name
@@ -283,6 +286,8 @@ class DivinaSettingsStore @Inject constructor(
                 denoise = enumOrNull<DenoiseLevel>(this[Keys.UPSCALE_DENOISE]) ?: defaults.upscale.denoise,
                 autoTriggerScale = this[Keys.UPSCALE_AUTO_SCALE] ?: defaults.upscale.autoTriggerScale,
                 precision = enumOrNull<UpscalePrecision>(this[Keys.UPSCALE_PRECISION]) ?: defaults.upscale.precision,
+                preloadAhead = (this[Keys.UPSCALE_PRELOAD_AHEAD] ?: defaults.upscale.preloadAhead)
+                    .coerceIn(0, UpscaleSettings.MAX_PRELOAD_AHEAD),
             ),
             keepScreenAwake = this[Keys.KEEP_SCREEN_AWAKE] ?: defaults.keepScreenAwake,
             drawUnderCutout = this[Keys.DRAW_UNDER_CUTOUT] ?: defaults.drawUnderCutout,
@@ -319,6 +324,7 @@ class DivinaSettingsStore @Inject constructor(
         val UPSCALE_DENOISE = stringPreferencesKey("divinaWaifu2xDenoise")
         val UPSCALE_AUTO_SCALE = floatPreferencesKey("divinaWaifu2xAutoTriggerScale")
         val UPSCALE_PRECISION = stringPreferencesKey("divinaWaifu2xPrecision")
+        val UPSCALE_PRELOAD_AHEAD = intPreferencesKey("divinaWaifu2xPreloadAhead")
         /** Kept under its legacy key name (written by the DIVINA-only switch before it became
          *  shared), so an existing user's choice carries over to EPUB and PDF unchanged. */
         val KEEP_SCREEN_AWAKE = booleanPreferencesKey("keepScreenAwakeWhileReading")

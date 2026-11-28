@@ -80,7 +80,13 @@ class EnhancementDecoder private constructor(
             }
         }
 
-        val cacheKey = EnhancementCache.cacheKey(pageUrl, config.denoise)
+        if (priority == ImageEnhancer.PRIORITY_PRELOAD && enhancer.isSlow) {
+            // Background precompute cannot keep up on this device. Do not even decode the full
+            // source, or every settle would still allocate a multi-megapixel bitmap for nothing.
+            return decodeSampled(srcWidth, srcHeight, PRELOAD_DECODE_TARGET, PRELOAD_DECODE_TARGET)
+        }
+
+        val cacheKey = EnhancementCache.cacheKey(pageUrl, config.denoise, config.precision)
         cache.read(cacheKey)?.let {
             info("cache hit (${it.width}x${it.height}): $pageUrl")
             return DecodeResult(it.asImage(), false)
@@ -90,7 +96,7 @@ class EnhancementDecoder private constructor(
         // the bundled model was bumped), but another level of the same page is usually still on disk.
         // Serve it instead of paying a full native re-run for the whole book on the critical path, and
         // regenerate the requested variant in the background; ImageEnhancer.readyKeys swaps it in.
-        val stale = cache.readNearest(pageUrl, config.denoise)
+        val stale = cache.readNearest(pageUrl, config.denoise, config.precision)
         if (stale != null) {
             info(
                 "cache hit, stale denoise=${stale.denoise} for ${config.denoise} " +
@@ -141,6 +147,7 @@ class EnhancementDecoder private constructor(
             // Bounded per-page footprint: the requested variant plus the one that was just served.
             cache.pruneVariants(
                 pageUrl,
+                config.precision,
                 buildSet {
                     add(config.denoise)
                     if (keepAlso != null) add(keepAlso)
@@ -288,7 +295,12 @@ class EnhancementDecoder private constructor(
             if (name == null) fallback else enumValues<T>().firstOrNull { it.name == name } ?: fallback
 
         /** Marks [builder] as an upscaling page request and records the config for the decoder. */
-        fun applyTo(builder: ImageRequest.Builder, config: UpscaleConfig, pageUrl: String, priority: Int) {
+        fun applyTo(
+            builder: ImageRequest.Builder,
+            config: UpscaleConfig,
+            pageUrl: String,
+            priority: Int,
+        ) {
             builder.extras.set(KEY_ENABLED, true)
             builder.extras.set(KEY_PAGE_URL, pageUrl)
             builder.extras.set(KEY_MODE, config.mode.name)

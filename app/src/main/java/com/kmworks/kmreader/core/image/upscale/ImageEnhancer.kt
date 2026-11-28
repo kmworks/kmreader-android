@@ -46,8 +46,23 @@ class ImageEnhancer @Inject constructor(
 
         private const val MAX_CONSECUTIVE_FAILURES = 3
 
-        /** How many finished-page keys the reader keeps for the source→enhanced swap. */
-        private const val MAX_READY_KEYS = 64
+        /**
+         * Hard ceiling for queued native work. Preload tasks are dropped once the queue is full;
+         * visible requests still get in and can boost an existing preload of the same page. Without
+         * this a fast settled-index stream can enqueue more large source bitmaps than the single
+         * worker can drain, turning a short prefetch burst into sustained memory/GPU pressure.
+         */
+        private const val MAX_PENDING_TASKS = 6
+
+        /**
+         * A page that takes this long is beyond what prefetch can hide. Stop admitting background
+         * enhancements for the rest of the reading session; the visible page still runs, but the
+         * queue cannot build up a multi-minute backlog on a slow GPU.
+         */
+        private const val SLOW_TASK_MILLIS = 5_000L
+
+        /** A later quick page proves the slow run was an outlier, so background work may resume. */
+        private const val FAST_RECOVERY_MILLIS = 1_500L
     }
 
     private class Task(
@@ -79,6 +94,15 @@ class ImageEnhancer @Inject constructor(
      */
     val readyKeys: StateFlow<Set<String>> = _readyKeys.asStateFlow()
 
+    private val _processingKeys = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Keys queued or currently inside the native engine. The reader uses this for the per-page
+     * "2x" badge: it appears as soon as the request is queued, pulses while the tile loop runs, and
+     * disappears when the result lands in [readyKeys] (or fails/cancels).
+     */
+    val processingKeys: StateFlow<Set<String>> = _processingKeys.asStateFlow()
+
     @Volatile
     private var generation = 0
 
@@ -87,6 +111,11 @@ class ImageEnhancer @Inject constructor(
 
     @Volatile
     var isDisabled: Boolean = false
+        private set
+
+    /** True after a page took long enough that preloading would only create a backlog. */
+    @Volatile
+    var isSlow: Boolean = false
         private set
 
     private var nextSeq = 0L
@@ -112,6 +141,11 @@ class ImageEnhancer @Inject constructor(
         val deferred: CompletableDeferred<Any?>
         lock.withLock {
             val existing = taskByKey[key]
+            if (existing == null && priority == PRIORITY_PRELOAD &&
+                (isSlow || taskByKey.size >= MAX_PENDING_TASKS)
+            ) {
+                return null
+            }
             if (existing != null) {
                 // Boost a still-queued task when a more urgent request arrives for the same page.
                 if (!existing.started && priority > existing.priority) {
@@ -125,19 +159,28 @@ class ImageEnhancer @Inject constructor(
                 val task = Task(key, priority, distance.coerceAtLeast(0), nextSeq++, gen, deferred) { block() }
                 taskByKey[key] = task
                 queue.add(task)
+                _processingKeys.update { it + key }
                 signal.trySend(Unit)
             }
         }
         return deferred.await() as T?
     }
 
+    /** Park/resume native tile submission while the reader is being touched. */
+    fun setPaused(paused: Boolean) = Waifu2xBridge.setPaused(paused)
+
     /** Invalidates every queued task (chapter switch / leaving the reader) and re-arms the breaker. */
     fun nextGeneration() {
         lock.withLock {
             generation++
+            // Also stop the page already inside nativeProcess; otherwise the queue is empty but the
+            // GPU stays busy for the rest of that 10-15 second page.
+            Waifu2xBridge.cancelInFlight()
             consecutiveFailures = 0
             isDisabled = false
+            isSlow = false
             _readyKeys.value = emptySet()
+            _processingKeys.value = emptySet()
             val iterator = queue.iterator()
             while (iterator.hasNext()) {
                 val task = iterator.next()
@@ -164,6 +207,7 @@ class ImageEnhancer @Inject constructor(
                 val task = queue.poll() ?: return null
                 if (task.generation != generation) {
                     taskByKey.remove(task.key)
+                    _processingKeys.update { it - task.key }
                     task.deferred.complete(null)
                     continue
                 }
@@ -179,6 +223,7 @@ class ImageEnhancer @Inject constructor(
                 signal.receive()
                 continue
             }
+            val startedNs = System.nanoTime()
             val result = try {
                 task.block()
             } catch (e: CancellationException) {
@@ -188,8 +233,10 @@ class ImageEnhancer @Inject constructor(
                 AppLog.w(EnhancementDecoder.APP_TAG, "enhancement failed: ${e::class.simpleName}: ${e.message}")
                 null
             }
+            val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
             lock.withLock {
                 taskByKey.remove(task.key)
+                _processingKeys.update { it - task.key }
                 if (task.generation != generation) {
                     // Superseded while running: the result belongs to the old reading session.
                     task.deferred.complete(null)
@@ -206,11 +253,16 @@ class ImageEnhancer @Inject constructor(
                         }
                     } else {
                         consecutiveFailures = 0
-                        _readyKeys.update { ready ->
-                            // Bounded: trimming only drops stale flags — the enhanced result is in the
-                            // EnhancementCache, so a re-request still resolves to it.
-                            if (ready.size > MAX_READY_KEYS) setOf(task.key) else ready + task.key
+                        if (elapsedMs >= SLOW_TASK_MILLIS) {
+                            isSlow = true
+                            Log.i(TAG, "enhancement took ${elapsedMs}ms; pausing background prefetch")
+                        } else if (elapsedMs <= FAST_RECOVERY_MILLIS) {
+                            isSlow = false
                         }
+                        // Keep every completed key for this reader generation. Trimming this set would
+                        // make a still-visible page silently lose its ready flag (and stay on the
+                        // source bitmap) once enough later pages finish. Generation changes clear it.
+                        _readyKeys.update { it + task.key }
                     }
                     task.deferred.complete(result)
                 }

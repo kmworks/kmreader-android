@@ -56,6 +56,10 @@
     <string name="upscale_precision_auto">自動（FP16，失敗回退）</string>
     <string name="upscale_precision_fp16">FP16（更快）</string>
     <string name="upscale_precision_fp32">FP32（更準）</string>
+    <string name="reader_upscale_badge_description">正在超分 2x</string>
+    <string name="reader_upscale_preload_ahead_title">預處理後續頁數</string>
+    <string name="reader_upscale_preload_ahead_off">僅目前頁</string>
+    <string name="reader_upscale_preload_ahead_hint">目前頁及後續 N 頁會在背景預處理，最多 5 頁。頁數越多翻頁越容易命中，但 GPU 負擔越高。</string>
 
     <!-- Reader: reading direction -->
     <string name="reader_direction_ltr">從左到右</string>

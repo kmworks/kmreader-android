@@ -22,6 +22,7 @@
 #include <android/log.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
@@ -31,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "net.h"
@@ -52,6 +54,14 @@ namespace {
 // waifu2x upconv7 constants (docs/waifu2x-upscaling-plan.md §9)
 constexpr int kScale = 2;
 constexpr int kTileSize = 128;
+// A short pause between tile submissions leaves the GPU command queue a chance to service the
+// compositor. Inference already runs off the UI thread, but a page is 100+ back-to-back
+// submit_and_wait calls and can otherwise monopolize a mobile GPU for seconds.
+constexpr int kTileYieldMs = 2;
+// A waifu2x output is a normalized pixel. Values far outside that range are the FP16
+// overflow/NaN signature seen on some mobile drivers; clamping them produces saturated garbage
+// ("flower screen"), so treat them as a failed page rather than a valid pixel.
+constexpr float kMaxNetworkOutput = 4.f;
 // upconv7 receptive field; equivalent to shrinkSize=7 in the iOS Core ML implementation.
 // (mihon's prepadding=18 is Real-CUGAN specific and does not apply here.)
 constexpr int kPrepadding = 7;
@@ -81,6 +91,24 @@ std::string g_last_stats;
  */
 std::mutex g_log_mutex;
 std::string g_log_path;
+
+/**
+ * Host-control state for the long-running page. The reader advances the generation when it leaves
+ * or switches books; the native loop checks it at every tile boundary and abandons the page instead
+ * of monopolizing the GPU for another 10-15 seconds after the reader is gone. While the user is
+ * actively scrolling, the pause flag parks the loop between tiles so input/compositor work gets the
+ * GPU first. Both are atomics because Kotlin sets them from another thread.
+ */
+std::atomic<unsigned long long> g_generation{0};
+std::atomic<bool> g_paused{false};
+
+bool wait_for_host(unsigned long long generation) {
+    while (true) {
+        if (g_generation.load(std::memory_order_relaxed) != generation) return false;
+        if (!g_paused.load(std::memory_order_relaxed)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+    }
+}
 
 void append_log_line(const char* level, const char* msg) {
     std::lock_guard<std::mutex> lock(g_log_mutex);
@@ -231,8 +259,12 @@ ncnn::Mat make_tile(const unsigned char* rgba, int stride, int w, int h,
     return tile;
 }
 
-/** Writes the scaled tile into the output RGBA buffer at (dx,dy). */
-void write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
+/**
+ * Writes the scaled tile into the output RGBA buffer at (dx,dy). Returns false when the network
+ * produced a non-finite value: converting NaN/Inf through an undefined float->u8 cast is how a
+ * driver-corrupted tile becomes a "flower screen" that then gets cached as a valid PNG.
+ */
+bool write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
                 int dx, int dy, int w, int h) {
     // No output crop: the network's valid convolutions already consume the padding. Feeding a
     // (tile + 2*7) input yields exactly a (2*tile) output whose pixels correspond 1:1 to the
@@ -245,6 +277,12 @@ void write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
     for (int y = 0; y < h; y++) {
         unsigned char* p = rgba + (size_t)(dy + y) * stride + (size_t)dx * 4;
         for (int x = 0; x < w; x++) {
+            if (!std::isfinite(r[x]) || !std::isfinite(g[x]) || !std::isfinite(b[x]) ||
+                std::fabs(r[x]) > kMaxNetworkOutput ||
+                std::fabs(g[x]) > kMaxNetworkOutput ||
+                std::fabs(b[x]) > kMaxNetworkOutput) {
+                return false;
+            }
             p[0] = to_u8(r[x]);
             p[1] = to_u8(g[x]);
             p[2] = to_u8(b[x]);
@@ -255,6 +293,7 @@ void write_tile(const ncnn::Mat& out_tile, unsigned char* rgba, int stride,
         g += out_tile.w;
         b += out_tile.w;
     }
+    return true;
 }
 
 /**
@@ -374,50 +413,75 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
              int w, int h, unsigned char* rgba_out, int out_stride);
 
 /**
- * Runs a tiny page through the real entry point and sanity-checks the result, so it exercises
- * whatever path will be used later (fused shaders included). Doubles as shader warm-up: without
- * it the first real page pays pipeline compilation and looks like a stall.
+ * Runs a page large enough to cross tile boundaries through the real entry point and sanity-checks
+ * the result, so it exercises whatever path will be used later (fused shaders included). It also
+ * uses a padded row stride, matching AndroidBitmap's potentially padded rows. Doubles as shader
+ * warm-up: without it the first real page pays pipeline compilation and looks like a stall.
  */
 bool run_selftest(Waifu2xContext* ctx) {
     const auto t0 = std::chrono::steady_clock::now();
-    const int t = 32;
-    const int out_edge = t * kScale;
-    std::vector<unsigned char> src(static_cast<size_t>(t) * t * 4);
-    std::vector<unsigned char> dst(static_cast<size_t>(out_edge) * out_edge * 4, 0);
-    for (int y = 0; y < t; y++) {
-        for (int x = 0; x < t; x++) {
-            unsigned char* p = src.data() + (static_cast<size_t>(y) * t + x) * 4;
-            p[0] = static_cast<unsigned char>(x * 8);
-            p[1] = static_cast<unsigned char>(y * 8);
-            p[2] = static_cast<unsigned char>((x + y) * 4);
+    // 300x200 -> 2x2 tiles at kTileSize=128. The extra 64 bytes per row catches code that assumes
+    // stride == width * 4, which a 32x32 contiguous image never could.
+    const int tw = 300;
+    const int th = 200;
+    const int in_stride = tw * 4 + 64;
+    const int ow = tw * kScale;
+    const int oh = th * kScale;
+    const int out_stride = ow * 4 + 64;
+    std::vector<unsigned char> src(static_cast<size_t>(in_stride) * th, 0xA5);
+    std::vector<unsigned char> dst(static_cast<size_t>(out_stride) * oh, 0);
+
+    for (int y = 0; y < th; y++) {
+        for (int x = 0; x < tw; x++) {
+            unsigned char* p = src.data() + (static_cast<size_t>(y) * in_stride + x * 4);
+            p[0] = static_cast<unsigned char>(x % 256);
+            p[1] = static_cast<unsigned char>(y % 256);
+            p[2] = static_cast<unsigned char>((x * 3 + y * 5) & 0xFF);
             p[3] = 255;
         }
     }
 
-    if (!process(ctx, src.data(), t * 4, t, t, dst.data(), out_edge * 4)) {
+    if (!process(ctx, src.data(), in_stride, tw, th, dst.data(), out_stride)) {
         const std::string reason = g_last_error.empty() ? std::string("unknown") : g_last_error;
         set_error("self-test: engine run failed: %s", reason.c_str());
         return false;
     }
 
-    int mn = 255;
-    int mx = 0;
-    for (size_t i = 0; i < dst.size(); i += 4) {
-        const int v = dst[i];
-        mn = std::min(mn, v);
-        mx = std::max(mx, v);
-        if (dst[i + 3] != 255) {
-            set_error("self-test: alpha is not opaque (%d at %zu)", dst[i + 3], i);
-            return false;
+    // Every tile must contain real variation. A no-op dispatch or an all-NaN tile previously
+    // produced a plausible-looking alpha and was only discovered by eye on a real page.
+    for (int ty = 0; ty < th; ty += kTileSize) {
+        for (int tx = 0; tx < tw; tx += kTileSize) {
+            int mn = 255;
+            int mx = 0;
+            const int x_end = std::min(tw, tx + kTileSize) * kScale;
+            const int y_end = std::min(th, ty + kTileSize) * kScale;
+            for (int y = ty * kScale; y < y_end; y += 4) {
+                const unsigned char* row = dst.data() + static_cast<size_t>(y) * out_stride;
+                for (int x = tx * kScale; x < x_end; x += 4) {
+                    const int v = row[x * 4 + 1];
+                    mn = std::min(mn, v);
+                    mx = std::max(mx, v);
+                }
+            }
+            if (mx - mn < 8) {
+                set_error("self-test: degenerate tile at (%d,%d): min=%d max=%d", tx, ty, mn, mx);
+                return false;
+            }
         }
     }
-    if (mx - mn < 4) {
-        set_error("self-test: degenerate output (min=%d max=%d)", mn, mx);
-        return false;
+
+    for (int y = 0; y < oh; y++) {
+        const unsigned char* row = dst.data() + static_cast<size_t>(y) * out_stride;
+        for (int x = 0; x < ow; x++) {
+            if (row[x * 4 + 3] != 255) {
+                set_error("self-test: alpha is not opaque at (%d,%d)", x, y);
+                return false;
+            }
+        }
     }
 
     const auto t1 = std::chrono::steady_clock::now();
-    LOGI("self-test ok in %lld ms (fp16=%d vulkan=%d fused=%d)",
+    LOGI("self-test ok in %lld ms (fp16=%d vulkan=%d fused=%d, multi-tile+stride)",
          static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()),
          ctx->use_fp16 ? 1 : 0, ctx->use_vulkan ? 1 : 0, ctx->fused ? 1 : 0);
     return true;
@@ -479,9 +543,12 @@ bool process_tile(Waifu2xContext* ctx,
     }
 
     const auto w0 = clock::now();
-    write_tile(out_tile, out, out_stride,
-               xi0 * kScale, yi0 * kScale,
-               (xi1 - xi0) * kScale, (yi1 - yi0) * kScale);
+    if (!write_tile(out_tile, out, out_stride,
+                    xi0 * kScale, yi0 * kScale,
+                    (xi1 - xi0) * kScale, (yi1 - yi0) * kScale)) {
+        set_error("non-finite network output in tile at (%d,%d)", xi0, yi0);
+        return false;
+    }
     timing.write_us += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - w0).count();
     return true;
 }
@@ -493,8 +560,12 @@ bool process_tile(Waifu2xContext* ctx,
  */
 bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                int w, int h, unsigned char* rgba_out, int out_stride,
-               TileTiming& timing, int& tiles) {
+               TileTiming& timing, int& tiles, unsigned long long run_generation) {
     using clock = std::chrono::steady_clock;
+    if (!wait_for_host(run_generation)) {
+        set_error("upscaling cancelled by the reader");
+        return false;
+    }
     auto us = [](clock::duration d) { return std::chrono::duration_cast<std::chrono::microseconds>(d).count(); };
 
     ncnn::VulkanDevice* vkdev = ncnn::get_gpu_device(ncnn::get_default_gpu_index());
@@ -697,6 +768,14 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                 }
                 timing.write_us += us(clock::now() - w0);
                 tiles++;
+                if (!wait_for_host(run_generation)) {
+                    set_error("upscaling cancelled by the reader");
+                    ok = false;
+                    break;
+                }
+                if (yi1 < h || xi1 < w) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(kTileYieldMs));
+                }
             }
         }
 
@@ -719,8 +798,30 @@ bool run_fused(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                     std::memcpy(rgba_out + static_cast<size_t>(y) * out_stride, page.row(y),
                                 static_cast<size_t>(dstw_px) * 4);
                 }
-                nlog("fused: probe page pixel0 = %u %u %u %u", rgba_out[0], rgba_out[1], rgba_out[2],
-                     rgba_out[3]);
+                // The postproc shader writes alpha 0 for a non-finite network value. Scan the real
+                // page area (row padding is not written) before this result can reach the cache.
+                const int real_w = w * kScale;
+                bool opaque = true;
+                int bad_x = -1;
+                int bad_y = -1;
+                for (int y = 0; y < out_h && opaque; y++) {
+                    const unsigned char* row = rgba_out + static_cast<size_t>(y) * out_stride;
+                    for (int x = 0; x < real_w; x++) {
+                        if (row[x * 4 + 3] != 255) {
+                            opaque = false;
+                            bad_x = x;
+                            bad_y = y;
+                            break;
+                        }
+                    }
+                }
+                if (!opaque) {
+                    set_error("fused: non-finite output at (%d,%d)", bad_x, bad_y);
+                    ok = false;
+                } else {
+                    nlog("fused: probe page pixel0 = %u %u %u %u", rgba_out[0], rgba_out[1],
+                         rgba_out[2], rgba_out[3]);
+                }
             }
             timing.write_us += us(clock::now() - w0);
         }
@@ -769,14 +870,26 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
         return false;
     }
 
+    const unsigned long long run_generation = g_generation.load(std::memory_order_relaxed);
+    if (!wait_for_host(run_generation)) {
+        set_error("upscaling cancelled by the reader");
+        return false;
+    }
+
     TileTiming timing;
     int tiles = 0;
     bool used_fused = false;
 
     if (ctx->fused) {
-        if (run_fused(ctx, rgba_in, in_stride, w, h, rgba_out, out_stride, timing, tiles)) {
+        if (run_fused(ctx, rgba_in, in_stride, w, h, rgba_out, out_stride, timing, tiles,
+                      run_generation)) {
             used_fused = true;
         } else {
+            // A superseded page must not fall through into the staged path: that is the path that
+            // used to keep the GPU busy for another 10+ seconds after the reader closed.
+            if (g_generation.load(std::memory_order_relaxed) != run_generation) {
+                return false;
+            }
             // Sticky off: a driver that rejects the fused shaders will not start accepting them
             // mid-page, and retrying would burn a page of work every time. The fused path only
             // writes into a VRAM page, so the output bitmap is untouched and the staged path can
@@ -799,6 +912,13 @@ bool process(Waifu2xContext* ctx, const unsigned char* rgba_in, int in_stride,
                     return false;
                 }
                 tiles++;
+                if (!wait_for_host(run_generation)) {
+                    set_error("upscaling cancelled by the reader");
+                    return false;
+                }
+                if (yi1 < h || xi1 < w) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(kTileYieldMs));
+                }
             }
         }
     }
@@ -857,11 +977,11 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
     }
 
     // precision_mode mirrors the Kotlin UpscalePrecision enum:
-    //   0 = Auto  — try FP16 storage, prove it on this driver, fall back to FP32 (mihon's default)
-    //   1 = Fp16  — force FP16 storage (still self-tested, so a broken driver errors instead of
-    //               painting artifacts)
-    //   2 = Fp32  — force FP32 storage; the escape hatch for drivers where FP16 passes the
-    //               self-test but pages still band or sparkle
+    //   0 = Auto  — try FP16 storage, prove it on this driver, fall back to FP32
+    //   1 = Fp16  — force FP16 storage (still self-tested)
+    //   2 = Fp32  — force FP32 storage
+    // Every real page is additionally range-checked below, because a synthetic self-test cannot
+    // reproduce every input that makes a driver overflow FP16.
     bool ok = false;
     if (!ctx->use_vulkan) {
         // No compute queue: ncnn runs on CPU where fp16 storage needs a hardware-capable backend.
@@ -875,6 +995,9 @@ Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeInit(
         ok = load_and_verify(ctx, /*fp16=*/true);
         if (!ok && precision_mode == 0) {
             LOGW("fp16 path rejected on this device (%s), retrying with fp32", g_last_error.c_str());
+            ctx->preproc.reset();
+            ctx->postproc_fp32.reset();
+            ctx->postproc_fp16.reset();
             ctx->net.clear();
             ok = load_and_verify(ctx, /*fp16=*/false);
         } else if (!ok) {
@@ -965,6 +1088,20 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeRelease(
     JNIEnv* /* env */, jobject /* thiz */, jlong handle) {
     delete reinterpret_cast<Waifu2xContext*>(handle);
+}
+
+/** Supersedes every in-flight page; the worker abandons it at the next tile boundary. */
+extern "C" JNIEXPORT void JNICALL
+Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeAdvanceGeneration(
+    JNIEnv* /* env */, jobject /* thiz */) {
+    g_generation.fetch_add(1, std::memory_order_relaxed);
+}
+
+/** Parks/resumes the tile loop while the reader is scrolling, so the UI gets the GPU first. */
+extern "C" JNIEXPORT void JNICALL
+Java_com_kmworks_kmreader_core_image_upscale_Waifu2xBridge_nativeSetPaused(
+    JNIEnv* /* env */, jobject /* thiz */, jboolean paused) {
+    g_paused.store(paused == JNI_TRUE, std::memory_order_relaxed);
 }
 
 /** Text of the last native failure (null when nothing failed); surfaced in the in-app log. */

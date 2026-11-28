@@ -140,6 +140,20 @@ object Waifu2xBridge {
         output
     }
 
+    /**
+     * Abandons the page currently inside [process] at its next tile boundary. The reader calls this
+     * when it closes or switches books; without it a 15-second FP32 page keeps the GPU busy long
+     * after the reader has disappeared.
+     */
+    fun cancelInFlight() {
+        runCatching { nativeAdvanceGeneration() }
+    }
+
+    /** Park/resume the native tile loop while the user is actively scrolling. */
+    fun setPaused(paused: Boolean) {
+        runCatching { nativeSetPaused(paused) }
+    }
+
     suspend fun release() = mutex.withLock { releaseLocked() }
 
     private fun releaseLocked() {
@@ -211,4 +225,6 @@ object Waifu2xBridge {
     private external fun nativeProcess(handle: Long, input: Bitmap, output: Bitmap): Boolean
     private external fun nativeIsVulkan(handle: Long): Boolean
     private external fun nativeRelease(handle: Long)
+    private external fun nativeAdvanceGeneration()
+    private external fun nativeSetPaused(paused: Boolean)
 }

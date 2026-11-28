@@ -77,12 +77,23 @@ void main() {
     if (x >= p.outw || y >= p.outh) return;
 
     const int idx = y * p.outw + x;
-    const float r = clamp(out_data[idx], 0.0, 1.0);
-    const float g = clamp(out_data[idx + p.cstep], 0.0, 1.0);
-    const float b = clamp(out_data[idx + 2 * p.cstep], 0.0, 1.0);
+    const float r0 = out_data[idx];
+    const float g0 = out_data[idx + p.cstep];
+    const float b0 = out_data[idx + 2 * p.cstep];
 
-    dst_data[(p.dy + y) * p.dstw_px + (p.dx + x)] =
-        0xFF000000u | uint(round(r * 255.0)) | (uint(round(g * 255.0)) << 8) | (uint(round(b * 255.0)) << 16);
+    // Alpha 0 is a failure sentinel the host scans for after download. clamp(NaN) and rounding a
+    // non-finite float are undefined, and used to turn a broken tile into a cached "flower screen".
+    // 4 is the same plausibility bound as the CPU path: FP16 overflow can be finite but huge.
+    uint pixel = 0u;
+    if (!(isnan(r0) || isinf(r0) || isnan(g0) || isinf(g0) || isnan(b0) || isinf(b0)) &&
+        abs(r0) <= 4.0 && abs(g0) <= 4.0 && abs(b0) <= 4.0) {
+        const float r = clamp(r0, 0.0, 1.0);
+        const float g = clamp(g0, 0.0, 1.0);
+        const float b = clamp(b0, 0.0, 1.0);
+        pixel = 0xFF000000u | uint(round(r * 255.0)) | (uint(round(g * 255.0)) << 8) |
+                (uint(round(b * 255.0)) << 16);
+    }
+    dst_data[(p.dy + y) * p.dstw_px + (p.dx + x)] = pixel;
 }
 )";
 
@@ -116,12 +127,21 @@ void main() {
     if (x >= p.outw || y >= p.outh) return;
 
     const int idx = y * p.outw + x;
-    const float r = clamp(load_half(idx), 0.0, 1.0);
-    const float g = clamp(load_half(idx + p.cstep), 0.0, 1.0);
-    const float b = clamp(load_half(idx + 2 * p.cstep), 0.0, 1.0);
+    const float r0 = load_half(idx);
+    const float g0 = load_half(idx + p.cstep);
+    const float b0 = load_half(idx + 2 * p.cstep);
 
-    dst_data[(p.dy + y) * p.dstw_px + (p.dx + x)] =
-        0xFF000000u | uint(round(r * 255.0)) | (uint(round(g * 255.0)) << 8) | (uint(round(b * 255.0)) << 16);
+    // Alpha 0 is the failure sentinel; see kPostprocFp32Shader.
+    uint pixel = 0u;
+    if (!(isnan(r0) || isinf(r0) || isnan(g0) || isinf(g0) || isnan(b0) || isinf(b0)) &&
+        abs(r0) <= 4.0 && abs(g0) <= 4.0 && abs(b0) <= 4.0) {
+        const float r = clamp(r0, 0.0, 1.0);
+        const float g = clamp(g0, 0.0, 1.0);
+        const float b = clamp(b0, 0.0, 1.0);
+        pixel = 0xFF000000u | uint(round(r * 255.0)) | (uint(round(g * 255.0)) << 8) |
+                (uint(round(b * 255.0)) << 16);
+    }
+    dst_data[(p.dy + y) * p.dstw_px + (p.dx + x)] = pixel;
 }
 )";
 

@@ -41,6 +41,7 @@ import com.kmworks.kmreader.ui.reader.ReadingDirection
 import com.kmworks.kmreader.ui.reader.SplitWidePageMode
 import com.kmworks.kmreader.ui.reader.UpscaleMode
 import com.kmworks.kmreader.ui.reader.UpscalePrecision
+import com.kmworks.kmreader.ui.reader.UpscaleSettings
 import com.kmworks.kmreader.ui.reader.rememberReaderWindowInsetsCss
 
 /**
@@ -242,6 +243,19 @@ fun ReaderDefaultsScreen(
                                 }
                             },
                         )
+                        SettingsRowDivider()
+                        SettingsPickerRow(
+                            title = stringResource(R.string.reader_upscale_preload_ahead_title),
+                            selectedLabel = preloadAheadLabel(divinaSettings.upscale.preloadAhead),
+                            options = (0..UpscaleSettings.MAX_PRELOAD_AHEAD).map {
+                                it to preloadAheadLabel(it)
+                            },
+                            onSelect = { ahead ->
+                                readerSettingsViewModel.update {
+                                    it.copy(upscale = it.upscale.copy(preloadAhead = ahead))
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -325,3 +339,8 @@ private fun progressThresholdLabel(value: Int): String = when (value) {
     0 -> stringResource(R.string.settings_progress_immediately)
     else -> pluralStringResource(R.plurals.book_pages, value, value)
 }
+
+/** 0 is a named mode, positive values are a plain page count. */
+@Composable
+private fun preloadAheadLabel(value: Int): String =
+    if (value == 0) stringResource(R.string.reader_upscale_preload_ahead_off) else value.toString()

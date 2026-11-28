@@ -134,9 +134,10 @@ enum class DenoiseLevel(@StringRes val labelRes: Int) {
 }
 
 /**
- * Waifu2x compute precision. Auto self-tests FP16 on the device's driver and falls back to FP32,
- * which is what mihon does automatically; the explicit levels exist for drivers where the
- * self-test passes but pages still look wrong (FP16 storage can band on some Mali/Adreno builds).
+ * Waifu2x compute precision. Auto prefers FP16 and falls back to FP32 when the driver fails its
+ * self-test; every real page is still range-checked, so a driver that overflows only on real-world
+ * input is rejected instead of painting a "flower screen". FP32 remains the deterministic escape
+ * hatch and is also the fallback path.
  */
 enum class UpscalePrecision(@StringRes val labelRes: Int) {
     Auto(R.string.upscale_precision_auto),
@@ -144,13 +145,25 @@ enum class UpscalePrecision(@StringRes val labelRes: Int) {
     Fp32(R.string.upscale_precision_fp32),
 }
 
-/** Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model). */
+/**
+ * Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model).
+ *
+ * [preloadAhead] is how many *following pages* are preprocessed in the background. The current
+ * visible page always gets a visible-priority request on its own; 0 therefore means "current page
+ * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page item consumes two slots.
+ */
 data class UpscaleSettings(
     val mode: UpscaleMode = UpscaleMode.Auto,
     val denoise: DenoiseLevel = DenoiseLevel.Low,
     val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
     val precision: UpscalePrecision = UpscalePrecision.Auto,
-)
+    val preloadAhead: Int = DEFAULT_PRELOAD_AHEAD,
+) {
+    companion object {
+        const val DEFAULT_PRELOAD_AHEAD = 3
+        const val MAX_PRELOAD_AHEAD = 5
+    }
+}
 
 /**
  * DIVINA reader settings (mirrors the original ReaderSettingsSheet's @AppStorage keys and defaults).
