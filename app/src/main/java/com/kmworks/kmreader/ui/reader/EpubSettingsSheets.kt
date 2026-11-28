@@ -167,6 +167,7 @@ fun epubOverlayItemLabelRes(item: EpubOverlayItem): Int = when (item) {
     EpubOverlayItem.CHAPTER_PROGRESS_PERCENT -> R.string.epub_overlay_item_chapter_progress
     EpubOverlayItem.CHAPTER_REMAINING -> R.string.epub_overlay_item_chapter_remaining
     EpubOverlayItem.CHAPTER_POSITION -> R.string.epub_overlay_item_chapter_position
+    EpubOverlayItem.BOOK_POSITION -> R.string.epub_overlay_item_book_position
 }
 
 /** Theme preset row (mirrors EpubThemePresetDisplayItem). */

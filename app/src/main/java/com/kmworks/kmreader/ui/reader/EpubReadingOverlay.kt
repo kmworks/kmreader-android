@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kmworks.kmreader.R
+import com.kmworks.kmreader.core.epub.EpubBookPageProgress
 import com.kmworks.kmreader.core.reader.EpubOverlayContent
 import com.kmworks.kmreader.core.reader.EpubOverlayEntry
 import com.kmworks.kmreader.core.reader.EpubOverlayPreferences
@@ -43,6 +44,7 @@ private fun epubOverlayStrings() = EpubOverlayStrings(
     remaining = stringResource(R.string.epub_overlay_remaining),
     chapterProgress = stringResource(R.string.epub_overlay_chapter_progress),
     chapterPosition = stringResource(R.string.epub_overlay_chapter_position),
+    bookPosition = stringResource(R.string.epub_overlay_book_position),
     pagesLeft = stringResource(R.string.epub_overlay_pages_left),
     lastPage = stringResource(R.string.epub_overlay_last_page),
 )
@@ -70,6 +72,8 @@ internal fun EpubReadingOverlay(
     currentPage: Int,
     totalPages: Int,
     chapterProgressFraction: Float?,
+    /** Whole-book page position (measured + estimated counts); null while the reader has none. */
+    bookPage: EpubBookPageProgress?,
     isRtl: Boolean,
     textColor: Color,
     drawUnderCutout: Boolean,
@@ -85,6 +89,7 @@ internal fun EpubReadingOverlay(
         currentPage = currentPage,
         totalPages = totalPages,
         chapterProgressFraction = chapterProgressFraction,
+        bookPage = bookPage,
         isRtl = isRtl,
         strings = epubOverlayStrings(),
     )
