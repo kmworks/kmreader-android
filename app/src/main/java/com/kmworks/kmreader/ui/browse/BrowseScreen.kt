@@ -1029,4 +1029,3 @@ private fun SearchListRow(entry: SampleData.ListEntry, icon: ImageVector, onClic
         }
     }
 }
-

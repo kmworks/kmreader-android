@@ -110,9 +110,64 @@ enum class BorderCropMode(@StringRes val labelRes: Int, val maxFraction: Float, 
     Aggressive(R.string.reader_crop_aggressive, 0.20f, 24)
 }
 
+/** Waifu2x upscaling trigger (mirrors the iOS upscale setting: off / auto when enlarged on screen / always). */
+enum class UpscaleMode(@StringRes val labelRes: Int) {
+    Off(R.string.reader_off),
+    Auto(R.string.upscale_mode_auto),
+    Always(R.string.upscale_mode_always),
+}
+
+/**
+ * Waifu2x denoise weights (mirrors the iOS noise level choice: 无降噪 + noise0..3).
+ * Maps 1:1 onto Waifu2xBridge.DenoiseModel.
+ */
+enum class DenoiseLevel(@StringRes val labelRes: Int) {
+    None(R.string.upscale_denoise_none),
+    Low(R.string.upscale_denoise_low),
+    Medium(R.string.upscale_denoise_medium),
+    High(R.string.upscale_denoise_high),
+    Max(R.string.upscale_denoise_max),
+    ;
+
+    val bridgeModel: com.kmworks.kmreader.core.image.upscale.Waifu2xBridge.DenoiseModel
+        get() = com.kmworks.kmreader.core.image.upscale.Waifu2xBridge.DenoiseModel.valueOf(name.uppercase())
+}
+
+/**
+ * Waifu2x compute precision. Auto prefers FP16 and falls back to FP32 when the driver fails its
+ * self-test; every real page is still range-checked, so a driver that overflows only on real-world
+ * input is rejected instead of painting a "flower screen". FP32 remains the deterministic escape
+ * hatch and is also the fallback path.
+ */
+enum class UpscalePrecision(@StringRes val labelRes: Int) {
+    Auto(R.string.upscale_precision_auto),
+    Fp16(R.string.upscale_precision_fp16),
+    Fp32(R.string.upscale_precision_fp32),
+}
+
+/**
+ * Waifu2x upscaling settings (default Auto + Low matches the iOS waifu2x photo noise0 model).
+ *
+ * [preloadAhead] is how many *following pages* are preprocessed in the background. The current
+ * visible page always gets a visible-priority request on its own; 0 therefore means "current page
+ * only", and the UI/store clamp it to [MAX_PRELOAD_AHEAD]. A dual-page item consumes two slots.
+ */
+data class UpscaleSettings(
+    val mode: UpscaleMode = UpscaleMode.Auto,
+    val denoise: DenoiseLevel = DenoiseLevel.Low,
+    val autoTriggerScale: Float = com.kmworks.kmreader.core.image.upscale.UpscaleConfig.DEFAULT_AUTO_TRIGGER_SCALE,
+    val precision: UpscalePrecision = UpscalePrecision.Auto,
+    val preloadAhead: Int = DEFAULT_PRELOAD_AHEAD,
+) {
+    companion object {
+        const val DEFAULT_PRELOAD_AHEAD = 3
+        const val MAX_PRELOAD_AHEAD = 5
+    }
+}
+
 /**
  * DIVINA reader settings (mirrors the original ReaderSettingsSheet's @AppStorage keys and defaults).
- * Panel mode / Waifu2x upscaling / Live Text are not implemented per project constraints; recorded in the README differences list.
+ * Panel mode / Live Text are not implemented per project constraints; recorded in the README differences list.
  *
  * defaultPageLayout/defaultSplitWideMode/defaultSoloCoverPage correspond to the original DivinaPreferencesView's
  * "Default Reading Options": consumed only as initial values when opening a new session; in-reader changes are not
@@ -136,6 +191,7 @@ data class DivinaSettings(
     val longPressAction: LongPressAction = LongPressAction.ContextMenu,
     val preloadProfile: PreloadProfile = PreloadProfile.Balanced,
     val borderCrop: BorderCropMode = BorderCropMode.Disabled,
+    val upscale: UpscaleSettings = UpscaleSettings(),
     /**
      * Keep the display awake while a book is open. Shared by both readers (DIVINA and EPUB): one
      * switch under Reader Defaults, mirrored in each reader's settings panel, so it is never

@@ -831,4 +831,3 @@ private fun EpubNavRow(title: String, subtitle: String, onClick: () -> Unit) {
         )
     }
 }
-

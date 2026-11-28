@@ -56,6 +56,9 @@ internal interface ReaderTurnState {
     /** The index that last finished a turn (what progress/preload/unread effects observe). */
     val settledIndex: Int
 
+    /** True while a finger is turning the page or a programmed turn is still animating. */
+    val isScrolling: Boolean
+
     /** Jump without animation (slider, page jump, layout re-anchor). */
     suspend fun scrollTo(index: Int)
 
@@ -69,6 +72,7 @@ internal class PagerTurnState(
 ) : ReaderTurnState {
     override val currentIndex: Int get() = pagerState.currentPage
     override val settledIndex: Int get() = pagerState.settledPage
+    override val isScrolling: Boolean get() = pagerState.isScrollInProgress
     override suspend fun scrollTo(index: Int) = pagerState.scrollToPage(index)
     override suspend fun animateTo(index: Int) = pagerState.animateScrollToPage(index)
 }
@@ -138,6 +142,7 @@ internal class CoverDeckState(
 
     override val currentIndex: Int get() = frontIndex
     override val settledIndex: Int get() = settledIndexState
+    override val isScrolling: Boolean get() = dragging || animating
 
     private val lastIndex: Int get() = (itemCount - 1).coerceAtLeast(0)
 

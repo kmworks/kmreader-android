@@ -3,11 +3,19 @@ package com.kmworks.kmreader.ui.reader
 import android.app.Activity
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +56,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,9 +106,11 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -121,6 +132,10 @@ import com.kmworks.kmreader.R
 import com.kmworks.kmreader.core.data.ReaderAdjacentBooks
 import com.kmworks.kmreader.core.data.ImageLoaderEntryPoint
 import com.kmworks.kmreader.core.image.BorderCropTransformation
+import com.kmworks.kmreader.core.image.upscale.EnhancementCache
+import com.kmworks.kmreader.core.image.upscale.EnhancementDecoder
+import com.kmworks.kmreader.core.image.upscale.ImageEnhancer
+import com.kmworks.kmreader.core.image.upscale.UpscaleConfig
 import com.kmworks.kmreader.core.logging.AppLog
 import com.kmworks.kmreader.data.Book
 import com.kmworks.kmreader.data.ReaderPage
@@ -134,6 +149,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private val PageFill = Color(0xFF1C1C1F)
@@ -291,6 +307,19 @@ fun ReaderScreen(
     }
     val sessionLoader by entryPoint.imageCacheStore().pageLoader.collectAsState()
     val imageLoader = sessionLoader ?: remember { SingletonImageLoader.get(context) }
+    val imageEnhancer = remember { entryPoint.imageEnhancer() }
+    // Upscaling diagnostics go to the in-app log too, so a device without adb can be inspected
+    // from the Logs screen instead (tag "Upscale").
+    LaunchedEffect(sessionLoader != null) {
+        AppLog.i(
+            EnhancementDecoder.APP_TAG,
+            "reader image loader: " + if (sessionLoader != null) {
+                "page loader (upscale decoder registered)"
+            } else {
+                "SINGLETON fallback (no upscale decoder)"
+            },
+        )
+    }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(presentedBook, incognito, startAtEnd) {
@@ -322,7 +351,13 @@ fun ReaderScreen(
     // the process disappears (the log file survives the crash).
     DisposableEffect(presentedBook.id) {
         AppLog.i("Reader", "open book=${presentedBook.id} incognito=$incognito ${heapFootprint()}")
-        onDispose { AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}") }
+        onDispose {
+            // Book switch or reader exit: drop every queued enhancement of this reading session and
+            // abort the page already inside nativeProcess (docs/waifu2x-upscaling-plan.md §7).
+            imageEnhancer.setPaused(false)
+            imageEnhancer.nextGeneration()
+            AppLog.i("Reader", "close book=${presentedBook.id} ${heapFootprint()}")
+        }
     }
     val readerPages = uiState.pages
     val soloPages by viewModel.soloPages.collectAsStateWithLifecycle()
@@ -474,6 +509,20 @@ fun ReaderScreen(
     val pagerTurnState = remember(pagerState) { PagerTurnState(pagerState) }
     val turnState: ReaderTurnState = if (coverDeck) deckState else pagerTurnState
 
+    // While a finger is on the page (or a programmed turn is animating), let the native tile loop
+    // park between tiles. The current tile still finishes, but scrolling no longer competes with a
+    // 10-15 second FP32 upscale for the GPU command queue.
+    LaunchedEffect(isWebtoon, turnState, webtoonState, imageEnhancer) {
+        snapshotFlow {
+            if (isWebtoon) webtoonState.isScrollInProgress else turnState.isScrolling
+        }.distinctUntilChanged().collect { scrolling ->
+            imageEnhancer.setPaused(scrolling)
+        }
+    }
+    DisposableEffect(imageEnhancer) {
+        onDispose { imageEnhancer.setPaused(false) }
+    }
+
     // Page-load lifecycle in the trail: a death before Ready (or right after it) reads very differently
     // from one while paging through already decoded images.
     LaunchedEffect(uiState.status, items.size, uiState.bookDtoId) {
@@ -544,18 +593,47 @@ fun ReaderScreen(
     }
 
     // Preload window (mirrors ReaderPageLoadScheduler: 0.3s debounce + preloadProfile window + Wi-Fi-only gate).
-    // The prefetch warms the disk cache only: a prefetched full-size decode would be rejected by the
-    // sized display request (Precision.EXACT), so decoding here just burns heap on bitmaps that can
-    // never be shown.
-    LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload) {
+    // With upscaling enabled the prefetch also warms the EnhancementCache through the enhancer queue
+    // (docs/waifu2x-upscaling-plan.md §5.3); otherwise it warms the disk cache only: a prefetched
+    // full-size decode would be rejected by the sized display request (Precision.EXACT), so decoding
+    // here just burns heap on bitmaps that can never be shown.
+    LaunchedEffect(turnState, items, uiState.bookDtoId, imageLoader, settings.preloadProfile, wifiOnlyPreload, settings.upscale) {
         snapshotFlow { turnState.settledIndex }
             .debounce(300)
             .collect { index ->
                 if (uiState.bookDtoId == null) return@collect
                 if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
+                val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
+                // The current item is already requested at PRIORITY_VISIBLE. Preprocessing is
+                // forward-only and counted in actual pages: one page consumes one slot, so a
+                // dual-page item consumes two slots.
+                val enhancedPages = HashSet<Int>()
+                if (upscale != null) {
+                    var remaining = ahead
+                    var cursor = index + 1
+                    while (remaining > 0 && cursor < items.size) {
+                        for (number in items[cursor]?.pages.orEmpty()) {
+                            if (remaining <= 0) break
+                            viewModel.pageImageUrl(number)?.let { url ->
+                                imageLoader.enhancedPreload(context, url, upscale)
+                                enhancedPages += number
+                                remaining--
+                            }
+                        }
+                        cursor++
+                    }
+                }
+                // The original disk-prefetch window is intentionally unchanged: previous pages may
+                // still have their source bytes warmed, but only pages after the current one enter
+                // the waifu2x queue.
                 for (i in (index - profile.before)..(index + profile.after)) {
+                    if (i == index) continue
                     items.getOrNull(i)?.pages?.forEach { number ->
+                        // Do not decode the same future page twice; everything outside the
+                        // configured forward enhancement window only warms the source disk cache.
+                        if (number in enhancedPages) return@forEach
                         viewModel.pageImageUrl(number)?.let { url ->
                             imageLoader.enqueueDiskPreload(context, url)
                         }
@@ -584,7 +662,7 @@ fun ReaderScreen(
         }
     }
     // Webtoon: preloading + progress reporting
-    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload, progressArmed) {
+    LaunchedEffect(webtoonState, uiState.bookDtoId, isWebtoon, items, imageLoader, settings.preloadProfile, wifiOnlyPreload, progressArmed, settings.upscale) {
         if (!isWebtoon || !progressArmed) return@LaunchedEffect
         snapshotFlow { webtoonState.firstVisibleItemIndex }
             .debounce(300)
@@ -592,10 +670,32 @@ fun ReaderScreen(
                 if (uiState.bookDtoId == null) return@collect
                 items.getOrNull(index)?.pages?.maxOrNull()?.let { viewModel.reportProgress(it) }
                 if (wifiOnlyPreload && !isWifiConnected(context)) return@collect
+                val upscale = settings.upscale.takeIf { it.mode != UpscaleMode.Off }
+                val ahead = upscale?.preloadAhead ?: 0
                 val profile = settings.preloadProfile
+                // Same forward-only, page-counted split as the paged reader.
+                val enhancedPages = HashSet<Int>()
+                if (upscale != null) {
+                    var remaining = ahead
+                    var cursor = index + 1
+                    while (remaining > 0 && cursor < items.size) {
+                        for (number in items[cursor]?.pages.orEmpty()) {
+                            if (remaining <= 0) break
+                            viewModel.pageImageUrl(number)?.let { url ->
+                                imageLoader.enhancedPreload(context, url, upscale)
+                                enhancedPages += number
+                                remaining--
+                            }
+                        }
+                        cursor++
+                    }
+                }
+                // Same as the paged reader: keep the original disk window, forward-only for waifu2x.
                 for (i in (index - profile.before)..(index + profile.after)) {
-                    items.getOrNull(i)?.pages?.forEach { n ->
-                        viewModel.pageImageUrl(n)?.let { url ->
+                    if (i == index) continue
+                    items.getOrNull(i)?.pages?.forEach { number ->
+                        if (number in enhancedPages) return@forEach
+                        viewModel.pageImageUrl(number)?.let { url ->
                             imageLoader.enqueueDiskPreload(context, url)
                         }
                     }
@@ -1761,6 +1861,14 @@ private fun PageImage(
     // UIImage size): the server page.width/height is only the pre-load guess, so missing or stale
     // metadata cannot leave a band inside an otherwise width-hugging box.
     var imageState by remember(page.number, half) { mutableStateOf<AsyncImagePainter.State?>(null) }
+    // Kept across a model swap (source → enhanced): while the sharp version decodes, the frame
+    // keeps painting the bitmap the reader was already looking at instead of flashing a spinner.
+    var lastPainter by remember(page.number, half) {
+        mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null)
+    }
+    LaunchedEffect(imageState) {
+        (imageState as? AsyncImagePainter.State.Success)?.let { lastPainter = it.painter }
+    }
     val decodedRatio = (imageState as? AsyncImagePainter.State.Success)
         ?.painter?.intrinsicSize
         ?.takeIf { it.width > 0f && it.height > 0f }
@@ -1790,6 +1898,38 @@ private fun PageImage(
     }
     val context = LocalContext.current
     val crop = settings.borderCrop
+    val upscale = settings.upscale
+    // Watched per page cell: each finished enhancement flips this page's request key, which swaps
+    // the already-visible source bitmap for the cached 2x one (plan §5.4, item 3).
+    val imageEnhancer = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, ImageLoaderEntryPoint::class.java)
+            .imageEnhancer()
+    }
+    val enhancedKeys by imageEnhancer.readyKeys.collectAsState()
+    val processingKeys by imageEnhancer.processingKeys.collectAsState()
+    val upscaleConfig = remember(upscale) {
+        UpscaleConfig(
+            mode = upscale.mode,
+            denoise = upscale.denoise,
+            autoTriggerScale = upscale.autoTriggerScale,
+            precision = upscale.precision,
+        )
+    }
+    val pageCacheKey = remember(url, upscaleConfig) {
+        url?.takeIf { upscaleConfig.mode != UpscaleMode.Off }?.let {
+            EnhancementCache.cacheKey(it, upscaleConfig.denoise, upscaleConfig.precision)
+        }
+    }
+    // Coil compares requests by value, so the completion flag must be part of this page's request
+    // extras. Keying the request on the global ready set alone is a no-op: the rebuilt request is
+    // equal to the old one and the painter never restarts.
+    val enhancementReady = pageCacheKey != null && pageCacheKey in enhancedKeys
+    val enhancementProcessing = pageCacheKey != null && pageCacheKey in processingKeys
+    LaunchedEffect(enhancementReady, url) {
+        if (enhancementReady && url != null) {
+            AppLog.i(EnhancementDecoder.APP_TAG, "enhanced page ready, refreshing request: $url")
+        }
+    }
     // Mirrors the original ReaderBackground.appliesImageMultiplyBlend: a sepia background multiplies
     // into the page image
     val blendFilter = if (settings.background.appliesImageMultiplyBlend) {
@@ -1797,11 +1937,31 @@ private fun PageImage(
     } else {
         null
     }
-    val request = remember(context, url, crop) {
+    val request = remember(context, url, crop, upscaleConfig, enhancementReady) {
         url?.let {
             ImageRequest.Builder(context).data(it).apply {
                 if (crop != BorderCropMode.Disabled) {
                     transformations(BorderCropTransformation(crop))
+                }
+                if (upscaleConfig.mode != UpscaleMode.Off) {
+                    EnhancementDecoder.applyTo(
+                        builder = this,
+                        config = upscaleConfig,
+                        pageUrl = it,
+                        priority = ImageEnhancer.PRIORITY_VISIBLE,
+                    )
+                    // Coil's default compose equality compares memoryCacheKeyExtras but NOT typed
+                    // extras. The ready flag and the upscale config must therefore live here, or a
+                    // rebuilt request is considered equal and the current painter never restarts.
+                    memoryCacheKeyExtra(
+                        "waifu2x",
+                        "${upscaleConfig.mode}:${upscaleConfig.denoise}:" +
+                            "${upscaleConfig.precision}:${upscaleConfig.autoTriggerScale}:" +
+                            "ready=$enhancementReady",
+                    )
+                    // Upscaled pages are ~4x the source pixels; they live in the EnhancementCache
+                    // instead of Coil's memory cache (docs/waifu2x-upscaling-plan.md §5.4).
+                    memoryCachePolicy(CachePolicy.DISABLED)
                 }
             }.build()
         }
@@ -1861,7 +2021,13 @@ private fun PageImage(
                     onState = { imageState = it },
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                    PageImageStates(
+                        pageNumber = page.number,
+                        contentColor = contentColor,
+                        fallbackPainter = lastPainter,
+                        fallbackScale = ContentScale.Crop,
+                        fallbackAlignment = if (halfAnchorLeft) Alignment.CenterStart else Alignment.CenterEnd,
+                    )
                 }
             } else {
                 SubcomposeAsyncImage(
@@ -1873,8 +2039,91 @@ private fun PageImage(
                     onState = { imageState = it },
                     modifier = Modifier.fillMaxSize().then(rotationModifier),
                 ) {
-                    PageImageStates(pageNumber = page.number, contentColor = contentColor)
+                    PageImageStates(
+                        pageNumber = page.number,
+                        contentColor = contentColor,
+                        fallbackPainter = lastPainter,
+                        fallbackScale = ContentScale.Fit,
+                    )
                 }
+            }
+            // Mirrors the iOS in-page waifu2x badge: a split page is one enhancement but two
+            // cells, so only its first cell owns the badge. It pulses while the page is queued or
+            // running and fades out when the enhanced bitmap is ready.
+            val badgeAlignment = when {
+                half == null -> Alignment.TopEnd
+                halfAnchorLeft -> Alignment.TopStart
+                else -> Alignment.TopEnd
+            }
+            UpscaleProcessingBadge(
+                visible = enhancementProcessing && (half == null || half == 0),
+                modifier = Modifier
+                    .align(badgeAlignment)
+                    .padding(10.dp),
+            )
+        }
+    }
+}
+
+/** iOS-style orange "magnifier 2x" badge, shown only while waifu2x is working on the page. */
+@Composable
+private fun UpscaleProcessingBadge(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(240)) + scaleIn(initialScale = 0.96f),
+        exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.96f),
+    ) {
+        val pulse = rememberInfiniteTransition(label = "upscaleBadge")
+        val pulseAlpha by pulse.animateFloat(
+            initialValue = 0.76f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "upscaleBadgeAlpha",
+        )
+        val pulseScale by pulse.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.03f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "upscaleBadgeScale",
+        )
+        Surface(
+            color = Color(0xFFE89B3C).copy(alpha = 0.88f),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.graphicsLayer {
+                alpha = pulseAlpha
+                scaleX = pulseScale
+                scaleY = pulseScale
+            },
+        ) {
+            Row(
+                modifier = Modifier
+                    .height(24.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ZoomIn,
+                    contentDescription = stringResource(R.string.reader_upscale_badge_description),
+                    tint = Color.White,
+                    modifier = Modifier.size(11.dp),
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    text = "2x",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }
@@ -1911,10 +2160,29 @@ private fun FitRatioBox(
 
 /** Loading/error/success states of SubcomposeAsyncImage (the coil3 state is a StateFlow and must be collected). */
 @Composable
-private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(pageNumber: Int, contentColor: Color) {
+private fun coil3.compose.SubcomposeAsyncImageScope.PageImageStates(
+    pageNumber: Int,
+    contentColor: Color,
+    fallbackPainter: androidx.compose.ui.graphics.painter.Painter? = null,
+    fallbackScale: ContentScale = ContentScale.Fit,
+    fallbackAlignment: Alignment = Alignment.Center,
+) {
     val state by painter.state.collectAsState()
     when (state) {
-        is AsyncImagePainter.State.Loading -> PageLoadingIndicator(pageNumber = pageNumber, contentColor = contentColor)
+        is AsyncImagePainter.State.Loading ->
+            if (fallbackPainter != null) {
+                // Model swapped (source → enhanced page): keep the previous bitmap on screen while
+                // the new one decodes, so the page never blinks back to the placeholder.
+                Image(
+                    painter = fallbackPainter,
+                    contentDescription = null,
+                    contentScale = fallbackScale,
+                    alignment = fallbackAlignment,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                PageLoadingIndicator(pageNumber = pageNumber, contentColor = contentColor)
+            }
         is AsyncImagePainter.State.Error -> PageErrorIndicator(
             pageNumber = pageNumber,
             contentColor = contentColor,
@@ -2116,6 +2384,35 @@ private fun coil3.ImageLoader.enqueueDiskPreload(context: Context, url: String) 
             .data(url)
             .memoryCachePolicy(CachePolicy.DISABLED)
             .decoderFactory(BlackholeDecoder.Factory())
+            .build(),
+    )
+}
+
+/**
+ * Enhancement-aware page preload (docs/waifu2x-upscaling-plan.md §5.3): runs the full decode path
+ * so a page that passes the trigger is enhanced through [ImageEnhancer] at [ImageEnhancer.PRIORITY_PRELOAD]
+ * and lands in the EnhancementCache before it is displayed. Pages below the trigger are decoded
+ * tiny and discarded — their source bytes stay in Coil's disk cache, which is what the display
+ * request will read.
+ */
+private suspend fun coil3.ImageLoader.enhancedPreload(context: Context, url: String, upscale: UpscaleSettings) {
+    execute(
+        ImageRequest.Builder(context)
+            .data(url)
+            .apply {
+                EnhancementDecoder.applyTo(
+                    builder = this,
+                    config = UpscaleConfig(
+                        mode = upscale.mode,
+                        denoise = upscale.denoise,
+                        autoTriggerScale = upscale.autoTriggerScale,
+                        precision = upscale.precision,
+                    ),
+                    pageUrl = url,
+                    priority = ImageEnhancer.PRIORITY_PRELOAD,
+                )
+            }
+            .memoryCachePolicy(CachePolicy.DISABLED)
             .build(),
     )
 }
