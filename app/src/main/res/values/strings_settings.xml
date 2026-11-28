@@ -11,7 +11,7 @@
     <string name="settings_dashboard_title">Dashboard</string>
     <string name="settings_dashboard_subtitle">Section visibility, order, and card style</string>
     <string name="settings_section_reader">Reader</string>
-    <string name="settings_reader_defaults_subtitle">Default preferences for Divina, EPUB, and PDF</string>
+    <string name="settings_reader_defaults_subtitle">Default preferences for Divina and EPUB</string>
     <string name="settings_section_tracking">Reading Progress Tracking</string>
     <string name="settings_trackers_title">Tracker Accounts</string>
     <string name="settings_trackers_subtitle">AniList / MyAnimeList / Bangumi / MangaBaka</string>
@@ -143,9 +143,6 @@
     <string name="settings_cache_clear_cover_all_message">Removes the covers cached for every saved server. They are loaded again from the server when shown.</string>
     <string name="settings_cache_cover_expiration_label">Refresh Cover After</string>
     <string name="settings_cache_cover_expiration_value">%1$d days</string>
-    <string name="settings_cache_pdf">PDF Cache</string>
-    <string name="settings_cache_pdf_size">Downloaded PDFs</string>
-    <string name="settings_cache_clear_pdf_message">Removes the downloaded PDF files. They are downloaded again when opened.</string>
     <string name="settings_cache_clear_action">Clear</string>
 
     <!-- Network settings -->
@@ -192,7 +189,6 @@
     <string name="settings_about_server">kmrs Server</string>
     <string name="settings_about_feedback">Feedback</string>
     <string name="settings_license_readium">Readium (EPUB engine reference)</string>
-    <string name="settings_license_pdfium">PDFium (PDF engine reference)</string>
 
     <!-- Update check -->
     <string name="settings_updates_title">Updates</string>

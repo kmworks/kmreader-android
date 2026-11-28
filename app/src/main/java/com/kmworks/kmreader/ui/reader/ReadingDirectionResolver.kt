@@ -1,7 +1,7 @@
 package com.kmworks.kmreader.ui.reader
 
 /**
- * Resolution of the reading direction shared by the three readers.
+ * Resolution of the reading direction shared by both readers.
  *
  * Mirrors the original iOS `resolvePreferredReadingDirection` (PdfReaderView.swift): the forced
  * default wins, then the direction the server reports for the series, then the global default.
@@ -45,10 +45,3 @@ internal fun readingDirectionFromProgression(progression: String?): ReadingDirec
         "ttb", "btt" -> ReadingDirection.Vertical
         else -> null
     }
-
-/**
- * The PDF reader has no webtoon mode: the original maps webtoon to vertical for PDF
- * (`pdfReadingDirection(from:)`), on the series branch and the forced/default branch alike.
- */
-internal fun ReadingDirection.forPdfReader(): ReadingDirection =
-    if (this == ReadingDirection.Webtoon) ReadingDirection.Vertical else this

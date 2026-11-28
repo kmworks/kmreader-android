@@ -11,7 +11,7 @@
     <string name="settings_dashboard_title">仪表盘</string>
     <string name="settings_dashboard_subtitle">分区显示、排序与卡片形态</string>
     <string name="settings_section_reader">阅读器</string>
-    <string name="settings_reader_defaults_subtitle">Divina / EPUB / PDF 默认偏好</string>
+    <string name="settings_reader_defaults_subtitle">Divina / EPUB 默认偏好</string>
     <string name="settings_section_tracking">阅读进度追踪</string>
     <string name="settings_trackers_title">Tracker 账号</string>
     <string name="settings_trackers_subtitle">AniList / MyAnimeList / Bangumi / MangaBaka</string>
@@ -143,9 +143,6 @@
     <string name="settings_cache_clear_cover_all_message">将删除所有已保存服务器缓存的封面，再次显示时会重新从服务器加载。</string>
     <string name="settings_cache_cover_expiration_label">封面刷新周期</string>
     <string name="settings_cache_cover_expiration_value">%1$d 天</string>
-    <string name="settings_cache_pdf">PDF 缓存</string>
-    <string name="settings_cache_pdf_size">已下载 PDF</string>
-    <string name="settings_cache_clear_pdf_message">将删除已下载的 PDF 文件，再次打开时会重新下载。</string>
     <string name="settings_cache_clear_action">清除</string>
 
     <!-- Network settings -->
@@ -192,7 +189,6 @@
     <string name="settings_about_server">kmrs 服务器</string>
     <string name="settings_about_feedback">问题反馈</string>
     <string name="settings_license_readium">Readium（EPUB 引擎参考）</string>
-    <string name="settings_license_pdfium">PDFium（PDF 引擎参考）</string>
 
     <!-- Update check -->
     <string name="settings_updates_title">更新</string>

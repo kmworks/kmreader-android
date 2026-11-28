@@ -14,10 +14,10 @@
     <string name="reader_controls_gradient">Control bar gradient</string>
     <string name="reader_show_progress_bar">Show progress bar while reading</string>
     <string name="reader_keep_screen_awake">Keep screen awake while reading</string>
-    <!-- Shared reading behavior: one switch pair for DIVINA, EPUB and PDF (Reader Defaults +
+    <!-- Shared reading behavior: one switch pair for DIVINA and EPUB (Reader Defaults +
          each reader's panel mirror the same persisted values). -->
     <string name="reader_behavior_section">Reading behavior</string>
-    <string name="reader_behavior_section_hint">Applies to the DIVINA, EPUB and PDF readers.</string>
+    <string name="reader_behavior_section_hint">Applies to the DIVINA and EPUB readers.</string>
     <string name="reader_draw_under_cutout">Show content in cutout area</string>
     <string name="reader_draw_under_cutout_hint">Off keeps text and pages clear of the notch or punch-hole.</string>
     <string name="reader_no_display_cutout">This device has no notch or punch-hole.</string>
@@ -148,7 +148,6 @@
     <string name="reader_back">Back</string>
     <string name="reader_incognito">Incognito reading</string>
     <string name="reader_connection_required">Server connection required</string>
-    <string name="reader_volume_pdf">Vol. %1$s · PDF</string>
 
     <!-- Reader: end of book page (mirrors the original end-page content) -->
     <string name="reader_end_previous_book">Previous</string>
@@ -157,17 +156,6 @@
     <string name="reader_end_unread_left">%1$d unread left</string>
     <string name="reader_end_pages">%1$d pages</string>
     <string name="reader_end_read_next">Read next</string>
-
-    <!-- Reader: PDF -->
-    <string name="pdf_continuous_scroll">Continuous scroll</string>
-    <string name="pdf_downloading">Downloading PDF…</string>
-    <string name="pdf_downloading_progress">Downloading PDF… %1$d%%</string>
-    <string name="pdf_preparing">Preparing PDF…</string>
-    <string name="pdf_search_hint">Search in PDF</string>
-    <string name="pdf_searching">Searching…</string>
-    <string name="pdf_search_no_matches">No matches found</string>
-    <string name="pdf_search_results">%1$d results</string>
-    <string name="pdf_load_failed">Failed to load PDF</string>
 
     <!-- Reader: EPUB settings -->
     <string name="epub_settings_title">EPUB settings</string>
@@ -203,7 +191,6 @@
     <string name="epub_new_preset">New preset %1$d</string>
     <string name="epub_no_theme_presets">No theme presets yet</string>
     <string name="epub_toc">Contents</string>
-    <string name="pdf_toc">Contents</string>
     <string name="epub_toc_current">Current chapter</string>
     <string name="epub_expand">Expand</string>
     <string name="epub_collapse">Collapse</string>
@@ -284,20 +271,4 @@
     <string name="fonts_imported_installed">Installed custom fonts</string>
     <string name="fonts_installed_total">%1$d custom fonts installed</string>
     <string name="fonts_installed_count">%1$d installed</string>
-    <string name="pdf_settings_title">PDF settings</string>
-    <string name="pdf_section_paging">Paging</string>
-    <string name="pdf_continuous_scroll_hint">Turn off to page one at a time</string>
-    <string name="pdf_page_presentation">Page presentation</string>
-    <string name="pdf_presentation_auto">Auto</string>
-    <string name="pdf_presentation_single">Single page</string>
-    <string name="pdf_presentation_single_continuous">Single page continuous</string>
-    <string name="pdf_presentation_dual_continuous">Two-page continuous</string>
-    <string name="pdf_solo_cover">Cover on its own page</string>
-    <string name="pdf_section_appearance">Appearance</string>
-    <string name="pdf_reading_background">Reading background</string>
-    <string name="pdf_section_overlay">Reading overlay</string>
-    <string name="pdf_show_progress">Show progress bar while reading</string>
-    <string name="pdf_native_engine">Use Native PDF Reader</string>
-    <string name="pdf_native_engine_hint">PDF books open in the PDF reader with the system engine: text selection and search work best for text-heavy PDFs.</string>
-    <string name="pdf_comic_engine_hint">PDF books open in the DIVINA comic reader. Best for comic and manga PDFs; downloaded PDFs are rendered as pages offline.</string>
 </resources>

@@ -42,7 +42,7 @@ fun ReaderSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val isWebtoon = direction == ReadingDirection.Webtoon
-    // Shared with the EPUB and PDF panels; disabled instead of hidden on a device without a cutout.
+    // Shared with the EPUB panel; disabled instead of hidden on a device without a cutout.
     val hasDisplayCutout = rememberReaderWindowInsetsCss().hasCutout
 
     AppModalDialog(onDismissRequest = onDismiss) {
@@ -126,7 +126,7 @@ fun ReaderSettingsSheet(
             SettingsToggleRow(stringResource(R.string.reader_animate_tap_turns), settings.animateTapTurns) { value ->
                 onUpdate { it.copy(animateTapTurns = value) }
             }
-            // Volume keys turn pages instead of changing the volume; shared with the EPUB and PDF
+            // Volume keys turn pages instead of changing the volume; shared with the EPUB
             // readers (one persisted switch, mirroring the original volumeButtonPageTurnEnabled).
             SettingsToggleRow(
                 stringResource(R.string.reader_volume_button_page_turn),

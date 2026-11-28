@@ -256,7 +256,7 @@ class EpubReaderViewModel @Inject constructor(
 
     init {
         // An EPUB reader is a reading session too: hold list refreshes while it is open and release them on
-        // close, the same deferral the comic and PDF readers apply (see ContentChangeBus.readerOpened).
+        // close, the same deferral the comic reader applies (see ContentChangeBus.readerOpened).
         contentChangeBus.readerOpened()
         viewModelScope.coroutineContext[Job]?.invokeOnCompletion { contentChangeBus.readerClosed() }
         viewModelScope.launch {

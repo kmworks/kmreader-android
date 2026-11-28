@@ -72,12 +72,4 @@ class ReadingDirectionResolverTest {
         assertNull(readingDirectionFromProgression("auto"))
         assertNull(readingDirectionFromProgression(null))
     }
-
-    @Test
-    fun pdfMapsWebtoonToVertical() {
-        assertEquals(ReadingDirection.Vertical, ReadingDirection.Webtoon.forPdfReader())
-        assertEquals(ReadingDirection.Rtl, ReadingDirection.Rtl.forPdfReader())
-        assertEquals(ReadingDirection.Ltr, ReadingDirection.Ltr.forPdfReader())
-        assertEquals(ReadingDirection.Vertical, ReadingDirection.Vertical.forPdfReader())
-    }
 }

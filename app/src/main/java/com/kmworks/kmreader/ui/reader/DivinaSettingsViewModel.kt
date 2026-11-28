@@ -34,15 +34,12 @@ class DivinaSettingsViewModel @Inject constructor(
     private val _settings = MutableStateFlow(DivinaSettings())
     val settings: StateFlow<DivinaSettings> = _settings.asStateFlow()
 
-    // EPUB/PDF reader preferences (persisted globally, mirrors the original @AppStorage semantics).
+    // EPUB reader preferences (persisted globally, mirrors the original @AppStorage semantics).
     // These MUST be declared before the init block below: those collectors run on Dispatchers.Main.immediate
     // and DataStore re-emits its already loaded value synchronously during launch, so on the second visit
     // (settings cache warm) the emit used to run while this field was still null → NPE on the main thread.
     private val _epubSettings = MutableStateFlow(EpubReaderSettings())
     val epubSettings: StateFlow<EpubReaderSettings> = _epubSettings.asStateFlow()
-
-    private val _pdfSettings = MutableStateFlow(PdfReaderSettings())
-    val pdfSettings: StateFlow<PdfReaderSettings> = _pdfSettings.asStateFlow()
 
     // EPUB margin-note ("info overlay") preferences (mirrors the iOS EpubOverlayPreferences @AppStorage).
     private val _epubOverlay = MutableStateFlow(EpubOverlayPreferences())
@@ -65,9 +62,6 @@ class DivinaSettingsViewModel @Inject constructor(
             store.epubSettings.collect { _epubSettings.value = it }
         }
         viewModelScope.launch {
-            store.pdfSettings.collect { _pdfSettings.value = it }
-        }
-        viewModelScope.launch {
             store.epubOverlay.collect { _epubOverlay.value = it }
         }
     }
@@ -81,11 +75,6 @@ class DivinaSettingsViewModel @Inject constructor(
     fun updateEpub(transform: (EpubReaderSettings) -> EpubReaderSettings) {
         _epubSettings.value = transform(_epubSettings.value)
         viewModelScope.launch { store.updateEpubSettings(transform) }
-    }
-
-    fun updatePdf(transform: (PdfReaderSettings) -> PdfReaderSettings) {
-        _pdfSettings.value = transform(_pdfSettings.value)
-        viewModelScope.launch { store.updatePdfSettings(transform) }
     }
 
     /** Apply locally first (UI takes effect immediately), then persist. */

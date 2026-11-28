@@ -22,7 +22,7 @@ enum class DownloadKind(val metaValue: String) {
      */
     Archive("archive"),
 
-    /** The whole PDF file (`book.pdf`); the PDF reader consumes it directly. */
+    /** The whole PDF file (`book.pdf`); the comic reader rasterizes its pages on demand. */
     Pdf("pdf"),
 
     /** The whole EPUB file (`book.epub`); the EPUB reader serves resources out of the zip. */

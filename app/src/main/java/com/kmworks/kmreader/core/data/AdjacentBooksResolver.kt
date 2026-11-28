@@ -5,8 +5,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Resolves the read list context and the sibling books of a book being read, shared by the three
- * readers (DIVINA, EPUB, PDF) instead of each one carrying its own copy.
+ * Resolves the read list context and the sibling books of a book being read, shared by both
+ * readers (DIVINA, EPUB) instead of each one carrying its own copy.
  *
  * Both lookups are deferred by the caller: neither the read list context nor the sibling lookup
  * delays the first render, and only the end page / the options menu consume them. A failed sibling

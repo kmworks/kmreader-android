@@ -17,7 +17,6 @@ import com.kmworks.kmreader.ui.reader.EpubReaderSettings
 import com.kmworks.kmreader.ui.reader.LongPressAction
 import com.kmworks.kmreader.ui.reader.PageLayout
 import com.kmworks.kmreader.ui.reader.PageTransitionStyle
-import com.kmworks.kmreader.ui.reader.PdfReaderSettings
 import com.kmworks.kmreader.ui.reader.PreloadProfile
 import com.kmworks.kmreader.ui.reader.ReaderBackground
 import com.kmworks.kmreader.ui.reader.ReadingDirection
@@ -37,10 +36,10 @@ private val Context.divinaSettingsStore by preferencesDataStore(name = "divina_s
 
 /**
  * Persistence of reader settings (mirrors the @AppStorage key semantics of the original
- * ReaderSettingsSheet). Despite the class name this is the one store behind all three readers:
- * [DivinaSettings] holds the DIVINA options plus the switches shared by DIVINA/EPUB/PDF
+ * ReaderSettingsSheet). Despite the class name this is the one store behind both readers:
+ * [DivinaSettings] holds the DIVINA options plus the switches shared by DIVINA/EPUB
  * (keepScreenAwake, drawUnderCutout, volumeButtonPageTurnEnabled), while [EpubReaderSettings]
- * and [PdfReaderSettings] serve the other two readers.
+ * serves the other reader.
  * Key names match the original (readerBackground/showPageNumber/...), easing side-by-side debugging.
  */
 @Singleton
@@ -227,40 +226,6 @@ class DivinaSettingsStore @Inject constructor(
         }
     }
 
-    // ---- PDF reader settings (mirrors the original pdfReaderBackground/showPdfControlsGradientBackground/showPdfProgressBarWhileReading etc.) ----
-    val pdfSettings: Flow<PdfReaderSettings> = store.data.map { prefs ->
-        val defaults = PdfReaderSettings()
-        PdfReaderSettings(
-            continuousScroll = prefs[Keys.PDF_CONTINUOUS_SCROLL] ?: defaults.continuousScroll,
-            pagePresentation = prefs[Keys.PDF_PAGE_PRESENTATION] ?: defaults.pagePresentation,
-            background = prefs[Keys.PDF_BACKGROUND] ?: defaults.background,
-            soloCoverPage = prefs[Keys.PDF_SOLO_COVER] ?: defaults.soloCoverPage,
-            controlsScrim = prefs[Keys.PDF_CONTROLS_SCRIM] ?: defaults.controlsScrim,
-            showProgressWhileReading = prefs[Keys.PDF_SHOW_PROGRESS] ?: defaults.showProgressWhileReading,
-        )
-    }
-
-    suspend fun updatePdfSettings(transform: (PdfReaderSettings) -> PdfReaderSettings) {
-        store.edit { prefs ->
-            val defaults = PdfReaderSettings()
-            val current = PdfReaderSettings(
-                continuousScroll = prefs[Keys.PDF_CONTINUOUS_SCROLL] ?: defaults.continuousScroll,
-                pagePresentation = prefs[Keys.PDF_PAGE_PRESENTATION] ?: defaults.pagePresentation,
-                background = prefs[Keys.PDF_BACKGROUND] ?: defaults.background,
-                soloCoverPage = prefs[Keys.PDF_SOLO_COVER] ?: defaults.soloCoverPage,
-                controlsScrim = prefs[Keys.PDF_CONTROLS_SCRIM] ?: defaults.controlsScrim,
-                showProgressWhileReading = prefs[Keys.PDF_SHOW_PROGRESS] ?: defaults.showProgressWhileReading,
-            )
-            val next = transform(current)
-            prefs[Keys.PDF_CONTINUOUS_SCROLL] = next.continuousScroll
-            prefs[Keys.PDF_PAGE_PRESENTATION] = next.pagePresentation
-            prefs[Keys.PDF_BACKGROUND] = next.background
-            prefs[Keys.PDF_SOLO_COVER] = next.soloCoverPage
-            prefs[Keys.PDF_CONTROLS_SCRIM] = next.controlsScrim
-            prefs[Keys.PDF_SHOW_PROGRESS] = next.showProgressWhileReading
-        }
-    }
-
     private fun Preferences.toSettings(): DivinaSettings {
         val defaults = DivinaSettings()
         return DivinaSettings(
@@ -326,15 +291,15 @@ class DivinaSettingsStore @Inject constructor(
         val UPSCALE_PRECISION = stringPreferencesKey("divinaWaifu2xPrecision")
         val UPSCALE_PRELOAD_AHEAD = intPreferencesKey("divinaWaifu2xPreloadAhead")
         /** Kept under its legacy key name (written by the DIVINA-only switch before it became
-         *  shared), so an existing user's choice carries over to EPUB and PDF unchanged. */
+         *  shared), so an existing user's choice carries over to EPUB unchanged. */
         val KEEP_SCREEN_AWAKE = booleanPreferencesKey("keepScreenAwakeWhileReading")
-        /** Shared by all three readers; see [com.kmworks.kmreader.ui.reader.DivinaSettings.drawUnderCutout]. */
+        /** Shared by both readers; see [com.kmworks.kmreader.ui.reader.DivinaSettings.drawUnderCutout]. */
         val DRAW_UNDER_CUTOUT = booleanPreferencesKey("drawUnderCutout")
         val DEFAULT_PAGE_LAYOUT = stringPreferencesKey("defaultPageLayout")
         val DEFAULT_SPLIT_WIDE_MODE = stringPreferencesKey("splitWidePageMode")
         val DEFAULT_SOLO_COVER = booleanPreferencesKey("soloCoverPage")
         val FORCE_DEFAULT_DIRECTION = booleanPreferencesKey("forceDefaultReadingDirection")
-        /** Mirrors the original volumeButtonPageTurnEnabled (shared by DIVINA, EPUB and PDF readers). */
+        /** Mirrors the original volumeButtonPageTurnEnabled (shared by DIVINA and EPUB readers). */
         val VOLUME_BUTTON_PAGE_TURN = booleanPreferencesKey("volumeButtonPageTurnEnabled")
         val EPUB_THEME = stringPreferencesKey("epubTheme")
         val EPUB_FONT_SIZE = floatPreferencesKey("epubFontSizeSp")
@@ -347,12 +312,6 @@ class DivinaSettingsStore @Inject constructor(
         val EPUB_PUBLISHER_STYLES = booleanPreferencesKey("epubPublisherStyles")
         val EPUB_ANIMATE_TURNS = booleanPreferencesKey("animateEpubTapTurns")
         val EPUB_OVERLAY = stringPreferencesKey("epubOverlayPreferences")
-        val PDF_CONTINUOUS_SCROLL = booleanPreferencesKey("pdfContinuousScroll")
-        val PDF_PAGE_PRESENTATION = stringPreferencesKey("pdfPagePresentation")
-        val PDF_BACKGROUND = stringPreferencesKey("pdfReaderBackground")
-        val PDF_SOLO_COVER = booleanPreferencesKey("pdfSoloCoverPage")
-        val PDF_CONTROLS_SCRIM = booleanPreferencesKey("showPdfControlsGradientBackground")
-        val PDF_SHOW_PROGRESS = booleanPreferencesKey("showPdfProgressBarWhileReading")
     }
 }
 
